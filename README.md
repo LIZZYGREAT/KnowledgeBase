@@ -2,7 +2,7 @@
 
 KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
 
-This repository currently contains the Phase 0 and Phase 1 foundation: repository boundaries, canonical schemas, a deterministic Markdown parser and linter, and a file-based validation command. Registry resolution, AI, publishing, search, and the Reference Hub belong to later phases.
+This repository currently implements Phases 0–2: repository boundaries, canonical schemas, deterministic Markdown parsing and linting, file validation, and deterministic Term, Taxonomy, and Source registries and resolvers. SQLite workflows, publishing, search, AI, and the Reference Hub belong to later phases.
 
 ## Local setup
 
