@@ -1,5 +1,11 @@
-# AI gateway configuration is introduced in a later implementation phase.
+# The AI gateway is introduced in a later implementation phase.
+# Keep provider and request settings here so the gateway does not bake them
+# into task handlers.
 provider: deepseek
-model: ""
+api_style: openai-chat-completions
+base_url: https://api.deepseek.com
+model: deepseek-flash
+reasoning_effort: high
 api_key_env: DEEPSEEK_API_KEY
-timeout_seconds: 30
+timeout_seconds: 60
+max_retries: 2

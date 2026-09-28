@@ -18,11 +18,12 @@ python tools/kb.py check
 Frontend:
 
 ```powershell
-cd frontend
-npm ci
-npm run typecheck
-npm run build
+.\scripts\build-and-open.ps1
 ```
+
+The script installs frontend dependencies if they are missing, builds the production site, starts a local preview on `http://127.0.0.1:4173`, and opens it in the default browser. Use `-Port 4273` to choose another port or `-InstallDependencies` to reinstall dependencies after changing the lockfile. Its npm cache and preview logs stay in ignored local folders.
+
+To run the frontend checks manually, use `npm ci`, `npm run typecheck`, and `npm run build` from `frontend/`.
 
 Start the development services with `docker compose up --build`. The Compose ports bind to localhost; private remote access is a later deployment phase.
 
