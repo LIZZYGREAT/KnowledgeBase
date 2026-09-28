@@ -47,6 +47,8 @@ def test_runtime_schema_contains_runtime_and_derived_index_tables(runtime_connec
         "evidence_index",
         "usage_events",
         "document_stats",
+        "import_jobs",
+        "import_items",
         "document_fts",
         "term_fts",
         "source_fts",

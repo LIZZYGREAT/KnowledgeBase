@@ -254,6 +254,8 @@ class Publisher:
                     "Markdown validation failed: "
                     + "; ".join("{}: {}".format(issue.code, issue.message) for issue in issues)
                 )
+        elif draft.entity_type == "source":
+            self._validate_source_attachment(metadata)
 
         self._ensure_entity_path(draft, path)
         terms = self._load_terms_override(draft, content, path, metadata)
@@ -344,6 +346,36 @@ class Publisher:
                             existing.relative_to(self.repository_root).as_posix()
                         )
                     )
+
+    def _validate_source_attachment(self, metadata: SourceMetadata) -> None:
+        attachment = metadata.attachments.local_pdf
+        if attachment is None:
+            return
+        match = re.fullmatch(
+            r"storage://papers/([a-z0-9]+(?:-[a-z0-9]+)*)\.pdf", attachment
+        )
+        if match is None:
+            raise PublishValidationError(
+                "Source PDF attachments must use storage://papers/<source-id>.pdf"
+            )
+        storage_root = self.repository_root / "storage"
+        papers_root = storage_root / "papers"
+        for directory in (storage_root, papers_root):
+            if directory.is_symlink():
+                raise PublishValidationError("Source PDF storage paths cannot be symbolic links")
+            try:
+                directory.resolve().relative_to(self.repository_root)
+            except ValueError as error:
+                raise PublishValidationError(
+                    "Source PDF storage must remain inside the repository"
+                ) from error
+        path = papers_root / "{}.pdf".format(match.group(1))
+        if path.is_symlink() or not path.is_file():
+            raise PublishValidationError("Source PDF attachment is missing from storage/papers")
+        with path.open("rb") as attachment_file:
+            is_pdf = attachment_file.read(5) == b"%PDF-"
+        if not is_pdf:
+            raise PublishValidationError("Source PDF attachment has an invalid PDF header")
 
     def _load_terms_override(self, draft: Draft, content: str, path: Path, metadata) -> TermRegistry:
         terms: Dict[str, TermMetadata] = {}

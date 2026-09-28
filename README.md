@@ -2,7 +2,7 @@
 
 KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
 
-This repository currently implements Phases 0–4: repository boundaries, canonical schemas, deterministic Markdown parsing and linting, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, and controlled canonical publishing with Git history and restore support. Indexing, search, usage tracking, import, AI, API endpoints, and the Reference Hub belong to later phases.
+This repository currently implements Phases 0–6: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; and a staged Markdown/PDF import pipeline. Import remains review-first and does not use AI. API endpoints and the Reference Hub are later phases.
 
 ## Local setup
 
@@ -41,3 +41,5 @@ Start the development services with `docker compose up --build`. The Compose por
 - `docs/private/`: local source specifications; intentionally excluded from Git.
 
 See [Architecture](docs/ARCHITECTURE.md), [Knowledge Model](docs/KNOWLEDGE_MODEL.md), and [Writing Standard](docs/WRITING_STANDARD.md).
+
+The Phase 6 `ImportService` stages Markdown and PDF files, detects SHA-256 duplicates, and records review candidates in Runtime SQLite. Markdown and PDF imports become Drafts; a PDF alone creates a Source Draft and never a Note. Imported PDFs remain under ignored `storage/papers/`, while only reviewed canonical metadata is published through `Publisher`.

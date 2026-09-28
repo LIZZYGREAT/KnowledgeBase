@@ -153,3 +153,30 @@ CREATE TABLE IF NOT EXISTS document_stats (
     search_click_count INTEGER NOT NULL DEFAULT 0 CHECK (search_click_count >= 0),
     last_viewed_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS import_jobs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('staging', 'ready', 'failed')),
+    profile TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    error_message TEXT
+);
+
+CREATE TABLE IF NOT EXISTS import_items (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    file_type TEXT NOT NULL CHECK (file_type IN ('markdown', 'pdf')),
+    sha256 TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+        'ready', 'needs_review', 'duplicate', 'drafted', 'confirmed', 'failed'
+    )),
+    detected_entity_type TEXT,
+    metadata_json TEXT NOT NULL,
+    FOREIGN KEY (job_id) REFERENCES import_jobs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS import_items_job_status_idx
+    ON import_items (job_id, status, path);
+CREATE INDEX IF NOT EXISTS import_items_hash_idx
+    ON import_items (sha256, file_type, status);
