@@ -1,0 +1,33 @@
+docs/private/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Frontend
+node_modules/
+.npm-cache/
+frontend/dist/
+*.tsbuildinfo
+
+# Runtime state and uploaded material
+runtime/*
+!runtime/.gitkeep
+storage/*
+!storage/papers/
+!storage/uploads/
+!storage/staging/
+storage/papers/*
+storage/uploads/*
+storage/staging/*
+!storage/papers/.gitkeep
+!storage/uploads/.gitkeep
+!storage/staging/.gitkeep

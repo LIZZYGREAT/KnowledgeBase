@@ -1,0 +1,26 @@
+:root {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #25332d;
+  background: #f6f5f1;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+.shell { width: min(1120px, calc(100% - 48px)); margin: 0 auto; }
+.topbar { height: 84px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e3e4dc; }
+.brand { display: inline-flex; align-items: center; gap: 11px; color: inherit; font-weight: 700; text-decoration: none; letter-spacing: -0.03em; }
+.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; color: #f8f8f3; background: #33745a; border-radius: 11px; font-size: 17px; }
+.phase-pill { padding: 7px 12px; border: 1px solid #d8ddd4; border-radius: 999px; color: #627168; font-size: 12px; }
+.welcome { max-width: 720px; padding: 104px 0 68px; }
+.eyebrow { margin: 0 0 20px; color: #458165; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; }
+h1 { max-width: 660px; margin: 0; font-size: clamp(36px, 5.5vw, 62px); line-height: 1.16; letter-spacing: -0.06em; font-weight: 600; }
+.intro { max-width: 600px; margin: 24px 0 0; color: #6a766f; font-size: 16px; line-height: 1.9; }
+.progress { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.progress-card { min-height: 178px; padding: 24px; background: #fff; border: 1px solid #eaebe6; border-radius: 14px; box-shadow: 0 8px 28px #25332d08; }
+.step { color: #66a183; font-size: 12px; font-weight: 700; }
+.progress-card h2 { margin: 28px 0 8px; font-size: 17px; letter-spacing: -0.03em; }
+.progress-card p { margin: 0; color: #768179; font-size: 13px; line-height: 1.7; }
+footer { padding: 76px 0 32px; color: #8a938d; font-size: 12px; }
+@media (max-width: 720px) { .welcome { padding: 72px 0 48px; } .progress { grid-template-columns: 1fr; } .progress-card { min-height: 148px; } }

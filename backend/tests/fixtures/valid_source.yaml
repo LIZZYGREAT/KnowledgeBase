@@ -1,0 +1,16 @@
+schema_version: 1
+id: ewc-2017
+type: paper
+title: Overcoming Catastrophic Forgetting in Neural Networks
+authors:
+  - James Kirkpatrick
+year: 2017
+identifiers:
+  doi: null
+  arxiv_id: null
+url: https://www.pnas.org/doi/10.1073/pnas.1611835114
+zotero_key: ABCD1234
+attachments:
+  local_pdf: storage://papers/ewc-2017.pdf
+metadata_review:
+  status: verified

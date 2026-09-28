@@ -1,0 +1,5 @@
+# AI gateway configuration is introduced in a later implementation phase.
+provider: deepseek
+model: ""
+api_key_env: DEEPSEEK_API_KEY
+timeout_seconds: 30

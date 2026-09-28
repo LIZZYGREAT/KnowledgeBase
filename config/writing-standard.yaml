@@ -1,0 +1,22 @@
+schema_version: 1
+
+heading:
+  max_level: 5
+  h1:
+    count: 1
+    numbering: none
+  h2:
+    numbering: chinese
+  h3:
+    numbering: arabic-dot-space
+  h4:
+    numbering: none
+  h5:
+    numbering: none
+
+math:
+  inline_for_short_expression: true
+  display_for_multiline: true
+
+mermaid:
+  enabled: true
