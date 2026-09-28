@@ -9,6 +9,7 @@ from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager, GitOperationError
+from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.publisher import (
     PublishConflictError,
@@ -28,7 +29,9 @@ def publish_context(tmp_path):
     connection = connect_database(":memory:")
     drafts = DraftService(DraftRepository(connection))
     proposals = ProposalService(ProposalRepository(connection))
-    publisher = Publisher(repository, drafts, proposals)
+    indexer = Indexer(repository, connection)
+    indexer.full_rebuild()
+    publisher = Publisher(repository, drafts, indexer, proposals)
     yield repository, connection, drafts, proposals, publisher
     connection.close()
 
@@ -261,6 +264,32 @@ def test_publisher_supports_term_source_and_taxonomy_canonical_paths(publish_con
     assert (repository / term_path).is_file()
     assert (repository / source_path).is_file()
     assert (repository / taxonomy_path).is_file()
+
+
+def test_publisher_refreshes_incremental_index_after_publish_and_restore(publish_context):
+    repository, connection, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/indexed-note.md"
+    before_publish = git.current_revision()
+    draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "indexed-note",
+        _document("indexed-note", body="Publisher incremental index phrase.\n"),
+        target,
+    )
+
+    published = publisher.publish(draft.id)
+    assert connection.execute(
+        "SELECT title FROM document_index WHERE entity_id = ?", ("indexed-note",)
+    ).fetchone()[0] == "Test Note"
+
+    publisher.restore(target, before_publish)
+    assert connection.execute(
+        "SELECT 1 FROM document_index WHERE entity_id = ?", ("indexed-note",)
+    ).fetchone() is None
+    _git(repository, "cat-file", "-e", published.commit_revision)
 
 
 def _initialize_repository(repository: Path) -> None:

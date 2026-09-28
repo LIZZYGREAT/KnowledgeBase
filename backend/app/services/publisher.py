@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from backend.app.domain.document import DocumentMetadata
 from backend.app.domain.runtime import Draft
 from backend.app.domain.source import SourceMetadata
-from backend.app.domain.taxonomy import TaxonomyEntry, TaxonomyRegistry as TaxonomyRegistryModel
+from backend.app.domain.taxonomy import TaxonomyRegistry as TaxonomyRegistryModel
 from backend.app.domain.term import TermMetadata
 from backend.app.services.git_manager import (
     GitConflictError,
@@ -19,6 +19,7 @@ from backend.app.services.git_manager import (
     _atomic_write,
 )
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
+from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import lint_markdown, load_writing_standard
@@ -52,6 +53,16 @@ class PostPublishProposalUpdateError(PublishError):
         )
 
 
+class PostPublishIndexUpdateError(PublishError):
+    def __init__(self, commit_revision: str, cause: Exception):
+        self.commit_revision = commit_revision
+        super().__init__(
+            "Canonical content was committed as {}, but incremental indexing failed: {}".format(
+                commit_revision, cause
+            )
+        )
+
+
 @dataclass(frozen=True)
 class PublishedResult:
     draft_id: str
@@ -69,14 +80,18 @@ class Publisher:
         self,
         repository_root: Union[str, Path],
         draft_service,
+        indexer: Indexer,
         proposal_service: Optional[ProposalService] = None,
         git_manager: Optional[GitManager] = None,
     ):
         self.repository_root = Path(repository_root).resolve()
         self.knowledge_root = self.repository_root / "knowledge"
+        if indexer is None:
+            raise ValueError("Publisher requires an Indexer so published files stay searchable")
         self.draft_service = draft_service
         self.proposal_service = proposal_service
         self.git = git_manager or GitManager(self.repository_root)
+        self.indexer = indexer
         self.standard = load_writing_standard(
             self.repository_root / "config" / "writing-standard.yaml"
         )
@@ -139,11 +154,23 @@ class Publisher:
                 _atomic_write(path, previous)
             raise
 
+        proposal_error = None
         if proposal is not None:
             try:
                 self.proposal_service.merge(proposal.id, current_revision)
             except Exception as error:
-                raise PostPublishProposalUpdateError(commit_revision, error) from error
+                proposal_error = error
+
+        index_error = None
+        try:
+            self.indexer.update_path(path)
+        except Exception as error:
+            index_error = error
+
+        if proposal_error is not None:
+            raise PostPublishProposalUpdateError(commit_revision, proposal_error) from proposal_error
+        if index_error is not None:
+            raise PostPublishIndexUpdateError(commit_revision, index_error) from index_error
 
         return PublishedResult(
             draft_id=draft.id,
@@ -161,7 +188,12 @@ class Publisher:
         commit_message: Optional[str] = None,
     ) -> str:
         """Restore a canonical file by creating a new commit through GitManager."""
-        return self.git.restore(path, revision, commit_message)
+        commit_revision = self.git.restore(path, revision, commit_message)
+        try:
+            self.indexer.update_path(path)
+        except Exception as error:
+            raise PostPublishIndexUpdateError(commit_revision, error) from error
+        return commit_revision
 
     def _target_path(self, draft: Draft, content: str):
         if not isinstance(content, str):

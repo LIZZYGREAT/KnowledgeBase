@@ -26,7 +26,7 @@ def runtime_connection():
     connection.close()
 
 
-def test_runtime_schema_contains_only_phase_three_tables(runtime_connection):
+def test_runtime_schema_contains_runtime_and_derived_index_tables(runtime_connection):
     tables = {
         row[0]
         for row in runtime_connection.execute(
@@ -34,7 +34,24 @@ def test_runtime_schema_contains_only_phase_three_tables(runtime_connection):
         )
     }
 
-    assert tables == {"drafts", "proposals", "rejected_candidates"}
+    assert {
+        "drafts",
+        "proposals",
+        "rejected_candidates",
+        "document_index",
+        "term_index",
+        "source_index",
+        "alias_index",
+        "taxonomy_index",
+        "backlink_index",
+        "evidence_index",
+        "usage_events",
+        "document_stats",
+        "document_fts",
+        "term_fts",
+        "source_fts",
+        "evidence_fts",
+    } <= tables
 
 
 def test_runtime_data_persists_when_database_is_reopened(tmp_path):

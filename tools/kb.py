@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""KnowledgeBase file-only validation command."""
+"""KnowledgeBase validation and derived-index rebuild commands."""
 
 import argparse
 from pathlib import Path
+import sqlite3
 import sys
 from typing import Optional
 
@@ -13,8 +14,10 @@ from pydantic import ValidationError
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from backend.app.db.connection import connect_database
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.taxonomy import TaxonomyRegistry
+from backend.app.services.indexer import IndexBuildError, Indexer
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.style_linter import (
     LintIssue,
@@ -33,11 +36,46 @@ def main(argv: Optional[list[str]] = None) -> int:
         type=Path,
         help="files or directories to check (defaults to ./knowledge)",
     )
+    rebuild = commands.add_parser("rebuild", help="rebuild disposable search indexes from canonical files")
+    rebuild.add_argument("--root", type=Path, default=ROOT, help="KnowledgeBase repository root")
+    rebuild.add_argument(
+        "--database",
+        type=Path,
+        help="Runtime SQLite path (defaults to <root>/runtime/knowledge.db)",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "check":
         paths = args.paths or [ROOT / "knowledge"]
         return check_paths(paths)
+    if args.command == "rebuild":
+        root = args.root.resolve()
+        database_path = args.database or Path("runtime") / "knowledge.db"
+        if not database_path.is_absolute():
+            database_path = root / database_path
+        connection = None
+        try:
+            connection = connect_database(database_path)
+            summary = Indexer(root, connection).full_rebuild()
+        except (IndexBuildError, OSError, ValueError, sqlite3.Error) as error:
+            print("ERROR rebuild: {}".format(error))
+            return 1
+        finally:
+            if connection is not None:
+                connection.close()
+        print(
+            "Rebuilt indexes: {} documents, {} terms, {} aliases, {} taxonomy entries, "
+            "{} backlinks, {} evidence records, {} sources.".format(
+                summary.documents,
+                summary.terms,
+                summary.aliases,
+                summary.taxonomy_entries,
+                summary.backlinks,
+                summary.evidence,
+                summary.sources,
+            )
+        )
+        return 0
     return 2
 
 

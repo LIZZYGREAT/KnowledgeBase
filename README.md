@@ -13,7 +13,10 @@ python -m pip install -r backend/requirements.txt
 python -m pip install -r backend/requirements-dev.txt
 python -m pytest -q
 python tools/kb.py check
+python tools/kb.py rebuild
 ```
+
+`rebuild` recreates the local search and relationship indexes in the ignored `runtime/knowledge.db` database from canonical files under `knowledge/`.
 
 Frontend:
 
