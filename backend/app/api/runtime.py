@@ -71,9 +71,12 @@ async def list_stale_annotations(request: Request):
         "SELECT DISTINCT entity_type, entity_id FROM presentation_annotations"
     ).fetchall()
     for row in rows:
-        entity = request.app.state.knowledge_read_service.get_entity(
-            row["entity_type"], row["entity_id"]
-        )
+        try:
+            entity = request.app.state.knowledge_read_service.get_entity(
+                row["entity_type"], row["entity_id"]
+            )
+        except LookupError:
+            continue
         entities.append((row["entity_type"], row["entity_id"], entity["content"] or ""))
     return [
         asdict(annotation)

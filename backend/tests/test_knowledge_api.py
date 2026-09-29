@@ -157,6 +157,45 @@ def test_presentation_annotations_never_change_canonical_markdown(api_client):
     ).json() == []
 
 
+def test_orphan_presentation_annotation_does_not_break_review(api_client):
+    entity = api_client.get("/api/documents/neural-indexing").json()
+    selected = "stable index"
+    start = entity["content"].index(selected)
+    base_hash = hashlib.sha256(entity["content"].encode("utf-8")).hexdigest()
+    created = api_client.post(
+        "/api/annotations",
+        json={
+            "entity_type": "document",
+            "entity_id": "neural-indexing",
+            "style_type": "highlight",
+            "style_value": "yellow",
+            "selected_text": selected,
+            "prefix_text": "",
+            "suffix_text": "",
+            "start_offset": start,
+            "end_offset": start + len(selected),
+            "base_content_hash": base_hash,
+        },
+    )
+    assert created.status_code == 201
+
+    canonical_path = (
+        api_client.app.state.repository_root
+        / "knowledge" / "documents" / "learning" / "neural-indexing.md"
+    )
+    canonical_path.unlink()
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        Indexer(api_client.app.state.repository_root, connection).update_path(canonical_path)
+    finally:
+        connection.close()
+
+    stale = api_client.get("/api/annotations/stale")
+    assert stale.status_code == 200
+    assert stale.json() == []
+    assert api_client.get("/api/review/link-issues").status_code == 200
+
+
 def test_context_export_applies_requested_trust_and_purpose(api_client):
     raw = api_client.post(
         "/api/context/export",
