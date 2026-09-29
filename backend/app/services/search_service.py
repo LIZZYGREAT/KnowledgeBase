@@ -142,11 +142,29 @@ class SearchService:
         }
         entity_type, index_table, snippet_column, weights = specs[table]
         weight_args = ", ".join("?" for _ in weights)
+        if entity_type == "document":
+            usage_columns = (
+                ", COALESCE(s.view_count, 0) AS view_count, "
+                "COALESCE(s.search_click_count, 0) AS search_click_count"
+            )
+            usage_join = (
+                " LEFT JOIN document_stats AS s "
+                "ON s.document_id = document_fts.entity_id"
+            )
+        else:
+            usage_columns = ", 0 AS view_count, 0 AS search_click_count"
+            usage_join = ""
         rows = self.connection.execute(
             """SELECT entity_id, bm25({table}, {weights}) AS rank,
                       snippet({table}, {snippet_column}, '<mark>', '</mark>', '…', 12) AS snippet
-               FROM {table} WHERE {table} MATCH ? ORDER BY rank LIMIT 200""".format(
-                table=table, weights=weight_args, snippet_column=snippet_column
+                      {usage_columns}
+               FROM {table}{usage_join}
+               WHERE {table} MATCH ? ORDER BY rank LIMIT 200""".format(
+                table=table,
+                weights=weight_args,
+                snippet_column=snippet_column,
+                usage_columns=usage_columns,
+                usage_join=usage_join,
             ),
             tuple(weights) + (fts_query,),
         ).fetchall()
@@ -162,8 +180,8 @@ class SearchService:
             retrieval_score = min(50.0, 40.0 + max(0.0, -rank) * 1000000.0)
             self._offer(
                 results, entity_type, row["entity_id"], row["title"], row["path"],
-                metadata, 0, 0, "full text", retrieval_score, match["snippet"] or "",
-                filters,
+                metadata, match["view_count"], match["search_click_count"],
+                "full text", retrieval_score, match["snippet"] or "", filters,
             )
 
     def _search_evidence(self, results, fts_query: str, filters: dict) -> None:

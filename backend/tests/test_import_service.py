@@ -142,14 +142,22 @@ def test_hash_deduplication_detects_canonical_and_previous_imports(import_contex
         service.create_draft(canonical_item.id)
 
     first_copy = tmp_path / "new-note.md"
-    first_copy.write_text(_document("new-note", "New Note"), encoding="utf-8")
-    first_job = service.stage_paths([first_copy])
-    first_item = service.get_items(first_job.id)[0]
+    batch_copy = tmp_path / "new-note-copy.md"
+    content = _document("new-note", "New Note")
+    first_copy.write_text(content, encoding="utf-8")
+    batch_copy.write_text(content, encoding="utf-8")
+    first_job = service.stage_paths([first_copy, batch_copy])
+    batch_items = service.get_items(first_job.id)
+    first_item = next(item for item in batch_items if item.status == "ready")
+    batch_duplicate = next(item for item in batch_items if item.status == "duplicate")
     assert first_item.status == "ready"
+    assert batch_duplicate.status == "duplicate"
+    assert batch_duplicate.metadata["duplicate_kind"] == "import_item"
+    assert batch_duplicate.metadata["duplicate_of"] == first_item.id
+
     second_job = service.stage_paths([first_copy])
     second_item = service.get_items(second_job.id)[0]
-    assert second_item.status == "duplicate"
-    assert second_item.metadata["duplicate_kind"] == "import_item"
+    assert second_item.status == "ready"
 
 
 def test_legacy_batch_sets_unreviewed_and_legacy_defaults_and_allows_manual_fix(
@@ -267,15 +275,21 @@ def test_invalid_pdf_is_recorded_failed_and_duplicate_pdf_is_not_copied_again(
     assert item.status == "failed"
 
     pdf = tmp_path / "repeat.pdf"
-    pdf.write_bytes(b"%PDF-1.5\ncopy me")
-    first = service.stage_paths([pdf])
-    first_item = service.get_items(first.id)[0]
-    second = service.stage_paths([pdf])
-    duplicate = service.get_items(second.id)[0]
+    batch_copy = tmp_path / "repeat-copy.pdf"
+    pdf_content = b"%PDF-1.5\ncopy me"
+    pdf.write_bytes(pdf_content)
+    batch_copy.write_bytes(pdf_content)
+    first = service.stage_paths([pdf, batch_copy])
+    batch_items = service.get_items(first.id)
+    first_item = next(item for item in batch_items if item.status == "ready")
+    duplicate = next(item for item in batch_items if item.status == "duplicate")
     assert first_item.status == "ready"
     assert duplicate.status == "duplicate"
     assert duplicate.metadata["duplicate_kind"] == "import_item"
     assert "staging_path" not in duplicate.metadata
+
+    second = service.stage_paths([pdf])
+    assert service.get_items(second.id)[0].status == "ready"
     assert not (repository / "storage" / "papers" / "repeat.pdf").exists()
 
 

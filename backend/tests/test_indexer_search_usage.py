@@ -96,6 +96,44 @@ def test_search_exact_title_alias_fts_evidence_and_structured_filters(tmp_path):
     connection.close()
 
 
+def test_document_fts_uses_a_small_view_count_boost(tmp_path):
+    repository = _create_knowledge_tree(tmp_path / "repo")
+    documents = repository / "knowledge" / "documents" / "learning"
+    _write(
+        documents / "usage-low.md",
+        _document(
+            "usage-low", "Usage Low", "shared cobalt fern phrase", (), (), (), ()
+        ),
+    )
+    _write(
+        documents / "usage-high.md",
+        _document(
+            "usage-high", "Usage High", "shared cobalt fern phrase", (), (), (), ()
+        ),
+    )
+    connection = connect_database(":memory:")
+    Indexer(repository, connection).full_rebuild()
+    search = SearchService(connection)
+    baseline = {
+        result.entity_id: result.score
+        for result in search.search("cobalt fern")
+    }
+    assert baseline["usage-low"] == baseline["usage-high"]
+
+    usage = UsageService(connection)
+    for _ in range(10):
+        usage.record_document_open("usage-high")
+
+    results = search.search("cobalt fern")
+    by_id = {result.entity_id: result for result in results}
+
+    assert by_id["usage-low"].matched_by == "full text"
+    assert by_id["usage-high"].matched_by == "full text"
+    assert by_id["usage-high"].score > by_id["usage-low"].score
+    assert by_id["usage-high"].score - by_id["usage-low"].score <= 3.0
+    connection.close()
+
+
 def test_search_supports_cjk_literal_substrings_in_canonical_text(tmp_path):
     repository = _create_knowledge_tree(tmp_path / "repo")
     chinese_body = (

@@ -105,13 +105,15 @@ class ImportRepository:
             raise ImportItemNotFoundError("Import Item '{}' does not exist".format(item.id))
         return self.get_item(item.id)
 
-    def find_duplicate(self, file_type: str, sha256: str) -> Optional[ImportItem]:
+    def find_duplicate(
+        self, job_id: str, file_type: str, sha256: str
+    ) -> Optional[ImportItem]:
         row = self.connection.execute(
             """SELECT * FROM import_items
-               WHERE file_type = ? AND sha256 = ?
+               WHERE job_id = ? AND file_type = ? AND sha256 = ?
                  AND status NOT IN ('failed', 'duplicate')
                ORDER BY rowid LIMIT 1""",
-            (file_type, sha256),
+            (job_id, file_type, sha256),
         ).fetchone()
         return _item_from_row(row) if row else None
 

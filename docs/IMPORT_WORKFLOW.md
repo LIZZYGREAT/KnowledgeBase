@@ -12,3 +12,5 @@ Markdown imports become Document or Term candidates. Valid canonical metadata is
 PDF-only imports create Source Drafts and never automatically create paper notes. Existing Sources are matched by identifiers first and title second; ambiguous matches require an explicit selection. A local PDF is stored under `storage/papers/`, excluded from Git, and checked by Publisher before the Source metadata is committed. Markdown/PDF bundle associations remain suggestions until explicitly confirmed.
 
 Staged files and Import Jobs live under ignored `storage/` and Runtime SQLite. Import does not write canonical files directly and does not call AI. API and Reference Hub workflows belong to later phases.
+
+SHA-256 duplicates are blocked when the same content is already canonical or appears earlier in the same Import Job. A separate Job may stage the file again until its content has been published.

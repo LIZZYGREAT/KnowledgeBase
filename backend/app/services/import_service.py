@@ -431,7 +431,7 @@ class ImportService:
         file_type = "markdown" if extension == ".md" else "pdf"
         sha256 = _sha256_file(source)
         canonical_duplicate = self._canonical_duplicate(file_type, sha256)
-        prior_duplicate = self.repository.find_duplicate(file_type, sha256)
+        prior_duplicate = self.repository.find_duplicate(job_id, file_type, sha256)
         item_id = uuid.uuid4().hex
         metadata = {
             "profile": profile,
