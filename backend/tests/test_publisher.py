@@ -382,6 +382,120 @@ def test_restore_to_before_new_file_creation_records_deletion_commit(publish_con
     assert _git(repository, "show", "-s", "--format=%s", restored_again.commit_revision).startswith("restore:")
 
 
+def test_restore_rejects_deleting_a_referenced_source(publish_context):
+    repository, _, _, _, publisher = publish_context
+    git = GitManager(repository)
+    before_source = git.current_revision()
+    source_path = repository / "knowledge" / "sources" / "restore-source.yaml"
+    source_path.write_text(
+        "schema_version: 1\nid: restore-source\ntype: web\ntitle: Restore Source\n",
+        encoding="utf-8",
+    )
+    document_path = (
+        repository / "knowledge" / "documents" / "learning" / "source-reference.md"
+    )
+    document_path.write_text(
+        _document("source-reference")
+        .replace("  - ewc-2017", "  - restore-source")
+        .replace("[@ewc-2017]", "[@restore-source]"),
+        encoding="utf-8",
+    )
+    _git(
+        repository,
+        "add",
+        "knowledge/sources/restore-source.yaml",
+        "knowledge/documents/learning/source-reference.md",
+    )
+    _git(repository, "commit", "-m", "add referenced restore Source")
+    current_revision = git.current_revision()
+
+    with pytest.raises(PublishValidationError, match="References removed Source"):
+        publisher.restore(source_path, before_source)
+
+    assert source_path.is_file()
+    assert git.current_revision() == current_revision
+
+
+def test_restore_rejects_removing_a_referenced_taxonomy_id(publish_context):
+    repository, _, _, _, publisher = publish_context
+    git = GitManager(repository)
+    before_topic = git.current_revision()
+    topic_path = repository / "knowledge" / "taxonomy" / "topics.yaml"
+    topic_path.write_text(
+        topic_path.read_text(encoding="utf-8")
+        + "  - id: restore-topic\n    title: Restore Topic\n",
+        encoding="utf-8",
+    )
+    document_path = (
+        repository / "knowledge" / "documents" / "learning" / "topic-reference.md"
+    )
+    document_path.write_text(
+        _document(
+            "topic-reference", topics=("continual-learning", "restore-topic")
+        ),
+        encoding="utf-8",
+    )
+    _git(
+        repository,
+        "add",
+        "knowledge/taxonomy/topics.yaml",
+        "knowledge/documents/learning/topic-reference.md",
+    )
+    _git(repository, "commit", "-m", "add referenced restore Topic")
+    current_revision = git.current_revision()
+
+    with pytest.raises(PublishValidationError, match="removed topic"):
+        publisher.restore(topic_path, before_topic)
+
+    assert "restore-topic" in topic_path.read_text(encoding="utf-8")
+    assert git.current_revision() == current_revision
+
+
+def test_restore_rejects_broken_historical_markdown(publish_context):
+    repository, _, _, _, publisher = publish_context
+    git = GitManager(repository)
+    target = repository / "knowledge" / "documents" / "learning" / "broken-history.md"
+    target.write_text("---\nnot: [valid\n", encoding="utf-8")
+    _git(repository, "add", "knowledge/documents/learning/broken-history.md")
+    _git(repository, "commit", "-m", "add broken historical document")
+    broken_revision = git.current_revision()
+
+    current_content = _document("broken-history", title="Current Valid Document")
+    target.write_text(current_content, encoding="utf-8")
+    _git(repository, "add", "knowledge/documents/learning/broken-history.md")
+    _git(repository, "commit", "-m", "replace with valid document")
+    current_revision = git.current_revision()
+
+    with pytest.raises(PublishValidationError, match="Restore content"):
+        publisher.restore(target, broken_revision)
+
+    assert target.read_text(encoding="utf-8") == current_content
+    assert git.current_revision() == current_revision
+
+
+def test_restore_rejects_taxonomy_registry_absence(publish_context):
+    repository, _, _, _, publisher = publish_context
+    git = GitManager(repository)
+    target = repository / "knowledge" / "taxonomy" / "topics.yaml"
+    original = target.read_bytes()
+    target.unlink()
+    _git(repository, "add", "-u", "knowledge/taxonomy/topics.yaml")
+    _git(repository, "commit", "-m", "remove taxonomy registry")
+    absent_revision = git.current_revision()
+    target.write_bytes(original)
+    _git(repository, "add", "knowledge/taxonomy/topics.yaml")
+    _git(repository, "commit", "-m", "restore taxonomy registry")
+    current_revision = git.current_revision()
+
+    with pytest.raises(
+        PublishValidationError, match="cannot be restored to an absent file"
+    ):
+        publisher.restore(target, absent_revision)
+
+    assert target.read_bytes() == original
+    assert git.current_revision() == current_revision
+
+
 def test_restore_commit_is_success_when_index_update_fails(publish_context, monkeypatch):
     repository, _, drafts, _, publisher = publish_context
     git = GitManager(repository)

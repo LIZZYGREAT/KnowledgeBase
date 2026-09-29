@@ -52,6 +52,26 @@ class GitManager:
             return hashlib.sha256(b"\x00knowledgebase:missing").hexdigest()
         return hashlib.sha256(target.read_bytes()).hexdigest()
 
+    def read_at_revision(
+        self, path: Union[str, Path], revision: str
+    ) -> Optional[bytes]:
+        """Read a canonical file from a commit, or return None if it was absent."""
+        target_revision = _validate_revision(revision)
+        self._run(["cat-file", "-e", "{}^{{commit}}".format(target_revision)])
+        _, relative_path = self._resolve_knowledge_path(path)
+        object_spec = "{}:{}".format(target_revision, relative_path)
+        historical = self._run(["cat-file", "-e", object_spec], check=False)
+        if historical.returncode != 0:
+            return None
+        object_type = (
+            self._run(["cat-file", "-t", object_spec])
+            .stdout.decode("ascii")
+            .strip()
+        )
+        if object_type != "blob":
+            raise GitOperationError("Revision path is not a regular file")
+        return self._run(["show", object_spec]).stdout
+
     def assert_base(
         self, base_revision: str, base_content_hash: str, path: Union[str, Path]
     ) -> None:
@@ -105,23 +125,11 @@ class GitManager:
             ["cat-file", "-e", "{}^{{commit}}".format(target_revision)]
         )
         target, relative_path = self._resolve_knowledge_path(path)
-        historical = self._run(
-            ["cat-file", "-e", "{}:{}".format(target_revision, relative_path)],
-            check=False,
-        )
-        if historical.returncode == 0:
-            object_type = self._run(
-                ["cat-file", "-t", "{}:{}".format(target_revision, relative_path)]
-            ).stdout.decode("ascii").strip()
-            if object_type != "blob":
-                raise GitOperationError("Restore revision does not contain a regular file")
+        historical_content = self.read_at_revision(relative_path, target_revision)
         previous = target.read_bytes() if target.is_file() else None
         try:
-            if historical.returncode == 0:
-                content = self._run(
-                    ["show", "{}:{}".format(target_revision, relative_path)]
-                ).stdout
-                _atomic_write(target, content)
+            if historical_content is not None:
+                _atomic_write(target, historical_content)
             else:
                 if target.exists():
                     if not target.is_file():

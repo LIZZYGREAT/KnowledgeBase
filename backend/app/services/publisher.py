@@ -4,6 +4,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, List, Optional, Union
 
 import yaml
@@ -24,6 +25,7 @@ from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.canonical_validator import (
     find_taxonomy_references,
+    find_source_references,
     validate_markdown_references,
 )
 from backend.app.services.source_registry import SourceRegistry
@@ -182,6 +184,8 @@ class Publisher:
         commit_message: Optional[str] = None,
     ) -> RestoredResult:
         """Restore a canonical file by creating a new commit through GitManager."""
+        historical_content = self.git.read_at_revision(path, revision)
+        self._validate_restore_candidate(path, historical_content)
         commit_revision = self.git.restore(path, revision, commit_message)
         warnings = []
         try:
@@ -191,6 +195,83 @@ class Publisher:
                 "Index update failed; run `python tools/kb.py rebuild`: {}".format(error)
             )
         return RestoredResult(commit_revision, tuple(warnings))
+
+    def _validate_restore_candidate(
+        self, path: Union[str, Path], historical_content: Optional[bytes]
+    ) -> None:
+        relative_path = self.git._relative_knowledge_path(path)
+        parts = Path(relative_path).parts
+        if (
+            len(parts) == 4
+            and parts[:2] == ("knowledge", "documents")
+            and parts[3].endswith(".md")
+        ):
+            entity_type = "document"
+        elif (
+            len(parts) == 3
+            and parts[:2] == ("knowledge", "terms")
+            and parts[2].endswith(".md")
+        ):
+            entity_type = "term"
+        elif (
+            len(parts) == 3
+            and parts[:2] == ("knowledge", "sources")
+            and parts[2].endswith(".yaml")
+        ):
+            entity_type = "source"
+        elif (
+            len(parts) == 3
+            and parts[:2] == ("knowledge", "taxonomy")
+            and parts[2] in {"domains.yaml", "topics.yaml", "tags.yaml"}
+        ):
+            entity_type = "taxonomy"
+        else:
+            raise PublishValidationError(
+                "Restore target is not a supported canonical entity path"
+            )
+
+        if historical_content is None:
+            if entity_type in {"document", "term"}:
+                return
+            if entity_type == "source":
+                references = find_source_references(
+                    self.repository_root, {Path(relative_path).stem}
+                )
+                if references:
+                    raise PublishValidationError(
+                        "; ".join(
+                            "{}: {}".format(issue.path, issue.message)
+                            for issue in references
+                        )
+                    )
+                return
+            raise PublishValidationError(
+                "A Taxonomy Registry cannot be restored to an absent file"
+            )
+
+        try:
+            content = historical_content.decode("utf-8")
+            candidate = SimpleNamespace(
+                entity_type=entity_type, entity_id=Path(relative_path).stem
+            )
+            candidate_path, metadata = self._target_path(candidate, content)
+            if candidate_path.resolve() != (self.repository_root / relative_path).resolve():
+                raise PublishValidationError(
+                    "Restore content does not match its canonical path"
+                )
+            self._validate_candidate(candidate, content, candidate_path, metadata)
+        except PublishValidationError:
+            raise
+        except (
+            UnicodeError,
+            ValueError,
+            ValidationError,
+            yaml.YAMLError,
+            TypeError,
+        ) as error:
+            raise PublishValidationError(
+                "Restore content is not valid canonical content: {}".format(error)
+            ) from error
 
     def _target_path(self, draft: Draft, content: str):
         if not isinstance(content, str):

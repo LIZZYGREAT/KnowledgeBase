@@ -164,3 +164,47 @@ def find_taxonomy_references(
                     )
                 )
     return issues
+
+
+def find_source_references(
+    repository_root: Path, removed_ids: set[str]
+) -> list[CanonicalReferenceIssue]:
+    """Return canonical Markdown references that would dangle if Sources were removed."""
+    repository_root = Path(repository_root).resolve()
+    issues = []
+    for root in (
+        repository_root / "knowledge" / "documents",
+        repository_root / "knowledge" / "terms",
+    ):
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*.md")):
+            try:
+                parsed = parse_markdown(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError):
+                continue
+            metadata = parsed.frontmatter or {}
+            metadata_references = metadata.get("sources", [])
+            if not isinstance(metadata_references, list):
+                metadata_references = []
+            referenced = {
+                value
+                for value in metadata_references
+                if isinstance(value, str) and value in removed_ids
+            }
+            referenced.update(
+                citation.source_id
+                for citation in parsed.citations
+                if citation.source_id in removed_ids
+            )
+            if referenced:
+                issues.append(
+                    CanonicalReferenceIssue(
+                        path.relative_to(repository_root).as_posix(),
+                        "reference.source",
+                        "References removed Source id(s): {}".format(
+                            ", ".join(sorted(referenced))
+                        ),
+                    )
+                )
+    return issues
