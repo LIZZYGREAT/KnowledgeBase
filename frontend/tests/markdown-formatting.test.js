@@ -16,12 +16,34 @@ test("selects the inline math placeholder when the selection is empty", () => {
   assert.deepEqual([result.selectionStart, result.selectionEnd], [2, 3]);
 });
 
-test("places an empty display-math block and aligned template around the cursor", () => {
-  const display = applyMarkdownFormatting("beforeafter", 6, 6, "displayMath");
-  assert.equal(display.value, "before$$\n\n$$after");
-  assert.deepEqual([display.selectionStart, display.selectionEnd], [9, 9]);
+test("inserts an empty display-math block into an empty document", () => {
+  const result = applyMarkdownFormatting("", 0, 0, "displayMath");
+  assert.equal(result.value, "$$\n\n$$");
+  assert.deepEqual([result.selectionStart, result.selectionEnd], [3, 3]);
+});
 
-  const aligned = applyMarkdownFormatting("", 0, 0, "alignedMath");
-  assert.equal(aligned.value, "$$\n\\begin{aligned}\n\n\\end{aligned}\n$$");
-  assert.deepEqual([aligned.selectionStart, aligned.selectionEnd], [19, 19]);
+test("keeps display math on separate lines when inserted inside a paragraph", () => {
+  const result = applyMarkdownFormatting("beforeafter", 6, 6, "displayMath");
+  assert.equal(result.value, "before\n\n$$\n\n$$\n\nafter");
+  assert.deepEqual([result.selectionStart, result.selectionEnd], [11, 11]);
+});
+
+test("reuses existing blank lines around a display-math block", () => {
+  const source = "before\n\nafter";
+  const result = applyMarkdownFormatting(source, 8, 8, "displayMath");
+  assert.equal(result.value, "before\n\n$$\n\n$$\n\nafter");
+  assert.deepEqual([result.selectionStart, result.selectionEnd], [11, 11]);
+});
+
+test("wraps selected text in a separate display-math block", () => {
+  const source = "left = x right";
+  const result = applyMarkdownFormatting(source, 7, 8, "displayMath");
+  assert.equal(result.value, "left = \n\n$$\nx\n$$\n\n right");
+  assert.deepEqual([result.selectionStart, result.selectionEnd], [12, 13]);
+});
+
+test("keeps aligned math on separate lines when inserted inside a paragraph", () => {
+  const result = applyMarkdownFormatting("beforeafter", 6, 6, "alignedMath");
+  assert.equal(result.value, "before\n\n$$\n\\begin{aligned}\n\n\\end{aligned}\n$$\n\nafter");
+  assert.deepEqual([result.selectionStart, result.selectionEnd], [27, 27]);
 });
