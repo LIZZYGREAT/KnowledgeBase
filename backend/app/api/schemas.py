@@ -20,8 +20,10 @@ class EntitySummary(APIModel):
 
 class EntityDetail(EntitySummary):
     content: Optional[str] = None
+    canonical_content: Optional[str] = None
     related_terms: list[dict[str, Any]] = Field(default_factory=list)
     backlinks: list[dict[str, Any]] = Field(default_factory=list)
+    detected_mentions: list[dict[str, Any]] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
     related_documents: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -29,6 +31,16 @@ class EntityDetail(EntitySummary):
 class TopicView(APIModel):
     id: str
     title: str
+
+
+class TaxonomyEntryView(APIModel):
+    id: str
+    title: str
+    kind: Literal["domain", "topic", "tag"]
+
+
+class RecentlyModifiedView(EntitySummary):
+    modified_at: str
 
 
 class SearchResultView(APIModel):

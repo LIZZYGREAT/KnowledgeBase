@@ -148,6 +148,18 @@ async def create_import(body: ImportCreateRequest, request: Request):
     return _import_job_view(request.app.state.import_service, job)
 
 
+@router.get("/imports", response_model=list[ImportJobView])
+async def list_imports(
+    request: Request,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    return [
+        _import_job_view(request.app.state.import_service, job)
+        for job in request.app.state.import_service.list_jobs(limit, offset)
+    ]
+
+
 @router.get("/imports/{job_id}", response_model=ImportJobView)
 async def get_import(job_id: str, request: Request):
     return _import_job_view(request.app.state.import_service,

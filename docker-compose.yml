@@ -22,3 +22,7 @@ services:
     build: ./frontend
     ports:
       - "127.0.0.1:5173:5173"
+    environment:
+      KB_API_PROXY_TARGET: http://backend:8000
+    depends_on:
+      - backend

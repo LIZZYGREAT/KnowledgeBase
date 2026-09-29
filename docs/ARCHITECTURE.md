@@ -2,7 +2,7 @@
 
 ## Current phase
 
-The repository has completed Phases 0–8: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, the server-side DeepSeek Gateway, and the Knowledge API. The Reference Hub remains a later phase.
+The repository has completed Phases 0–9: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, the server-side DeepSeek Gateway, the Knowledge API, and the read-only Reference Hub. Phase 10 is active: editing, Source/PDF, Evidence, PaperSkill links, and Context Export workflows in the Hub.
 
 ## Data boundaries
 
@@ -63,3 +63,13 @@ The initial task registry supports metadata suggestions, Term detection, semanti
 The FastAPI surface exposes canonical Document, Term, Source, Topic, and Search reads; Context Export; Draft and Proposal review; publishing through `Publisher`; Import workflows; AI Proposal requests; and Usage events and lists. Read endpoints consume the rebuildable SQLite indexes and resolve canonical content from the indexed knowledge path. Responses omit repository paths. Draft creation captures the canonical Git revision and target hash on the server, and Proposal approval compares against its linked Draft content hash.
 
 Import requests accept relative paths under `storage/uploads/`; traversal and symbolic links are rejected. AI requests require explicit `confirm_deepseek_transfer: true`, disclose that Draft content and the needed registry context will be sent to DeepSeek, and return only a validated Proposal. Evidence Suggestions identify Draft claims needing evidence and recommend existing Source IDs from registry metadata; they do not generate quotes or locators and are not Evidence. Context Export supports `raw`, `reviewed`, and `verified` trust levels and the `research`, `teaching`, and `evidence` purposes. Verified claims require a human-approved Document and a Source whose metadata review status is `verified`; this is a provisional traceability filter, not per-claim Evidence review, and PaperSkillWork must not treat it as Evidence Verified. Revisit this meaning when the Phase 11 Source/Evidence UI adds per-claim review. The API schema is available at `/openapi.json` and `/docs`; the Reference Hub UI remains out of scope for this phase.
+
+## Phase 9: Reference Hub reading interface
+
+The React application exposes the six fixed sections Home, Search, Library, Terms, Topics, and Review. Home uses reading and Git history summaries, and Search uses the structured filters from the indexed API. Library and Topics browse canonical Documents, Terms, and Sources. Review aggregates unreviewed and revision-needed entities, open Proposals, Import Items, and unresolved or ambiguous Wiki Links.
+
+Document and Term pages render Markdown, KaTeX, Mermaid, wiki links, backlinks, detected unlinked mentions, and indexed citations. Source pages show metadata, related Documents and Terms, citation claims, and associated PaperSkill URLs. Runtime state remains behind the API; the browser does not read canonical files or access Git directly.
+
+## Phase 10: Reference Hub editor and research context workflows
+
+The active phase adds Markdown Draft editing, autosave, preview, AI Proposal review, conflict handling, and Publish through the existing backend services. Source pages gain local PDF opening and association controls. Evidence citations, Sources, and PaperSkill external artifacts are editable through Drafts. Context Export is available from Document and Source pages with `raw`, `reviewed`, and `verified` trust levels and the `research`, `teaching`, and `evidence` purposes. The backend remains the only writer of canonical knowledge.

@@ -95,6 +95,9 @@ class ImportService:
         self.get_job(job_id)
         return self.repository.list_items(job_id)
 
+    def list_jobs(self, limit: int = 50, offset: int = 0) -> List[ImportJob]:
+        return self.repository.list_jobs(limit, offset)
+
     def update_markdown_item(self, item_id: str, content: str) -> ImportItem:
         item = self._get_item(item_id)
         if item.file_type != "markdown" or item.status in {"duplicate", "failed", "drafted"}:

@@ -46,10 +46,36 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
 
     term = api_client.get("/api/terms/neural-indexing").json()
     assert term["backlinks"][0]["source_entity_id"] == "neural-indexing"
+    assert term["canonical_content"].startswith("---\nschema_version: 1")
+    mention_content = _document_content("unlinked-note", "Unlinked Note").replace(
+        "A stable index retains canonical facts", "Neural Indexing appears here without a wiki link"
+    ).replace("[[Calibrated Optimizer]]", "unrelated content")
+    mention_path = (
+        api_client.app.state.repository_root
+        / "knowledge" / "documents" / "learning" / "unlinked-note.md"
+    )
+    mention_path.write_text(mention_content, encoding="utf-8")
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        Indexer(api_client.app.state.repository_root, connection).update_path(mention_path)
+    finally:
+        connection.close()
+    term = api_client.get("/api/terms/neural-indexing").json()
+    assert term["detected_mentions"] == [{"id": "unlinked-note", "title": "Unlinked Note"}]
     source = api_client.get("/api/sources/source-alpha").json()
     assert source["related_documents"][0]["id"] == "neural-indexing"
+    assert [term["id"] for term in source["related_terms"]] == ["neural-indexing"]
     assert "path" not in source
     assert api_client.get("/api/topics").json() == [{"id": "graph-search", "title": "Graph Search"}]
+    assert api_client.get("/api/taxonomy", params={"kind": "topic"}).json() == [
+        {"id": "graph-search", "title": "Graph Search", "kind": "topic"}
+    ]
+    modified = api_client.get("/api/documents/recently-modified").json()
+    assert modified[0]["id"] == "neural-indexing"
+    assert modified[0]["modified_at"]
+    link_issues = api_client.get("/api/review/link-issues").json()
+    assert any(issue["target"] == "Missing Term" and issue["status"] == "unresolved" for issue in link_issues)
+    assert api_client.get("/api/imports").json() == []
 
     results = api_client.get("/api/search", params={"query": "stable index"}).json()
     assert results[0]["entity_id"] == "neural-indexing"
@@ -64,6 +90,9 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/terms/{entity_id}",
         "/api/sources/{entity_id}",
         "/api/search",
+        "/api/taxonomy",
+        "/api/review/link-issues",
+        "/api/documents/recently-modified",
         "/api/context/export",
         "/api/ai/document-review",
         "/api/publish",
@@ -265,6 +294,8 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
     assert "path" not in item
     assert "staging_path" not in item["metadata"]
     assert api_client.get("/api/imports/{}".format(job["id"])).status_code == 200
+    assert api_client.get("/api/imports").json()[0]["id"] == job["id"]
+    assert api_client.get("/api/imports").json()[0]["id"] == job["id"]
     created_draft = api_client.post(
         "/api/import-items/{}/draft".format(item["id"])
     )

@@ -47,6 +47,27 @@ class ImportRepository:
             error_message=row["error_message"],
         )
 
+    def list_jobs(self, limit: int = 50, offset: int = 0) -> List[ImportJob]:
+        if not isinstance(limit, int) or limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100")
+        if not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be zero or greater")
+        rows = self.connection.execute(
+            "SELECT * FROM import_jobs ORDER BY created_at DESC, id LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [
+            ImportJob(
+                id=row["id"],
+                status=row["status"],
+                profile=row["profile"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                error_message=row["error_message"],
+            )
+            for row in rows
+        ]
+
     def update_job(self, job_id: str, status: str, updated_at: str, error_message=None) -> ImportJob:
         with self.connection:
             cursor = self.connection.execute(

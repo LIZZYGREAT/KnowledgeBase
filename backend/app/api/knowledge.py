@@ -9,7 +9,9 @@ from backend.app.api.schemas import (
     ContextExportView,
     EntityDetail,
     EntitySummary,
+    RecentlyModifiedView,
     SearchResultView,
+    TaxonomyEntryView,
     TopicView,
 )
 from backend.app.services.search_service import SearchFilters, SearchService
@@ -25,6 +27,14 @@ async def list_documents(
     offset: int = Query(0, ge=0),
 ):
     return request.app.state.knowledge_read_service.list_entities("document", limit, offset)
+
+
+@router.get("/documents/recently-modified", response_model=list[RecentlyModifiedView])
+async def recently_modified_documents(
+    request: Request,
+    limit: int = Query(10, ge=1, le=100),
+):
+    return request.app.state.knowledge_read_service.recently_modified(limit)
 
 
 @router.get("/documents/{entity_id}", response_model=EntityDetail)
@@ -67,6 +77,19 @@ async def list_topics(
     offset: int = Query(0, ge=0),
 ):
     return request.app.state.knowledge_read_service.topics(limit, offset)
+
+
+@router.get("/taxonomy", response_model=list[TaxonomyEntryView])
+async def list_taxonomy(
+    request: Request,
+    kind: str = Query(pattern="^(domain|topic|tag)$"),
+):
+    return request.app.state.knowledge_read_service.taxonomy_entries(kind)
+
+
+@router.get("/review/link-issues")
+async def list_link_issues(request: Request):
+    return request.app.state.knowledge_read_service.link_issues()
 
 
 @router.get("/search", response_model=list[SearchResultView])
