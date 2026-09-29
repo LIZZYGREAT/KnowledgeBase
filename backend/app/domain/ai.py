@@ -85,9 +85,7 @@ class SuggestRevisionOutput(AIOutput):
 
 class EvidenceCandidate(AIOutput):
     source_id: Slug
-    locator: Optional[NonEmptyText] = None
     claim: NonEmptyText
-    quote: Optional[str] = None
     rationale: NonEmptyText
 
 

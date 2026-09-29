@@ -209,7 +209,13 @@ class AIProposalView(APIModel):
 class ContextExportRequest(APIModel):
     document_id: Optional[NonEmptyText] = None
     source_id: Optional[NonEmptyText] = None
-    trust: Literal["raw", "reviewed", "verified"] = "raw"
+    trust: Literal["raw", "reviewed", "verified"] = Field(
+        default="raw",
+        description=(
+            "The verified level is a provisional traceability filter based on human Document approval "
+            "and verified Source metadata; it does not represent per-claim Evidence review."
+        ),
+    )
     purpose: Literal["research", "teaching", "evidence"] = "research"
 
     @model_validator(mode="after")

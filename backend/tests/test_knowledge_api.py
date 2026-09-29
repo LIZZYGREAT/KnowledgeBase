@@ -69,6 +69,8 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/publish",
     ):
         assert path in schema["paths"]
+    context_schema = schema["components"]["schemas"]["ContextExportRequest"]
+    assert "provisional traceability filter" in context_schema["properties"]["trust"]["description"]
 
 
 def test_context_export_applies_requested_trust_and_purpose(api_client):
@@ -139,6 +141,15 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
                         "aliases": [],
                         "definition": "A Term created through the API.",
                     },
+                    "suggest_evidence": {
+                        "candidates": [
+                            {
+                                "source_id": "source-alpha",
+                                "claim": "A stable index retains canonical facts",
+                                "rationale": "The Source title is relevant to the Draft claim.",
+                            }
+                        ]
+                    },
                 }
             )
         ),
@@ -163,6 +174,16 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
     )
     assert selected.status_code == 201
     assert selected.json()["proposal"]["kind"] == "format"
+
+    evidence = api_client.post(
+        "/api/ai/evidence-suggest",
+        json={"draft_id": draft["id"], "confirm_deepseek_transfer": True},
+    )
+    assert evidence.status_code == 201
+    candidate = evidence.json()["proposal"]["payload"]["result"]["candidates"][0]
+    assert candidate["source_id"] == "source-alpha"
+    assert "locator" not in candidate
+    assert "quote" not in candidate
 
     proposal_id = result["proposal"]["id"]
     approved = api_client.post(

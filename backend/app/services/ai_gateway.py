@@ -49,7 +49,8 @@ TASKS = {
     ),
     "suggest_evidence": AITask(
         "suggest_evidence", "evidence", TASK_OUTPUTS["suggest_evidence"],
-        ("sources",), "Suggest evidence candidates from the supplied Source Registry; do not assert verification.",
+        ("sources",),
+        "Find Draft claims that need evidence and recommend possibly relevant existing Source IDs using only supplied Source metadata. Return claim, source_id, and rationale only. Do not invent or return quotes or locators; this is a suggestion, not Evidence or verification.",
     ),
 }
 
