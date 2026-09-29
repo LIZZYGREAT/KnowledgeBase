@@ -44,7 +44,7 @@ class TaxonomyRegistry:
         if kind not in {"domain", "topic", "tag"}:
             raise ValueError("Unknown taxonomy kind: {}".format(kind))
         return tuple(
-            RegistryEntry(record.entry.id, record.entry.title)
+            RegistryEntry(record.entry.id, record.entry.title, tuple(record.entry.aliases))
             for record in self.records
             if record.kind == kind
         )

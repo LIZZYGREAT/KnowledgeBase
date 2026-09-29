@@ -90,14 +90,22 @@ def test_fuzzy_match_only_returns_candidates_and_unresolved_is_empty(tmp_path):
 
 def test_taxonomy_registry_and_resolver_keep_domain_topic_and_tag_scopes(tmp_path):
     write_taxonomy(tmp_path, "domains.yaml", "  - id: ai\n    title: Artificial Intelligence\n")
-    write_taxonomy(tmp_path, "topics.yaml", "  - id: ai\n    title: AI Topic\n")
+    write_taxonomy(
+        tmp_path,
+        "topics.yaml",
+        "  - id: large-language-models\n    title: Large Language Models\n"
+        "    aliases:\n      - LLM\n      - LLMs\n      - 大语言模型\n",
+    )
     write_taxonomy(tmp_path, "tags.yaml", "  - id: reviewed\n    title: Reviewed\n")
     registry = TaxonomyRegistry.load(tmp_path)
     resolver = TaxonomyResolver(registry)
 
     assert resolver.resolve("ai", "domain").entity_id == "ai"
-    assert resolver.resolve("AI Topic", "topic").entity_id == "ai"
+    assert resolver.resolve("Large Language Models", "topic").entity_id == "large-language-models"
     assert resolver.resolve("reviewed", "tag").status == "resolved"
+    assert resolver.resolve("LLM", "topic").entity_id == "large-language-models"
+    assert resolver.resolve("LLMs", "topic").entity_id == "large-language-models"
+    assert resolver.resolve("大语言模型", "topic").entity_id == "large-language-models"
     assert registry.get("domain", "ai").title == "Artificial Intelligence"
 
 

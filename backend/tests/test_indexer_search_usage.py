@@ -96,6 +96,46 @@ def test_search_exact_title_alias_fts_evidence_and_structured_filters(tmp_path):
     connection.close()
 
 
+def test_search_supports_cjk_literal_substrings_in_canonical_text(tmp_path):
+    repository = _create_knowledge_tree(tmp_path / "repo")
+    chinese_body = (
+        "EWC 使用 Fisher Information 衡量参数重要性。"
+        "本文讨论持续学习、灾难性遗忘与贝叶斯方法。"
+    )
+    _write(
+        repository / "knowledge" / "documents" / "learning" / "chinese-note.md",
+        _document("chinese-note", title="Chinese Note", body=chinese_body),
+    )
+    _write(
+        repository / "knowledge" / "terms" / "neural-indexing.md",
+        _term().replace("A derived index maps edges.", "术语定义描述知识节点。"),
+    )
+    _write(
+        repository / "knowledge" / "sources" / "source-alpha.yaml",
+        "schema_version: 1\nid: source-alpha\ntype: paper\ntitle: 贝叶斯文献\n"
+        "authors:\n  - 张三\nyear: 2024\n",
+    )
+    connection = connect_database(":memory:")
+    Indexer(repository, connection).full_rebuild()
+
+    search = SearchService(connection)
+    for query in (
+        "参数",
+        "参数重要性",
+        "重要性",
+        "持续学习",
+        "灾难性遗忘",
+        "贝叶斯",
+    ):
+        results = search.search(query)
+        assert results and results[0].entity_id == "chinese-note"
+        assert results[0].matched_by == "full text"
+    assert not search.search("参数%")
+    assert any(result.entity_type == "term" for result in search.search("术语定义"))
+    assert any(result.entity_type == "source" for result in search.search("张三"))
+    connection.close()
+
+
 def test_incremental_update_refreshes_document_and_term_backlinks(tmp_path):
     repository = _create_knowledge_tree(tmp_path / "repo")
     term_path = repository / "knowledge" / "terms" / "neural-indexing.md"

@@ -43,6 +43,9 @@ _MATCH_PRIORITY = {"exact id": 5, "title": 4, "alias": 3, "full text": 2, "evide
 _USAGE_ALPHA = 0.4
 _USAGE_BETA = 0.2
 _USAGE_MAX_BOOST = 3.0
+_CJK_CHARACTERS = re.compile(
+    r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]"
+)
 
 
 class SearchService:
@@ -116,6 +119,8 @@ class SearchService:
                 self._search_fts(results, "term_fts", fts_query, filter_values)
                 self._search_fts(results, "source_fts", fts_query, filter_values)
                 self._search_evidence(results, fts_query, filter_values)
+            if _CJK_CHARACTERS.search(query):
+                self._search_cjk_literal(results, query, filter_values)
 
         ordered = sorted(
             results.values(),
@@ -199,6 +204,98 @@ class SearchService:
                 metadata, row["view_count"] if entity_type == "document" else 0,
                 row["search_click_count"] if entity_type == "document" else 0,
                 "evidence", retrieval_score, match["snippet"] or evidence["claim"], filters,
+            )
+
+    def _search_cjk_literal(self, results, query: str, filters: dict) -> None:
+        pattern = "%{}%".format(
+            query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        specs = {
+            "document_fts": ("document", "document_index", ("title", "body", "metadata")),
+            "term_fts": ("term", "term_index", ("title", "aliases", "body", "metadata")),
+            "source_fts": ("source", "source_index", ("title", "metadata")),
+        }
+        for table, (entity_type, index_table, columns) in specs.items():
+            predicates = " OR ".join(
+                "{} LIKE ? ESCAPE '\\'".format(column) for column in columns
+            )
+            matches = self.connection.execute(
+                "SELECT entity_id FROM {} WHERE {}".format(table, predicates),
+                tuple(pattern for _ in columns),
+            ).fetchall()
+            for match in matches:
+                if entity_type == "document":
+                    row = self.connection.execute(
+                        """SELECT d.*, COALESCE(s.view_count, 0) AS view_count,
+                                  COALESCE(s.search_click_count, 0) AS search_click_count
+                           FROM document_index d LEFT JOIN document_stats s
+                             ON s.document_id = d.entity_id WHERE d.entity_id = ?""",
+                        (match["entity_id"],),
+                    ).fetchone()
+                else:
+                    row = self.connection.execute(
+                        "SELECT * FROM {} WHERE entity_id = ?".format(index_table),
+                        (match["entity_id"],),
+                    ).fetchone()
+                if row is None:
+                    continue
+                metadata = json.loads(row["metadata_json"])
+                self._offer(
+                    results,
+                    entity_type,
+                    row["entity_id"],
+                    row["title"],
+                    row["path"],
+                    metadata,
+                    row["view_count"] if entity_type == "document" else 0,
+                    row["search_click_count"] if entity_type == "document" else 0,
+                    "full text",
+                    40.0,
+                    "…{}…".format(query),
+                    filters,
+                )
+
+        evidence_ids = self.connection.execute(
+            "SELECT evidence_id FROM evidence_fts WHERE claim LIKE ? ESCAPE '\\'",
+            (pattern,),
+        ).fetchall()
+        for match in evidence_ids:
+            evidence = self.connection.execute(
+                "SELECT * FROM evidence_index WHERE id = ?", (match["evidence_id"],)
+            ).fetchone()
+            if evidence is None:
+                continue
+            if evidence["entity_type"] == "document":
+                row = self.connection.execute(
+                    """SELECT d.*, COALESCE(s.view_count, 0) AS view_count,
+                              COALESCE(s.search_click_count, 0) AS search_click_count
+                       FROM document_index d LEFT JOIN document_stats s
+                         ON s.document_id = d.entity_id WHERE d.entity_id = ?""",
+                    (evidence["entity_id"],),
+                ).fetchone()
+                entity_type = "document"
+            else:
+                row = self.connection.execute(
+                    "SELECT * FROM term_index WHERE entity_id = ?",
+                    (evidence["entity_id"],),
+                ).fetchone()
+                entity_type = "term"
+            if row is None:
+                continue
+            metadata = json.loads(row["metadata_json"])
+            self._offer(
+                results,
+                entity_type,
+                row["entity_id"],
+                row["title"],
+                row["path"],
+                metadata,
+                row["view_count"] if entity_type == "document" else 0,
+                row["search_click_count"] if entity_type == "document" else 0,
+                "evidence",
+                35.0,
+                "…{}…".format(query),
+                filters,
             )
 
     def _offer(

@@ -8,6 +8,7 @@ from .common import CanonicalModel, NonEmptyText, Slug
 class TaxonomyEntry(CanonicalModel):
     id: Slug
     title: NonEmptyText
+    aliases: list[NonEmptyText] = Field(default_factory=list)
 
 
 class TaxonomyRegistry(CanonicalModel):
