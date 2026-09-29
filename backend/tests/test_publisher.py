@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,7 +11,7 @@ from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager, GitOperationError
 from backend.app.services.indexer import Indexer
-from backend.app.services.proposal_service import ProposalService
+from backend.app.services.proposal_service import ProposalService, StaleProposalError
 from backend.app.services.publisher import (
     PublishConflictError,
     PublishError,
@@ -222,11 +223,13 @@ def test_approved_proposal_is_applied_and_merged_after_commit(publish_context):
         "document",
         "proposed-note",
         "document_revision",
-        git.content_hash(target),
+        hashlib.sha256(draft.content.encode("utf-8")).hexdigest(),
         {"content": content},
         "reviewer",
     )
-    proposals.approve(proposal.id, git.content_hash(target), "checked")
+    proposals.approve(
+        proposal.id, hashlib.sha256(draft.content.encode("utf-8")).hexdigest(), "checked"
+    )
 
     result = publisher.publish(draft.id, proposal_id=proposal.id)
 
@@ -249,11 +252,15 @@ def test_proposal_survives_unrelated_document_publish(publish_context):
         "document",
         "proposal-target",
         "document_revision",
-        git.content_hash(proposal_target),
+        hashlib.sha256(proposal_draft.content.encode("utf-8")).hexdigest(),
         {"content": proposal_content},
         "reviewer",
     )
-    proposals.approve(proposal.id, git.content_hash(proposal_target), "checked")
+    proposals.approve(
+        proposal.id,
+        hashlib.sha256(proposal_draft.content.encode("utf-8")).hexdigest(),
+        "checked",
+    )
     other_draft = _create_draft(
         drafts, git, "document", "other-target", _document("other-target"), other_target
     )
@@ -279,11 +286,13 @@ def test_proposal_status_failure_is_reported_as_post_publish_warning(
         "document",
         "proposal-warning",
         "document_revision",
-        git.content_hash(target),
+        hashlib.sha256(draft.content.encode("utf-8")).hexdigest(),
         {"content": content},
         "reviewer",
     )
-    proposals.approve(proposal.id, git.content_hash(target), "checked")
+    proposals.approve(
+        proposal.id, hashlib.sha256(draft.content.encode("utf-8")).hexdigest(), "checked"
+    )
 
     def fail_merge(*_args, **_kwargs):
         raise RuntimeError("runtime database unavailable")
@@ -295,6 +304,32 @@ def test_proposal_status_failure_is_reported_as_post_publish_warning(
     assert (repository / target).read_text(encoding="utf-8") == content
     assert proposals.get(proposal.id).status == "approved"
     assert any("Proposal status update failed" in warning for warning in result.warnings)
+
+
+def test_proposal_becomes_stale_when_its_draft_changes(publish_context):
+    repository, _, drafts, proposals, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/changed-draft.md"
+    initial_draft = _create_draft(
+        drafts, git, "document", "changed-draft", "draft revision one", target
+    )
+    proposal_hash = hashlib.sha256(initial_draft.content.encode("utf-8")).hexdigest()
+    proposal = proposals.create(
+        "document",
+        "changed-draft",
+        "document_revision",
+        proposal_hash,
+        {"content": _document("changed-draft", title="Proposed Content")},
+        "reviewer",
+    )
+    proposals.approve(proposal.id, proposal_hash, "checked")
+    drafts.save(initial_draft.id, "manual edit at revision two", expected_revision=1)
+
+    with pytest.raises(StaleProposalError, match="stale"):
+        publisher.publish(initial_draft.id, proposal_id=proposal.id)
+
+    assert not (repository / target).exists()
+    assert proposals.get(proposal.id).status == "stale"
 
 
 def test_restore_creates_a_new_commit_and_preserves_published_history(publish_context):

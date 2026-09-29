@@ -1,9 +1,10 @@
 """Validate Drafts and publish canonical files through Git."""
 
+import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-import re
 
 import yaml
 from pydantic import ValidationError
@@ -122,10 +123,10 @@ class Publisher:
         except (GitConflictError, ValueError) as error:
             raise PublishConflictError(str(error)) from error
 
-        target_content_hash = self.git.content_hash(path)
+        draft_content_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
         if proposal is not None:
             proposal = self.proposal_service.assert_applicable(
-                proposal.id, target_content_hash
+                proposal.id, draft_content_hash
             )
 
         warnings = self._validate_candidate(draft, content, path, metadata)
@@ -151,7 +152,7 @@ class Publisher:
         post_publish_warnings = list(warnings)
         if proposal is not None:
             try:
-                self.proposal_service.merge(proposal.id, target_content_hash)
+                self.proposal_service.merge(proposal.id, draft_content_hash)
             except Exception as error:
                 post_publish_warnings.append(
                     "Proposal status update failed after commit: {}".format(error)

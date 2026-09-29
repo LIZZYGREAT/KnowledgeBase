@@ -19,6 +19,6 @@ AI review states are `not_run`, `passed`, `needs_attention`, and `failed`. Human
 
 Current Documents must pass the Writing Standard at Publish. Legacy Documents may publish with style warnings, but invalid frontmatter and other structural errors remain blocking. Import records style findings in its Runtime Item so the content can enter a Draft before those findings are resolved.
 
-Draft conflict detection compares the target file's content hash. Its Git revision remains available as history and diff context. Proposals store `base_content_hash` and become stale only when their target content changes.
+Draft conflict detection compares the canonical target file's content hash. Its Git revision remains available as history and diff context. Proposals store `base_content_hash` for the Draft working content they were generated from and become stale when that Draft content changes.
 
 Provenance `origin` is either `imported` or `human-authored`. AI assistance is recorded separately and does not make AI the canonical author.
