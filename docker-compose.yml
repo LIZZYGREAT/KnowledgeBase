@@ -10,6 +10,8 @@ services:
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       KNOWLEDGE_REPO_PATH: ${KNOWLEDGE_REPO_PATH:-/workspace}
       DATABASE_PATH: ${DATABASE_PATH:-/workspace/runtime/knowledge.db}
+      KB_GIT_USER_NAME: ${KB_GIT_USER_NAME:-KnowledgeBase}
+      KB_GIT_USER_EMAIL: ${KB_GIT_USER_EMAIL:-knowledgebase@localhost}
     volumes:
       - .:/workspace
 

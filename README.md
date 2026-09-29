@@ -32,7 +32,7 @@ To run the frontend checks manually, use `npm ci`, `npm run typecheck`, and `npm
 
 Start the development services with `docker compose up --build`. The Compose ports bind to localhost; private remote access is a later deployment phase.
 
-Copy `.env.example` to `.env` before starting Compose. The backend mounts the repository at `/workspace`, where it can use Git, write canonical files through `Publisher`, and keep the ignored runtime database and storage files. DeepSeek settings are reserved for a later phase.
+Copy `.env.example` to `.env` before starting Compose. The backend mounts the repository at `/workspace`, where it can use Git, write canonical files through `Publisher`, and keep the ignored runtime database and storage files. Git commits use `KB_GIT_USER_NAME` and `KB_GIT_USER_EMAIL`, defaulting to `KnowledgeBase` and `knowledgebase@localhost`; change them in `.env` if you want commits to show another author. DeepSeek settings are reserved for a later phase.
 
 ## Repository map
 
