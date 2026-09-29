@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
+import { parseDocument } from "yaml";
 import {
   compareDraft,
   createBlankDocument,
   createDraft,
   discardDraft,
   getEntity,
+  listAllEntities,
   listDrafts,
   listProposals,
   publishDraft,
@@ -14,6 +16,7 @@ import {
   updateDraft,
   type Draft,
   type DraftComparison,
+  type EntitySummary,
   type EntityType,
   type Proposal,
 } from "./api";
@@ -64,6 +67,11 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   const [comparison, setComparison] = useState<DraftComparison | null>(null);
   const [mergeContent, setMergeContent] = useState("");
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [canonicalEntity, setCanonicalEntity] = useState<Awaited<ReturnType<typeof getEntity>> | null>(null);
+  const [sourceEntries, setSourceEntries] = useState<EntitySummary[]>([]);
+  const [sourceError, setSourceError] = useState("");
+  const [paperSkillVariant, setPaperSkillVariant] = useState<"canonical" | "enhanced">("canonical");
+  const [paperSkillUrl, setPaperSkillUrl] = useState("");
   const [proposalError, setProposalError] = useState("");
   const [proposalBusy, setProposalBusy] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -121,6 +129,21 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     })()
       .catch((error: unknown) => { if (active) setLoadError(errorMessage(error)); })
       .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [type, id]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const [entity, sources] = await Promise.all([
+        getEntity(type, id).catch(() => null),
+        type === "document" ? listAllEntities("source") : Promise.resolve([]),
+      ]);
+      if (!active) return;
+      setCanonicalEntity(entity);
+      setSourceEntries(sources);
+      setSourceError("");
+    })().catch((error: unknown) => { if (active) setSourceError(errorMessage(error)); });
     return () => { active = false; };
   }, [type, id]);
 
@@ -269,12 +292,52 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     setContent(value);
   }
 
+  function updateFrontmatter(key: string, value: unknown) {
+    try {
+      setEditorContent(patchYamlField(contentRef.current, type, key, value));
+      setSaveError("");
+    } catch (error) {
+      setSaveError(errorMessage(error));
+    }
+  }
+
+  function updateSourcePdf(value: string) {
+    try {
+      const document = parseDocument(contentRef.current);
+      if (document.errors.length) throw new Error("Source YAML 无法解析，请先修复语法。");
+      const attachments = document.get("attachments") as Record<string, unknown> | undefined;
+      document.set("attachments", { ...(attachments ?? {}), local_pdf: value.trim() || null });
+      setEditorContent(`${document.toString().trimEnd()}\n`);
+      setSaveError("");
+    } catch (error) {
+      setSaveError(errorMessage(error));
+    }
+  }
+
+  function addPaperSkill(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    let url: URL;
+    try { url = new URL(paperSkillUrl); } catch { setSaveError("请填写有效的 PaperSkill URL。"); return; }
+    if (!["http:", "https:"].includes(url.protocol)) { setSaveError("PaperSkill URL 必须使用 HTTP 或 HTTPS。"); return; }
+    const current = readPaperSkillArtifacts(readFrontmatterField(contentRef.current, type, "external_artifacts"));
+    updateFrontmatter("external_artifacts", [
+      ...current,
+      { type: "paperskill", variant: paperSkillVariant, url: url.toString() },
+    ]);
+    setPaperSkillVariant("canonical");
+    setPaperSkillUrl("");
+  }
+
   if (loading) return <LoadingState label="正在载入 Draft 编辑器…" />;
   if (loadError) return <ErrorState message={loadError} />;
   if (!draft) return <ErrorState message="Draft 初始化失败。" />;
 
   const body = type === "source" ? "" : content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
   const pendingProposals = proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status));
+  const associatedSourceIds = readStringArray(readFrontmatterField(content, type, "sources"));
+  const paperSkills = readPaperSkillArtifacts(readFrontmatterField(content, type, "external_artifacts"));
+  const pdfAttachment = readSourcePdf(content);
+  const draftCitations = readDraftCitations(body);
 
   return (
     <div className="page-stack editor-page">
@@ -303,6 +366,35 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
           <textarea className="merge-textarea" value={mergeContent} onChange={(event) => setMergeContent(event.target.value)} spellCheck={false} />
         </label>
         <div className="editor-main-actions"><button className="button button-secondary" onClick={() => void reloadCanonical()}>放弃 Draft 并载入当前正式版</button><button className="button button-primary" onClick={() => void applyRebase()}>保存合并内容并更新基线</button></div>
+      </section>}
+
+      {type === "document" && <section className="surface editor-metadata-panel">
+        <SectionHeading title="Sources & Evidence" detail="Source 关系来自 frontmatter；引用行会在发布后生成可追溯的 Evidence 索引。" />
+        <div className="source-association-list">
+          {sourceEntries.map((source) => <label className="source-association-option" key={source.id}><input type="checkbox" checked={associatedSourceIds.includes(source.id)} onChange={(event) => updateFrontmatter("sources", event.target.checked ? [...new Set([...associatedSourceIds, source.id])] : associatedSourceIds.filter((idValue) => idValue !== source.id))} /><span><strong>{source.title}</strong><small>{source.id}</small></span></label>)}
+          {!sourceEntries.length && <p className="subtle-copy">暂无已索引 Source。请先通过 Import Pipeline 创建 Source Draft 并发布。</p>}
+        </div>
+        {sourceError && <p className="error-copy" role="alert">{sourceError}</p>}
+        <div className="draft-evidence-box"><div className="context-card-heading"><strong>Draft citations</strong><small>{draftCitations.length} 条</small></div>
+          {draftCitations.length ? draftCitations.map((citation, index) => <div className="draft-citation-row" key={`${citation.source_id}:${citation.line}:${index}`}><strong>[@{citation.source_id}{citation.locator ? `, ${citation.locator}` : ""}]</strong><span>{citation.claim || "此引用行尚无 claim 文本"}</span><small>第 {citation.line} 行 · 发布后索引为 Evidence；不代表人工已核验</small></div>) : <p className="subtle-copy">使用 [@source-id, locator] 在 Markdown 正文中标记引用位置。</p>}
+          {canonicalEntity?.evidence.length ? <p className="trust-note">当前正式版有 {canonicalEntity.evidence.length} 条已索引引用，来源和 Locator 会在发布后重新索引。</p> : null}
+        </div>
+      </section>}
+
+      {type === "document" && <section className="surface editor-metadata-panel paperskill-editor">
+        <SectionHeading title="PaperSkill 链接" detail="只记录外部成品链接；不会复制或管理 PaperSkill 内容。" />
+        <form className="paperskill-form" onSubmit={addPaperSkill}>
+          <label className="field-label">变体<select value={paperSkillVariant} onChange={(event) => setPaperSkillVariant(event.target.value as typeof paperSkillVariant)}><option value="canonical">Canonical</option><option value="enhanced">Enhanced</option></select></label>
+          <label className="field-label">URL<input type="url" required value={paperSkillUrl} onChange={(event) => setPaperSkillUrl(event.target.value)} placeholder="https://…" /></label>
+          <button className="button button-secondary" type="submit">添加链接</button>
+        </form>
+        {paperSkills.length ? <div className="paperskill-list">{paperSkills.map((item, index) => <div className="paperskill-row" key={`${item.url}:${index}`}><span><strong>{titleCase(item.variant)}</strong><small>{item.url}{item.owner ? ` · ${item.owner}` : ""}</small></span><button className="text-button" onClick={() => updateFrontmatter("external_artifacts", paperSkills.filter((_, itemIndex) => itemIndex !== index))}>移除</button></div>)}</div> : <p className="subtle-copy">还没有 PaperSkill 链接。</p>}
+      </section>}
+
+      {type === "source" && <section className="surface editor-metadata-panel source-pdf-editor">
+        <SectionHeading title="本地 PDF 关联" detail="文件需要先通过 Import Pipeline 放入 storage/papers；发布会检查关联文件。" />
+        <label className="field-label">附件 URI<input value={pdfAttachment} onChange={(event) => updateSourcePdf(event.target.value)} placeholder="storage://papers/source-id.pdf" /></label>
+        <p className="trust-note">此处只设置 Source 元数据引用，不会上传或复制文件。PDF 保存在本机忽略目录中。</p>
       </section>}
 
       <div className="editor-grid">
@@ -371,6 +463,94 @@ function ProposalCard({
       <button className="button button-primary" onClick={() => onReview(proposal.id, "approve")}>标记已审阅</button>
     </div>
   </article>;
+}
+
+interface PaperSkillArtifact {
+  type: "paperskill";
+  variant: string;
+  url: string;
+  owner?: string;
+}
+
+interface DraftCitation {
+  source_id: string;
+  locator: string | null;
+  line: number;
+  claim: string;
+}
+
+function readFrontmatterField(content: string, type: EntityType, key: string): unknown {
+  try {
+    let yamlText = content;
+    if (type !== "source") {
+      const match = /^(---\r?\n)([\s\S]*?)(\r?\n---)([\s\S]*)$/.exec(content);
+      if (!match) return undefined;
+      yamlText = match[2];
+    }
+    const document = parseDocument(yamlText);
+    if (document.errors.length) return undefined;
+    return document.get(key);
+  } catch {
+    return undefined;
+  }
+}
+
+function patchYamlField(content: string, type: EntityType, key: string, value: unknown): string {
+  let yamlText = content;
+  let open = "";
+  let separator = "";
+  let suffix = "";
+  if (type !== "source") {
+    const match = /^(---\r?\n)([\s\S]*?)(\r?\n---)([\s\S]*)$/.exec(content);
+    if (!match) throw new Error("缺少有效 frontmatter；请先修复 Markdown 元数据。");
+    [open, yamlText, separator, suffix] = [match[1], match[2], match[3], match[4]];
+  }
+  const document = parseDocument(yamlText);
+  if (document.errors.length) throw new Error("YAML frontmatter 无法解析，请先修复语法。");
+  document.set(key, value);
+  const serialized = document.toString().trimEnd();
+  return type === "source" ? `${serialized}\n` : `${open}${serialized}${separator}${suffix}`;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function readPaperSkillArtifacts(value: unknown): PaperSkillArtifact[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const artifact = item as Record<string, unknown>;
+    if (artifact.type !== "paperskill" || typeof artifact.variant !== "string" || typeof artifact.url !== "string") return [];
+    return [{
+      type: "paperskill" as const,
+      variant: artifact.variant,
+      url: artifact.url,
+      ...(typeof artifact.owner === "string" ? { owner: artifact.owner } : {}),
+    }];
+  });
+}
+
+function readSourcePdf(content: string): string {
+  const attachments = readFrontmatterField(content, "source", "attachments");
+  if (!attachments || typeof attachments !== "object") return "";
+  const value = (attachments as Record<string, unknown>).local_pdf;
+  return typeof value === "string" ? value : "";
+}
+
+function readDraftCitations(content: string): DraftCitation[] {
+  const citationPattern = /\[@([a-z0-9][a-z0-9-]*)(?:,\s*([^\]\n]+?))?\]/gi;
+  return content.split("\n").flatMap((line, index) => {
+    const matches = Array.from(line.matchAll(citationPattern));
+    if (!matches.length) return [];
+    const claim = line.replace(citationPattern, "").replace(/^\s*(?:[-*>]+\s*)?/, "").trim();
+    return matches.map((match) => ({
+      source_id: match[1],
+      locator: match[2]?.trim() || null,
+      line: index + 1,
+      claim,
+    }));
+  });
 }
 
 function errorMessage(error: unknown) {

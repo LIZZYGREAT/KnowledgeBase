@@ -1,8 +1,11 @@
 """Read-only Knowledge API routes for canonical entries and search."""
 
+from pathlib import Path
+import re
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 
 from backend.app.api.schemas import (
     ContextExportRequest,
@@ -68,6 +71,53 @@ async def list_sources(
 @router.get("/sources/{entity_id}", response_model=EntityDetail)
 async def get_source(entity_id: str, request: Request):
     return request.app.state.knowledge_read_service.get_entity("source", entity_id)
+
+
+@router.get("/sources/{entity_id}/pdf")
+async def open_source_pdf(entity_id: str, request: Request):
+    source = request.app.state.knowledge_read_service.get_entity("source", entity_id)
+    attachments = source["metadata"].get("attachments") or {}
+    attachment = attachments.get("local_pdf") if isinstance(attachments, dict) else None
+    if not isinstance(attachment, str):
+        raise HTTPException(status_code=404, detail="This Source has no local PDF")
+    match = re.fullmatch(
+        r"storage://papers/([a-z0-9]+(?:-[a-z0-9]+)*)\.pdf",
+        attachment,
+    )
+    if match is None:
+        raise HTTPException(status_code=404, detail="This Source has no local PDF")
+
+    repository_root = Path(request.app.state.repository_root).resolve()
+    storage_root = repository_root / "storage"
+    papers_root = storage_root / "papers"
+    if storage_root.is_symlink() or papers_root.is_symlink():
+        raise HTTPException(status_code=404, detail="Local PDF is unavailable")
+    resolved_papers = papers_root.resolve()
+    try:
+        resolved_papers.relative_to(repository_root)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="Local PDF is unavailable") from error
+
+    pdf_path = papers_root / "{}.pdf".format(match.group(1))
+    if pdf_path.is_symlink():
+        raise HTTPException(status_code=404, detail="Local PDF is unavailable")
+    resolved_pdf = pdf_path.resolve()
+    try:
+        resolved_pdf.relative_to(resolved_papers)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="Local PDF is unavailable") from error
+    if not resolved_pdf.is_file():
+        raise HTTPException(status_code=404, detail="Local PDF is unavailable")
+    with resolved_pdf.open("rb") as pdf_file:
+        if pdf_file.read(5) != b"%PDF-":
+            raise HTTPException(status_code=404, detail="Local PDF is unavailable")
+    return FileResponse(
+        resolved_pdf,
+        media_type="application/pdf",
+        filename="{}.pdf".format(entity_id),
+        content_disposition_type="inline",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/topics", response_model=list[TopicView])

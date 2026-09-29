@@ -2,7 +2,7 @@
 
 KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
 
-This repository currently implements Phases 0–9: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; a staged Markdown/PDF import pipeline; the server-side DeepSeek Gateway; the Knowledge API; and the read-only Reference Hub. Phase 10 is active and adds the Reference Hub editor and Source, Evidence, PaperSkill, PDF, and Context Export workflows.
+This repository implements Phases 0–10: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; a staged Markdown/PDF import pipeline; the server-side DeepSeek Gateway; the Knowledge API; and the Reference Hub reading, editing, Source/PDF, Evidence, PaperSkill, and Context Export workflows.
 
 ## Local setup
 

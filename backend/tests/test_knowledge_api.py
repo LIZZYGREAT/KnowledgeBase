@@ -93,6 +93,7 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/taxonomy",
         "/api/review/link-issues",
         "/api/documents/recently-modified",
+        "/api/sources/{entity_id}/pdf",
         "/api/context/export",
         "/api/ai/document-review",
         "/api/drafts",
@@ -214,6 +215,47 @@ def test_draft_compare_rebase_list_and_discard_are_revision_guarded(api_client):
     assert discarded.status_code == 200
     assert discarded.json() == {"deleted": True}
     assert api_client.get("/api/drafts/{}".format(draft["id"])).status_code == 404
+
+
+def test_source_pdf_open_is_confined_to_valid_attached_papers(api_client):
+    root = api_client.app.state.repository_root
+    source_path = root / "knowledge" / "sources" / "source-alpha.yaml"
+    pdf_path = root / "storage" / "papers" / "source-alpha.pdf"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_bytes(b"%PDF-1.4\nlocal test fixture\n")
+    assert api_client.get("/api/sources/source-alpha/pdf").status_code == 404
+
+    source_text = source_path.read_text(encoding="utf-8")
+    source_text = source_text.replace(
+        "metadata_review:",
+        "attachments:\n  local_pdf: storage://papers/source-alpha.pdf\nmetadata_review:",
+    )
+    source_path.write_text(source_text, encoding="utf-8")
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        Indexer(root, connection).update_path(source_path)
+    finally:
+        connection.close()
+
+    opened = api_client.get("/api/sources/source-alpha/pdf")
+    assert opened.status_code == 200
+    assert opened.headers["content-type"] == "application/pdf"
+    assert opened.headers["content-disposition"].startswith("inline;")
+    assert opened.content.startswith(b"%PDF-")
+
+    source_path.write_text(
+        source_text.replace(
+            "storage://papers/source-alpha.pdf",
+            "storage://papers/../../uploads/private.pdf",
+        ),
+        encoding="utf-8",
+    )
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        Indexer(root, connection).update_path(source_path)
+    finally:
+        connection.close()
+    assert api_client.get("/api/sources/source-alpha/pdf").status_code == 404
 
 
 def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_client):

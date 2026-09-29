@@ -100,6 +100,13 @@ export interface PublishedDraft {
   warnings: string[];
 }
 
+export type ContextTrust = "raw" | "reviewed" | "verified";
+export type ContextPurpose = "research" | "teaching" | "evidence";
+export type ExportedContext = Record<string, unknown> & {
+  trust: ContextTrust;
+  purpose: ContextPurpose;
+};
+
 export interface ImportJob {
   id: string;
   status: string;
@@ -266,6 +273,22 @@ export function publishDraft(draftId: string) {
   return request<PublishedDraft>("/api/publish", {
     method: "POST",
     body: JSON.stringify({ draft_id: draftId }),
+  });
+}
+
+export function exportKnowledgeContext(
+  type: "document" | "source",
+  id: string,
+  trust: ContextTrust,
+  purpose: ContextPurpose,
+) {
+  return request<ExportedContext>("/api/context/export", {
+    method: "POST",
+    body: JSON.stringify({
+      ...(type === "document" ? { document_id: id } : { source_id: id }),
+      trust,
+      purpose,
+    }),
   });
 }
 

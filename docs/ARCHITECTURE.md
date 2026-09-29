@@ -2,7 +2,7 @@
 
 ## Current phase
 
-The repository has completed Phases 0–9: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, the server-side DeepSeek Gateway, the Knowledge API, and the read-only Reference Hub. Phase 10 is active: editing, Source/PDF, Evidence, PaperSkill links, and Context Export workflows in the Hub.
+The repository has completed Phases 0–10: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, the server-side DeepSeek Gateway, the Knowledge API, and the Reference Hub reading, editing, and research-context workflows.
 
 ## Data boundaries
 
@@ -72,4 +72,4 @@ Document and Term pages render Markdown, KaTeX, Mermaid, wiki links, backlinks, 
 
 ## Phase 10: Reference Hub editor and research context workflows
 
-The active phase adds Markdown Draft editing, autosave, preview, AI Proposal review, conflict handling, and Publish through the existing backend services. Source pages gain local PDF opening and association controls. Evidence citations, Sources, and PaperSkill external artifacts are editable through Drafts. Context Export is available from Document and Source pages with `raw`, `reviewed`, and `verified` trust levels and the `research`, `teaching`, and `evidence` purposes. The backend remains the only writer of canonical knowledge.
+The Reference Hub adds Markdown and YAML Draft editing, autosave, live preview, explicit-consent AI Proposal requests, Proposal review, compare/reload/rebase conflict handling, and Publish through `Publisher`. Successful publication refreshes the Draft comparison base to the committed content. Document editors manage Source associations, inline citation candidates, and PaperSkill links; Source editors can associate a local PDF URI. Source pages open only valid PDFs under `storage/papers/` through a path-confined API route. Document and Source readers export and copy Context at `raw`, `reviewed`, or `verified` trust levels for `research`, `teaching`, or `evidence` purposes. Verified remains a provisional traceability filter, not per-claim Evidence verification. Canonical Markdown and YAML remain writable only through `Publisher`.
