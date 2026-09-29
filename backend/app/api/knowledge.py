@@ -86,6 +86,8 @@ async def open_source_pdf(entity_id: str, request: Request):
     )
     if match is None:
         raise HTTPException(status_code=404, detail="This Source has no local PDF")
+    if match.group(1) != entity_id:
+        raise HTTPException(status_code=404, detail="This Source has no local PDF")
 
     repository_root = Path(request.app.state.repository_root).resolve()
     storage_root = repository_root / "storage"

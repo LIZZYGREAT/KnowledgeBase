@@ -467,6 +467,10 @@ class Publisher:
             raise PublishValidationError(
                 "Source PDF attachments must use storage://papers/<source-id>.pdf"
             )
+        if match.group(1) != metadata.id:
+            raise PublishValidationError(
+                "Source PDF attachment ID must match the Source ID"
+            )
         storage_root = self.repository_root / "storage"
         papers_root = storage_root / "papers"
         for directory in (storage_root, papers_root):

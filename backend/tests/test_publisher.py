@@ -623,6 +623,31 @@ def test_publisher_supports_term_source_and_taxonomy_canonical_paths(publish_con
     assert (repository / taxonomy_path).is_file()
 
 
+def test_source_pdf_attachment_must_match_published_source_id(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    unrelated_pdf = repository / "storage" / "papers" / "other-source.pdf"
+    unrelated_pdf.parent.mkdir(parents=True, exist_ok=True)
+    unrelated_pdf.write_bytes(b"%PDF-1.4\nunrelated source")
+    source_content = (
+        "schema_version: 1\nid: source-owner\ntype: paper\ntitle: Source Owner\n"
+        "authors: []\nattachments:\n  local_pdf: storage://papers/other-source.pdf\n"
+    )
+    draft = _create_draft(
+        drafts,
+        git,
+        "source",
+        "source-owner",
+        source_content,
+        "knowledge/sources/source-owner.yaml",
+    )
+
+    with pytest.raises(PublishValidationError, match="attachment ID must match"):
+        publisher.publish(draft.id)
+
+    assert not (repository / "knowledge" / "sources" / "source-owner.yaml").exists()
+
+
 def test_publisher_refreshes_incremental_index_after_publish_and_restore(publish_context):
     repository, connection, drafts, _, publisher = publish_context
     git = GitManager(repository)

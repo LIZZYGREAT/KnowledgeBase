@@ -243,6 +243,20 @@ def test_source_pdf_open_is_confined_to_valid_attached_papers(api_client):
     assert opened.headers["content-disposition"].startswith("inline;")
     assert opened.content.startswith(b"%PDF-")
 
+    unrelated_pdf = root / "storage" / "papers" / "source-beta.pdf"
+    unrelated_pdf.write_bytes(b"%PDF-1.4\nunrelated Source PDF")
+    mismatched_source = source_text.replace(
+        "storage://papers/source-alpha.pdf",
+        "storage://papers/source-beta.pdf",
+    )
+    source_path.write_text(mismatched_source, encoding="utf-8")
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        Indexer(root, connection).update_path(source_path)
+    finally:
+        connection.close()
+    assert api_client.get("/api/sources/source-alpha/pdf").status_code == 404
+
     source_path.write_text(
         source_text.replace(
             "storage://papers/source-alpha.pdf",
