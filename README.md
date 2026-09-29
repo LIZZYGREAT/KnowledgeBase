@@ -18,6 +18,8 @@ python tools/kb.py rebuild
 
 `rebuild` recreates the local search and relationship indexes in the ignored `runtime/knowledge.db` database from canonical files under `knowledge/`.
 
+Runtime SQLite is disposable during this development phase. Recreate the ignored database after Runtime schema changes; no migration layer is maintained yet.
+
 Frontend:
 
 ```powershell
@@ -29,6 +31,8 @@ The script installs frontend dependencies if they are missing, builds the produc
 To run the frontend checks manually, use `npm ci`, `npm run typecheck`, and `npm run build` from `frontend/`.
 
 Start the development services with `docker compose up --build`. The Compose ports bind to localhost; private remote access is a later deployment phase.
+
+Copy `.env.example` to `.env` before starting Compose. The backend mounts the repository at `/workspace`, where it can use Git, write canonical files through `Publisher`, and keep the ignored runtime database and storage files. DeepSeek settings are reserved for a later phase.
 
 ## Repository map
 

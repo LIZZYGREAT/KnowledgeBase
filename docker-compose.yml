@@ -1,12 +1,17 @@
 services:
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "127.0.0.1:8000:8000"
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      KNOWLEDGE_REPO_PATH: ${KNOWLEDGE_REPO_PATH:-/workspace}
+      DATABASE_PATH: ${DATABASE_PATH:-/workspace/runtime/knowledge.db}
     volumes:
-      - ./knowledge:/app/knowledge:ro
-      - ./runtime:/app/runtime
-      - ./storage:/app/storage
+      - .:/workspace
 
   frontend:
     build: ./frontend

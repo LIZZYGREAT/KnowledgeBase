@@ -4,7 +4,7 @@
 
 - Implement only the current phase in `docs/ARCHITECTURE.md`; do not add Later features.
 - Treat canonical Markdown and YAML as the knowledge source. Runtime and derived files must remain rebuildable.
-- Only the future Publisher may write canonical knowledge. The frontend, AI, and indexers must not bypass it.
+- `Publisher` is the only business service that writes canonical knowledge. The frontend, AI, and indexers must not bypass it.
 - Keep deterministic parsing and linting independent of HTTP, Git, SQLite, and AI.
 - Keep `docs/private/` local and untracked. Do not copy its source specifications into commits.
 

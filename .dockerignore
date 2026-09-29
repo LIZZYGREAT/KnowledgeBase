@@ -1,0 +1,11 @@
+.git
+.env*
+docs/private/
+runtime/
+storage/
+frontend/node_modules/
+frontend/dist/
+**/__pycache__/
+.pytest_cache/
+*.db
+*.pdf

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python requirements
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Run Python tests
+        run: python -m pytest -q
+
+      - name: Check canonical knowledge
+        run: python tools/kb.py check
+
+      - name: Rebuild indexes in a temporary database
+        run: python tools/kb.py rebuild --database "$RUNNER_TEMP/knowledge.db"
+
+      - name: Check patch whitespace
+        run: git diff --check
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
