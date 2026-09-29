@@ -53,7 +53,7 @@ class ImportRepository:
         if not isinstance(offset, int) or offset < 0:
             raise ValueError("offset must be zero or greater")
         rows = self.connection.execute(
-            "SELECT * FROM import_jobs ORDER BY created_at DESC, id LIMIT ? OFFSET ?",
+            "SELECT * FROM import_jobs ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
         return [

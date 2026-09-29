@@ -428,7 +428,6 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
     assert "staging_path" not in item["metadata"]
     assert api_client.get("/api/imports/{}".format(job["id"])).status_code == 200
     assert api_client.get("/api/imports").json()[0]["id"] == job["id"]
-    assert api_client.get("/api/imports").json()[0]["id"] == job["id"]
     created_draft = api_client.post(
         "/api/import-items/{}/draft".format(item["id"])
     )

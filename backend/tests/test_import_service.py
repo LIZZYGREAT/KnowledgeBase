@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from backend.app.db.connection import connect_database
+from backend.app.domain.imports import ImportJob
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.import_repository import ImportRepository
 from backend.app.services.draft_service import DraftService
@@ -34,6 +35,33 @@ def import_context(tmp_path):
     service = ImportService(repository, imports, drafts)
     yield repository, connection, drafts, imports, service
     connection.close()
+
+
+def test_import_jobs_with_same_timestamp_use_insertion_order(import_context):
+    _, _, _, imports, _ = import_context
+    created_at = "2026-09-29T12:00:00Z"
+    imports.create_job(
+        ImportJob(
+            id="job-a",
+            status="ready",
+            profile="default",
+            created_at=created_at,
+            updated_at=created_at,
+            error_message=None,
+        )
+    )
+    imports.create_job(
+        ImportJob(
+            id="job-z",
+            status="ready",
+            profile="default",
+            created_at=created_at,
+            updated_at=created_at,
+            error_message=None,
+        )
+    )
+
+    assert [job.id for job in imports.list_jobs()] == ["job-z", "job-a"]
 
 
 def test_directory_import_stages_markdown_and_pdf_as_manual_bundle(import_context, tmp_path):
