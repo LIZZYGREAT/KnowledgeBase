@@ -473,6 +473,28 @@ def test_restore_rejects_broken_historical_markdown(publish_context):
     assert git.current_revision() == current_revision
 
 
+def test_restore_allows_style_only_markdown_findings_as_warnings(publish_context):
+    repository, _, _, _, publisher = publish_context
+    git = GitManager(repository)
+    target = repository / "knowledge" / "documents" / "learning" / "restore-style.md"
+    historical_content = _document("restore-style", title="Historical Version")
+    historical_content += "\n## Unnumbered historical heading\n"
+    target.write_text(historical_content, encoding="utf-8")
+    _git(repository, "add", "knowledge/documents/learning/restore-style.md")
+    _git(repository, "commit", "-m", "add historical style finding")
+    historical_revision = git.current_revision()
+
+    current_content = _document("restore-style", title="Current Version")
+    target.write_text(current_content, encoding="utf-8")
+    _git(repository, "add", "knowledge/documents/learning/restore-style.md")
+    _git(repository, "commit", "-m", "update current document")
+
+    result = publisher.restore(target, historical_revision)
+
+    assert target.read_text(encoding="utf-8") == historical_content
+    assert any("heading.h2_numbering" in warning for warning in result.warnings)
+
+
 def test_restore_rejects_taxonomy_registry_absence(publish_context):
     repository, _, _, _, publisher = publish_context
     git = GitManager(repository)

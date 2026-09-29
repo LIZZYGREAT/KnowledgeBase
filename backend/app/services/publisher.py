@@ -185,9 +185,9 @@ class Publisher:
     ) -> RestoredResult:
         """Restore a canonical file by creating a new commit through GitManager."""
         historical_content = self.git.read_at_revision(path, revision)
-        self._validate_restore_candidate(path, historical_content)
+        restore_warnings = self._validate_restore_candidate(path, historical_content)
         commit_revision = self.git.restore(path, revision, commit_message)
-        warnings = []
+        warnings = list(restore_warnings)
         try:
             self.indexer.update_path(path)
         except Exception as error:
@@ -198,7 +198,7 @@ class Publisher:
 
     def _validate_restore_candidate(
         self, path: Union[str, Path], historical_content: Optional[bytes]
-    ) -> None:
+    ) -> list[str]:
         relative_path = self.git._relative_knowledge_path(path)
         parts = Path(relative_path).parts
         if (
@@ -232,7 +232,7 @@ class Publisher:
 
         if historical_content is None:
             if entity_type in {"document", "term"}:
-                return
+                return []
             if entity_type == "source":
                 references = find_source_references(
                     self.repository_root, {Path(relative_path).stem}
@@ -244,7 +244,7 @@ class Publisher:
                             for issue in references
                         )
                     )
-                return
+                return []
             raise PublishValidationError(
                 "A Taxonomy Registry cannot be restored to an absent file"
             )
@@ -259,7 +259,13 @@ class Publisher:
                 raise PublishValidationError(
                     "Restore content does not match its canonical path"
                 )
-            self._validate_candidate(candidate, content, candidate_path, metadata)
+            return self._validate_candidate(
+                candidate,
+                content,
+                candidate_path,
+                metadata,
+                allow_style_warnings=True,
+            )
         except PublishValidationError:
             raise
         except (
@@ -324,7 +330,14 @@ class Publisher:
 
         raise ValueError("Unsupported Draft entity type: {}".format(draft.entity_type))
 
-    def _validate_candidate(self, draft: Draft, content: str, path: Path, metadata) -> list[str]:
+    def _validate_candidate(
+        self,
+        draft: Draft,
+        content: str,
+        path: Path,
+        metadata,
+        allow_style_warnings: bool = False,
+    ) -> list[str]:
         self._ensure_entity_path(draft, path)
         if draft.entity_type == "source":
             self._validate_source_attachment(metadata)
@@ -353,7 +366,15 @@ class Publisher:
             standard=self.standard,
             maintenance_status=(metadata.maintenance.status if metadata.maintenance else None),
         )
-        errors = [issue for issue in issues if issue.severity == "ERROR"]
+        errors = [
+            issue
+            for issue in issues
+            if issue.severity == "ERROR"
+            and not (
+                allow_style_warnings
+                and issue.code.startswith(("heading.", "mermaid."))
+            )
+        ]
         if errors:
             raise PublishValidationError(
                 "Markdown validation failed: "
@@ -381,6 +402,10 @@ class Publisher:
             "{}:{}: {}".format(issue.code, issue.line, issue.message)
             for issue in issues
             if issue.severity == "WARN"
+            or (
+                allow_style_warnings
+                and issue.code.startswith(("heading.", "mermaid."))
+            )
         ]
 
     def _ensure_entity_path(self, draft: Draft, target_path: Path) -> None:
