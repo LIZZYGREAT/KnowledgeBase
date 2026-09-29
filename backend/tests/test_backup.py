@@ -45,6 +45,12 @@ def test_backup_contains_git_runtime_and_storage_snapshots(tmp_path):
         }
         archive.extractall(tmp_path / "restore")
 
+    bundle_path = tmp_path / "restore" / "knowledge.bundle"
+    restored_repository = tmp_path / "restored-repository"
+    _git(tmp_path, "clone", str(bundle_path), str(restored_repository))
+    restored_note = restored_repository / "knowledge" / "note.md"
+    assert restored_note.read_text(encoding="utf-8") == "canonical"
+
     restored_db = sqlite3.connect(tmp_path / "restore" / "runtime" / "knowledge.db")
     try:
         assert restored_db.execute("SELECT content FROM drafts WHERE id = 'draft-id'").fetchone()[0] == "content"
