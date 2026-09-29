@@ -204,7 +204,7 @@ def test_deepseek_client_retries_transient_network_error_and_uses_json_mode():
 
     waits = []
     client = DeepSeekClient(
-        DeepSeekConfig("server-secret", timeout_seconds=3, max_retries=1),
+        DeepSeekConfig("server-secret", model="test-model", timeout_seconds=3, max_retries=1),
         opener=opener,
         sleeper=waits.append,
     )
@@ -229,7 +229,7 @@ def test_deepseek_client_stops_after_bounded_retries():
         raise URLError("offline")
 
     client = DeepSeekClient(
-        DeepSeekConfig("server-secret", max_retries=2),
+        DeepSeekConfig("server-secret", model="test-model", max_retries=2),
         opener=opener,
         sleeper=lambda _: None,
     )
@@ -239,11 +239,39 @@ def test_deepseek_client_stops_after_bounded_retries():
 
 
 def test_gateway_configuration_requires_server_side_key():
-    client = DeepSeekClient(DeepSeekConfig(""), opener=lambda *_args, **_kwargs: None)
+    client = DeepSeekClient(
+        DeepSeekConfig("", model="test-model"), opener=lambda *_args, **_kwargs: None
+    )
     with pytest.raises(AIConfigurationError, match="DEEPSEEK_API_KEY"):
         client.complete([], {})
 
 
 def test_deepseek_configuration_requires_https():
     with pytest.raises(AIConfigurationError, match="HTTPS"):
-        DeepSeekConfig("server-secret", base_url="http://example.test")
+        DeepSeekConfig("server-secret", model="test-model", base_url="http://example.test")
+
+
+def test_empty_deepseek_model_environment_uses_yaml_default(tmp_path, monkeypatch):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "ai.yaml.example").write_text(
+        "model: yaml-model\napi_key_env: DEEPSEEK_API_KEY\n", encoding="utf-8"
+    )
+
+    monkeypatch.setenv("DEEPSEEK_MODEL", "")
+    assert DeepSeekConfig.from_environment(tmp_path).model == "yaml-model"
+
+    monkeypatch.setenv("DEEPSEEK_MODEL", "  ")
+    assert DeepSeekConfig.from_environment(tmp_path).model == "yaml-model"
+
+    monkeypatch.setenv("DEEPSEEK_MODEL", "environment-model")
+    assert DeepSeekConfig.from_environment(tmp_path).model == "environment-model"
+
+
+def test_empty_deepseek_model_without_yaml_default_is_a_configuration_error(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "config").mkdir()
+    monkeypatch.setenv("DEEPSEEK_MODEL", "")
+    with pytest.raises(AIConfigurationError, match="Configure a DeepSeek model"):
+        DeepSeekConfig.from_environment(tmp_path)

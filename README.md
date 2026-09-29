@@ -9,12 +9,16 @@ This repository currently implements Phases 0–8: repository boundaries and can
 Backend and knowledge checks:
 
 ```powershell
-python -m pip install -r backend/requirements.txt
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r backend/requirements-dev.txt
 python -m pytest -q
 python tools/kb.py check
 python tools/kb.py rebuild
 ```
+
+These commands use a local `.venv`; Docker Compose and server deployments continue to install dependencies in their container or deployment environment.
 
 `rebuild` recreates the local search and relationship indexes in the ignored `runtime/knowledge.db` database from canonical files under `knowledge/`.
 

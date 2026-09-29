@@ -29,8 +29,8 @@ class AIResponseError(AIGatewayError):
 @dataclass(frozen=True)
 class DeepSeekConfig:
     api_key: str
+    model: str
     base_url: str = "https://api.deepseek.com"
-    model: str = "deepseek-flash"
     timeout_seconds: float = 60
     max_retries: int = 2
 
@@ -53,10 +53,17 @@ class DeepSeekConfig:
 
             values = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         key_name = values.get("api_key_env", "DEEPSEEK_API_KEY")
+        model_override = os.environ.get("DEEPSEEK_MODEL", "").strip()
+        configured_model = values.get("model")
+        model = model_override or configured_model
+        if not isinstance(model, str) or not model.strip():
+            raise AIConfigurationError(
+                "Configure a DeepSeek model in config/ai.yaml.example or DEEPSEEK_MODEL"
+            )
         return cls(
             api_key=os.environ.get(key_name, ""),
             base_url=os.environ.get("DEEPSEEK_BASE_URL", values.get("base_url", "https://api.deepseek.com")),
-            model=os.environ.get("DEEPSEEK_MODEL", values.get("model", "deepseek-flash")),
+            model=model.strip(),
             timeout_seconds=float(os.environ.get("DEEPSEEK_TIMEOUT_SECONDS", values.get("timeout_seconds", 60))),
             max_retries=int(os.environ.get("DEEPSEEK_MAX_RETRIES", values.get("max_retries", 2))),
         )

@@ -1,5 +1,5 @@
-# Backend-only defaults for the DeepSeek Gateway. Environment variables override
-# these values; the API key is read from the configured environment variable.
+# Backend-only defaults for the DeepSeek Gateway. A non-empty DEEPSEEK_MODEL
+# overrides the configured model; the API key is read from the configured environment variable.
 provider: deepseek
 api_style: openai-chat-completions
 base_url: https://api.deepseek.com
