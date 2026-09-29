@@ -48,20 +48,14 @@ class GitManager:
 
     def content_hash(self, path: Union[str, Path]) -> str:
         target, _ = self._resolve_knowledge_path(path)
-        content = target.read_bytes() if target.is_file() else b""
-        return hashlib.sha256(content).hexdigest()
+        if not target.is_file():
+            return hashlib.sha256(b"\x00knowledgebase:missing").hexdigest()
+        return hashlib.sha256(target.read_bytes()).hexdigest()
 
     def assert_base(
         self, base_revision: str, base_content_hash: str, path: Union[str, Path]
     ) -> None:
-        expected_revision = _validate_revision(base_revision)
-        current_revision = self.current_revision()
-        if expected_revision != current_revision:
-            raise GitConflictError(
-                "Git base changed from {} to {}".format(
-                    expected_revision, current_revision
-                )
-            )
+        _validate_revision(base_revision)
         actual_hash = self.content_hash(path)
         if not re.fullmatch(r"[0-9a-f]{64}", base_content_hash or ""):
             raise GitConflictError("Draft has an invalid canonical content hash")

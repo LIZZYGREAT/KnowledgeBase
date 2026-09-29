@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from difflib import unified_diff
 from typing import Any, Dict, Optional
+import hashlib
+import re
 import uuid
 
 from backend.app.domain.runtime import (
@@ -49,7 +51,7 @@ class ProposalService:
         target_type: EntityType,
         target_id: str,
         kind: ProposalKind,
-        base_revision: str,
+        base_content_hash: str,
         payload: Dict[str, Any],
         created_by: str,
         provider: Optional[str] = None,
@@ -63,7 +65,7 @@ class ProposalService:
         if kind not in _PROPOSAL_KINDS:
             raise ValueError("Unsupported Proposal kind: {}".format(kind))
         _require_text(target_id, "target_id")
-        _require_text(base_revision, "base_revision")
+        _require_content_hash(base_content_hash)
         _require_text(created_by, "created_by")
         if not isinstance(payload, dict):
             raise ValueError("Proposal payload must be a JSON object")
@@ -72,6 +74,9 @@ class ProposalService:
         if (base_content is None) != (proposed_content is None):
             raise ValueError("Both base_content and proposed_content are required for a diff")
         if base_content is not None:
+            calculated_hash = hashlib.sha256(base_content.encode("utf-8")).hexdigest()
+            if base_content_hash != calculated_hash:
+                raise ValueError("base_content_hash does not match base_content")
             diff_text = build_unified_diff(base_content, proposed_content)
 
         proposal = Proposal(
@@ -80,7 +85,7 @@ class ProposalService:
             target_id=target_id,
             kind=kind,
             status="proposed",
-            base_revision=base_revision,
+            base_content_hash=base_content_hash,
             payload=payload,
             diff_text=diff_text,
             created_by=created_by,
@@ -111,10 +116,10 @@ class ProposalService:
     def approve(
         self,
         proposal_id: str,
-        current_revision: str,
+        current_content_hash: str,
         review_note: Optional[str] = None,
     ) -> Proposal:
-        proposal = self._require_current_base(proposal_id, current_revision)
+        proposal = self._require_current_base(proposal_id, current_content_hash)
         if proposal.status not in {"proposed", "drafted"}:
             raise ProposalTransitionError(
                 "Cannot approve a Proposal in '{}' status".format(proposal.status)
@@ -161,8 +166,8 @@ class ProposalService:
             rejected_candidate=candidate,
         )
 
-    def merge(self, proposal_id: str, current_revision: str) -> Proposal:
-        proposal = self._require_current_base(proposal_id, current_revision)
+    def merge(self, proposal_id: str, current_content_hash: str) -> Proposal:
+        proposal = self._require_current_base(proposal_id, current_content_hash)
         if proposal.status != "approved":
             raise ProposalTransitionError(
                 "Only an approved Proposal can be merged; current status is '{}'".format(
@@ -177,12 +182,15 @@ class ProposalService:
             proposal.review_note,
         )
 
-    def detect_stale(self, proposal_id: str, current_revision: str) -> Proposal:
-        _require_text(current_revision, "current_revision")
+    def detect_stale(self, proposal_id: str, current_content_hash: str) -> Proposal:
+        _require_content_hash(current_content_hash)
         proposal = self.get(proposal_id)
-        if proposal.status in _ACTIVE_STATUSES and proposal.base_revision != current_revision:
-            note = "Base revision changed from '{}' to '{}'".format(
-                proposal.base_revision, current_revision
+        if (
+            proposal.status in _ACTIVE_STATUSES
+            and proposal.base_content_hash != current_content_hash
+        ):
+            note = "Base content changed from '{}' to '{}'".format(
+                proposal.base_content_hash, current_content_hash
             )
             return self.repository.transition(
                 proposal_id,
@@ -193,8 +201,8 @@ class ProposalService:
             )
         return proposal
 
-    def assert_applicable(self, proposal_id: str, current_revision: str) -> Proposal:
-        proposal = self._require_current_base(proposal_id, current_revision)
+    def assert_applicable(self, proposal_id: str, current_content_hash: str) -> Proposal:
+        proposal = self._require_current_base(proposal_id, current_content_hash)
         if proposal.status != "approved":
             raise ProposalTransitionError(
                 "Only an approved Proposal can be applied; current status is '{}'".format(
@@ -239,9 +247,9 @@ class ProposalService:
             candidate_type, normalized_value, scope.strip()
         )
 
-    def _require_current_base(self, proposal_id: str, current_revision: str) -> Proposal:
-        _require_text(current_revision, "current_revision")
-        proposal = self.detect_stale(proposal_id, current_revision)
+    def _require_current_base(self, proposal_id: str, current_content_hash: str) -> Proposal:
+        _require_content_hash(current_content_hash)
+        proposal = self.detect_stale(proposal_id, current_content_hash)
         if proposal.status == "stale":
             raise StaleProposalError(
                 "Proposal '{}' is stale and cannot be applied".format(proposal_id)
@@ -263,6 +271,11 @@ def build_unified_diff(before: str, after: str) -> str:
 def _require_text(value: str, field: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("{} must be non-empty text".format(field))
+
+
+def _require_content_hash(value: str) -> None:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise ValueError("base_content_hash must be a lowercase SHA-256 hash")
 
 
 def _optional_text(value: Optional[str]) -> Optional[str]:

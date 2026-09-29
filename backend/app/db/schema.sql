@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS proposals (
     status TEXT NOT NULL CHECK (status IN (
         'proposed', 'drafted', 'approved', 'merged', 'rejected', 'stale'
     )),
-    base_revision TEXT NOT NULL,
+    base_content_hash TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     diff_text TEXT,
     created_by TEXT NOT NULL,

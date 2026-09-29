@@ -59,7 +59,7 @@ def test_publish_writes_one_canonical_file_and_commit_only_includes_target(
     assert "README.md" in git.status()
 
 
-def test_publish_rejects_stale_git_base_without_writing(publish_context):
+def test_unrelated_commit_does_not_conflict_with_new_file_draft(publish_context):
     repository, _, drafts, _, publisher = publish_context
     git = GitManager(repository)
     target = "knowledge/documents/learning/stale-note.md"
@@ -70,13 +70,25 @@ def test_publish_rejects_stale_git_base_without_writing(publish_context):
     (repository / "README.md").write_text("another commit\n", encoding="utf-8")
     _git(repository, "add", "README.md")
     _git(repository, "commit", "-m", "unrelated change")
-    head_before_publish = git.current_revision()
+    result = publisher.publish(draft.id)
 
-    with pytest.raises(PublishConflictError, match="Git base changed"):
-        publisher.publish(draft.id)
+    assert (repository / target).is_file()
+    assert result.commit_revision == git.current_revision()
 
-    assert not (repository / target).exists()
-    assert git.current_revision() == head_before_publish
+
+def test_other_document_publish_does_not_conflict_with_existing_draft(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    first_path = "knowledge/documents/learning/first-note.md"
+    second_path = "knowledge/documents/learning/second-note.md"
+    first = _create_draft(drafts, git, "document", "first-note", _document("first-note"), first_path)
+    second = _create_draft(drafts, git, "document", "second-note", _document("second-note"), second_path)
+
+    publisher.publish(second.id)
+    result = publisher.publish(first.id)
+
+    assert result.entity_id == "first-note"
+    assert (repository / first_path).is_file()
 
 
 def test_publish_rejects_changed_target_content_without_overwriting(publish_context):
@@ -94,6 +106,33 @@ def test_publish_rejects_changed_target_content_without_overwriting(publish_cont
     assert (repository / target).read_text(encoding="utf-8") == "external unstaged edit\n"
     assert git.current_revision() == draft.base_git_revision
     assert original != (repository / target).read_bytes()
+
+
+def test_creation_of_empty_target_conflicts_with_missing_target_base(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/created-empty.md"
+    draft = _create_draft(
+        drafts, git, "document", "created-empty", _document("created-empty"), target
+    )
+    (repository / target).parent.mkdir(parents=True, exist_ok=True)
+    (repository / target).write_bytes(b"")
+
+    with pytest.raises(PublishConflictError, match="Canonical file changed"):
+        publisher.publish(draft.id)
+
+
+def test_deleting_target_conflicts_with_existing_file_base(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/papers/ewc-review.md"
+    draft = _create_draft(
+        drafts, git, "document", "ewc-review", _document("ewc-review"), target
+    )
+    (repository / target).unlink()
+
+    with pytest.raises(PublishConflictError, match="Canonical file changed"):
+        publisher.publish(draft.id)
 
 
 def test_validation_failure_does_not_write_or_commit(publish_context):
@@ -125,11 +164,11 @@ def test_approved_proposal_is_applied_and_merged_after_commit(publish_context):
         "document",
         "proposed-note",
         "document_revision",
-        git.current_revision(),
+        git.content_hash(target),
         {"content": content},
         "reviewer",
     )
-    proposals.approve(proposal.id, git.current_revision(), "checked")
+    proposals.approve(proposal.id, git.content_hash(target), "checked")
 
     result = publisher.publish(draft.id, proposal_id=proposal.id)
 
@@ -137,6 +176,35 @@ def test_approved_proposal_is_applied_and_merged_after_commit(publish_context):
     assert proposals.get(proposal.id).status == "merged"
     assert result.proposal_id == proposal.id
     assert result.commit_revision == git.current_revision()
+
+
+def test_proposal_survives_unrelated_document_publish(publish_context):
+    repository, _, drafts, proposals, publisher = publish_context
+    git = GitManager(repository)
+    proposal_target = "knowledge/documents/learning/proposal-target.md"
+    other_target = "knowledge/documents/learning/other-target.md"
+    proposal_content = _document("proposal-target", title="Proposed Content")
+    proposal_draft = _create_draft(
+        drafts, git, "document", "proposal-target", "draft placeholder", proposal_target
+    )
+    proposal = proposals.create(
+        "document",
+        "proposal-target",
+        "document_revision",
+        git.content_hash(proposal_target),
+        {"content": proposal_content},
+        "reviewer",
+    )
+    proposals.approve(proposal.id, git.content_hash(proposal_target), "checked")
+    other_draft = _create_draft(
+        drafts, git, "document", "other-target", _document("other-target"), other_target
+    )
+
+    publisher.publish(other_draft.id)
+    result = publisher.publish(proposal_draft.id, proposal_id=proposal.id)
+
+    assert result.entity_id == "proposal-target"
+    assert proposals.get(proposal.id).status == "merged"
 
 
 def test_restore_creates_a_new_commit_and_preserves_published_history(publish_context):

@@ -27,7 +27,7 @@ class ProposalRepository:
         with self.connection:
             self.connection.execute(
                 """INSERT INTO proposals (
-                    id, target_type, target_id, kind, status, base_revision,
+                    id, target_type, target_id, kind, status, base_content_hash,
                     payload_json, diff_text, created_by, provider, model,
                     created_at, reviewed_at, review_note
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -37,7 +37,7 @@ class ProposalRepository:
                     proposal.target_id,
                     proposal.kind,
                     proposal.status,
-                    proposal.base_revision,
+                    proposal.base_content_hash,
                     payload_json,
                     proposal.diff_text,
                     proposal.created_by,
@@ -177,7 +177,7 @@ def _proposal_from_row(row: sqlite3.Row) -> Proposal:
         target_id=row["target_id"],
         kind=row["kind"],
         status=row["status"],
-        base_revision=row["base_revision"],
+        base_content_hash=row["base_content_hash"],
         payload=json.loads(row["payload_json"]),
         diff_text=row["diff_text"],
         created_by=row["created_by"],

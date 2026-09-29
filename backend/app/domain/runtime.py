@@ -39,7 +39,7 @@ class Proposal:
     target_id: str
     kind: ProposalKind
     status: ProposalStatus
-    base_revision: str
+    base_content_hash: str
     payload: Dict[str, Any]
     diff_text: Optional[str]
     created_by: str

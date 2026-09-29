@@ -1,4 +1,5 @@
 import sqlite3
+import hashlib
 
 import pytest
 
@@ -110,7 +111,7 @@ def test_proposal_draft_approve_assert_and_merge_follow_state_machine(runtime_co
         "document",
         "note",
         "document_revision",
-        "git-rev-a",
+        hashlib.sha256(b"# Before\n").hexdigest(),
         {"title": "新标题"},
         "human",
         base_content="# Before\n",
@@ -121,9 +122,10 @@ def test_proposal_draft_approve_assert_and_merge_follow_state_machine(runtime_co
     assert "+# After" in proposal.diff_text
 
     drafted = service.draft(proposal.id, {"title": "更新标题"}, "metadata diff")
-    approved = service.approve(proposal.id, "git-rev-a", "reviewed")
-    applicable = service.assert_applicable(proposal.id, "git-rev-a")
-    merged = service.merge(proposal.id, "git-rev-a")
+    current_hash = hashlib.sha256(b"# Before\n").hexdigest()
+    approved = service.approve(proposal.id, current_hash, "reviewed")
+    applicable = service.assert_applicable(proposal.id, current_hash)
+    merged = service.merge(proposal.id, current_hash)
 
     assert drafted.status == "drafted"
     assert approved.status == "approved"
@@ -135,10 +137,11 @@ def test_proposal_draft_approve_assert_and_merge_follow_state_machine(runtime_co
 def test_approved_proposal_cannot_be_rejected_after_merge(runtime_connection):
     service = ProposalService(ProposalRepository(runtime_connection))
     proposal = service.create(
-        "term", "sgd", "term_revision", "rev-a", {}, "human"
+        "term", "sgd", "term_revision", hashlib.sha256(b"before").hexdigest(), {}, "human"
     )
-    service.approve(proposal.id, "rev-a")
-    service.merge(proposal.id, "rev-a")
+    current_hash = hashlib.sha256(b"before").hexdigest()
+    service.approve(proposal.id, current_hash)
+    service.merge(proposal.id, current_hash)
 
     with pytest.raises(ProposalTransitionError, match="Cannot reject"):
         service.reject(proposal.id, "too late")
@@ -147,22 +150,23 @@ def test_approved_proposal_cannot_be_rejected_after_merge(runtime_connection):
 def test_stale_proposal_is_marked_and_cannot_be_approved_or_applied(runtime_connection):
     service = ProposalService(ProposalRepository(runtime_connection))
     proposal = service.create(
-        "document", "note", "metadata", "rev-a", {"tags": ["ai"]}, "ai"
+        "document", "note", "metadata", hashlib.sha256(b"before").hexdigest(), {"tags": ["ai"]}, "ai"
     )
+    changed_hash = hashlib.sha256(b"after").hexdigest()
 
     with pytest.raises(StaleProposalError):
-        service.approve(proposal.id, "rev-b")
+        service.approve(proposal.id, changed_hash)
     assert service.get(proposal.id).status == "stale"
     with pytest.raises(StaleProposalError):
-        service.assert_applicable(proposal.id, "rev-b")
+        service.assert_applicable(proposal.id, changed_hash)
     with pytest.raises(StaleProposalError):
-        service.merge(proposal.id, "rev-b")
+        service.merge(proposal.id, changed_hash)
 
 
 def test_reject_records_candidate_atomically_and_normalizes_lookup(runtime_connection):
     service = ProposalService(ProposalRepository(runtime_connection))
     proposal = service.create(
-        "taxonomy", "learning", "taxonomy", "rev-a", {"title": "Bad Topic"}, "ai"
+        "taxonomy", "learning", "taxonomy", hashlib.sha256(b"before").hexdigest(), {"title": "Bad Topic"}, "ai"
     )
     rejected = service.reject(
         proposal.id,
@@ -195,7 +199,7 @@ def test_proposal_status_constraint_rejects_unknown_state(runtime_connection):
     with pytest.raises(sqlite3.IntegrityError):
         runtime_connection.execute(
             """INSERT INTO proposals (
-                id, target_type, target_id, kind, status, base_revision,
+                id, target_type, target_id, kind, status, base_content_hash,
                 payload_json, created_by, created_at
             ) VALUES ('p', 'document', 'd', 'metadata', 'unknown', 'rev', '{}', 'human', 'now')"""
         )

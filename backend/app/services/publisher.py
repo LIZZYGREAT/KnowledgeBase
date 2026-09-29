@@ -103,16 +103,13 @@ class Publisher:
         commit_message: Optional[str] = None,
     ) -> PublishedResult:
         draft = self.draft_service.get(draft_id)
-        current_revision = self.git.current_revision()
         content = draft.content
         proposal = None
 
         if proposal_id is not None:
             if self.proposal_service is None:
                 raise PublishError("ProposalService is required to apply a Proposal")
-            proposal = self.proposal_service.assert_applicable(
-                proposal_id, current_revision
-            )
+            proposal = self.proposal_service.get(proposal_id)
             if proposal.target_type != draft.entity_type or proposal.target_id != draft.entity_id:
                 raise PublishValidationError("Proposal target does not match the Draft")
             proposed_content = proposal.payload.get("content")
@@ -133,6 +130,12 @@ class Publisher:
             )
         except (GitConflictError, ValueError) as error:
             raise PublishConflictError(str(error)) from error
+
+        target_content_hash = self.git.content_hash(path)
+        if proposal is not None:
+            proposal = self.proposal_service.assert_applicable(
+                proposal.id, target_content_hash
+            )
 
         self._validate_candidate(draft, content, path, metadata)
         previous = path.read_bytes() if path.is_file() else None
@@ -157,7 +160,7 @@ class Publisher:
         proposal_error = None
         if proposal is not None:
             try:
-                self.proposal_service.merge(proposal.id, current_revision)
+                self.proposal_service.merge(proposal.id, target_content_hash)
             except Exception as error:
                 proposal_error = error
 
