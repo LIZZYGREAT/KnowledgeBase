@@ -17,6 +17,7 @@ node_modules/
 .npm-cache/
 frontend/dist/
 *.tsbuildinfo
+backups/
 
 # Runtime state and uploaded material
 runtime/*

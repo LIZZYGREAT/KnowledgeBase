@@ -2,12 +2,13 @@
 
 ## Current phase
 
-The repository has completed Phases 0–11: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, the server-side DeepSeek Gateway, the Knowledge API, the Phase 9 Reference Hub reading interface, the Phase 10 editor, and the Phase 11 Source, Evidence, PaperSkill, and Context Export integrations.
+The repository has completed Phases 0–12: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, the server-side DeepSeek Gateway, the Knowledge API, the Reference Hub reading and editing interfaces, Source/Evidence/PaperSkill/Context Export integrations, non-canonical presentation annotations and Markdown formatting tools, legacy migration workflows, and private production deployment and backup support. A live server and user legacy files still require operator-provided infrastructure and data.
 
 ## Data boundaries
 
 - `knowledge/` contains canonical Markdown and YAML.
 - `runtime/` contains disposable runtime state and is not a source of canonical facts.
+- `presentation_annotations` live in Runtime SQLite. Highlight, text color, and underline never modify Markdown/YAML, Git, Search, Context Export, Evidence, or PaperSkillWork. Runtime loss also loses these personal annotations.
 - `storage/` contains local papers, uploads, and staging files and is not committed.
 - Parser and linter code is deterministic and does not access external services or persistent state.
 - `Publisher` is the only business service that writes canonical files. A Draft stores its comparison Git revision and target content hash; human rebase and successful Publish advance that comparison point. Publish conflicts depend on the target file's content hash, including whether the target is absent.
@@ -19,12 +20,13 @@ The repository has completed Phases 0–11: repository foundation, canonical ent
 - Approved Proposal content is applied only through `Publisher`; a Proposal is marked merged only after its canonical commit succeeds.
 - SQLite search and relationship indexes are derived from `knowledge/`; Drafts are not indexed. `python tools/kb.py rebuild` recreates indexes without changing canonical files or usage-event history.
 - Runtime SQLite is disposable during this development phase. Recreate the local database after Runtime schema changes; there is no compatibility migration layer.
+- Production backups include a SQLite snapshot so presentation annotations and other Runtime state can be restored with the canonical Git bundle and `storage/` files.
 - Publish and Restore return success after the canonical Git commit. Proposal status or index refresh failures are returned as warnings; `python tools/kb.py rebuild` repairs derived indexes.
 - Import Jobs and Items live in Runtime SQLite. `storage/staging/` holds temporary import copies, and `storage/papers/` holds local PDFs; neither directory is committed. Import uses no AI or network service.
 
 ## Technology
 
-The planned stack is React + TypeScript + Vite, Python + FastAPI, SQLite + FTS5, Markdown + YAML, Git, DeepSeek API, and Docker Compose. Registries and resolvers remain file-backed. Drafts and Proposals are disposable SQLite Runtime state; only the Publisher writes Canonical Markdown and YAML. The backend uses `KNOWLEDGE_REPO_PATH` as its repository root and `DATABASE_PATH` for Runtime SQLite.
+The stack is React + TypeScript + Vite, Python + FastAPI, SQLite + FTS5, Markdown + YAML, Git, DeepSeek API, and Docker Compose. Production serves the static Reference Hub through Nginx and keeps the API off the host-published ports. Registries and resolvers remain file-backed. Drafts, Proposals, Imports, usage, and presentation annotations are Runtime state; only the Publisher writes Canonical Markdown and YAML. The backend uses `KNOWLEDGE_REPO_PATH` as its repository root and `DATABASE_PATH` for Runtime SQLite.
 
 ## Phase 4: Publisher + Git
 
@@ -50,7 +52,7 @@ The complete local requirements are held in `docs/private/KnowledgeBase_v1_架�
 
 Markdown needs valid canonical metadata before it can become a Document or Term Draft. Writing-style findings are retained on the Import Item for review and do not prevent draft creation. A new blank Document follows the same Draft workflow. A PDF is never converted into a Note: confirming it creates a Source Draft and copies the PDF into ignored `storage/papers/`. Existing Source matches are resolved deterministically by identifier and then title, or require explicit selection when ambiguous. `Publisher` checks a local PDF attachment before publishing its Source metadata, commits only the canonical YAML file, and attempts to refresh the Source index. Imports do not write canonical files directly and do not invoke AI.
 
-The import pipeline is currently a service-level backend component. User-facing API routes and Reference Hub screens are later phases.
+The API and Review page support staging, review, and Draft creation. The `kb import` command stages arbitrary local paths for batch migration; production Compose can mount a read-only import directory at `/imports`.
 
 ## Phase 7: DeepSeek Gateway
 
@@ -62,18 +64,24 @@ The initial task registry supports metadata suggestions, Term detection, semanti
 
 The FastAPI surface exposes canonical Document, Term, Source, Topic, and Search reads; Context Export; Draft and Proposal review; publishing through `Publisher`; Import workflows; AI Proposal requests; and Usage events and lists. Read endpoints consume the rebuildable SQLite indexes and resolve canonical content from the indexed knowledge path. Responses omit repository paths. Draft creation captures the canonical Git revision and target hash on the server, and Proposal approval compares against its linked Draft content hash.
 
-Import requests accept relative paths under `storage/uploads/`; traversal and symbolic links are rejected. AI requests require explicit `confirm_deepseek_transfer: true`, disclose that Draft content and the needed registry context will be sent to DeepSeek, and return only a validated Proposal. Evidence Suggestions identify Draft claims needing evidence and recommend existing Source IDs from registry metadata; they do not generate quotes or locators and are not Evidence. Context Export supports `raw`, `reviewed`, and `verified` trust levels and the `research`, `teaching`, and `evidence` purposes. Verified claims require a human-approved Document and a Source whose metadata review status is `verified`; this is provisional traceability, not per-claim Evidence verification, and PaperSkillWork must not treat it as Evidence Verified. The API schema is available at `/openapi.json` and `/docs`.
+Import requests accept relative paths under `storage/uploads/`; traversal and symbolic links are rejected. `kb import` accepts local files and directories for batch migration. AI requests require explicit `confirm_deepseek_transfer: true`, disclose that Draft content and the needed registry context will be sent to DeepSeek, and return only a validated Proposal. Metadata Suggestions are available from the Document editor and never apply themselves. Evidence Suggestions identify Draft claims needing evidence and recommend existing Source IDs from registry metadata; they do not generate quotes or locators and are not Evidence. Context Export supports `raw`, `reviewed`, and `verified` trust levels and the `research`, `teaching`, and `evidence` purposes. Verified claims require a human-approved Document and a Source whose metadata review status is `verified`; this is provisional traceability, not per-claim Evidence verification, and PaperSkillWork must not treat it as Evidence Verified. Presentation Annotation APIs are separate from canonical reads and exports. The API schema is available at `/openapi.json` and `/docs`.
 
 ## Phase 9: Reference Hub reading interface
 
-The React application exposes the six fixed sections Home, Search, Library, Terms, Topics, and Review. Home uses reading and Git history summaries, and Search uses the structured filters from the indexed API. Library and Topics browse canonical Documents, Terms, and Sources. Review aggregates unreviewed and revision-needed entities, open Proposals, Import Items, and unresolved or ambiguous Wiki Links.
+The React application exposes the six fixed sections Home, Search, Library, Terms, Topics, and Review. Home uses reading and Git history summaries, and Search uses the structured filters from the indexed API. Library and Topics browse canonical Documents, Terms, and Sources. Review aggregates unreviewed and revision-needed entities, open Proposals, Import Items, unresolved or ambiguous Wiki Links, and stale visual annotations. Readers apply Runtime Presentation Annotations after Markdown rendering; Source pages do not support text annotations.
 
 Document and Term pages render Markdown, KaTeX, Mermaid, wiki links, backlinks, detected unlinked mentions, and indexed citations. Source pages show metadata and related Documents and Terms. Runtime state remains behind the API; the browser does not read canonical files or access Git directly.
 
 ## Phase 10: Reference Hub editor
 
-The Reference Hub adds Markdown and YAML Draft editing, autosave, live preview, explicit-consent AI Proposal requests, Proposal review, compare/reload/rebase conflict handling, and Publish through `Publisher`. Successful publication refreshes the Draft comparison base to the committed content. Canonical Markdown and YAML remain writable only through `Publisher`.
+The Reference Hub adds Markdown and YAML Draft editing, autosave, live preview, explicit-consent AI Proposal requests, Proposal review, compare/reload/rebase conflict handling, and Publish through `Publisher`. Markdown Documents and Terms have a small canonical formatting toolbar for emphasis, code, and math. Formatting edits Draft Markdown; highlight, color, and underline remain Runtime Presentation Annotations. Successful publication refreshes the Draft comparison base to the committed content. Canonical Markdown and YAML remain writable only through `Publisher`.
 
 ## Phase 11: Source / Evidence / PaperSkill / Context Export integration
 
 Document editors manage Source associations, inline citation candidates, and PaperSkill links; Source editors can associate a local PDF URI. Source pages open only PDFs under `storage/papers/` whose attachment ID matches the Source ID, through a path-confined API route. `Publisher` enforces the same ID match before publishing Source metadata. Readers show citation and Evidence details alongside associated PaperSkill URLs; Evidence Suggestions remain suggestions and do not generate quotes or locators. Document and Source readers export and copy Context at `raw`, `reviewed`, or `verified` trust levels for `research`, `teaching`, or `evidence` purposes. `verified` remains provisional traceability based on human approval and Source metadata review, not per-claim Evidence verification; PaperSkillWork must not treat it as Evidence Verified. Browser multipart upload and per-claim Evidence review are outside this phase. Canonical Markdown and YAML remain writable only through `Publisher`.
+
+## Phase 12: Legacy Migration + Deployment
+
+`kb import <path...> --profile legacy` stages batches of local Markdown and PDFs through the existing Import Service without publishing canonical content. Review can edit staged Markdown, create legacy Drafts with `unreviewed` and `legacy` metadata, and confirm PDFs as Source Drafts. The Document editor can request a metadata Proposal after explicit DeepSeek consent; a human applies selected fields to the Draft and separately publishes through `Publisher`. Review includes stale Presentation Annotations and import item actions.
+
+Production Compose builds a static Nginx Reference Hub and API image. Only the Hub port is published, on loopback by default; the backend remains inside the Compose network. Tailscale Serve or a WireGuard-only host binding provides private access. `scripts/backup.py` archives a Git bundle, a consistent SQLite backup, and `storage/`; it stops when canonical changes are uncommitted. The repository includes deployment and restore instructions, but actual server provisioning and migration of user-owned legacy files require the operator's host, network credentials, and input data.

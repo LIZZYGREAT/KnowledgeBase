@@ -3,6 +3,7 @@
 docs/private/
 runtime/
 storage/
+backups/
 frontend/node_modules/
 frontend/dist/
 **/__pycache__/

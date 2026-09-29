@@ -2,7 +2,7 @@
 
 KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
 
-This repository implements Phases 0–11: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; a staged Markdown/PDF import pipeline; the server-side DeepSeek Gateway; the Knowledge API; the Phase 9 Reference Hub reading interface; the Phase 10 editor; and the Phase 11 Source, Evidence, PaperSkill, and Context Export integrations.
+This repository implements Phases 0–12: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; staged Markdown/PDF imports; the server-side DeepSeek Gateway; the Knowledge API; the Reference Hub reader and editor; Source, Evidence, PaperSkill, and Context Export integrations; non-canonical reader annotations and Markdown formatting tools; legacy migration workflows; and private production deployment and backup support.
 
 ## Local setup
 
@@ -24,6 +24,8 @@ These commands use a local `.venv`; Docker Compose and server deployments contin
 
 Runtime SQLite is disposable during this development phase. Recreate the ignored database after Runtime schema changes; no migration layer is maintained yet.
 
+Production backups must include the Runtime SQLite database because it holds Drafts, Import Jobs, usage events, and reader-only presentation annotations. The production backup command also archives the canonical Git history and ignored `storage/` files.
+
 Frontend:
 
 ```powershell
@@ -34,11 +36,13 @@ The script installs frontend dependencies if they are missing, builds the produc
 
 To run the frontend checks manually, use `npm ci`, `npm run typecheck`, and `npm run build` from `frontend/`.
 
-Start the development services with `docker compose up --build`. The Compose ports bind to localhost; private remote access is a later deployment phase.
+Start the development services with `docker compose up --build`. The Compose ports bind to localhost. For private production deployment, use `docker-compose.production.yml` and follow [Deployment](docs/DEPLOYMENT.md).
 
 Copy `.env.example` to `.env` before starting Compose. The backend mounts the repository at `/workspace`, where it can use Git, write canonical files through `Publisher`, and keep the ignored runtime database and storage files. Git commits use `KB_GIT_USER_NAME` and `KB_GIT_USER_EMAIL`, defaulting to `KnowledgeBase` and `knowledgebase@localhost`; change them in `.env` if you want commits to show another author. DeepSeek requests use the backend-only `DEEPSEEK_API_KEY`; model, base URL, timeout, and retry settings can be overridden with `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_TIMEOUT_SECONDS`, and `DEEPSEEK_MAX_RETRIES`.
 
 The backend API is available at `http://127.0.0.1:8000`; OpenAPI is at `/openapi.json` and the interactive schema at `/docs`. Context Export and read responses do not expose repository paths. AI requests require caller confirmation before sending Draft content and task-specific registry context to DeepSeek; AI results are stored as Proposals.
+
+Batch-stage local Markdown and PDFs for review with `python tools/kb.py import <path...> --profile legacy`. This only stages input; Review is still required to create Drafts, confirm PDF Sources, apply metadata suggestions, and publish. Production migration and restore steps are in [Import workflow](docs/IMPORT_WORKFLOW.md) and [Deployment](docs/DEPLOYMENT.md).
 
 ## Repository map
 
