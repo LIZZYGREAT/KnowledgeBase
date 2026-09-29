@@ -64,12 +64,6 @@ class LintIssue:
 _CHINESE_NUMBERED = r"^[一二三四五六七八九十百零〇两]+、\S.*$"
 _H1_NUMBERING = r"^\s*(?:\d+[.)、]|[一二三四五六七八九十百零〇两]+[、.])\s*"
 _H4_H5_NUMBERING = r"^\s*(?:\d+[.)、]|[一二三四五六七八九十百零〇两]+[、.])\s*\S"
-_MERMAID_DECLARATION = (
-    r"^(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|"
-    r"erDiagram|journey|gantt|pie|gitGraph|mindmap|timeline|quadrantChart|"
-    r"requirementDiagram|C4(?:Context|Container|Component|Dynamic|Deployment)|"
-    r"sankey-beta|xychart-beta|block-beta|packet-beta|architecture-beta|kanban)\b"
-)
 
 
 def load_writing_standard(path: Optional[Path] = None) -> WritingStandard:
@@ -138,15 +132,7 @@ def lint_markdown(
                 issues.append(
                     LintIssue(
                         "mermaid.empty",
-                        "Mermaid block must contain a diagram declaration.",
-                        block.start_line,
-                    )
-                )
-            elif not re.match(_MERMAID_DECLARATION, meaningful_lines[0]):
-                issues.append(
-                    LintIssue(
-                        "mermaid.declaration",
-                        "Mermaid block must start with a recognized diagram declaration.",
+                        "Mermaid block must contain diagram content.",
                         block.start_line,
                     )
                 )

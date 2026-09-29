@@ -88,13 +88,21 @@ def test_linter_rejects_missing_frontmatter_and_invalid_entity_schema():
     assert any(issue.code == "schema.metadata" for issue in invalid)
 
 
-def test_linter_reports_malformed_wiki_links_and_mermaid_declaration():
+def test_linter_reports_malformed_wiki_links_without_mermaid_whitelist():
     text = "# Example\n\n## 一、Section\n\n[[broken]\n\n```mermaid\nnot-a-diagram\n```\n"
 
     issues = lint_markdown(text, "document", STANDARD)
 
     assert any(issue.code == "wiki_link.syntax" for issue in issues)
-    assert any(issue.code == "mermaid.declaration" for issue in issues)
+    assert not any(issue.code.startswith("mermaid.") for issue in issues)
+
+
+def test_linter_rejects_empty_mermaid_blocks():
+    issues = lint_markdown(
+        "# Example\n\n```mermaid\n%% comment only\n```\n", "document", STANDARD
+    )
+
+    assert any(issue.code == "mermaid.empty" for issue in issues)
 
 
 def test_unclosed_fenced_block_is_reported():

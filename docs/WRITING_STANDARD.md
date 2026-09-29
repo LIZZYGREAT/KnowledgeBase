@@ -9,6 +9,6 @@ The machine-readable rules live in [`config/writing-standard.yaml`](../config/wr
 - Inline math uses `$...$`; display math uses `$$...$$`.
 - Wiki links use `[[term-id]]` or `[[term-id|display text]]`.
 - Citation markers use `[@source-id]` with an optional locator.
-- Mermaid blocks receive basic declaration checks; full Mermaid rendering is a later phase.
+- Mermaid blocks must contain non-comment content. The frontend renderer reports Mermaid syntax errors; the backend does not maintain a diagram-type whitelist.
 
-The deterministic linter reports structural and writing-style findings. Current Markdown style findings are errors at Publish. For Documents marked `maintenance.status: legacy`, heading and Mermaid style findings are warnings; malformed frontmatter, unclosed code or math blocks, and malformed wiki-link syntax remain errors. Semantic style suggestions and automatic rewriting are out of scope.
+The deterministic linter reports structural and writing-style findings. Current Markdown style findings are errors at Publish. For Documents marked `maintenance.status: legacy`, heading and empty Mermaid block findings are warnings; malformed frontmatter, unclosed code or math blocks, and malformed wiki-link syntax remain errors. Mermaid syntax rendering, semantic style suggestions, and automatic rewriting are out of scope.
