@@ -32,7 +32,7 @@ class Maintenance(CanonicalModel):
 
 
 class Provenance(CanonicalModel):
-    origin: NonEmptyText
+    origin: Literal["imported", "human-authored"]
     ai_assisted: bool
 
 

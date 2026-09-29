@@ -99,19 +99,12 @@ class GitManager:
         revision: str,
         message: Optional[str] = None,
     ) -> str:
-        """Restore a tracked path from history and record the restoration as a commit."""
+        """Restore a canonical path from history and record it as a new commit."""
         target_revision = _validate_revision(revision)
         self._run(
             ["cat-file", "-e", "{}^{{commit}}".format(target_revision)]
         )
         target, relative_path = self._resolve_knowledge_path(path)
-        head = self.current_revision()
-        tracked_at_head = self._run(
-            ["cat-file", "-e", "{}:{}".format(head, relative_path)], check=False
-        )
-        if tracked_at_head.returncode != 0:
-            raise GitOperationError("Restore target is not tracked at the current revision")
-
         historical = self._run(
             ["cat-file", "-e", "{}:{}".format(target_revision, relative_path)],
             check=False,

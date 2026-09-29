@@ -47,26 +47,6 @@ class PublishValidationError(PublishError):
     pass
 
 
-class PostPublishProposalUpdateError(PublishError):
-    def __init__(self, commit_revision: str, cause: Exception):
-        self.commit_revision = commit_revision
-        super().__init__(
-            "Canonical content was committed as {}, but Proposal status update failed: {}".format(
-                commit_revision, cause
-            )
-        )
-
-
-class PostPublishIndexUpdateError(PublishError):
-    def __init__(self, commit_revision: str, cause: Exception):
-        self.commit_revision = commit_revision
-        super().__init__(
-            "Canonical content was committed as {}, but incremental indexing failed: {}".format(
-                commit_revision, cause
-            )
-        )
-
-
 @dataclass(frozen=True)
 class PublishedResult:
     draft_id: str
@@ -75,6 +55,12 @@ class PublishedResult:
     path: str
     commit_revision: str
     proposal_id: Optional[str] = None
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RestoredResult:
+    commit_revision: str
     warnings: tuple[str, ...] = ()
 
 
@@ -162,23 +148,21 @@ class Publisher:
                 _atomic_write(path, previous)
             raise
 
-        proposal_error = None
+        post_publish_warnings = list(warnings)
         if proposal is not None:
             try:
                 self.proposal_service.merge(proposal.id, target_content_hash)
             except Exception as error:
-                proposal_error = error
+                post_publish_warnings.append(
+                    "Proposal status update failed after commit: {}".format(error)
+                )
 
-        index_error = None
         try:
             self.indexer.update_path(path)
         except Exception as error:
-            index_error = error
-
-        if proposal_error is not None:
-            raise PostPublishProposalUpdateError(commit_revision, proposal_error) from proposal_error
-        if index_error is not None:
-            raise PostPublishIndexUpdateError(commit_revision, index_error) from index_error
+            post_publish_warnings.append(
+                "Index update failed; run `python tools/kb.py rebuild`: {}".format(error)
+            )
 
         return PublishedResult(
             draft_id=draft.id,
@@ -187,7 +171,7 @@ class Publisher:
             path=path.relative_to(self.repository_root).as_posix(),
             commit_revision=commit_revision,
             proposal_id=proposal.id if proposal else None,
-            warnings=tuple(warnings),
+            warnings=tuple(post_publish_warnings),
         )
 
     def restore(
@@ -195,14 +179,17 @@ class Publisher:
         path: Union[str, Path],
         revision: str,
         commit_message: Optional[str] = None,
-    ) -> str:
+    ) -> RestoredResult:
         """Restore a canonical file by creating a new commit through GitManager."""
         commit_revision = self.git.restore(path, revision, commit_message)
+        warnings = []
         try:
             self.indexer.update_path(path)
         except Exception as error:
-            raise PostPublishIndexUpdateError(commit_revision, error) from error
-        return commit_revision
+            warnings.append(
+                "Index update failed; run `python tools/kb.py rebuild`: {}".format(error)
+            )
+        return RestoredResult(commit_revision, tuple(warnings))
 
     def _target_path(self, draft: Draft, content: str):
         if not isinstance(content, str):

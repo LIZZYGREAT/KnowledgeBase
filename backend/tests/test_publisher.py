@@ -14,7 +14,6 @@ from backend.app.services.proposal_service import ProposalService
 from backend.app.services.publisher import (
     PublishConflictError,
     PublishError,
-    PostPublishIndexUpdateError,
     PublishValidationError,
     Publisher,
 )
@@ -205,10 +204,10 @@ def test_unrelated_malformed_markdown_does_not_block_publish(publish_context):
         drafts, git, "document", "local-validation", _document("local-validation"), target
     )
 
-    with pytest.raises(PostPublishIndexUpdateError) as error:
-        publisher.publish(draft.id)
+    result = publisher.publish(draft.id)
     assert (repository / target).is_file()
-    assert error.value.commit_revision == git.current_revision()
+    assert result.commit_revision == git.current_revision()
+    assert any("run `python tools/kb.py rebuild`" in warning for warning in result.warnings)
 
 
 def test_approved_proposal_is_applied_and_merged_after_commit(publish_context):
@@ -266,6 +265,38 @@ def test_proposal_survives_unrelated_document_publish(publish_context):
     assert proposals.get(proposal.id).status == "merged"
 
 
+def test_proposal_status_failure_is_reported_as_post_publish_warning(
+    publish_context, monkeypatch
+):
+    repository, _, drafts, proposals, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/proposal-warning.md"
+    content = _document("proposal-warning", title="Published Content")
+    draft = _create_draft(
+        drafts, git, "document", "proposal-warning", "draft placeholder", target
+    )
+    proposal = proposals.create(
+        "document",
+        "proposal-warning",
+        "document_revision",
+        git.content_hash(target),
+        {"content": content},
+        "reviewer",
+    )
+    proposals.approve(proposal.id, git.content_hash(target), "checked")
+
+    def fail_merge(*_args, **_kwargs):
+        raise RuntimeError("runtime database unavailable")
+
+    monkeypatch.setattr(proposals, "merge", fail_merge)
+    result = publisher.publish(draft.id, proposal_id=proposal.id)
+
+    assert result.commit_revision == git.current_revision()
+    assert (repository / target).read_text(encoding="utf-8") == content
+    assert proposals.get(proposal.id).status == "approved"
+    assert any("Proposal status update failed" in warning for warning in result.warnings)
+
+
 def test_restore_creates_a_new_commit_and_preserves_published_history(publish_context):
     repository, _, drafts, _, publisher = publish_context
     git = GitManager(repository)
@@ -276,15 +307,15 @@ def test_restore_creates_a_new_commit_and_preserves_published_history(publish_co
     draft = _create_draft(drafts, git, "term", "fisher-information", updated, target)
 
     published = publisher.publish(draft.id)
-    restored_revision = publisher.restore(target, before_revision)
+    restore_result = publisher.restore(target, before_revision)
 
-    assert restored_revision != published.commit_revision
+    assert restore_result.commit_revision != published.commit_revision
     assert (repository / target).read_bytes() == before_content
     _git(repository, "cat-file", "-e", published.commit_revision)
-    assert _git(repository, "show", "-s", "--format=%s", restored_revision).startswith("restore:")
+    assert _git(repository, "show", "-s", "--format=%s", restore_result.commit_revision).startswith("restore:")
     with pytest.raises(GitOperationError):
         publisher.restore(target, "0" * 40)
-    assert git.current_revision() == restored_revision
+    assert git.current_revision() == restore_result.commit_revision
 
 
 def test_restore_to_before_new_file_creation_records_deletion_commit(publish_context):
@@ -304,9 +335,37 @@ def test_restore_to_before_new_file_creation_records_deletion_commit(publish_con
 
     restored = publisher.restore(target, before_creation)
 
-    assert restored != published.commit_revision
+    assert restored.commit_revision != published.commit_revision
     assert not (repository / target).exists()
-    assert _git(repository, "show", "-s", "--format=%s", restored).startswith("restore:")
+    assert _git(repository, "show", "-s", "--format=%s", restored.commit_revision).startswith("restore:")
+    _git(repository, "cat-file", "-e", published.commit_revision)
+
+    restored_again = publisher.restore(target, published.commit_revision)
+
+    assert (repository / target).is_file()
+    assert restored_again.commit_revision != restored.commit_revision
+    assert _git(repository, "show", "-s", "--format=%s", restored_again.commit_revision).startswith("restore:")
+
+
+def test_restore_commit_is_success_when_index_update_fails(publish_context, monkeypatch):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/restore-warning.md"
+    before_creation = git.current_revision()
+    draft = _create_draft(
+        drafts, git, "document", "restore-warning", _document("restore-warning"), target
+    )
+    published = publisher.publish(draft.id)
+
+    def fail_update(*_args, **_kwargs):
+        raise RuntimeError("index unavailable")
+
+    monkeypatch.setattr(publisher.indexer, "update_path", fail_update)
+    result = publisher.restore(target, before_creation)
+
+    assert result.commit_revision == git.current_revision()
+    assert not (repository / target).exists()
+    assert result.warnings and "run `python tools/kb.py rebuild`" in result.warnings[0]
     _git(repository, "cat-file", "-e", published.commit_revision)
 
 

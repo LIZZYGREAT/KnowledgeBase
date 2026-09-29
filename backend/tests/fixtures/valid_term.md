@@ -17,7 +17,7 @@ review:
 maintenance:
   status: current
 provenance:
-  origin: authored
+  origin: human-authored
   ai_assisted: false
 ---
 # Fisher Information

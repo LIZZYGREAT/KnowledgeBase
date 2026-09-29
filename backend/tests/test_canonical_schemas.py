@@ -26,6 +26,11 @@ def test_document_schema_accepts_the_canonical_example():
     assert document.id == "ewc-review"
     assert document.type == "paper-note"
 
+    invalid = metadata_from_markdown("valid_document.md")
+    invalid["provenance"]["origin"] = "authored"
+    with pytest.raises(ValidationError):
+        DocumentMetadata.model_validate(invalid)
+
 
 def test_term_schema_accepts_canonical_term_and_rejects_unknown_type():
     term = TermMetadata.model_validate(metadata_from_markdown("valid_term.md"))

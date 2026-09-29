@@ -216,6 +216,7 @@ def test_new_blank_document_creates_runtime_draft_only(import_context):
     assert draft.entity_id == "a-blank-note"
     metadata = _frontmatter(draft.content)
     assert metadata["review"]["human"]["status"] == "unreviewed"
+    assert metadata["provenance"]["origin"] == "human-authored"
     assert not (repository / "knowledge" / "documents" / "learning" / "a-blank-note.md").exists()
     assert git.current_revision() == original_revision
     assert git.status() == ""
@@ -241,7 +242,9 @@ def test_pdf_source_resolver_updates_existing_source_draft_without_overwriting(
 
     job = service.stage_paths([imported_pdf])
     item = service.get_items(job.id)[0]
-    draft = service.confirm_pdf_source(item.id, doi="10.1000/existing")
+    draft = service.confirm_pdf_source(
+        item.id, doi="10.1000/not-found", title="Existing Source"
+    )
 
     assert draft.entity_id == "source-alpha"
     candidate = yaml.safe_load(draft.content)

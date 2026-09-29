@@ -232,7 +232,7 @@ class ImportService:
             raise ImportValidationError("Selected Source '{}' does not exist".format(source_id))
         if not source_id:
             identifiers = [value for value in (doi, arxiv_id, zotero_key) if value]
-            queries = identifiers or [title or item.metadata.get("candidate_title", "")]
+            queries = identifiers + [title or item.metadata.get("candidate_title", "")]
             for query in queries:
                 if not query:
                     continue
@@ -761,7 +761,7 @@ def _blank_document_content(entity_id: str, title: str, document_type: str) -> s
         "sources": [],
         "review": {"human": {"status": "unreviewed"}},
         "maintenance": {"status": "current"},
-        "provenance": {"origin": "authored", "ai_assisted": False},
+        "provenance": {"origin": "human-authored", "ai_assisted": False},
     }
     frontmatter = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip()
     return "---\n{}\n---\n# {}\n".format(frontmatter, title)
