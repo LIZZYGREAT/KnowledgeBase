@@ -2,7 +2,7 @@
 
 KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
 
-This repository currently implements Phases 0–6: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; and a staged Markdown/PDF import pipeline. Import remains review-first and does not use AI. API endpoints and the Reference Hub are later phases.
+This repository currently implements Phases 0–7: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; a staged Markdown/PDF import pipeline; and the server-side DeepSeek Gateway. API endpoints and the Reference Hub are later phases.
 
 ## Local setup
 
@@ -32,7 +32,7 @@ To run the frontend checks manually, use `npm ci`, `npm run typecheck`, and `npm
 
 Start the development services with `docker compose up --build`. The Compose ports bind to localhost; private remote access is a later deployment phase.
 
-Copy `.env.example` to `.env` before starting Compose. The backend mounts the repository at `/workspace`, where it can use Git, write canonical files through `Publisher`, and keep the ignored runtime database and storage files. Git commits use `KB_GIT_USER_NAME` and `KB_GIT_USER_EMAIL`, defaulting to `KnowledgeBase` and `knowledgebase@localhost`; change them in `.env` if you want commits to show another author. DeepSeek settings are reserved for a later phase.
+Copy `.env.example` to `.env` before starting Compose. The backend mounts the repository at `/workspace`, where it can use Git, write canonical files through `Publisher`, and keep the ignored runtime database and storage files. Git commits use `KB_GIT_USER_NAME` and `KB_GIT_USER_EMAIL`, defaulting to `KnowledgeBase` and `knowledgebase@localhost`; change them in `.env` if you want commits to show another author. DeepSeek requests use the backend-only `DEEPSEEK_API_KEY`; model, base URL, timeout, and retry settings can be overridden with `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_TIMEOUT_SECONDS`, and `DEEPSEEK_MAX_RETRIES`.
 
 ## Repository map
 

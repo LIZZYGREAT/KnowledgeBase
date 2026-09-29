@@ -10,6 +10,9 @@ from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.import_repository import ImportRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
+from backend.app.services.ai_client import DeepSeekClient, DeepSeekConfig
+from backend.app.services.ai_gateway import AIGateway
+from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
 from backend.app.services.import_service import ImportService
@@ -38,6 +41,12 @@ async def lifespan(application: FastAPI):
         git_manager = GitManager(repository_root)
         draft_service = DraftService(DraftRepository(connection))
         proposal_service = ProposalService(ProposalRepository(connection))
+        ai_gateway = AIGateway(
+            DeepSeekClient(DeepSeekConfig.from_environment(repository_root))
+        )
+        ai_proposal_service = AIProposalService(
+            repository_root, draft_service, proposal_service, ai_gateway
+        )
         indexer = Indexer(repository_root, connection)
         import_service = ImportService(
             repository_root,
@@ -59,6 +68,8 @@ async def lifespan(application: FastAPI):
         application.state.git_manager = git_manager
         application.state.draft_service = draft_service
         application.state.proposal_service = proposal_service
+        application.state.ai_gateway = ai_gateway
+        application.state.ai_proposal_service = ai_proposal_service
         application.state.indexer = indexer
         application.state.import_service = import_service
         application.state.publisher = publisher

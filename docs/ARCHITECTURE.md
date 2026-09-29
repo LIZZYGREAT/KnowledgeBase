@@ -2,7 +2,7 @@
 
 ## Current phase
 
-The repository has completed Phases 0–6: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, and the staged Markdown/PDF Import Pipeline. AI-assisted workflows, API endpoints, and the Reference Hub remain later phases.
+The repository has completed Phases 0–7: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, and the server-side DeepSeek Gateway. Knowledge API endpoints and the Reference Hub remain later phases.
 
 ## Data boundaries
 
@@ -51,3 +51,9 @@ The complete local requirements are held in `docs/private/KnowledgeBase_v1_架�
 Markdown needs valid canonical metadata before it can become a Document or Term Draft. Writing-style findings are retained on the Import Item for review and do not prevent draft creation. A new blank Document follows the same Draft workflow. A PDF is never converted into a Note: confirming it creates a Source Draft and copies the PDF into ignored `storage/papers/`. Existing Source matches are resolved deterministically by identifier and then title, or require explicit selection when ambiguous. `Publisher` checks a local PDF attachment before publishing its Source metadata, commits only the canonical YAML file, and attempts to refresh the Source index. Imports do not write canonical files directly and do not invoke AI.
 
 The import pipeline is currently a service-level backend component. User-facing API routes and Reference Hub screens are later phases.
+
+## Phase 7: DeepSeek Gateway
+
+`AIGateway` sends fixed task requests through the backend-only DeepSeek client. Each supported task declares a Pydantic JSON schema, Proposal kind, and the registries or writing standard it needs. The client uses configured timeout and bounded retries for transient transport failures; malformed responses are rejected before any Proposal is stored. `AIProposalService` binds validated results to the current Draft content hash and stores them through `ProposalService`. AI output never writes canonical files or invokes Git. The client is injectable, and `MockDeepSeekClient` supports offline tests.
+
+The initial task registry supports metadata suggestions, Term detection, semantic format review, Document review, Term drafting, revision suggestions, and Evidence suggestions. The API key is read from a backend environment variable; it is not exposed to the frontend.

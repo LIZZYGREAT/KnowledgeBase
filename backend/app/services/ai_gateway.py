@@ -1,0 +1,93 @@
+"""Fixed AI task registry and structured-response validation."""
+
+import json
+import logging
+from dataclasses import dataclass
+
+from pydantic import BaseModel, ValidationError
+
+from backend.app.domain.ai import TASK_OUTPUTS
+from backend.app.services.ai_client import AIResponseError, MockDeepSeekClient
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AITask:
+    name: str
+    proposal_kind: str
+    output_model: type[BaseModel]
+    registry_context: tuple[str, ...]
+    instruction: str
+
+
+TASKS = {
+    "suggest_metadata": AITask(
+        "suggest_metadata", "metadata", TASK_OUTPUTS["suggest_metadata"],
+        ("taxonomy", "sources"), "Suggest document metadata using known taxonomy and Sources.",
+    ),
+    "detect_terms": AITask(
+        "detect_terms", "link", TASK_OUTPUTS["detect_terms"],
+        ("terms",), "Find meaningful Term mentions and match the supplied Term Registry.",
+    ),
+    "review_format_semantics": AITask(
+        "review_format_semantics", "format", TASK_OUTPUTS["review_format_semantics"],
+        ("writing_standard",), "Review semantic writing and structure issues; return suggestions only.",
+    ),
+    "review_document": AITask(
+        "review_document", "document_revision", TASK_OUTPUTS["review_document"],
+        ("terms", "sources", "writing_standard"), "Review the document and return findings for human review.",
+    ),
+    "draft_term": AITask(
+        "draft_term", "new_term", TASK_OUTPUTS["draft_term"],
+        ("terms", "taxonomy", "writing_standard"), "Draft a Term entry without publishing it.",
+    ),
+    "suggest_revision": AITask(
+        "suggest_revision", "document_revision", TASK_OUTPUTS["suggest_revision"],
+        ("terms", "sources", "writing_standard"), "Suggest a complete Draft revision; preserve canonical frontmatter.",
+    ),
+    "suggest_evidence": AITask(
+        "suggest_evidence", "evidence", TASK_OUTPUTS["suggest_evidence"],
+        ("sources",), "Suggest evidence candidates from the supplied Source Registry; do not assert verification.",
+    ),
+}
+
+
+class AIGateway:
+    """Validate task input/output contracts while leaving storage to services."""
+
+    def __init__(self, client):
+        self.client = client
+
+    @property
+    def provider(self) -> str:
+        return "mock" if isinstance(self.client, MockDeepSeekClient) else "deepseek"
+
+    @property
+    def model(self) -> str:
+        return "mock" if isinstance(self.client, MockDeepSeekClient) else self.client.config.model
+
+    def run(self, task_name: str, context: dict) -> BaseModel:
+        task = TASKS.get(task_name)
+        if task is None:
+            raise ValueError("Unsupported AI task: {}".format(task_name))
+        schema = task.output_model.model_json_schema()
+        system_prompt = (
+            "Task: {}\n{}\nReturn exactly one JSON object matching this JSON Schema. "
+            "Do not return Markdown or extra keys. All output is a proposal for human review.\n{}"
+        ).format(task.name, task.instruction, json.dumps(schema, ensure_ascii=False))
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+        ]
+        logger.info("Starting AI task=%s provider=%s model=%s", task.name, self.provider, self.model)
+        raw = self.client.complete(messages, schema)
+        try:
+            value = json.loads(raw)
+            result = task.output_model.model_validate(value)
+        except (json.JSONDecodeError, ValidationError, TypeError) as error:
+            logger.warning("Rejected AI response task=%s reason=%s", task.name, type(error).__name__)
+            raise AIResponseError("AI response did not match the '{}' JSON schema".format(task.name)) from error
+        logger.info("Validated AI response task=%s", task.name)
+        return result
