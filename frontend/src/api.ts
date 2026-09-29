@@ -70,6 +70,36 @@ export interface Proposal {
   review_note: string | null;
 }
 
+export interface Draft {
+  id: string;
+  entity_type: EntityType | "taxonomy";
+  entity_id: string;
+  base_git_revision: string;
+  base_content_hash: string;
+  content: string;
+  revision: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DraftComparison {
+  draft: Draft;
+  base_content: string;
+  current_content: string;
+  current_git_revision: string;
+  current_content_hash: string;
+  canonical_changed: boolean;
+}
+
+export interface PublishedDraft {
+  draft_id: string;
+  entity_type: string;
+  entity_id: string;
+  commit_revision: string;
+  proposal_id: string | null;
+  warnings: string[];
+}
+
 export interface ImportJob {
   id: string;
   status: string;
@@ -121,7 +151,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the HTTP status when the server does not return JSON.
     }
-    throw new Error(message);
+    throw Object.assign(new Error(message), { status: response.status });
   }
   return (await response.json()) as T;
 }
@@ -171,8 +201,95 @@ export function searchKnowledge(filters: SearchFilters) {
   return request<SearchResult[]>(`/api/search?${params.toString()}`);
 }
 
-export function listProposals(status: string) {
-  return request<Proposal[]>(`/api/proposals?status=${encodeURIComponent(status)}&limit=100`);
+export function listProposals(status?: string, targetType?: EntityType, targetId?: string) {
+  const params = new URLSearchParams({ limit: "100" });
+  if (status) params.set("status", status);
+  if (targetType) params.set("target_type", targetType);
+  if (targetId) params.set("target_id", targetId);
+  return request<Proposal[]>(`/api/proposals?${params.toString()}`);
+}
+
+export function listDrafts(entityType: EntityType, entityId: string) {
+  const params = new URLSearchParams({ entity_type: entityType, entity_id: entityId });
+  return request<Draft[]>(`/api/drafts?${params.toString()}`);
+}
+
+export function createDraft(entityType: EntityType, entityId: string, content: string) {
+  return request<Draft>("/api/drafts", {
+    method: "POST",
+    body: JSON.stringify({ entity_type: entityType, entity_id: entityId, content }),
+  });
+}
+
+export function createBlankDocument(title: string, documentType: "paper-note" | "learning-note" | "course-note") {
+  return request<Draft>("/api/imports/blank-document", {
+    method: "POST",
+    body: JSON.stringify({ title, document_type: documentType }),
+  });
+}
+
+export function updateDraft(draftId: string, content: string, expectedRevision: number) {
+  return request<Draft>(`/api/drafts/${encodeURIComponent(draftId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ content, expected_revision: expectedRevision }),
+  });
+}
+
+export function compareDraft(draftId: string) {
+  return request<DraftComparison>(`/api/drafts/${encodeURIComponent(draftId)}/compare`);
+}
+
+export function rebaseDraft(
+  draftId: string,
+  content: string,
+  expectedRevision: number,
+  expectedCurrentHash: string,
+) {
+  return request<Draft>(`/api/drafts/${encodeURIComponent(draftId)}/rebase`, {
+    method: "PUT",
+    body: JSON.stringify({
+      content,
+      expected_revision: expectedRevision,
+      expected_current_hash: expectedCurrentHash,
+    }),
+  });
+}
+
+export function discardDraft(draftId: string, expectedRevision: number) {
+  return request<{ deleted: boolean }>(`/api/drafts/${encodeURIComponent(draftId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  });
+}
+
+export function publishDraft(draftId: string) {
+  return request<PublishedDraft>("/api/publish", {
+    method: "POST",
+    body: JSON.stringify({ draft_id: draftId }),
+  });
+}
+
+export function requestAIProposal(
+  task: "document-review" | "selection-review" | "term-draft" | "evidence-suggest",
+  draftId: string,
+  selection?: string,
+) {
+  const path = `/api/ai/${task}`;
+  return request<{ external_provider_notice: string; proposal: Proposal }>(path, {
+    method: "POST",
+    body: JSON.stringify({
+      draft_id: draftId,
+      confirm_deepseek_transfer: true,
+      ...(selection ? { selection } : {}),
+    }),
+  });
+}
+
+export function reviewProposal(proposalId: string, action: "approve" | "reject") {
+  return request<Proposal>(`/api/proposals/${encodeURIComponent(proposalId)}/${action}`, {
+    method: "POST",
+    body: JSON.stringify(action === "reject" ? { review_note: "用户拒绝此 Proposal" } : {}),
+  });
 }
 
 export function listImports() {

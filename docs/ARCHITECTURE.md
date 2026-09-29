@@ -10,7 +10,7 @@ The repository has completed Phases 0–9: repository foundation, canonical enti
 - `runtime/` contains disposable runtime state and is not a source of canonical facts.
 - `storage/` contains local papers, uploads, and staging files and is not committed.
 - Parser and linter code is deterministic and does not access external services or persistent state.
-- `Publisher` is the only business service that writes canonical files. A Draft keeps its starting Git revision for history and diff context; Publish conflicts depend on the target file's content hash, including whether the target is absent.
+- `Publisher` is the only business service that writes canonical files. A Draft stores its comparison Git revision and target content hash; human rebase and successful Publish advance that comparison point. Publish conflicts depend on the target file's content hash, including whether the target is absent.
 - Drafts store the canonical target hash for Publish conflict checks. Proposals store the Draft working-content hash they were generated from; unrelated Git commits do not stale either one.
 - `GitManager` restricts file operations to Markdown and YAML files under `knowledge/`. Restore validates historical content and references before writing a new commit; it never rewrites Git history.
 - Unresolved wiki links may remain in published Markdown. Ambiguous links, invalid citations, and dangling taxonomy or Source references block publishing.

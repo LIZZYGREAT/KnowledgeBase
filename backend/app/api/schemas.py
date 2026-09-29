@@ -66,6 +66,16 @@ class DraftUpdateRequest(APIModel):
     expected_revision: int = Field(ge=1)
 
 
+class DraftRebaseRequest(APIModel):
+    content: str
+    expected_revision: int = Field(ge=1)
+    expected_current_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DraftDeleteRequest(APIModel):
+    expected_revision: int = Field(ge=1)
+
+
 class DraftView(APIModel):
     id: str
     entity_type: str
@@ -76,6 +86,15 @@ class DraftView(APIModel):
     revision: int
     created_at: str
     updated_at: str
+
+
+class DraftCompareView(APIModel):
+    draft: DraftView
+    base_content: str
+    current_content: str
+    current_git_revision: str
+    current_content_hash: str
+    canonical_changed: bool
 
 
 class ProposalView(APIModel):

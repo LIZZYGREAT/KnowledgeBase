@@ -52,6 +52,15 @@ class DraftRepository:
         ).fetchone()
         return _draft_from_row(row) if row else None
 
+    def list_for_target(self, entity_type: str, entity_id: str) -> list[Draft]:
+        rows = self.connection.execute(
+            """SELECT * FROM drafts
+               WHERE entity_type = ? AND entity_id = ?
+               ORDER BY updated_at DESC, created_at DESC, id DESC""",
+            (entity_type, entity_id),
+        ).fetchall()
+        return [_draft_from_row(row) for row in rows]
+
     def save_content(
         self, draft_id: str, content: str, expected_revision: int, updated_at: str
     ) -> Draft:
@@ -68,6 +77,49 @@ class DraftRepository:
                 raise DraftNotFoundError("Draft '{}' does not exist".format(draft_id))
             raise DraftRevisionConflict(expected_revision, current.revision)
         return self.get(draft_id)
+
+    def rebase(
+        self,
+        draft_id: str,
+        content: str,
+        expected_revision: int,
+        base_git_revision: str,
+        base_content_hash: str,
+        updated_at: str,
+    ) -> Draft:
+        with self.connection:
+            cursor = self.connection.execute(
+                """UPDATE drafts
+                   SET content = ?, base_git_revision = ?, base_content_hash = ?,
+                       revision = revision + 1, updated_at = ?
+                   WHERE id = ? AND revision = ?""",
+                (
+                    content,
+                    base_git_revision,
+                    base_content_hash,
+                    updated_at,
+                    draft_id,
+                    expected_revision,
+                ),
+            )
+        if cursor.rowcount != 1:
+            current = self.get(draft_id)
+            if current is None:
+                raise DraftNotFoundError("Draft '{}' does not exist".format(draft_id))
+            raise DraftRevisionConflict(expected_revision, current.revision)
+        return self.get(draft_id)
+
+    def delete(self, draft_id: str, expected_revision: int) -> None:
+        with self.connection:
+            cursor = self.connection.execute(
+                "DELETE FROM drafts WHERE id = ? AND revision = ?",
+                (draft_id, expected_revision),
+            )
+        if cursor.rowcount != 1:
+            current = self.get(draft_id)
+            if current is None:
+                raise DraftNotFoundError("Draft '{}' does not exist".format(draft_id))
+            raise DraftRevisionConflict(expected_revision, current.revision)
 
 
 def _draft_from_row(row: sqlite3.Row) -> Draft:

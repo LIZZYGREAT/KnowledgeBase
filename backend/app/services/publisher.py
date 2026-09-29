@@ -152,6 +152,20 @@ class Publisher:
             raise
 
         post_publish_warnings = list(warnings)
+        try:
+            self.draft_service.rebase(
+                draft.id,
+                content,
+                draft.revision,
+                commit_revision,
+                hashlib.sha256(new_content).hexdigest(),
+            )
+        except Exception as error:
+            post_publish_warnings.append(
+                "Draft refresh failed after commit: {}; compare the Draft before the next Publish".format(
+                    error
+                )
+            )
         if proposal is not None:
             try:
                 self.proposal_service.merge(proposal.id, draft_content_hash)

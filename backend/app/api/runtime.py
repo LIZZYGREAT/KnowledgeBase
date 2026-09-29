@@ -15,8 +15,11 @@ from backend.app.api.schemas import (
     BundleAssociationView,
     ConfirmSourceRequest,
     DraftCreateRequest,
+    DraftDeleteRequest,
+    DraftRebaseRequest,
     DraftUpdateRequest,
     DraftView,
+    DraftCompareView,
     ImportCreateRequest,
     ImportItemUpdateRequest,
     ImportItemView,
@@ -58,6 +61,18 @@ async def create_draft(body: DraftCreateRequest, request: Request):
     )
 
 
+@router.get("/drafts", response_model=list[DraftView])
+async def list_drafts(
+    request: Request,
+    entity_type: Literal["document", "term", "source", "taxonomy"],
+    entity_id: str,
+):
+    return [
+        asdict(draft)
+        for draft in request.app.state.draft_service.list_for_target(entity_type, entity_id)
+    ]
+
+
 @router.get("/drafts/{draft_id}", response_model=DraftView)
 async def get_draft(draft_id: str, request: Request):
     return asdict(request.app.state.draft_service.get(draft_id))
@@ -70,6 +85,57 @@ async def update_draft(draft_id: str, body: DraftUpdateRequest, request: Request
             draft_id, body.content, body.expected_revision
         )
     )
+
+
+@router.get("/drafts/{draft_id}/compare", response_model=DraftCompareView)
+async def compare_draft(draft_id: str, request: Request):
+    draft = request.app.state.draft_service.get(draft_id)
+    root = request.app.state.repository_root
+    connection = request.app.state.runtime_connection
+    target = _draft_compare_target_path(root, draft, connection)
+    git = request.app.state.git_manager
+    current_revision = git.current_revision()
+    current_hash = git.content_hash(target)
+    current_content = target.read_text(encoding="utf-8") if target.is_file() else ""
+    historical = git.read_at_revision(target, draft.base_git_revision)
+    base_content = historical.decode("utf-8") if historical is not None else ""
+    return {
+        "draft": asdict(draft),
+        "base_content": base_content,
+        "current_content": current_content,
+        "current_git_revision": current_revision,
+        "current_content_hash": current_hash,
+        "canonical_changed": current_hash != draft.base_content_hash,
+    }
+
+
+@router.put("/drafts/{draft_id}/rebase", response_model=DraftView)
+async def rebase_draft(draft_id: str, body: DraftRebaseRequest, request: Request):
+    draft = request.app.state.draft_service.get(draft_id)
+    target = _draft_compare_target_path(
+        request.app.state.repository_root,
+        draft,
+        request.app.state.runtime_connection,
+    )
+    git = request.app.state.git_manager
+    current_hash = git.content_hash(target)
+    if body.expected_current_hash != current_hash:
+        raise ValueError("Canonical content changed again; compare the Draft again")
+    return asdict(
+        request.app.state.draft_service.rebase(
+            draft_id,
+            body.content,
+            body.expected_revision,
+            git.current_revision(),
+            current_hash,
+        )
+    )
+
+
+@router.delete("/drafts/{draft_id}")
+async def discard_draft(draft_id: str, body: DraftDeleteRequest, request: Request):
+    request.app.state.draft_service.discard(draft_id, body.expected_revision)
+    return {"deleted": True}
 
 
 @router.get("/proposals", response_model=list[ProposalView])
@@ -271,6 +337,24 @@ def _draft_target_path(
     if entity_type == "taxonomy" and entity_id in files:
         TaxonomyRegistryModel.model_validate(parse_yaml(content))
         return root / "knowledge" / "taxonomy" / files[entity_id]
+    raise ValueError("Unsupported canonical Draft target")
+
+
+def _draft_compare_target_path(root: Path, draft, connection) -> Path:
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", draft.entity_id):
+        raise ValueError("entity_id must be a lowercase canonical slug")
+    if draft.entity_type in {"document", "term"}:
+        table = "document_index" if draft.entity_type == "document" else "term_index"
+        row = _index_path(connection, table, draft.entity_id)
+        if row is not None:
+            return root / row["path"]
+        return _draft_target_path(
+            root, draft.entity_type, draft.entity_id, draft.content, connection
+        )
+    if draft.entity_type == "source":
+        return root / "knowledge" / "sources" / "{}.yaml".format(draft.entity_id)
+    if draft.entity_type == "taxonomy" and draft.entity_id in {"domains", "topics", "tags"}:
+        return root / "knowledge" / "taxonomy" / "{}.yaml".format(draft.entity_id)
     raise ValueError("Unsupported canonical Draft target")
 
 

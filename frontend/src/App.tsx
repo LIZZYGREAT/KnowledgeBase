@@ -12,6 +12,8 @@ const TermsPage = lazy(() => import("./Pages").then((module) => ({ default: modu
 const TopicsPage = lazy(() => import("./Pages").then((module) => ({ default: module.TopicsPage })));
 const ReviewPage = lazy(() => import("./Pages").then((module) => ({ default: module.ReviewPage })));
 const EntityPage = lazy(() => import("./Pages").then((module) => ({ default: module.EntityPage })));
+const EditorPage = lazy(() => import("./Editor").then((module) => ({ default: module.EditorPage })));
+const NewNotePage = lazy(() => import("./Editor").then((module) => ({ default: module.NewNotePage })));
 
 interface LocationState {
   pathname: string;
@@ -55,12 +57,12 @@ export default function App() {
   }, []);
 
   const route = useMemo(() => resolveRoute(location.pathname), [location.pathname]);
-  const activeNav = route.kind === "reader"
+  const activeNav = route.kind === "reader" || route.kind === "editor"
     ? route.entityType === "term" ? "/terms" : "/library"
     : navigation.find((item) => item.route === route.path)?.route ?? "/";
-  const pageTitle = route.kind === "reader"
+  const pageTitle = route.kind === "reader" || route.kind === "editor"
     ? route.entityType === "document" ? "Document" : route.entityType === "term" ? "Term" : "Source"
-    : navigation.find((item) => item.route === activeNav)?.title ?? "Home";
+    : route.kind === "new-note" ? "New Note" : navigation.find((item) => item.route === activeNav)?.title ?? "Home";
 
   const openEntity = useCallback((type: EntityType, id: string, clickedFromSearch = false) => {
     if (clickedFromSearch && type === "document") void recordSearchClick(id).catch(() => undefined);
@@ -75,8 +77,12 @@ export default function App() {
   };
 
   let page: ReactNode;
-  if (route.kind === "reader") {
-    page = <Suspense fallback={<LoadingState />}><EntityPage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} /></Suspense>;
+  if (route.kind === "editor") {
+    page = <Suspense fallback={<LoadingState />}><EditorPage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} /></Suspense>;
+  } else if (route.kind === "new-note") {
+    page = <Suspense fallback={<LoadingState />}><NewNotePage navigate={navigate} /></Suspense>;
+  } else if (route.kind === "reader") {
+    page = <Suspense fallback={<LoadingState />}><EntityPage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} onEdit={(type, id) => navigate(`/edit/${type}/${encodeURIComponent(id)}`)} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;
@@ -145,9 +151,15 @@ export default function App() {
 
 function resolveRoute(pathname: string):
   | { kind: "page"; path: string }
-  | { kind: "reader"; entityType: EntityType; id: string; path: string } {
+  | { kind: "reader"; entityType: EntityType; id: string; path: string }
+  | { kind: "editor"; entityType: EntityType; id: string; path: string }
+  | { kind: "new-note"; path: string } {
   const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
   if (!parts.length) return { kind: "page", path: "/" };
+  if (parts[0] === "new-note") return { kind: "new-note", path: "/" };
+  if (parts[0] === "edit" && parts[1] && parts[2] && ["document", "term", "source"].includes(parts[1])) {
+    return { kind: "editor", entityType: parts[1] as EntityType, id: parts[2], path: parts[1] === "term" ? "/terms" : "/library" };
+  }
   if (parts[0] === "documents" && parts[1]) return { kind: "reader", entityType: "document", id: parts[1], path: "/library" };
   if (parts[0] === "terms" && parts[1]) return { kind: "reader", entityType: "term", id: parts[1], path: "/terms" };
   if (parts[0] === "sources" && parts[1]) return { kind: "reader", entityType: "source", id: parts[1], path: "/library" };

@@ -164,7 +164,7 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
         listAllEntities("document"),
         listAllEntities("term"),
         listAllEntities("source"),
-        Promise.all(["proposed", "drafted", "approved"].map(listProposals)),
+        Promise.all(["proposed", "drafted", "approved"].map((status) => listProposals(status))),
         listImports(),
       ]);
     const [proposalGroups, imports] = proposalAndImport as [Proposal[][], ImportJob[]];
@@ -197,6 +197,9 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
           <p>沿着文献、概念和主题回到重要想法。正式内容由 Markdown 与 YAML 保存，搜索和关联信息都可以从中重建。</p>
           <button className="button button-primary home-search-link" onClick={() => navigate("/search")}>
             <span aria-hidden="true">⌕</span> 搜索知识库
+          </button>
+          <button className="button button-secondary home-search-link" onClick={() => navigate("/new-note")}>
+            <span aria-hidden="true">＋</span> 新建笔记
           </button>
         </div>
         <div className="home-orbit" aria-hidden="true">
@@ -467,7 +470,7 @@ export function ReviewPage({ onOpen }: { onOpen: SelectEntity }) {
   const resource = useResource("review", async (): Promise<ReviewData> => {
     const [documents, terms, sources, ...rest] = await Promise.all([
       listAllEntities("document"), listAllEntities("term"), listAllEntities("source"),
-      Promise.all(["proposed", "drafted", "approved"].map(listProposals)), listImports(), listLinkIssues(),
+      Promise.all(["proposed", "drafted", "approved"].map((status) => listProposals(status))), listImports(), listLinkIssues(),
     ]);
     const [groups, imports, linkIssues] = rest as [Proposal[][], ImportJob[], LinkIssue[]];
     return { entities: [...documents, ...terms, ...sources], proposals: groups.flat(), imports, linkIssues };

@@ -95,6 +95,9 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/documents/recently-modified",
         "/api/context/export",
         "/api/ai/document-review",
+        "/api/drafts",
+        "/api/drafts/{draft_id}/compare",
+        "/api/drafts/{draft_id}/rebase",
         "/api/publish",
     ):
         assert path in schema["paths"]
@@ -128,6 +131,89 @@ def test_context_export_applies_requested_trust_and_purpose(api_client):
     assert evidence_only["terms"] == []
     assert evidence_only["claims"]
     assert api_client.post("/api/context/export", json={}).status_code == 422
+
+
+def test_draft_compare_rebase_list_and_discard_are_revision_guarded(api_client):
+    created = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "document",
+            "entity_id": "neural-indexing",
+            "content": _document_content(),
+        },
+    )
+    assert created.status_code == 201
+    draft = created.json()
+    drafts = api_client.get(
+        "/api/drafts", params={"entity_type": "document", "entity_id": "neural-indexing"}
+    )
+    assert drafts.status_code == 200
+    assert drafts.json()[0]["id"] == draft["id"]
+
+    unchanged = api_client.get("/api/drafts/{}/compare".format(draft["id"])).json()
+    assert unchanged["canonical_changed"] is False
+    assert unchanged["base_content"].startswith("---\nschema_version: 1")
+    assert unchanged["current_content_hash"] == draft["base_content_hash"]
+
+    canonical_path = (
+        api_client.app.state.repository_root
+        / "knowledge" / "documents" / "learning" / "neural-indexing.md"
+    )
+    changed_content = _document_content().replace(
+        "A stable index retains canonical facts", "A revised canonical claim"
+    )
+    canonical_path.write_text(changed_content, encoding="utf-8")
+    changed = api_client.get("/api/drafts/{}/compare".format(draft["id"])).json()
+    assert changed["canonical_changed"] is True
+    assert "A revised canonical claim" in changed["current_content"]
+
+    rebased_content = _document_content() + "\nA reviewed Draft change.\n"
+    rebased = api_client.put(
+        "/api/drafts/{}/rebase".format(draft["id"]),
+        json={
+            "content": rebased_content,
+            "expected_revision": draft["revision"],
+            "expected_current_hash": changed["current_content_hash"],
+        },
+    )
+    assert rebased.status_code == 200, rebased.json()
+    assert rebased.json()["content"] == rebased_content
+    assert rebased.json()["base_content_hash"] == changed["current_content_hash"]
+    assert api_client.get("/api/drafts/{}/compare".format(draft["id"])).json()["canonical_changed"] is False
+
+    stale_revision = api_client.put(
+        "/api/drafts/{}/rebase".format(draft["id"]),
+        json={
+            "content": rebased_content,
+            "expected_revision": draft["revision"],
+            "expected_current_hash": changed["current_content_hash"],
+        },
+    )
+    assert stale_revision.status_code == 409
+
+    stale = api_client.put(
+        "/api/drafts/{}/rebase".format(draft["id"]),
+        json={
+            "content": rebased_content,
+            "expected_revision": rebased.json()["revision"],
+            "expected_current_hash": "0" * 64,
+        },
+    )
+    assert stale.status_code == 422
+    stale_delete = api_client.request(
+        "DELETE",
+        "/api/drafts/{}".format(draft["id"]),
+        json={"expected_revision": draft["revision"]},
+    )
+    assert stale_delete.status_code == 409
+    discarded = api_client.request(
+        "DELETE",
+        "/api/drafts/{}".format(draft["id"]),
+        json={"expected_revision": rebased.json()["revision"]},
+    )
+    assert discarded.status_code == 200
+    assert discarded.json() == {"deleted": True}
+    assert api_client.get("/api/drafts/{}".format(draft["id"])).status_code == 404
 
 
 def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_client):
@@ -281,7 +367,12 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
     assert published.status_code == 200
     assert published.json()["entity_id"] == "api-draft"
     assert "path" not in published.json()
-    assert (api_client.app.state.repository_root / "knowledge/documents/learning/api-draft.md").is_file()
+    published_path = api_client.app.state.repository_root / "knowledge/documents/learning/api-draft.md"
+    assert published_path.is_file()
+    refreshed_draft = api_client.get("/api/drafts/{}".format(draft["id"])).json()
+    assert refreshed_draft["base_git_revision"] == published.json()["commit_revision"]
+    assert refreshed_draft["base_content_hash"] == hashlib.sha256(published_path.read_bytes()).hexdigest()
+    assert refreshed_draft["content"] == published_path.read_text(encoding="utf-8")
 
     uploads = api_client.app.state.repository_root / "storage" / "uploads"
     uploads.mkdir(parents=True, exist_ok=True)

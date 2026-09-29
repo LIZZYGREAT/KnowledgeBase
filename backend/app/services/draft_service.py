@@ -50,6 +50,12 @@ class DraftService:
             raise DraftNotFoundError("Draft '{}' does not exist".format(draft_id))
         return draft
 
+    def list_for_target(self, entity_type: str, entity_id: str) -> list[Draft]:
+        if entity_type not in _ENTITY_TYPES:
+            raise ValueError("Unsupported Draft entity type: {}".format(entity_type))
+        _require_text(entity_id, "entity_id")
+        return self.repository.list_for_target(entity_type, entity_id)
+
     def save(self, draft_id: str, content: str, expected_revision: int) -> Draft:
         if not isinstance(content, str):
             raise ValueError("Draft content must be text")
@@ -58,6 +64,34 @@ class DraftService:
         return self.repository.save_content(
             draft_id, content, expected_revision, _utc_now()
         )
+
+    def rebase(
+        self,
+        draft_id: str,
+        content: str,
+        expected_revision: int,
+        base_git_revision: str,
+        base_content_hash: str,
+    ) -> Draft:
+        if not isinstance(content, str):
+            raise ValueError("Draft content must be text")
+        if expected_revision < 1:
+            raise ValueError("expected_revision must be positive")
+        _require_text(base_git_revision, "base_git_revision")
+        _require_text(base_content_hash, "base_content_hash")
+        return self.repository.rebase(
+            draft_id,
+            content,
+            expected_revision,
+            base_git_revision,
+            base_content_hash,
+            _utc_now(),
+        )
+
+    def discard(self, draft_id: str, expected_revision: int) -> None:
+        if expected_revision < 1:
+            raise ValueError("expected_revision must be positive")
+        self.repository.delete(draft_id, expected_revision)
 
 
 def _require_text(value: str, field: str) -> None:
