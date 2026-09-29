@@ -21,6 +21,10 @@ from backend.app.services.git_manager import (
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
+from backend.app.services.canonical_validator import (
+    find_taxonomy_references,
+    validate_markdown_references,
+)
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import lint_markdown, load_writing_standard
 from backend.app.services.taxonomy_registry import (
@@ -71,6 +75,7 @@ class PublishedResult:
     path: str
     commit_revision: str
     proposal_id: Optional[str] = None
+    warnings: tuple[str, ...] = ()
 
 
 class Publisher:
@@ -137,7 +142,7 @@ class Publisher:
                 proposal.id, target_content_hash
             )
 
-        self._validate_candidate(draft, content, path, metadata)
+        warnings = self._validate_candidate(draft, content, path, metadata)
         previous = path.read_bytes() if path.is_file() else None
         new_content = content.encode("utf-8")
         if previous == new_content:
@@ -182,6 +187,7 @@ class Publisher:
             path=path.relative_to(self.repository_root).as_posix(),
             commit_revision=commit_revision,
             proposal_id=proposal.id if proposal else None,
+            warnings=tuple(warnings),
         )
 
     def restore(
@@ -249,72 +255,64 @@ class Publisher:
 
         raise ValueError("Unsupported Draft entity type: {}".format(draft.entity_type))
 
-    def _validate_candidate(self, draft: Draft, content: str, path: Path, metadata) -> None:
-        if draft.entity_type in {"document", "term"}:
-            issues = lint_markdown(content, entity_type=draft.entity_type, standard=self.standard)
-            if issues:
-                raise PublishValidationError(
-                    "Markdown validation failed: "
-                    + "; ".join("{}: {}".format(issue.code, issue.message) for issue in issues)
-                )
-        elif draft.entity_type == "source":
-            self._validate_source_attachment(metadata)
-
+    def _validate_candidate(self, draft: Draft, content: str, path: Path, metadata) -> list[str]:
         self._ensure_entity_path(draft, path)
+        if draft.entity_type == "source":
+            self._validate_source_attachment(metadata)
+            return []
+
+        if draft.entity_type == "taxonomy":
+            kind = {"domains": "domain", "topics": "topic", "tags": "tag"}[draft.entity_id]
+            existing = TaxonomyRegistry.load(self.knowledge_root / "taxonomy")
+            replacement = self._load_taxonomy_override(draft, content, metadata)
+            old_ids = {entry.id for entry in existing.entries(kind)}
+            new_ids = {entry.id for entry in replacement.entries(kind)}
+            removed_ids = old_ids - new_ids
+            if removed_ids:
+                references = find_taxonomy_references(
+                    self.repository_root, kind, removed_ids
+                )
+                if references:
+                    raise PublishValidationError(
+                        "; ".join("{}: {}".format(issue.path, issue.message) for issue in references)
+                    )
+            return []
+
+        issues = lint_markdown(
+            content,
+            entity_type=draft.entity_type,
+            standard=self.standard,
+            maintenance_status=(metadata.maintenance.status if metadata.maintenance else None),
+        )
+        errors = [issue for issue in issues if issue.severity == "ERROR"]
+        if errors:
+            raise PublishValidationError(
+                "Markdown validation failed: "
+                + "; ".join("{}: {}".format(issue.code, issue.message) for issue in errors)
+            )
+
         terms = self._load_terms_override(draft, content, path, metadata)
         sources = self._load_sources_override(draft, content, path, metadata)
         taxonomy = self._load_taxonomy_override(draft, content, metadata)
-        markdown_entities = self._load_markdown_entities(draft, content, path, metadata)
-        term_resolver = TermResolver(terms)
-        source_ids = {source.id for source in sources.sources}
-        taxonomy_ids = {
-            kind: {entry.id for entry in taxonomy.entries(kind)}
-            for kind in ("domain", "topic", "tag")
-        }
-
-        for entity_path, entity_type, entity_metadata, parsed in markdown_entities:
-            for field, kind in (
-                ("domains", "domain"),
-                ("topics", "topic"),
-                ("tags", "tag"),
-            ):
-                unknown = sorted(set(getattr(entity_metadata, field)) - taxonomy_ids[kind])
-                if unknown:
-                    raise PublishValidationError(
-                        "{} references unknown {} id(s): {}".format(
-                            entity_path.relative_to(self.repository_root).as_posix(),
-                            kind,
-                            ", ".join(unknown),
-                        )
-                    )
-            unknown_sources = sorted(set(entity_metadata.sources) - source_ids)
-            if unknown_sources:
-                raise PublishValidationError(
-                    "{} references unknown Source id(s): {}".format(
-                        entity_path.relative_to(self.repository_root).as_posix(),
-                        ", ".join(unknown_sources),
-                    )
-                )
-
-            for link in parsed.wiki_links:
-                resolution = term_resolver.resolve(link.target)
-                if resolution.status == "ambiguous":
-                    choices = ", ".join(candidate.id for candidate in resolution.candidates)
-                    raise PublishValidationError(
-                        "Ambiguous wiki link '{}' in {} (candidates: {})".format(
-                            link.target,
-                            entity_path.relative_to(self.repository_root).as_posix(),
-                            choices,
-                        )
-                    )
-            for citation in parsed.citations:
-                if citation.source_id not in source_ids:
-                    raise PublishValidationError(
-                        "Unknown Source citation '{}' in {}".format(
-                            citation.source_id,
-                            entity_path.relative_to(self.repository_root).as_posix(),
-                        )
-                    )
+        parsed = parse_markdown(content)
+        references = validate_markdown_references(
+            path,
+            self.repository_root,
+            metadata,
+            parsed,
+            taxonomy,
+            sources,
+            TermResolver(terms),
+        )
+        if references:
+            raise PublishValidationError(
+                "; ".join("{}: {}".format(issue.path, issue.message) for issue in references)
+            )
+        return [
+            "{}:{}: {}".format(issue.code, issue.line, issue.message)
+            for issue in issues
+            if issue.severity == "WARN"
+        ]
 
     def _ensure_entity_path(self, draft: Draft, target_path: Path) -> None:
         if draft.entity_type == "document":
@@ -432,28 +430,6 @@ class Publisher:
         if len(all_ids) != len(set(all_ids)):
             raise PublishValidationError("Taxonomy registry contains duplicate IDs")
         return TaxonomyRegistry(tuple(records))
-
-    def _load_markdown_entities(self, draft: Draft, content: str, path: Path, metadata):
-        entities = []
-        roots = (self.knowledge_root / "documents", self.knowledge_root / "terms")
-        for root in roots:
-            if not root.exists():
-                continue
-            for existing in sorted(root.rglob("*.md")):
-                if existing.resolve() == path.resolve():
-                    continue
-                parsed = parse_markdown(existing.read_text(encoding="utf-8"))
-                if parsed.frontmatter is None:
-                    raise PublishValidationError("Canonical Markdown has invalid frontmatter: {}".format(existing))
-                entity_type = "document" if root.name == "documents" else "term"
-                model = DocumentMetadata if entity_type == "document" else TermMetadata
-                entity_metadata = model.model_validate(parsed.frontmatter)
-                entities.append((existing, entity_type, entity_metadata, parsed))
-
-        if draft.entity_type in {"document", "term"}:
-            parsed = parse_markdown(content)
-            entities.append((path, draft.entity_type, metadata, parsed))
-        return entities
 
     def _default_commit_message(self, draft: Draft, was_existing: bool = False) -> str:
         if draft.entity_type == "document":

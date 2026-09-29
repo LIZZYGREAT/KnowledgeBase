@@ -149,13 +149,12 @@ class ImportService:
         if metadata is None:
             raise ImportValidationError("Only Document and Term Markdown can create Drafts")
 
-        issues = lint_markdown(content, entity_type=entity_type, standard=self.standard)
-        if issues:
-            raise ImportValidationError(
-                "Resolve Markdown checks before creating a Draft: {}".format(
-                    "; ".join(issue.code for issue in issues)
-                )
-            )
+        issues = lint_markdown(
+            content,
+            entity_type=entity_type,
+            standard=self.standard,
+            maintenance_status=(metadata.maintenance.status if metadata.maintenance else None),
+        )
 
         if entity_type == "document":
             folder = {
@@ -182,6 +181,15 @@ class ImportService:
                 "draft_id": draft.id,
                 "canonical_path": target.as_posix(),
                 "candidate_title": metadata.title,
+                "lint_issues": [
+                    {
+                        "code": issue.code,
+                        "message": issue.message,
+                        "line": issue.line,
+                        "severity": issue.severity,
+                    }
+                    for issue in issues
+                ],
             }
         )
         self.repository.update_item(
@@ -502,7 +510,10 @@ class ImportService:
         if parsed.frontmatter and parsed.frontmatter.get("type") in {"concept", "vocabulary"}:
             detected_type = "term"
         issues = lint_markdown(
-            content, entity_type=detected_type, standard=self.standard
+            content,
+            entity_type=detected_type,
+            standard=self.standard,
+            maintenance_status="legacy" if profile == "legacy" else None,
         )
         entity_id = None
         title = None
@@ -527,7 +538,12 @@ class ImportService:
             "candidate_title": title,
             "resolver_candidates": resolution_candidates,
             "lint_issues": [
-                {"code": issue.code, "message": issue.message, "line": issue.line}
+                {
+                    "code": issue.code,
+                    "message": issue.message,
+                    "line": issue.line,
+                    "severity": issue.severity,
+                }
                 for issue in issues
             ],
             "candidate_status": (

@@ -14,6 +14,7 @@ from backend.app.services.proposal_service import ProposalService
 from backend.app.services.publisher import (
     PublishConflictError,
     PublishError,
+    PostPublishIndexUpdateError,
     PublishValidationError,
     Publisher,
 )
@@ -145,11 +146,69 @@ def test_validation_failure_does_not_write_or_commit(publish_context):
     )
     head = git.current_revision()
 
-    with pytest.raises(PublishValidationError, match="unknown topic"):
+    with pytest.raises(PublishValidationError, match="Unknown topic"):
         publisher.publish(draft.id)
 
     assert not (repository / target).exists()
     assert git.current_revision() == head
+
+
+def test_current_document_style_issues_still_block_publish(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/current-style.md"
+    content = _document("current-style") + "\n## Unnumbered section\n"
+    draft = _create_draft(drafts, git, "document", "current-style", content, target)
+
+    with pytest.raises(PublishValidationError, match="heading.h2_numbering"):
+        publisher.publish(draft.id)
+    assert not (repository / target).exists()
+
+
+def test_legacy_document_style_issues_publish_with_warnings(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/legacy-style.md"
+    content = _document("legacy-style").replace(
+        "schema_version: 1", "schema_version: 1\nmaintenance:\n  status: legacy", 1
+    ) + "\n## Old section numbering\n"
+    draft = _create_draft(drafts, git, "document", "legacy-style", content, target)
+
+    result = publisher.publish(draft.id)
+
+    assert (repository / target).is_file()
+    assert any("heading.h2_numbering" in warning for warning in result.warnings)
+
+
+def test_legacy_document_with_broken_frontmatter_cannot_publish(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/broken-legacy.md"
+    content = (
+        "---\nschema_version: 1\nid: broken-legacy\ntitle: Broken Legacy\n"
+        "type: learning-note\nmaintenance:\n  status: legacy\n"
+    )
+    draft = _create_draft(drafts, git, "document", "broken-legacy", content, target)
+
+    with pytest.raises(PublishValidationError, match="frontmatter"):
+        publisher.publish(draft.id)
+    assert not (repository / target).exists()
+
+
+def test_unrelated_malformed_markdown_does_not_block_publish(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    unrelated = repository / "knowledge" / "documents" / "learning" / "temporarily-broken.md"
+    unrelated.write_text("---\nnot valid frontmatter\n", encoding="utf-8")
+    target = "knowledge/documents/learning/local-validation.md"
+    draft = _create_draft(
+        drafts, git, "document", "local-validation", _document("local-validation"), target
+    )
+
+    with pytest.raises(PostPublishIndexUpdateError) as error:
+        publisher.publish(draft.id)
+    assert (repository / target).is_file()
+    assert error.value.commit_revision == git.current_revision()
 
 
 def test_approved_proposal_is_applied_and_merged_after_commit(publish_context):
@@ -258,7 +317,7 @@ def test_taxonomy_removal_cannot_leave_dangling_canonical_references(publish_con
     content = "schema_version: 1\nentries: []\n"
     draft = _create_draft(drafts, git, "taxonomy", "domains", content, target)
 
-    with pytest.raises(PublishValidationError, match="unknown domain"):
+    with pytest.raises(PublishValidationError, match="removed domain"):
         publisher.publish(draft.id)
 
     assert git.current_revision() == draft.base_git_revision

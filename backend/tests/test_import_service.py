@@ -185,6 +185,26 @@ def test_legacy_batch_sets_unreviewed_and_legacy_defaults_and_allows_manual_fix(
     assert legacy_metadata["maintenance"]["status"] == "legacy"
 
 
+def test_markdown_with_style_issues_can_enter_a_draft(import_context, tmp_path):
+    _, _, _, _, service = import_context
+    source = tmp_path / "style-issue.md"
+    source.write_text(
+        _document("style-issue", "Style Issue") + "\n## Unnumbered section\n",
+        encoding="utf-8",
+    )
+
+    job = service.stage_paths([source])
+    item = service.get_items(job.id)[0]
+    assert item.status == "needs_review"
+
+    draft = service.create_draft(item.id)
+    updated_item = service.get_items(job.id)[0]
+
+    assert draft.entity_id == "style-issue"
+    assert updated_item.status == "drafted"
+    assert any(issue["code"] == "heading.h2_numbering" for issue in updated_item.metadata["lint_issues"])
+
+
 def test_new_blank_document_creates_runtime_draft_only(import_context):
     repository, _, _, _, service = import_context
     git = GitManager(repository)

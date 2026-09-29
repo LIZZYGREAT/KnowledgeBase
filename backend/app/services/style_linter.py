@@ -1,6 +1,6 @@
 """Deterministic Markdown style and canonical metadata checks."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, Optional
 import re
@@ -57,7 +57,7 @@ class LintIssue:
     code: str
     message: str
     line: int
-    severity: Literal["ERROR"] = "ERROR"
+    severity: Literal["ERROR", "WARN"] = "ERROR"
     safe_fix: Optional[str] = None
 
 
@@ -85,6 +85,7 @@ def lint_markdown(
     text: str,
     entity_type: Optional[str] = None,
     standard: Optional[WritingStandard] = None,
+    maintenance_status: Optional[str] = None,
 ) -> list[LintIssue]:
     standard = standard or load_writing_standard()
     parsed = parse_markdown(text)
@@ -149,6 +150,16 @@ def lint_markdown(
                         block.start_line,
                     )
                 )
+    if maintenance_status is None and parsed.frontmatter is not None:
+        maintenance = parsed.frontmatter.get("maintenance") or {}
+        maintenance_status = maintenance.get("status") if isinstance(maintenance, dict) else None
+    if maintenance_status == "legacy":
+        issues = [
+            replace(issue, severity="WARN")
+            if issue.code.startswith("heading.") or issue.code.startswith("mermaid.")
+            else issue
+            for issue in issues
+        ]
     return issues
 
 

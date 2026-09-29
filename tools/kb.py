@@ -18,6 +18,7 @@ from backend.app.db.connection import connect_database
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.taxonomy import TaxonomyRegistry
 from backend.app.services.indexer import IndexBuildError, Indexer
+from backend.app.services.canonical_validator import validate_repository_references
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.style_linter import (
     LintIssue,
@@ -82,11 +83,20 @@ def main(argv: Optional[list[str]] = None) -> int:
 def check_paths(paths: list[Path]) -> int:
     standard = load_writing_standard()
     files = []
+    canonical_scope = False
+    knowledge_root = (ROOT / "knowledge").resolve()
     for supplied in paths:
         path = supplied if supplied.is_absolute() else ROOT / supplied
         if not path.exists():
             print("ERROR {}: path does not exist".format(path))
             return 1
+        try:
+            path.resolve().relative_to(knowledge_root)
+            canonical_scope = True
+        except ValueError:
+            pass
+        if path.resolve() == knowledge_root:
+            canonical_scope = True
         if path.is_dir():
             files.extend(
                 child
@@ -97,18 +107,37 @@ def check_paths(paths: list[Path]) -> int:
             files.append(path)
 
     failures = 0
+    warnings = 0
     checked = 0
     for path in sorted(set(files)):
         checked += 1
         issues = check_file(path, standard)
         for issue in issues:
-            failures += 1
+            if issue.severity == "ERROR":
+                failures += 1
+            else:
+                warnings += 1
             print("{}:{}: {} [{}] {}".format(path, issue.line, issue.severity, issue.code, issue.message))
 
+    if canonical_scope:
+        for issue in validate_repository_references(ROOT):
+            failures += 1
+            print(
+                "{}:{}: ERROR [{}] {}".format(
+                    ROOT / issue.path, issue.line, issue.code, issue.message
+                )
+            )
+
     if failures:
-        print("Checked {} file(s); found {} error(s).".format(checked, failures))
+        print(
+            "Checked {} file(s); found {} error(s) and {} warning(s).".format(
+                checked, failures, warnings
+            )
+        )
         return 1
-    print("Checked {} file(s); no errors.".format(checked))
+    print(
+        "Checked {} file(s); no errors and {} warning(s).".format(checked, warnings)
+    )
     return 0
 
 
