@@ -1,5 +1,6 @@
 """Build limited context and persist validated AI results as Proposals."""
 
+import asyncio
 from hashlib import sha256
 from pathlib import Path
 from typing import Optional
@@ -31,6 +32,18 @@ class AIProposalService:
         self.gateway = gateway
 
     def generate(self, task_name: str, draft_id: str, extra_context: Optional[dict] = None):
+        task, draft, registries, context = self._prepare(task_name, draft_id, extra_context)
+        result = self.gateway.run(task_name, context)
+        return self._persist_result(task, draft, registries, result)
+
+    async def generate_async(
+        self, task_name: str, draft_id: str, extra_context: Optional[dict] = None
+    ):
+        task, draft, registries, context = self._prepare(task_name, draft_id, extra_context)
+        result = await asyncio.to_thread(self.gateway.run, task_name, context)
+        return self._persist_result(task, draft, registries, result)
+
+    def _prepare(self, task_name: str, draft_id: str, extra_context: Optional[dict]):
         task = TASKS.get(task_name)
         if task is None:
             raise ValueError("Unsupported AI task: {}".format(task_name))
@@ -44,7 +57,10 @@ class AIProposalService:
             "registries": registries,
             "request": extra_context or {},
         }
-        result = self.gateway.run(task_name, context)
+        return task, draft, registries, context
+
+    def _persist_result(self, task, draft, registries: dict, result):
+        task_name = task.name
         result_data = result.model_dump(mode="json", exclude_none=True)
         try:
             self._validate_result(task_name, draft, result_data, registries)

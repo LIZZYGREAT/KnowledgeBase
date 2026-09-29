@@ -103,6 +103,31 @@ class ProposalService:
             raise ProposalNotFoundError("Proposal '{}' does not exist".format(proposal_id))
         return proposal
 
+    def list(
+        self,
+        target_type: Optional[str] = None,
+        target_id: Optional[str] = None,
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Proposal]:
+        if target_type is not None and target_type not in _ENTITY_TYPES:
+            raise ValueError("Unsupported Proposal target type: {}".format(target_type))
+        if kind is not None and kind not in _PROPOSAL_KINDS:
+            raise ValueError("Unsupported Proposal kind: {}".format(kind))
+        if status is not None and status not in {
+            "proposed", "drafted", "approved", "merged", "rejected", "stale"
+        }:
+            raise ValueError("Unsupported Proposal status: {}".format(status))
+        if target_id is not None:
+            _require_text(target_id, "target_id")
+        if not isinstance(limit, int) or limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100")
+        if not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be zero or greater")
+        return self.repository.list(target_type, target_id, kind, status, limit, offset)
+
     def draft(
         self,
         proposal_id: str,

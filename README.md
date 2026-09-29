@@ -2,7 +2,7 @@
 
 KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
 
-This repository currently implements Phases 0–7: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; a staged Markdown/PDF import pipeline; and the server-side DeepSeek Gateway. API endpoints and the Reference Hub are later phases.
+This repository currently implements Phases 0–8: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; a staged Markdown/PDF import pipeline; the server-side DeepSeek Gateway; and the Knowledge API. The Reference Hub UI is a later phase.
 
 ## Local setup
 
@@ -33,6 +33,8 @@ To run the frontend checks manually, use `npm ci`, `npm run typecheck`, and `npm
 Start the development services with `docker compose up --build`. The Compose ports bind to localhost; private remote access is a later deployment phase.
 
 Copy `.env.example` to `.env` before starting Compose. The backend mounts the repository at `/workspace`, where it can use Git, write canonical files through `Publisher`, and keep the ignored runtime database and storage files. Git commits use `KB_GIT_USER_NAME` and `KB_GIT_USER_EMAIL`, defaulting to `KnowledgeBase` and `knowledgebase@localhost`; change them in `.env` if you want commits to show another author. DeepSeek requests use the backend-only `DEEPSEEK_API_KEY`; model, base URL, timeout, and retry settings can be overridden with `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_TIMEOUT_SECONDS`, and `DEEPSEEK_MAX_RETRIES`.
+
+The backend API is available at `http://127.0.0.1:8000`; OpenAPI is at `/openapi.json` and the interactive schema at `/docs`. Context Export and read responses do not expose repository paths. AI requests require caller confirmation before sending Draft content and task-specific registry context to DeepSeek; AI results are stored as Proposals.
 
 ## Repository map
 

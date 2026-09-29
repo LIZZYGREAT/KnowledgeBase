@@ -2,7 +2,7 @@
 
 ## Current phase
 
-The repository has completed Phases 0–7: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, and the server-side DeepSeek Gateway. Knowledge API endpoints and the Reference Hub remain later phases.
+The repository has completed Phases 0–8: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, the server-side DeepSeek Gateway, and the Knowledge API. The Reference Hub remains a later phase.
 
 ## Data boundaries
 
@@ -57,3 +57,9 @@ The import pipeline is currently a service-level backend component. User-facing 
 `AIGateway` sends fixed task requests through the backend-only DeepSeek client. Each supported task declares a Pydantic JSON schema, Proposal kind, and the registries or writing standard it needs. The client uses configured timeout and bounded retries for transient transport failures; malformed responses are rejected before any Proposal is stored. `AIProposalService` binds validated results to the current Draft content hash and stores them through `ProposalService`. AI output never writes canonical files or invokes Git. The client is injectable, and `MockDeepSeekClient` supports offline tests.
 
 The initial task registry supports metadata suggestions, Term detection, semantic format review, Document review, Term drafting, revision suggestions, and Evidence suggestions. The API key is read from a backend environment variable; it is not exposed to the frontend.
+
+## Phase 8: Knowledge API
+
+The FastAPI surface exposes canonical Document, Term, Source, Topic, and Search reads; Context Export; Draft and Proposal review; publishing through `Publisher`; Import workflows; AI Proposal requests; and Usage events and lists. Read endpoints consume the rebuildable SQLite indexes and resolve canonical content from the indexed knowledge path. Responses omit repository paths. Draft creation captures the canonical Git revision and target hash on the server, and Proposal approval compares against its linked Draft content hash.
+
+Import requests accept relative paths under `storage/uploads/`; traversal and symbolic links are rejected. AI requests require explicit `confirm_deepseek_transfer: true`, disclose that Draft content and the needed registry context will be sent to DeepSeek, and return only a validated Proposal. Context Export supports `raw`, `reviewed`, and `verified` trust levels and the `research`, `teaching`, and `evidence` purposes. Verified claims require a human-approved Document and a Source whose metadata review status is `verified`. The API schema is available at `/openapi.json` and `/docs`; the Reference Hub UI remains out of scope for this phase.

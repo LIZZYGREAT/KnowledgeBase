@@ -1,24 +1,46 @@
-"""ASGI application and Phase 0–6 service wiring."""
+"""ASGI application and Phase 0–8 service wiring."""
 
 from contextlib import asynccontextmanager
 from pathlib import Path
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
+from backend.app.api.ai import router as ai_router
+from backend.app.api.knowledge import router as knowledge_router
+from backend.app.api.runtime import router as runtime_router
 from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
+from backend.app.repositories.draft_repository import DraftRevisionConflict
 from backend.app.repositories.import_repository import ImportRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
-from backend.app.services.ai_client import DeepSeekClient, DeepSeekConfig
+from backend.app.services.ai_client import (
+    AIConfigurationError,
+    AIGatewayError,
+    DeepSeekClient,
+    DeepSeekConfig,
+)
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.ai_proposal_service import AIProposalService
+from backend.app.services.context_export_service import ContextExportService
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
 from backend.app.services.import_service import ImportService
 from backend.app.services.indexer import Indexer
+from backend.app.services.knowledge_read_service import KnowledgeReadService
 from backend.app.services.proposal_service import ProposalService
-from backend.app.services.publisher import Publisher
+from backend.app.services.publisher import (
+    PublishConflictError,
+    PublishError,
+    PublishValidationError,
+    Publisher,
+)
+from backend.app.services.import_service import ImportValidationError
+from backend.app.services.proposal_service import StaleProposalError
+from backend.app.repositories.proposal_repository import ProposalTransitionError
+from backend.app.services.usage_service import UsageService
 
 
 @asynccontextmanager
@@ -47,7 +69,10 @@ async def lifespan(application: FastAPI):
         ai_proposal_service = AIProposalService(
             repository_root, draft_service, proposal_service, ai_gateway
         )
+        usage_service = UsageService(connection)
         indexer = Indexer(repository_root, connection)
+        knowledge_read_service = KnowledgeReadService(repository_root, connection)
+        context_export_service = ContextExportService(knowledge_read_service, connection)
         import_service = ImportService(
             repository_root,
             ImportRepository(connection),
@@ -70,6 +95,9 @@ async def lifespan(application: FastAPI):
         application.state.proposal_service = proposal_service
         application.state.ai_gateway = ai_gateway
         application.state.ai_proposal_service = ai_proposal_service
+        application.state.usage_service = usage_service
+        application.state.knowledge_read_service = knowledge_read_service
+        application.state.context_export_service = context_export_service
         application.state.indexer = indexer
         application.state.import_service = import_service
         application.state.publisher = publisher
@@ -78,4 +106,71 @@ async def lifespan(application: FastAPI):
         connection.close()
 
 
-app = FastAPI(title="KnowledgeBase API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="KnowledgeBase API", version="0.8.0", lifespan=lifespan)
+app.include_router(knowledge_router)
+app.include_router(runtime_router)
+app.include_router(ai_router)
+
+
+def _error_response(status_code: int, error: Exception) -> JSONResponse:
+    return JSONResponse(status_code=status_code, content={"detail": str(error)})
+
+
+@app.exception_handler(LookupError)
+async def lookup_error_handler(request: Request, error: LookupError):
+    return _error_response(404, error)
+
+
+@app.exception_handler(DraftRevisionConflict)
+async def draft_conflict_handler(request: Request, error: DraftRevisionConflict):
+    return _error_response(409, error)
+
+
+@app.exception_handler(ProposalTransitionError)
+async def proposal_conflict_handler(request: Request, error: ProposalTransitionError):
+    return _error_response(409, error)
+
+
+@app.exception_handler(StaleProposalError)
+async def stale_proposal_handler(request: Request, error: StaleProposalError):
+    return _error_response(409, error)
+
+
+@app.exception_handler(PublishConflictError)
+async def publish_conflict_handler(request: Request, error: PublishConflictError):
+    return _error_response(409, error)
+
+
+@app.exception_handler(PublishValidationError)
+async def publish_validation_handler(request: Request, error: PublishValidationError):
+    return _error_response(422, error)
+
+
+@app.exception_handler(PublishError)
+async def publish_error_handler(request: Request, error: PublishError):
+    return _error_response(409, error)
+
+
+@app.exception_handler(ImportValidationError)
+async def import_validation_handler(request: Request, error: ImportValidationError):
+    return _error_response(422, error)
+
+
+@app.exception_handler(AIConfigurationError)
+async def ai_configuration_handler(request: Request, error: AIConfigurationError):
+    return _error_response(503, error)
+
+
+@app.exception_handler(AIGatewayError)
+async def ai_gateway_error_handler(request: Request, error: AIGatewayError):
+    return _error_response(502, error)
+
+
+@app.exception_handler(ValidationError)
+async def canonical_validation_handler(request: Request, error: ValidationError):
+    return _error_response(422, error)
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, error: ValueError):
+    return _error_response(422, error)

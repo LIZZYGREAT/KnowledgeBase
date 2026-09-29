@@ -30,6 +30,9 @@ def test_application_initializes_phase_services_from_configured_paths(
             assert app.state.import_service.repository_root == repository.resolve()
             assert app.state.ai_gateway.provider == "deepseek"
             assert app.state.ai_proposal_service.repository_root == repository.resolve()
+            assert app.state.knowledge_read_service.repository_root == repository.resolve()
+            assert app.state.context_export_service.knowledge is app.state.knowledge_read_service
+            assert app.state.usage_service.connection is app.state.runtime_connection
             assert app.state.runtime_connection.execute("SELECT 1").fetchone()[0] == 1
 
     asyncio.run(inspect_application())

@@ -8,14 +8,14 @@ export default function App() {
           <span className="brand-mark">K</span>
           <span>KnowledgeBase</span>
         </a>
-        <span className="phase-pill">核心阶段 · 0–6</span>
+        <span className="phase-pill">后端阶段 · 0–8</span>
       </header>
 
       <section className="welcome" aria-labelledby="welcome-title">
         <p className="eyebrow">REFERENCE HUB</p>
         <h1 id="welcome-title">让知识保持清晰、可查、可维护。</h1>
         <p className="intro">
-          Reference Hub 界面尚未接入。当前后端核心已实现 0–6 阶段。
+          Knowledge API 已就绪。Reference Hub 阅读与编辑界面仍待接入。
         </p>
       </section>
 

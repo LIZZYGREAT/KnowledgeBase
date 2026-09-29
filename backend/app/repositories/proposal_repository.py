@@ -56,6 +56,35 @@ class ProposalRepository:
         ).fetchone()
         return _proposal_from_row(row) if row else None
 
+    def list(
+        self,
+        target_type: Optional[str] = None,
+        target_id: Optional[str] = None,
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Proposal]:
+        filters = {
+            "target_type": target_type,
+            "target_id": target_id,
+            "kind": kind,
+            "status": status,
+        }
+        clauses = []
+        parameters = []
+        for field, value in filters.items():
+            if value is not None:
+                clauses.append("{} = ?".format(field))
+                parameters.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        parameters.extend((limit, offset))
+        rows = self.connection.execute(
+            "SELECT * FROM proposals{} ORDER BY created_at DESC, id LIMIT ? OFFSET ?".format(where),
+            parameters,
+        ).fetchall()
+        return [_proposal_from_row(row) for row in rows]
+
     def update_draft(
         self, proposal_id: str, payload: Dict[str, Any], diff_text: Optional[str]
     ) -> Proposal:
