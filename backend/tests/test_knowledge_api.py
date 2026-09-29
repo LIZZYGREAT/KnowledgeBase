@@ -96,14 +96,65 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/sources/{entity_id}/pdf",
         "/api/context/export",
         "/api/ai/document-review",
+        "/api/ai/metadata-suggest",
         "/api/drafts",
         "/api/drafts/{draft_id}/compare",
         "/api/drafts/{draft_id}/rebase",
         "/api/publish",
+        "/api/annotations",
+        "/api/annotations/stale",
+        "/api/annotations/{annotation_id}",
     ):
         assert path in schema["paths"]
     context_schema = schema["components"]["schemas"]["ContextExportRequest"]
     assert "provisional traceability filter" in context_schema["properties"]["trust"]["description"]
+
+
+def test_presentation_annotations_never_change_canonical_markdown(api_client):
+    entity = api_client.get("/api/documents/neural-indexing").json()
+    canonical_path = (
+        api_client.app.state.repository_root
+        / "knowledge" / "documents" / "learning" / "neural-indexing.md"
+    )
+    before = canonical_path.read_bytes()
+    body = entity["content"]
+    selected = "stable index"
+    start = body.index(selected)
+    base_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+    created = api_client.post(
+        "/api/annotations",
+        json={
+            "entity_type": "document",
+            "entity_id": "neural-indexing",
+            "style_type": "highlight",
+            "style_value": "yellow",
+            "selected_text": selected,
+            "prefix_text": "",
+            "suffix_text": "",
+            "start_offset": start,
+            "end_offset": start + len(selected),
+            "base_content_hash": base_hash,
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["status"] == "active"
+    assert api_client.get(
+        "/api/annotations",
+        params={"entity_type": "document", "entity_id": "neural-indexing"},
+    ).json()[0]["selected_text"] == selected
+    assert canonical_path.read_bytes() == before
+
+    annotation_id = created.json()["id"]
+    assert api_client.put(
+        "/api/annotations/{}".format(annotation_id),
+        json={"style_type": "underline", "style_value": None},
+    ).json()["style_type"] == "underline"
+    assert api_client.delete("/api/annotations/{}".format(annotation_id)).json() == {"deleted": True}
+    assert api_client.get(
+        "/api/annotations",
+        params={"entity_type": "document", "entity_id": "neural-indexing"},
+    ).json() == []
 
 
 def test_context_export_applies_requested_trust_and_purpose(api_client):
@@ -440,6 +491,12 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
     item = job["items"][0]
     assert "path" not in item
     assert "staging_path" not in item["metadata"]
+    item_content = api_client.get(
+        "/api/import-items/{}/content".format(item["id"])
+    )
+    assert item_content.status_code == 200
+    assert item_content.json()["content"] == import_path.read_text(encoding="utf-8")
+    assert "staging_path" not in item_content.json()["metadata"]
     assert api_client.get("/api/imports/{}".format(job["id"])).status_code == 200
     assert api_client.get("/api/imports").json()[0]["id"] == job["id"]
     created_draft = api_client.post(

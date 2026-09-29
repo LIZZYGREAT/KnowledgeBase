@@ -20,6 +20,7 @@ from backend.app.services.publisher import (
     PublishValidationError,
     Publisher,
 )
+from tools.kb import main as kb_main
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -219,6 +220,43 @@ def test_legacy_batch_sets_unreviewed_and_legacy_defaults_and_allows_manual_fix(
     legacy_metadata = _frontmatter(valid_draft.content)
     assert legacy_metadata["review"]["human"]["status"] == "unreviewed"
     assert legacy_metadata["maintenance"]["status"] == "legacy"
+
+
+def test_kb_import_command_stages_legacy_markdown_and_pdf(import_context, tmp_path, capsys):
+    repository, _, _, _, _ = import_context
+    batch = tmp_path / "legacy-batch"
+    batch.mkdir()
+    (batch / "old-note.md").write_text(
+        _document("old-note", "Old Note", include_review=False), encoding="utf-8"
+    )
+    (batch / "old-paper.pdf").write_bytes(b"%PDF-1.7\nminimal test PDF")
+    database = tmp_path / "cli-runtime" / "knowledge.db"
+
+    exit_code = kb_main(
+        [
+            "import",
+            str(batch),
+            "--profile",
+            "legacy",
+            "--root",
+            str(repository),
+            "--database",
+            str(database),
+        ]
+    )
+
+    assert exit_code == 0
+    assert "profile legacy" in capsys.readouterr().out
+    connection = connect_database(database)
+    try:
+        jobs = ImportRepository(connection).list_jobs()
+        assert len(jobs) == 1
+        assert jobs[0].profile == "legacy"
+        items = ImportRepository(connection).list_items(jobs[0].id)
+        assert {item.file_type for item in items} == {"markdown", "pdf"}
+        assert all(item.status == "ready" for item in items)
+    finally:
+        connection.close()
 
 
 def test_markdown_with_style_issues_can_enter_a_draft(import_context, tmp_path):

@@ -93,7 +93,7 @@ export default function App() {
   } else if (route.path === "/topics") {
     page = <Suspense fallback={<LoadingState />}><TopicsPage onOpen={openEntity} /></Suspense>;
   } else if (route.path === "/review") {
-    page = <Suspense fallback={<LoadingState />}><ReviewPage onOpen={openEntity} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><ReviewPage onOpen={openEntity} navigate={navigate} /></Suspense>;
   } else {
     page = <Suspense fallback={<LoadingState />}><HomePage onOpen={openEntity} navigate={navigate} /></Suspense>;
   }

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { parseDocument } from "yaml";
+import { applyMarkdownFormatting, type MarkdownFormattingAction } from "./markdownFormatting.js";
 import {
   compareDraft,
   createBlankDocument,
@@ -84,6 +85,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   const lastSavedRef = useRef("");
   const inFlightRef = useRef<Promise<Draft> | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
 
   function installDraft(next: Draft, replaceContent: boolean) {
     draftRef.current = next;
@@ -262,7 +264,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     }
   }
 
-  async function generateProposal(task: "document-review" | "selection-review" | "term-draft" | "evidence-suggest") {
+  async function generateProposal(task: "document-review" | "metadata-suggest" | "selection-review" | "term-draft" | "evidence-suggest") {
     if (!consent) return;
     setProposalBusy(true);
     setProposalError("");
@@ -287,9 +289,52 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     }
   }
 
+  function applyMetadataProposal(proposal: Proposal) {
+    const result = proposal.payload.result;
+    const changes = result && typeof result === "object"
+      ? (result as Record<string, unknown>).changes
+      : null;
+    if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
+      setProposalError("此 Metadata Proposal 没有可应用的字段。");
+      return;
+    }
+    let next = contentRef.current;
+    let skippedDocumentType = false;
+    try {
+      for (const [key, value] of Object.entries(changes as Record<string, unknown>)) {
+        if (!["title", "type", "domains", "topics", "tags", "sources"].includes(key)) continue;
+        if (key === "type" && value !== readFrontmatterField(next, type, "type")) {
+          skippedDocumentType = true;
+          continue;
+        }
+        next = patchYamlField(next, type, key, value);
+      }
+      setEditorContent(next);
+      setProposalError(skippedDocumentType ? "建议中的 Document 类型与现有 Canonical 路径不同，已跳过该字段。" : "");
+    } catch (error) {
+      setProposalError(errorMessage(error));
+    }
+  }
+
   function setEditorContent(value: string) {
     contentRef.current = value;
     setContent(value);
+  }
+
+  function formatMarkdown(action: MarkdownFormattingAction) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const result = applyMarkdownFormatting(
+      contentRef.current,
+      editor.selectionStart,
+      editor.selectionEnd,
+      action,
+    );
+    setEditorContent(result.value);
+    requestAnimationFrame(() => {
+      editor.focus();
+      editor.setSelectionRange(result.selectionStart, result.selectionEnd);
+    });
   }
 
   function updateFrontmatter(key: string, value: unknown) {
@@ -400,11 +445,24 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
       <div className="editor-grid">
         <section className="surface editor-writing-panel">
           <SectionHeading title={type === "source" ? "Source YAML" : "Markdown"} detail="Draft 自动保存 · 约 1 秒后生效" />
+          {type !== "source" && <div className="markdown-toolbar" role="toolbar" aria-label="Markdown 格式工具" onMouseDown={(event) => event.preventDefault()}>
+            <button type="button" aria-label="加粗" title="加粗" onClick={() => formatMarkdown("bold")}><strong>B</strong></button>
+            <button type="button" aria-label="斜体" title="斜体" onClick={() => formatMarkdown("italic")}><em>I</em></button>
+            <button type="button" aria-label="删除线" title="删除线" onClick={() => formatMarkdown("strike")}><s>S</s></button>
+            <button type="button" aria-label="行内代码" title="行内代码" onClick={() => formatMarkdown("code")}>&lt;/&gt;</button>
+            <span className="toolbar-divider" />
+            <button type="button" aria-label="行内公式" title="行内公式" onClick={() => formatMarkdown("inlineMath")}>$x$</button>
+            <button type="button" aria-label="块级公式" title="块级公式" onClick={() => formatMarkdown("displayMath")}>$$</button>
+            <button type="button" aria-label="多行公式" title="多行公式" onClick={() => formatMarkdown("alignedMath")}>Align</button>
+          </div>}
           <textarea
+            ref={editorRef}
             className="knowledge-editor"
             value={content}
             onChange={(event) => setEditorContent(event.target.value)}
-            onSelect={(event) => setSelectedText(event.currentTarget.value.slice(event.currentTarget.selectionStart, event.currentTarget.selectionEnd))}
+            onSelect={(event) => {
+              setSelectedText(event.currentTarget.value.slice(event.currentTarget.selectionStart, event.currentTarget.selectionEnd));
+            }}
             onBlur={() => { if (contentRef.current !== lastSavedRef.current) void saveNow().catch(() => undefined); }}
             spellCheck={false}
             aria-label={type === "source" ? "Source YAML Draft" : "Markdown Draft"}
@@ -420,7 +478,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
         <div className="ai-panel-heading"><div><p className="eyebrow">PROPOSAL WORKFLOW</p><h2>AI 辅助审阅</h2><p>AI 结果会保存为 Proposal；它不会自动修改 Draft 或正式内容。</p></div><Chip>需人工审阅</Chip></div>
         <label className="ai-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意将此 Draft 和完成任务所需的注册表上下文发送给 DeepSeek。</span></label>
         <div className="ai-actions">
-          {type === "document" && <><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("document-review")}>文档审阅</button><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("evidence-suggest")}>Evidence 候选</button></>}
+          {type === "document" && <><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("metadata-suggest")}>元数据建议</button><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("document-review")}>文档审阅</button><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("evidence-suggest")}>Evidence 候选</button></>}
           {type === "term" && <button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("term-draft")}>Term Draft 建议</button>}
           {type === "document" && <><input className="selection-input" value={selection} onChange={(event) => setSelection(event.target.value)} placeholder={selectedText ? `选中文本：${selectedText.slice(0, 45)}` : "粘贴或选择一段要审阅的文字"} /><button className="button button-secondary" disabled={!consent || proposalBusy || !selection.trim()} onClick={() => void generateProposal("selection-review")}>审阅选区</button></>}
           {proposalBusy && <span className="subtle-copy">正在生成 Proposal…</span>}
@@ -428,7 +486,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
         {proposalError && <p className="proposal-message" role="status">{proposalError}</p>}
         <div className="proposal-list">
           <div className="context-card-heading"><strong>此内容的 Proposals</strong><small>{pendingProposals.length} 条等待处理</small></div>
-          {pendingProposals.length ? pendingProposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} onReview={actOnProposal} onUseContent={(value) => setEditorContent(value)} />) : <p className="subtle-copy">目前没有等待处理的 Proposal。</p>}
+          {pendingProposals.length ? pendingProposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} onReview={actOnProposal} onUseContent={(value) => setEditorContent(value)} onApplyMetadata={applyMetadataProposal} />) : <p className="subtle-copy">目前没有等待处理的 Proposal。</p>}
         </div>
       </section>
       <div className="editor-bottom-actions"><button className="button button-danger" onClick={() => void discardCurrentDraft()}>丢弃 Draft</button><span>基线 revision {draft.base_git_revision.slice(0, 12)} · 内容变更由 Publisher 冲突检查保护</span></div>
@@ -444,10 +502,12 @@ function ProposalCard({
   proposal,
   onReview,
   onUseContent,
+  onApplyMetadata,
 }: {
   proposal: Proposal;
   onReview: (id: string, action: "approve" | "reject") => void;
   onUseContent: (content: string) => void;
+  onApplyMetadata: (proposal: Proposal) => void;
 }) {
   const payloadContent = typeof proposal.payload.content === "string" ? proposal.payload.content : "";
   const result = proposal.payload.result;
@@ -459,6 +519,7 @@ function ProposalCard({
     <pre className="proposal-payload">{JSON.stringify(result ?? proposal.payload, null, 2)}</pre>
     <div className="proposal-card-actions">
       {payloadContent && <button className="button button-secondary" onClick={() => onUseContent(payloadContent)}>将候选内容载入 Draft</button>}
+      {proposal.kind === "metadata" && <button className="button button-secondary" onClick={() => onApplyMetadata(proposal)}>将元数据建议载入 Draft</button>}
       <button className="button button-secondary" onClick={() => onReview(proposal.id, "reject")}>拒绝</button>
       <button className="button button-primary" onClick={() => onReview(proposal.id, "approve")}>标记已审阅</button>
     </div>

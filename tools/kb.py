@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from backend.app.db.connection import connect_database
+from backend.app.repositories.draft_repository import DraftRepository
+from backend.app.repositories.import_repository import ImportRepository
+from backend.app.services.draft_service import DraftService
+from backend.app.services.git_manager import GitManager
+from backend.app.services.import_service import ImportService
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.taxonomy import TaxonomyRegistry
 from backend.app.services.indexer import IndexBuildError, Indexer
@@ -44,6 +49,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         type=Path,
         help="Runtime SQLite path (defaults to <root>/runtime/knowledge.db)",
     )
+    import_command = commands.add_parser(
+        "import", help="stage Markdown and PDF files for review without publishing them"
+    )
+    import_command.add_argument("paths", nargs="+", type=Path, help="files or directories to stage")
+    import_command.add_argument(
+        "--profile", choices=("standard", "legacy"), default="standard",
+        help="use legacy defaults for old Markdown notes",
+    )
+    import_command.add_argument("--root", type=Path, default=ROOT, help="KnowledgeBase repository root")
+    import_command.add_argument("--database", type=Path, help="Runtime SQLite path")
     args = parser.parse_args(argv)
 
     if args.command == "check":
@@ -77,6 +92,34 @@ def main(argv: Optional[list[str]] = None) -> int:
             )
         )
         return 0
+    if args.command == "import":
+        root = args.root.resolve()
+        database_path = args.database or Path("runtime") / "knowledge.db"
+        if not database_path.is_absolute():
+            database_path = root / database_path
+        connection = None
+        try:
+            connection = connect_database(database_path)
+            service = ImportService(
+                root,
+                ImportRepository(connection),
+                DraftService(DraftRepository(connection)),
+                GitManager(root),
+            )
+            job = service.stage_paths(args.paths, profile=args.profile)
+            items = service.get_items(job.id)
+        except (OSError, ValueError, sqlite3.Error, RuntimeError) as error:
+            print("ERROR import: {}".format(error))
+            return 1
+        finally:
+            if connection is not None:
+                connection.close()
+        print("Import Job {} · {} · profile {}".format(job.id, job.status, job.profile))
+        for item in items:
+            print("{} {} · {} · {}".format(item.file_type, item.status, item.id, item.metadata.get("display_name", Path(item.path).name)))
+        if job.error_message:
+            print("NOTE {}".format(job.error_message))
+        return 0 if job.status != "failed" else 1
     return 2
 
 

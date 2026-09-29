@@ -156,6 +156,14 @@ class ImportItemView(APIModel):
     metadata: dict[str, Any]
 
 
+class ImportItemContentView(APIModel):
+    id: str
+    file_type: Literal["markdown", "pdf"]
+    status: str
+    content: Optional[str]
+    metadata: dict[str, Any]
+
+
 class ImportJobView(APIModel):
     id: str
     status: str
@@ -215,6 +223,45 @@ class UsageDocumentView(APIModel):
     view_count: int
     search_click_count: int
     last_viewed_at: Optional[str]
+
+
+class PresentationAnnotationCreateRequest(APIModel):
+    entity_type: Literal["document", "term"]
+    entity_id: NonEmptyText
+    style_type: Literal["highlight", "text_color", "underline"]
+    style_value: Optional[
+        Literal["yellow", "green", "blue", "pink", "gray", "red", "orange", "purple", "muted"]
+    ] = None
+    selected_text: NonEmptyText = Field(max_length=20000)
+    prefix_text: str = Field(default="", max_length=80)
+    suffix_text: str = Field(default="", max_length=80)
+    start_offset: int = Field(ge=0)
+    end_offset: int = Field(gt=0)
+    base_content_hash: str = Field(min_length=64, max_length=64)
+
+
+class PresentationAnnotationStyleRequest(APIModel):
+    style_type: Literal["highlight", "text_color", "underline"]
+    style_value: Optional[
+        Literal["yellow", "green", "blue", "pink", "gray", "red", "orange", "purple", "muted"]
+    ] = None
+
+
+class PresentationAnnotationView(APIModel):
+    id: str
+    entity_type: Literal["document", "term"]
+    entity_id: str
+    style_type: Literal["highlight", "text_color", "underline"]
+    style_value: Optional[str]
+    selected_text: str
+    prefix_text: str
+    suffix_text: str
+    start_offset: int
+    end_offset: int
+    base_content_hash: str
+    status: Literal["active", "stale"]
+    created_at: str
+    updated_at: str
 
 
 class AIRequest(APIModel):

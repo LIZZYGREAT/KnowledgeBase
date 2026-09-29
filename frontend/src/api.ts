@@ -1,4 +1,22 @@
 export type EntityType = "document" | "term" | "source";
+export type AnnotationStyleType = "highlight" | "text_color" | "underline";
+
+export interface PresentationAnnotation {
+  id: string;
+  entity_type: "document" | "term";
+  entity_id: string;
+  style_type: AnnotationStyleType;
+  style_value: string | null;
+  selected_text: string;
+  prefix_text: string;
+  suffix_text: string;
+  start_offset: number;
+  end_offset: number;
+  base_content_hash: string;
+  status: "active" | "stale";
+  created_at: string;
+  updated_at: string;
+}
 
 export interface EntitySummary {
   id: string;
@@ -120,6 +138,7 @@ export interface ImportJob {
     file_type: "markdown" | "pdf";
     status: string;
     detected_entity_type: string | null;
+    metadata: Record<string, unknown>;
   }>;
 }
 
@@ -293,7 +312,7 @@ export function exportKnowledgeContext(
 }
 
 export function requestAIProposal(
-  task: "document-review" | "selection-review" | "term-draft" | "evidence-suggest",
+  task: "document-review" | "metadata-suggest" | "selection-review" | "term-draft" | "evidence-suggest",
   draftId: string,
   selection?: string,
 ) {
@@ -317,6 +336,86 @@ export function reviewProposal(proposalId: string, action: "approve" | "reject")
 
 export function listImports() {
   return request<ImportJob[]>("/api/imports?limit=50");
+}
+
+export function createImport(paths: string[], profile: "standard" | "legacy") {
+  return request<ImportJob>("/api/imports", {
+    method: "POST",
+    body: JSON.stringify({ paths, profile }),
+  });
+}
+
+export interface ImportItemContent {
+  id: string;
+  file_type: "markdown" | "pdf";
+  status: string;
+  content: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export function getImportItemContent(itemId: string) {
+  return request<ImportItemContent>(`/api/import-items/${encodeURIComponent(itemId)}/content`);
+}
+
+export function updateImportItem(itemId: string, content: string) {
+  return request<{
+    id: string;
+    status: string;
+    metadata: Record<string, unknown>;
+  }>(`/api/import-items/${encodeURIComponent(itemId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export function createImportDraft(itemId: string) {
+  return request<Draft>(`/api/import-items/${encodeURIComponent(itemId)}/draft`, { method: "POST" });
+}
+
+export function confirmImportSource(
+  itemId: string,
+  source: { source_id?: string; title?: string; source_type?: "paper" | "book" | "course" | "web" | "personal" },
+) {
+  return request<Draft>(`/api/import-items/${encodeURIComponent(itemId)}/confirm-source`, {
+    method: "POST",
+    body: JSON.stringify(source),
+  });
+}
+
+export function listPresentationAnnotations(type: "document" | "term", id: string) {
+  return request<PresentationAnnotation[]>(
+    `/api/annotations?entity_type=${type}&entity_id=${encodeURIComponent(id)}`,
+  );
+}
+
+export function createPresentationAnnotation(
+  annotation: Omit<PresentationAnnotation, "id" | "status" | "created_at" | "updated_at">,
+) {
+  return request<PresentationAnnotation>("/api/annotations", {
+    method: "POST",
+    body: JSON.stringify(annotation),
+  });
+}
+
+export function updatePresentationAnnotation(
+  id: string,
+  styleType: AnnotationStyleType,
+  styleValue: string | null,
+) {
+  return request<PresentationAnnotation>(`/api/annotations/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify({ style_type: styleType, style_value: styleValue }),
+  });
+}
+
+export function deletePresentationAnnotation(id: string) {
+  return request<{ deleted: boolean }>(`/api/annotations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function listStalePresentationAnnotations() {
+  return request<PresentationAnnotation[]>("/api/annotations/stale");
 }
 
 export async function recordSearchClick(documentId: string) {

@@ -1,6 +1,6 @@
 # Knowledge API contract
 
-The backend serves OpenAPI at `/openapi.json` and the interactive schema at `/docs`. API responses use entity IDs and canonical metadata; they do not expose repository file paths. Compose binds the backend to `127.0.0.1:8000` for local development.
+The backend serves OpenAPI at `/openapi.json` and the interactive schema at `/docs`. API responses use entity IDs and canonical metadata; they do not expose repository file paths. The development Compose profile binds the backend to `127.0.0.1:8000`; production keeps the API inside the Compose network.
 
 ## Read and search
 
@@ -41,16 +41,20 @@ GET  /api/imports/{job_id}
 PUT  /api/import-items/{item_id}
 POST /api/import-items/{item_id}/draft
 POST /api/import-items/{item_id}/confirm-source
+GET  /api/import-items/{item_id}/content
 POST /api/import-bundles/associate
 POST /api/imports/blank-document
 ```
 
 `POST /api/imports` accepts `paths` relative to the backend's `storage/uploads/` directory and an optional `profile` (`standard` or `legacy`). It rejects absolute paths, parent traversal, and symbolic links. Clients can review staged Markdown, create Drafts, confirm a PDF as a Source, and confirm a suggested Markdown/PDF association through the item routes. Import response objects omit server paths and staging paths.
 
+`GET /api/import-items/{item_id}/content` returns staged Markdown text for the Review editor and never returns a server path. PDF content is not returned; the item exposes review metadata only. The CLI `python tools/kb.py import <path...> --profile legacy` stages arbitrary local paths for batch migration.
+
 ## AI Proposals
 
 ```text
 POST /api/ai/document-review
+POST /api/ai/metadata-suggest
 POST /api/ai/selection-review
 POST /api/ai/term-draft
 POST /api/ai/evidence-suggest
@@ -69,6 +73,18 @@ GET  /api/usage/frequent
 
 Usage events remain Runtime data. The APIs record only document opens and search-result clicks.
 
+## Presentation Annotations
+
+```text
+GET    /api/annotations?entity_type=document&entity_id=...
+GET    /api/annotations/stale
+POST   /api/annotations
+PUT    /api/annotations/{annotation_id}
+DELETE /api/annotations/{annotation_id}
+```
+
+Only `document` and `term` entities are supported. Style types are `highlight`, `text_color`, and `underline`; palette values are fixed, and underline requires `style_value: null`. Create requests include selected text, UTF-16 offsets, and the SHA-256 hash of the current Markdown body. The server checks the entity and exact selected range, derives the re-anchor context from canonical content, and stores the annotation only in Runtime SQLite. When Markdown changes, reads attempt a deterministic text/context re-anchor; an ambiguous match is marked `stale` and is not rendered. Annotation APIs do not write canonical files or participate in Search, Context Export, or PaperSkillWork.
+
 ## Context Export
 
 ```text
@@ -79,4 +95,4 @@ The request supplies exactly one of `document_id` or `source_id`, plus `trust` (
 
 ## Errors
 
-Request validation and canonical content errors return `422`; missing entities return `404`; stale revisions, stale Proposals, and publishing conflicts return `409`; AI configuration errors return `503`; DeepSeek transport or response errors return `502`.
+Request validation and canonical content errors return `422`; missing entities return `404`; stale revisions, stale annotations, stale Proposals, and publishing conflicts return `409`; AI configuration errors return `503`; DeepSeek transport or response errors return `502`.

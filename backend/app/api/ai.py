@@ -19,6 +19,11 @@ async def review_document(body: AIRequest, request: Request):
     return await _generate(request, "review_document", body.draft_id, {"document"})
 
 
+@router.post("/metadata-suggest", response_model=AIProposalView, status_code=status.HTTP_201_CREATED)
+async def suggest_metadata(body: AIRequest, request: Request):
+    return await _generate(request, "suggest_metadata", body.draft_id, {"document"})
+
+
 @router.post("/selection-review", response_model=AIProposalView, status_code=status.HTTP_201_CREATED)
 async def review_selection(body: SelectionReviewRequest, request: Request):
     return await _generate(

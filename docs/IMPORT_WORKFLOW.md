@@ -1,16 +1,32 @@
 # Import workflow
 
-Phase 6 implements a local, review-first Markdown and PDF import workflow:
+Markdown and PDF imports follow a review-first path:
 
 ```text
 Input → Staging → Hash / Metadata Parse → Resolver → Deterministic Lint
-      → Draft → Manual Review and Edit → Publish
+      → Manual Review → Draft → Publisher
 ```
 
-Markdown imports become Document or Term candidates. Valid canonical metadata is required to create a Draft; writing-style findings are retained on the Import Item and do not block that Draft. Current Documents still have to pass the Writing Standard at Publish. Legacy Documents can publish with style warnings, while broken frontmatter and other structural errors remain blocking.
+## Stage local uploads
 
-PDF-only imports create Source Drafts and never automatically create paper notes. Existing Sources are matched by identifiers first and title second; ambiguous matches require an explicit selection. A local PDF is stored under `storage/papers/`, excluded from Git, and checked by Publisher before the Source metadata is committed. Markdown/PDF bundle associations remain suggestions until explicitly confirmed.
+The Reference Hub Import Review accepts files or directories beneath `storage/uploads/`. API import paths are relative to that folder; absolute paths, parent traversal, and symbolic links are rejected. Markdown and PDF files can be staged together, SHA-256 duplicates are reported, and matching Markdown/PDF names are suggested as a bundle.
 
-Staged files and Import Jobs live under ignored `storage/` and Runtime SQLite. Import does not write canonical files directly and does not call AI. API and Reference Hub workflows belong to later phases.
+The command-line entry point can stage files from any readable local path:
 
-SHA-256 duplicates are blocked when the same content is already canonical or appears earlier in the same Import Job. A separate Job may stage the file again until its content has been published.
+```sh
+python tools/kb.py import <file-or-directory> [<another-path> ...] --profile legacy
+```
+
+Use `--profile legacy` for older notes. The import service still does not write canonical files or call AI. In production, Compose mounts the configured `KB_IMPORT_DIRECTORY` read-only at `/imports` for CLI batch staging.
+
+## Review Markdown
+
+Open Review → Import Review and expand the item. Inspect and edit the staged content. Valid canonical Frontmatter is required before a Document or Term Draft can be created; old files without metadata must be completed first. Legacy Draft creation sets human review to `unreviewed` and maintenance to `legacy`. Writing-style findings remain review information; structural and schema errors still block publishing.
+
+After the Draft exists, the editor can request a DeepSeek metadata Proposal. The user must explicitly consent to send the Draft and required registry context. The result is stored as a Proposal; its suggested fields enter the Draft only after a human selects the apply action. Publishing remains a separate Publisher action.
+
+## Review PDFs
+
+PDF-only items never become Notes. Confirm the Source ID, title, and type in Import Review; the workflow creates a Source Draft and copies the PDF into ignored `storage/papers/`. The Source metadata is published only through Publisher. Existing Sources resolve deterministically by identifier and then title; ambiguous candidates require explicit selection.
+
+Staged input and Import Jobs remain in ignored `storage/` and Runtime SQLite. The runtime database and storage directory are included in the Phase 12 production backup archive.

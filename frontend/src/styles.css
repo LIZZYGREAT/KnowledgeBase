@@ -216,7 +216,7 @@ a { color: #2e7357; }
 .topic-counts strong { margin-right: 4px; color: #53745c; font-family: Manrope, sans-serif; font-size: 15px; font-weight: 600; }
 .topic-groups { display: grid; gap: 12px; }
 .topic-group { padding: 16px 18px 5px; }
-.review-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.review-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .review-count { display: flex; min-height: 65px; align-items: center; gap: 10px; padding: 11px 14px; }
 .review-count strong { color: #405648; font-family: Manrope, sans-serif; font-size: 19px; font-weight: 600; }
 .review-count > span:last-child { color: #87948b; font-size: 9px; }
@@ -236,6 +236,14 @@ a { color: #2e7357; }
 .import-row > span:nth-child(2) { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .import-row strong { overflow: hidden; color: #53645a; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .file-mark { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 8px; color: #64866b; background: #eef4ef; font-size: 8px; font-weight: 700; }
+.legacy-import-form { display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(130px, .7fr) auto; align-items: end; gap: 9px; margin: 8px 0; }
+.legacy-import-form .button { min-height: 36px; }
+.import-review-item { border-top: 1px solid #f0f2ef; }
+.import-review-item .import-row { border-top: 0; }
+.import-review-details { display: grid; gap: 10px; padding: 10px 0 14px 41px; }
+.import-markdown-editor { width: 100%; min-height: 260px; resize: vertical; border: 1px solid #e5ebe5; border-radius: 7px; padding: 10px; color: #43574a; background: #fbfcfb; font: 10px/1.65 "Cascadia Code", Consolas, monospace; }
+.import-review-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
+.import-source-fields { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(180px, 1.3fr) minmax(120px, .7fr); gap: 9px; }
 
 /* Document and entity reader */
 .entity-page { gap: 18px; }
@@ -333,6 +341,44 @@ a { color: #2e7357; }
 .editor-writing-panel, .editor-preview-panel { min-width: 0; overflow: hidden; padding: 17px; }
 .editor-writing-panel .section-heading, .editor-preview-panel .section-heading { margin-bottom: 12px; }
 .knowledge-editor { display: block; width: 100%; min-height: 620px; resize: vertical; border: 1px solid #e6ebe6; border-radius: 8px; padding: 14px; color: #2e3e35; background: #fbfcfb; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; line-height: 1.75; tab-size: 2; }
+.markdown-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0 0 9px; }
+.markdown-toolbar button { min-width: 34px; height: 30px; border: 1px solid #e5ebe5; border-radius: 6px; padding: 0 8px; color: #40594a; background: #fff; font-size: 11px; cursor: pointer; }
+.markdown-toolbar button:hover { border-color: #b7cbb9; background: #f3f8f3; }
+.toolbar-divider { width: 1px; height: 21px; margin: 0 3px; background: #e4e9e4; }
+.reader-markdown-wrap { position: relative; }
+.annotation-toolbar { position: fixed; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; width: min(420px, calc(100vw - 16px)); border: 1px solid #dce5dd; border-radius: 10px; padding: 9px; background: #fff; box-shadow: 0 10px 28px #1c30201f; }
+.annotation-toolbar-label { margin: 0 2px; color: #718076; font-size: 9px; }
+.annotation-swatch { width: 19px; height: 19px; border: 1px solid #d9e0d9; border-radius: 50%; padding: 0; cursor: pointer; }
+.annotation-swatch:hover { outline: 2px solid #9aafa0; outline-offset: 1px; }
+.annotation-swatch.swatch-yellow { background: #f4d86c; }
+.annotation-swatch.swatch-green { background: #9bd7ad; }
+.annotation-swatch.swatch-blue { background: #9bc8ef; }
+.annotation-swatch.swatch-pink { background: #efb0c2; }
+.annotation-swatch.swatch-gray { background: #cbd2cf; }
+.annotation-swatch.text-swatch { background: #fff; }
+.annotation-swatch.text-red { border-color: #d85656; }
+.annotation-swatch.text-orange { border-color: #d88437; }
+.annotation-swatch.text-green { border-color: #3f9660; }
+.annotation-swatch.text-blue { border-color: #477cad; }
+.annotation-swatch.text-purple { border-color: #8566a8; }
+.annotation-swatch.text-muted { border-color: #7b8580; }
+.annotation-underline-button, .annotation-clear-button { border: 1px solid #e4eae4; border-radius: 6px; padding: 4px 7px; color: #41584a; background: #fff; font-size: 10px; cursor: pointer; }
+.annotation-clear-button { color: #916459; }
+.annotation-toolbar button:disabled { opacity: .55; cursor: wait; }
+.annotation-error { margin: 8px 0 0; color: #a1483d; font-size: 11px; }
+.presentation-annotation { border-radius: 2px; }
+.annotation-highlight-yellow { background: #fff1a8; }
+.annotation-highlight-green { background: #ccefd5; }
+.annotation-highlight-blue { background: #d1e8fb; }
+.annotation-highlight-pink { background: #f8d7e2; }
+.annotation-highlight-gray { background: #e4e9e6; }
+.annotation-text_color-red { color: #b93636; }
+.annotation-text_color-orange { color: #a95e1c; }
+.annotation-text_color-green { color: #2e7f4a; }
+.annotation-text_color-blue { color: #326f9e; }
+.annotation-text_color-purple { color: #735091; }
+.annotation-text_color-muted { color: #77817b; }
+.annotation-underline-none { text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: 2px; }
 .editor-preview-panel .markdown-content { min-height: 620px; padding: 4px 7px; }
 .source-yaml-preview { min-height: 620px; margin: 0; overflow: auto; border-radius: 8px; padding: 14px; color: #4e6356; background: #f7faf7; font-family: "Cascadia Code", Consolas, monospace; font-size: 10px; line-height: 1.75; white-space: pre-wrap; }
 .editor-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 11px; border: 1px solid #e8e9d4; border-radius: 9px; padding: 11px 14px; background: #fffdf5; color: #6c704e; font-size: 10px; }
@@ -478,6 +524,9 @@ a { color: #2e7357; }
   .editor-grid, .conflict-columns { grid-template-columns: 1fr; }
   .knowledge-editor, .editor-preview-panel .markdown-content, .source-yaml-preview { min-height: 390px; }
   .editor-writing-panel, .editor-preview-panel, .conflict-panel, .ai-panel { padding: 13px; }
+  .legacy-import-form, .import-source-fields { grid-template-columns: 1fr; }
+  .import-review-details { padding-left: 0; }
+  .annotation-toolbar { gap: 4px; }
   .editor-page > .page-header { align-items: flex-start; flex-direction: column; }
   .editor-page > .page-header .page-header-action { width: 100%; }
   .editor-page > .page-header .editor-main-actions { justify-content: flex-start; }

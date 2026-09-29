@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import {
   getEntity,
   exportKnowledgeContext,
@@ -9,15 +9,27 @@ import {
   listRecentlyModified,
   listTaxonomy,
   listUsage,
+  createPresentationAnnotation,
+  createImport,
+  createImportDraft,
+  confirmImportSource,
+  deletePresentationAnnotation,
+  getImportItemContent,
+  listPresentationAnnotations,
+  listStalePresentationAnnotations,
   recordDocumentOpen,
   searchKnowledge,
   type EntityDetail,
   type EntitySummary,
   type EntityType,
+  type AnnotationStyleType,
+  type PresentationAnnotation,
   type ContextPurpose,
   type ContextTrust,
   type ExportedContext,
   type ImportJob,
+  type ImportItemContent,
+  updateImportItem,
   type LinkIssue,
   type Proposal,
   type SearchFilters,
@@ -30,6 +42,17 @@ const MarkdownContent = lazy(() => import("./Markdown").then((module) => ({ defa
 
 type Navigate = (path: string) => void;
 type SelectEntity = (type: EntityType, id: string, clickedFromSearch?: boolean) => void;
+
+interface ReaderSelection {
+  selected_text: string;
+  start_offset: number;
+  end_offset: number;
+  top: number;
+  left: number;
+}
+
+const annotationHighlightPalette = ["yellow", "green", "blue", "pink", "gray"] as const;
+const annotationTextPalette = ["red", "orange", "green", "blue", "purple", "muted"] as const;
 
 interface Resource<T> {
   data: T | null;
@@ -468,23 +491,47 @@ interface ReviewData {
   proposals: Proposal[];
   imports: ImportJob[];
   linkIssues: LinkIssue[];
+  staleAnnotations: PresentationAnnotation[];
 }
 
-export function ReviewPage({ onOpen }: { onOpen: SelectEntity }) {
+export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
+  const [importPath, setImportPath] = useState("");
+  const [importProfile, setImportProfile] = useState<"standard" | "legacy">("legacy");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState("");
   const resource = useResource("review", async (): Promise<ReviewData> => {
     const [documents, terms, sources, ...rest] = await Promise.all([
       listAllEntities("document"), listAllEntities("term"), listAllEntities("source"),
       Promise.all(["proposed", "drafted", "approved"].map((status) => listProposals(status))), listImports(), listLinkIssues(),
+      listStalePresentationAnnotations(),
     ]);
-    const [groups, imports, linkIssues] = rest as [Proposal[][], ImportJob[], LinkIssue[]];
-    return { entities: [...documents, ...terms, ...sources], proposals: groups.flat(), imports, linkIssues };
+    const [groups, imports, linkIssues, staleAnnotations] = rest as [Proposal[][], ImportJob[], LinkIssue[], PresentationAnnotation[]];
+    return { entities: [...documents, ...terms, ...sources], proposals: groups.flat(), imports, linkIssues, staleAnnotations };
   });
   if (resource.loading) return <LoadingState />;
   if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
-  const { entities, proposals, imports, linkIssues } = resource.data;
+  const { entities, proposals, imports, linkIssues, staleAnnotations } = resource.data;
   const needsReview = entities.filter((item) => reviewStatus(item) === "unreviewed");
   const needsRevision = entities.filter((item) => maintenanceStatus(item) === "needs_revision");
   const outstandingImports = imports.flatMap((job) => job.items.filter((item) => ["ready", "needs_review"].includes(item.status)).map((item) => ({ job, item })));
+
+  async function stageImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const path = importPath.trim();
+    if (!path) return;
+    setImportBusy(true);
+    setImportError("");
+    try {
+      await createImport([path], importProfile);
+      setImportPath("");
+      resource.retry();
+    } catch (error) {
+      setImportError(errorMessage(error));
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   return (
     <div className="page-stack">
       <PageHeader eyebrow="REVIEW & MAINTENANCE" title="Review" description="集中查看需要人工确认、修订或补全关联的内容。" />
@@ -493,16 +540,136 @@ export function ReviewPage({ onOpen }: { onOpen: SelectEntity }) {
         <ReviewCount label="需要修订" count={needsRevision.length} tone="rose" />
         <ReviewCount label="待处理 Proposal" count={proposals.length} tone="blue" />
         <ReviewCount label="断开的链接" count={linkIssues.length} tone="neutral" />
+        <ReviewCount label="过期阅读标注" count={staleAnnotations.length} tone="amber" />
       </div>
       <div className="review-grid">
         <section id="unreviewed" className="surface review-section"><SectionHeading title="Needs Review" detail="需要人工确认知识状态" /><EntityList entities={needsReview} onOpen={(entity) => onOpen(entity.entity_type, entity.id)} emptyTitle="没有待审阅内容" emptyDescription="当前已索引的知识都已完成审阅。" /></section>
         <section id="revision" className="surface review-section"><SectionHeading title="Needs Revision" detail="维护状态已标记为需要修订" /><EntityList entities={needsRevision} onOpen={(entity) => onOpen(entity.entity_type, entity.id)} emptyTitle="没有待修订内容" emptyDescription="需要重新整理的内容会出现在这里。" /></section>
         <section id="proposals" className="surface review-section"><SectionHeading title="Proposals" detail="AI 与人工建议均保留为待审阅记录" />{proposals.length ? <div className="entity-list">{proposals.map((proposal) => <button className="proposal-row" key={proposal.id} onClick={() => proposal.target_type === "document" || proposal.target_type === "term" || proposal.target_type === "source" ? onOpen(proposal.target_type, proposal.target_id) : undefined}><span><strong>{titleCase(proposal.kind)} · {proposal.target_id}</strong><small>{proposal.status} · {formatDate(proposal.created_at)} · {proposal.provider ?? proposal.created_by}</small></span><Chip tone={statusTone(proposal.status)}>{titleCase(proposal.status)}</Chip></button>)}</div> : <EmptyState title="没有待处理 Proposal" description="AI 建议和格式审阅完成后，会先进入这里等待人工判断。" />}</section>
-        <section id="imports" className="surface review-section"><SectionHeading title="Import Review" detail="检查暂存的 Markdown 与 PDF" />{outstandingImports.length ? <div className="entity-list">{outstandingImports.map(({ job, item }) => <div className="import-row" key={item.id}><span className="file-mark">{item.file_type === "pdf" ? "PDF" : "MD"}</span><span><strong>{item.display_name}</strong><small>{job.id.slice(0, 8)} · {item.status}</small></span><Chip>{job.profile}</Chip></div>)}</div> : <EmptyState title="没有待审阅导入" description="通过 Import Pipeline 暂存的新文件会显示在这里。" />}</section>
+        <section id="imports" className="surface review-section wide-section">
+          <SectionHeading title="Import Review" detail="从 storage/uploads 暂存 Markdown 与 PDF；旧笔记使用 legacy profile" />
+          <form className="legacy-import-form" onSubmit={(event) => void stageImport(event)}>
+            <label className="field-label">文件或目录路径<input required value={importPath} onChange={(event) => setImportPath(event.target.value)} placeholder="legacy-notes 或 incoming/batch-01" /></label>
+            <label className="field-label">导入配置<select value={importProfile} onChange={(event) => setImportProfile(event.target.value as "standard" | "legacy")}><option value="legacy">Legacy 笔记</option><option value="standard">标准导入</option></select></label>
+            <button className="button button-secondary" type="submit" disabled={importBusy || !importPath.trim()}>{importBusy ? "正在暂存…" : "暂存导入"}</button>
+          </form>
+          <p className="subtle-copy">浏览器导入路径相对于 storage/uploads。需要从任意本地目录批量导入时，可用命令行 `kb import &lt;路径...&gt; --profile legacy`。</p>
+          {importError && <p className="error-copy" role="alert">{importError}</p>}
+          {outstandingImports.length ? <div className="entity-list">{outstandingImports.map(({ job, item }) => <ImportReviewItem key={item.id} job={job} item={item} onDraft={(type, id) => navigate(`/edit/${type}/${encodeURIComponent(id)}`)} onChanged={resource.retry} />)}</div> : <EmptyState title="没有待审阅导入" description="暂存的新文件会显示在这里。" />}
+        </section>
+        <section className="surface review-section"><SectionHeading title="Stale visual annotations" detail="无法唯一定位的阅读标注不会显示在正文中" />{staleAnnotations.length ? <div className="entity-list">{staleAnnotations.map((annotation) => <button className="issue-row" key={annotation.id} onClick={() => onOpen(annotation.entity_type, annotation.entity_id)}><span><strong>{annotation.selected_text}</strong><small>{annotation.entity_type} · {annotation.entity_id}</small></span><Chip tone="amber">stale</Chip></button>)}</div> : <EmptyState title="没有过期阅读标注" description="正文更新后仍能确定位置的标注会自动重新定位。" />}</section>
         <section className="surface review-section wide-section"><SectionHeading title="Broken & Ambiguous Links" detail="未解析的 Wiki Link 不会自动指向候选项" />{linkIssues.length ? <div className="entity-list">{linkIssues.map((issue) => <button className="issue-row" key={`${issue.document_id}:${issue.line}:${issue.target}`} onClick={() => onOpen("document", issue.document_id)}><span><strong>{issue.target}</strong><small>{issue.document_title} · 第 {issue.line} 行</small></span><Chip tone={statusTone(issue.status)}>{issue.status === "unresolved" ? "Unresolved" : `Ambiguous · ${issue.candidate_ids.length} 候选`}</Chip></button>)}</div> : <EmptyState title="没有断开的链接" description="确定性 Term 解析没有发现未解析或有歧义的 Wiki Link。" />}</section>
       </div>
     </div>
   );
+}
+
+type ImportedItem = ImportJob["items"][number];
+
+function ImportReviewItem({
+  job,
+  item,
+  onDraft,
+  onChanged,
+}: {
+  job: ImportJob;
+  item: ImportedItem;
+  onDraft: (type: EntityType, id: string) => void;
+  onChanged: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState<ImportItemContent | null>(null);
+  const [content, setContent] = useState("");
+  const [sourceId, setSourceId] = useState(typeof item.metadata.suggested_source_id === "string" ? item.metadata.suggested_source_id : "");
+  const [sourceTitle, setSourceTitle] = useState(typeof item.metadata.candidate_title === "string" ? item.metadata.candidate_title : item.display_name);
+  const [sourceType, setSourceType] = useState<"paper" | "book" | "course" | "web" | "personal">("paper");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!expanded || detail) return;
+    let active = true;
+    setLoading(true);
+    void getImportItemContent(item.id)
+      .then((result) => {
+        if (!active) return;
+        setDetail(result);
+        setContent(result.content ?? "");
+        const suggestedId = result.metadata.suggested_source_id;
+        const suggestedTitle = result.metadata.candidate_title;
+        if (typeof suggestedId === "string") setSourceId(suggestedId);
+        if (typeof suggestedTitle === "string") setSourceTitle(suggestedTitle);
+      })
+      .catch((reason: unknown) => { if (active) setError(errorMessage(reason)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [expanded, detail, item.id]);
+
+  async function saveAndCreateDraft() {
+    setBusy(true);
+    setError("");
+    try {
+      await updateImportItem(item.id, content);
+      const draft = await createImportDraft(item.id);
+      if (draft.entity_type !== "document" && draft.entity_type !== "term") {
+        throw new Error("该导入项没有创建 Document 或 Term Draft。");
+      }
+      onChanged();
+      onDraft(draft.entity_type, draft.entity_id);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmPdfSource() {
+    setBusy(true);
+    setError("");
+    try {
+      const draft = await confirmImportSource(item.id, {
+        source_id: sourceId.trim() || undefined,
+        title: sourceTitle.trim() || undefined,
+        source_type: sourceType,
+      });
+      onChanged();
+      onDraft("source", draft.entity_id);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const metadata = item.metadata;
+  const issues = Array.isArray(metadata.lint_issues) ? metadata.lint_issues : [];
+  return <div className="import-review-item">
+    <div className="import-row">
+      <span className="file-mark">{item.file_type === "pdf" ? "PDF" : "MD"}</span>
+      <span><strong>{item.display_name}</strong><small>{job.id.slice(0, 8)} · {item.status}{issues.length ? ` · ${issues.length} lint 提示` : ""}</small></span>
+      <Chip>{job.profile}</Chip>
+      <button className="text-button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "审阅"}</button>
+    </div>
+    {expanded && <div className="import-review-details">
+      {loading && <p className="subtle-copy">正在读取暂存文件…</p>}
+      {detail?.file_type === "markdown" && <>
+        <p className="trust-note">Legacy 导入会在创建 Draft 时标记为 `legacy` 和 `unreviewed`。缺少或不完整的 Frontmatter 需要先在下方补齐。</p>
+        <textarea className="import-markdown-editor" value={content} onChange={(event) => setContent(event.target.value)} spellCheck={false} aria-label={`${item.display_name} 导入内容`} />
+        <div className="import-review-actions"><button className="button button-secondary" disabled={busy || loading} onClick={() => void updateImportItem(item.id, content).then(() => setError("已保存暂存内容。"), (reason: unknown) => setError(errorMessage(reason)))}>{busy ? "保存中…" : "保存暂存内容"}</button><button className="button button-primary" disabled={busy || loading} onClick={() => void saveAndCreateDraft()}>{busy ? "正在创建…" : "保存并创建 Draft"}</button></div>
+      </>}
+      {detail?.file_type === "pdf" && <>
+        <p className="trust-note">PDF 只创建 Source Draft，不会自动生成 Document。确认后会把 PDF 复制到忽略目录 storage/papers。</p>
+        <div className="import-source-fields">
+          <label className="field-label">Source ID<input value={sourceId} onChange={(event) => setSourceId(event.target.value)} placeholder="例如：example-2024" /></label>
+          <label className="field-label">标题<input required value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} /></label>
+          <label className="field-label">类型<select value={sourceType} onChange={(event) => setSourceType(event.target.value as typeof sourceType)}><option value="paper">Paper</option><option value="book">Book</option><option value="course">Course</option><option value="web">Web</option><option value="personal">Personal</option></select></label>
+        </div>
+        <div className="import-review-actions"><button className="button button-primary" disabled={busy || loading || !sourceTitle.trim()} onClick={() => void confirmPdfSource()}>{busy ? "正在创建…" : "确认并创建 Source Draft"}</button></div>
+      </>}
+      {error && <p className="error-copy" role="alert">{error}</p>}
+    </div>}
+  </div>;
 }
 
 function ReviewCount({ label, count, tone }: { label: string; count: number; tone: string }) {
@@ -521,6 +688,11 @@ export function EntityPage({
   onEdit?: (type: EntityType, id: string) => void;
 }) {
   const resource = useResource(`entity:${type}:${id}`, () => loadEntity(type, id));
+  const [annotations, setAnnotations] = useState<PresentationAnnotation[]>([]);
+  const [annotationError, setAnnotationError] = useState("");
+  const [annotationBusy, setAnnotationBusy] = useState(false);
+  const [readerSelection, setReaderSelection] = useState<ReaderSelection | null>(null);
+  const readerMarkdownRef = useRef<HTMLDivElement>(null);
   const sourceIds = resource.data?.entity_type === "document"
     ? Array.from(new Set([...readList(resource.data.metadata, "sources"), ...resource.data.evidence.map((item) => item.source_id)]))
     : [];
@@ -528,6 +700,17 @@ export function EntityPage({
   useEffect(() => {
     if (type === "document" && id) void recordDocumentOpenSafely(id);
   }, [type, id]);
+  useEffect(() => {
+    let active = true;
+    if ((type !== "document" && type !== "term") || !resource.data) {
+      setAnnotations([]);
+      return () => { active = false; };
+    }
+    void listPresentationAnnotations(type, id)
+      .then((items) => { if (active) setAnnotations(items); })
+      .catch((error: unknown) => { if (active) setAnnotationError(errorMessage(error)); });
+    return () => { active = false; };
+  }, [type, id, resource.data?.content]);
   if (resource.loading) return <LoadingState />;
   if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
   const entity = resource.data;
@@ -549,6 +732,101 @@ export function EntityPage({
     ["Human review", status],
     ["Maintenance", maintenanceStatus(entity)],
   ].filter((entry) => entry[1]);
+
+  function captureReaderSelection(event: MouseEvent | KeyboardEvent) {
+    if (event.target instanceof HTMLElement && event.target.closest(".annotation-toolbar")) return;
+    const root = readerMarkdownRef.current?.querySelector(".markdown-content");
+    const selection = window.getSelection();
+    if (!root || !selection || selection.isCollapsed || !selection.rangeCount) {
+      setReaderSelection(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) {
+      setReaderSelection(null);
+      return;
+    }
+    const selectedText = range.toString();
+    if (!selectedText || selectedText.length > 20000) {
+      setReaderSelection(null);
+      return;
+    }
+    const prefixRange = document.createRange();
+    prefixRange.selectNodeContents(root);
+    prefixRange.setEnd(range.startContainer, range.startOffset);
+    const visiblePrefix = prefixRange.toString();
+    const sourceBody = entity.content ?? "";
+    const visibleOccurrence = countTextOccurrences(visiblePrefix, selectedText);
+    const sourceOccurrences = textOccurrences(sourceBody, selectedText);
+    const sourceStart = sourceOccurrences[visibleOccurrence];
+    if (sourceStart === undefined) {
+      setAnnotationError("这段显示文字无法对应到 Markdown 源文，暂不能添加阅读标注。");
+      setReaderSelection(null);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    setAnnotationError("");
+    setReaderSelection({
+      selected_text: selectedText,
+      start_offset: sourceStart,
+      end_offset: sourceStart + selectedText.length,
+      top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 76)),
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 430)),
+    });
+  }
+
+  async function saveReaderAnnotation(styleType: AnnotationStyleType, styleValue: string | null) {
+    if (!readerSelection || (type !== "document" && type !== "term")) return;
+    setAnnotationBusy(true);
+    setAnnotationError("");
+    try {
+      const contentHash = await hashText(documentBody);
+      await createPresentationAnnotation({
+        entity_type: type,
+        entity_id: id,
+        style_type: styleType,
+        style_value: styleValue,
+        selected_text: readerSelection.selected_text,
+        prefix_text: documentBody.slice(Math.max(0, readerSelection.start_offset - 40), readerSelection.start_offset),
+        suffix_text: documentBody.slice(readerSelection.end_offset, readerSelection.end_offset + 40),
+        start_offset: readerSelection.start_offset,
+        end_offset: readerSelection.end_offset,
+        base_content_hash: contentHash,
+      });
+      setAnnotations(await listPresentationAnnotations(type, id));
+      setReaderSelection(null);
+      window.getSelection()?.removeAllRanges();
+    } catch (error) {
+      setAnnotationError(errorMessage(error));
+    } finally {
+      setAnnotationBusy(false);
+    }
+  }
+
+  async function clearReaderAnnotations() {
+    if (!readerSelection) return;
+    const matching = annotations.filter((annotation) =>
+      annotation.status === "active" &&
+      annotation.start_offset < readerSelection.end_offset &&
+      annotation.end_offset > readerSelection.start_offset,
+    );
+    if (!matching.length) {
+      setAnnotationError("当前选区没有可清除的阅读标注。");
+      return;
+    }
+    setAnnotationBusy(true);
+    try {
+      await Promise.all(matching.map((annotation) => deletePresentationAnnotation(annotation.id)));
+      if (type === "document" || type === "term") setAnnotations(await listPresentationAnnotations(type, id));
+      setReaderSelection(null);
+      window.getSelection()?.removeAllRanges();
+      setAnnotationError("");
+    } catch (error) {
+      setAnnotationError(errorMessage(error));
+    } finally {
+      setAnnotationBusy(false);
+    }
+  }
 
   return (
     <div className="page-stack entity-page">
@@ -573,7 +851,19 @@ export function EntityPage({
               </dl>
               <div className="attachment-note"><span className="attachment-icon">PDF</span><span><strong>{localPdf ? "本地 PDF 已关联" : "没有本地 PDF"}</strong><small>PDF 保存在本机私有存储，不进入 Git。</small></span>{localPdf && <a className="button button-secondary source-pdf-button" href={`/api/sources/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noreferrer">打开 PDF</a>}</div>
             </div>
-          ) : <Suspense fallback={<LoadingState label="正在准备阅读视图…" />}><MarkdownContent content={documentBody} onNavigate={navigate} /></Suspense>}
+          ) : <div ref={readerMarkdownRef} className="reader-markdown-wrap" onMouseUp={captureReaderSelection} onKeyUp={captureReaderSelection}>
+            <Suspense fallback={<LoadingState label="正在准备阅读视图…" />}><MarkdownContent content={documentBody} onNavigate={navigate} annotations={annotations} /></Suspense>
+            {readerSelection && <div className="annotation-toolbar" role="toolbar" aria-label="阅读标注工具" style={{ top: readerSelection.top, left: readerSelection.left }} onMouseDown={(event) => event.preventDefault()}>
+              <span className="annotation-toolbar-label">高亮</span>
+              {annotationHighlightPalette.map((color) => <button key={`highlight-${color}`} type="button" className={`annotation-swatch swatch-${color}`} aria-label={`${color} 高亮`} title={`${color} 高亮`} disabled={annotationBusy} onClick={() => void saveReaderAnnotation("highlight", color)} />)}
+              <span className="toolbar-divider" />
+              <span className="annotation-toolbar-label">文字</span>
+              {annotationTextPalette.map((color) => <button key={`text-${color}`} type="button" className={`annotation-swatch text-swatch text-${color}`} aria-label={`${color} 文字颜色`} title={`${color} 文字颜色`} disabled={annotationBusy} onClick={() => void saveReaderAnnotation("text_color", color)} />)}
+              <button type="button" className="annotation-underline-button" disabled={annotationBusy} onClick={() => void saveReaderAnnotation("underline", null)}>下划线</button>
+              <button type="button" className="annotation-clear-button" disabled={annotationBusy} onClick={() => void clearReaderAnnotations()}>清除</button>
+            </div>}
+            {annotationError && <p className="annotation-error" role="status">{annotationError}</p>}
+          </div>}
         </article>
         <aside className="reader-context">
           {type === "document" && <ContextCard title="分类"><MetaChipList values={[...readList(entity.metadata, "domains"), ...readList(entity.metadata, "topics"), ...readList(entity.metadata, "tags")]} /></ContextCard>}
@@ -684,4 +974,30 @@ async function loadEntity(type: EntityType, id: string): Promise<EntityDetail> {
 
 async function recordDocumentOpenSafely(id: string) {
   await recordDocumentOpen(id).catch(() => undefined);
+}
+
+function textOccurrences(value: string, search: string): number[] {
+  if (!search) return [];
+  const matches: number[] = [];
+  let cursor = 0;
+  while (cursor <= value.length - search.length) {
+    const found = value.indexOf(search, cursor);
+    if (found < 0) break;
+    matches.push(found);
+    cursor = found + 1;
+  }
+  return matches;
+}
+
+function countTextOccurrences(value: string, search: string): number {
+  return textOccurrences(value, search).length;
+}
+
+async function hashText(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "发生未知错误。";
 }

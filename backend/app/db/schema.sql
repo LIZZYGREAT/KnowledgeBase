@@ -48,6 +48,34 @@ CREATE TABLE IF NOT EXISTS rejected_candidates (
     UNIQUE (candidate_type, normalized_value, scope)
 );
 
+CREATE TABLE IF NOT EXISTS presentation_annotations (
+    id TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('document', 'term')),
+    entity_id TEXT NOT NULL,
+    style_type TEXT NOT NULL CHECK (style_type IN ('highlight', 'text_color', 'underline')),
+    style_value TEXT,
+    selected_text TEXT NOT NULL CHECK (length(selected_text) > 0),
+    prefix_text TEXT NOT NULL,
+    suffix_text TEXT NOT NULL,
+    start_offset INTEGER NOT NULL CHECK (start_offset >= 0),
+    end_offset INTEGER NOT NULL CHECK (end_offset > start_offset),
+    base_content_hash TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active', 'stale')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (
+        (style_type = 'highlight' AND style_value IS NOT NULL AND style_value IN ('yellow', 'green', 'blue', 'pink', 'gray')) OR
+        (style_type = 'text_color' AND style_value IS NOT NULL AND style_value IN ('red', 'orange', 'green', 'blue', 'purple', 'muted')) OR
+        (style_type = 'underline' AND style_value IS NULL)
+    ),
+    UNIQUE (entity_type, entity_id, style_type, start_offset, end_offset)
+);
+
+CREATE INDEX IF NOT EXISTS presentation_annotations_entity_idx
+    ON presentation_annotations (entity_type, entity_id, start_offset, end_offset);
+CREATE INDEX IF NOT EXISTS presentation_annotations_status_idx
+    ON presentation_annotations (status, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS document_index (
     entity_id TEXT PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,

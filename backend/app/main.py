@@ -14,6 +14,7 @@ from backend.app.api.runtime import router as runtime_router
 from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.draft_repository import DraftRevisionConflict
+from backend.app.repositories.annotation_repository import AnnotationRepository
 from backend.app.repositories.import_repository import ImportRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.ai_client import (
@@ -41,6 +42,10 @@ from backend.app.services.import_service import ImportValidationError
 from backend.app.services.proposal_service import StaleProposalError
 from backend.app.repositories.proposal_repository import ProposalTransitionError
 from backend.app.services.usage_service import UsageService
+from backend.app.services.presentation_annotation_service import (
+    AnnotationConflictError,
+    PresentationAnnotationService,
+)
 
 
 @asynccontextmanager
@@ -70,6 +75,7 @@ async def lifespan(application: FastAPI):
             repository_root, draft_service, proposal_service, ai_gateway
         )
         usage_service = UsageService(connection)
+        annotation_service = PresentationAnnotationService(AnnotationRepository(connection))
         indexer = Indexer(repository_root, connection)
         knowledge_read_service = KnowledgeReadService(repository_root, connection)
         context_export_service = ContextExportService(knowledge_read_service, connection)
@@ -96,6 +102,7 @@ async def lifespan(application: FastAPI):
         application.state.ai_gateway = ai_gateway
         application.state.ai_proposal_service = ai_proposal_service
         application.state.usage_service = usage_service
+        application.state.annotation_service = annotation_service
         application.state.knowledge_read_service = knowledge_read_service
         application.state.context_export_service = context_export_service
         application.state.indexer = indexer
@@ -123,6 +130,11 @@ async def lookup_error_handler(request: Request, error: LookupError):
 
 @app.exception_handler(DraftRevisionConflict)
 async def draft_conflict_handler(request: Request, error: DraftRevisionConflict):
+    return _error_response(409, error)
+
+
+@app.exception_handler(AnnotationConflictError)
+async def annotation_conflict_handler(request: Request, error: AnnotationConflictError):
     return _error_response(409, error)
 
 

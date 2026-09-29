@@ -95,6 +95,24 @@ class ImportService:
         self.get_job(job_id)
         return self.repository.list_items(job_id)
 
+    def get_item_content(self, item_id: str) -> dict:
+        item = self._get_item(item_id)
+        content = (
+            self._staged_path(item).read_text(encoding="utf-8")
+            if item.file_type == "markdown"
+            else None
+        )
+        metadata = dict(item.metadata)
+        metadata.pop("staging_path", None)
+        metadata.pop("canonical_path", None)
+        return {
+            "id": item.id,
+            "file_type": item.file_type,
+            "status": item.status,
+            "content": content,
+            "metadata": metadata,
+        }
+
     def list_jobs(self, limit: int = 50, offset: int = 0) -> List[ImportJob]:
         return self.repository.list_jobs(limit, offset)
 

@@ -17,6 +17,9 @@ ProposalKind = Literal[
 ]
 ProposalStatus = Literal["proposed", "drafted", "approved", "merged", "rejected", "stale"]
 CandidateType = Literal["term", "taxonomy"]
+AnnotationEntityType = Literal["document", "term"]
+AnnotationStyleType = Literal["highlight", "text_color", "underline"]
+AnnotationStatus = Literal["active", "stale"]
 
 
 @dataclass(frozen=True)
@@ -58,3 +61,21 @@ class RejectedCandidate:
     reason: str
     scope: str
     created_at: str
+
+
+@dataclass(frozen=True)
+class PresentationAnnotation:
+    id: str
+    entity_type: AnnotationEntityType
+    entity_id: str
+    style_type: AnnotationStyleType
+    style_value: Optional[str]
+    selected_text: str
+    prefix_text: str
+    suffix_text: str
+    start_offset: int
+    end_offset: int
+    base_content_hash: str
+    status: AnnotationStatus
+    created_at: str
+    updated_at: str
