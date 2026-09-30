@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { parseDocument } from "yaml";
 import { applyMarkdownFormatting, type MarkdownFormattingAction } from "./markdownFormatting.js";
+import { loadEditorDraft } from "./editorDraftInitialization.js";
 import {
   compareDraft,
   createBlankDocument,
@@ -112,21 +113,13 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     let active = true;
     setLoading(true);
     setLoadError("");
+    setCanonicalEntity(null);
     void (async () => {
-      const drafts = await listDrafts(type, id);
-      if (drafts.length) {
-        if (active) {
-          installDraft(drafts[0], true);
-          void refreshProposals(drafts[0]);
-        }
-        return;
-      }
-      const entity = await getEntity(type, id);
-      if (!entity.canonical_content) throw new Error("Canonical 内容不可读取。");
-      const created = await createDraft(type, id, entity.canonical_content);
+      const initialized = await loadEditorDraft(type, id, { listDrafts, getEntity, createDraft });
       if (active) {
-        installDraft(created, true);
-        void refreshProposals(created);
+        setCanonicalEntity(initialized.canonicalEntity);
+        installDraft(initialized.draft, true);
+        void refreshProposals(initialized.draft);
       }
     })()
       .catch((error: unknown) => { if (active) setLoadError(errorMessage(error)); })
@@ -136,16 +129,18 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
 
   useEffect(() => {
     let active = true;
-    void (async () => {
-      const [entity, sources] = await Promise.all([
-        getEntity(type, id).catch(() => null),
-        type === "document" ? listAllEntities("source") : Promise.resolve([]),
-      ]);
-      if (!active) return;
-      setCanonicalEntity(entity);
-      setSourceEntries(sources);
+    if (type !== "document") {
+      setSourceEntries([]);
       setSourceError("");
-    })().catch((error: unknown) => { if (active) setSourceError(errorMessage(error)); });
+      return () => { active = false; };
+    }
+    void listAllEntities("source")
+      .then((sources) => {
+        if (!active) return;
+        setSourceEntries(sources);
+        setSourceError("");
+      })
+      .catch((error: unknown) => { if (active) setSourceError(errorMessage(error)); });
     return () => { active = false; };
   }, [type, id]);
 
