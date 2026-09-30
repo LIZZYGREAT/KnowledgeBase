@@ -11,6 +11,7 @@ import {
   listUsage,
   createPresentationAnnotation,
   createImport,
+  uploadImportFiles,
   createImportDraft,
   confirmImportSource,
   deletePresentationAnnotation,
@@ -497,8 +498,11 @@ interface ReviewData {
 export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
   const [importPath, setImportPath] = useState("");
   const [importProfile, setImportProfile] = useState<"standard" | "legacy">("legacy");
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [dropActive, setDropActive] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const resource = useResource("review", async (): Promise<ReviewData> => {
     const [documents, terms, sources, ...rest] = await Promise.all([
       listAllEntities("document"), listAllEntities("term"), listAllEntities("source"),
@@ -514,6 +518,31 @@ export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigat
   const needsReview = entities.filter((item) => reviewStatus(item) === "unreviewed");
   const needsRevision = entities.filter((item) => maintenanceStatus(item) === "needs_revision");
   const outstandingImports = imports.flatMap((job) => job.items.filter((item) => ["ready", "needs_review"].includes(item.status)).map((item) => ({ job, item })));
+
+  function addBrowserFiles(files: FileList | File[]) {
+    const incoming = Array.from(files);
+    const accepted = incoming.filter((file) => /\.(md|pdf)$/i.test(file.name));
+    const unsupported = incoming.filter((file) => !/\.(md|pdf)$/i.test(file.name));
+    setUploadFiles((current) => [...current, ...accepted]);
+    setImportError(unsupported.length ? `只支持 .md 和 .pdf 文件：${unsupported.map((file) => file.name).join("、")}` : "");
+  }
+
+  async function stageBrowserImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!uploadFiles.length) return;
+    setImportBusy(true);
+    setImportError("");
+    try {
+      await uploadImportFiles(uploadFiles, importProfile);
+      setUploadFiles([]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      resource.retry();
+    } catch (error) {
+      setImportError(errorMessage(error));
+    } finally {
+      setImportBusy(false);
+    }
+  }
 
   async function stageImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -548,12 +577,32 @@ export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigat
         <section id="proposals" className="surface review-section"><SectionHeading title="Proposals" detail="AI 与人工建议均保留为待审阅记录" />{proposals.length ? <div className="entity-list">{proposals.map((proposal) => <button className="proposal-row" key={proposal.id} onClick={() => proposal.target_type === "document" || proposal.target_type === "term" || proposal.target_type === "source" ? onOpen(proposal.target_type, proposal.target_id) : undefined}><span><strong>{titleCase(proposal.kind)} · {proposal.target_id}</strong><small>{proposal.status} · {formatDate(proposal.created_at)} · {proposal.provider ?? proposal.created_by}</small></span><Chip tone={statusTone(proposal.status)}>{titleCase(proposal.status)}</Chip></button>)}</div> : <EmptyState title="没有待处理 Proposal" description="AI 建议和格式审阅完成后，会先进入这里等待人工判断。" />}</section>
         <section id="imports" className="surface review-section wide-section">
           <SectionHeading title="Import Review" detail="从 storage/uploads 暂存 Markdown 与 PDF；旧笔记使用 legacy profile" />
-          <form className="legacy-import-form" onSubmit={(event) => void stageImport(event)}>
-            <label className="field-label">文件或目录路径<input required value={importPath} onChange={(event) => setImportPath(event.target.value)} placeholder="legacy-notes 或 incoming/batch-01" /></label>
-            <label className="field-label">导入配置<select value={importProfile} onChange={(event) => setImportProfile(event.target.value as "standard" | "legacy")}><option value="legacy">Legacy 笔记</option><option value="standard">标准导入</option></select></label>
-            <button className="button button-secondary" type="submit" disabled={importBusy || !importPath.trim()}>{importBusy ? "正在暂存…" : "暂存导入"}</button>
+          <form className="browser-import-form" onSubmit={(event) => void stageBrowserImport(event)}>
+            <div
+              className={`browser-import-dropzone${dropActive ? " is-active" : ""}`}
+              onDragOver={(event) => { event.preventDefault(); setDropActive(true); }}
+              onDragLeave={() => setDropActive(false)}
+              onDrop={(event) => { event.preventDefault(); setDropActive(false); addBrowserFiles(event.dataTransfer.files); }}
+            >
+              <input ref={fileInputRef} className="browser-file-input" type="file" accept=".md,.pdf,text/markdown,application/pdf" multiple onChange={(event) => { if (event.currentTarget.files) addBrowserFiles(event.currentTarget.files); event.currentTarget.value = ""; }} />
+              <span className="browser-import-icon" aria-hidden="true">↥</span>
+              <div><strong>拖入 Markdown 或 PDF 文件</strong><small>支持一次导入多个 .md 和 .pdf 文件</small></div>
+              <button className="button button-secondary" type="button" onClick={() => fileInputRef.current?.click()}>选择文件</button>
+            </div>
+            {uploadFiles.length > 0 && <ul className="browser-import-files">{uploadFiles.map((file, index) => <li key={`${file.name}:${file.size}:${file.lastModified}:${index}`}><span><strong>{file.name}</strong><small>{file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`}</small></span><button className="text-button" type="button" aria-label={`移除 ${file.name}`} onClick={() => setUploadFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}>移除</button></li>)}</ul>}
+            <div className="browser-import-controls">
+              <label className="field-label">导入配置<select value={importProfile} onChange={(event) => setImportProfile(event.target.value as "standard" | "legacy")}><option value="legacy">Legacy 笔记</option><option value="standard">Standard</option></select></label>
+              <button className="button button-primary" type="submit" disabled={importBusy || !uploadFiles.length}>{importBusy ? "正在暂存…" : "开始导入"}</button>
+            </div>
           </form>
-          <p className="subtle-copy">浏览器导入路径相对于 storage/uploads。需要从任意本地目录批量导入时，可用命令行 `kb import &lt;路径...&gt; --profile legacy`。</p>
+          <details className="advanced-import">
+            <summary>高级：服务器目录导入</summary>
+            <form className="legacy-import-form" onSubmit={(event) => void stageImport(event)}>
+              <label className="field-label">storage/uploads 下的文件或目录<input required value={importPath} onChange={(event) => setImportPath(event.target.value)} placeholder="legacy-notes 或 incoming/batch-01" /></label>
+              <button className="button button-secondary" type="submit" disabled={importBusy || !importPath.trim()}>{importBusy ? "正在暂存…" : "暂存路径"}</button>
+            </form>
+            <p className="subtle-copy">服务器批量迁移也可使用命令行 `kb import &lt;路径...&gt; --profile legacy`。</p>
+          </details>
           {importError && <p className="error-copy" role="alert">{importError}</p>}
           {outstandingImports.length ? <div className="entity-list">{outstandingImports.map(({ job, item }) => <ImportReviewItem key={item.id} job={job} item={item} onDraft={(type, id) => navigate(`/edit/${type}/${encodeURIComponent(id)}`)} onChanged={resource.retry} />)}</div> : <EmptyState title="没有待审阅导入" description="暂存的新文件会显示在这里。" />}
         </section>

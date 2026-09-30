@@ -3,11 +3,13 @@
 from dataclasses import asdict
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
+import shutil
 from typing import Literal, Optional
+import uuid
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 
 from backend.app.api.schemas import (
     BlankDocumentRequest,
@@ -296,6 +298,41 @@ async def create_import(body: ImportCreateRequest, request: Request):
     return _import_job_view(request.app.state.import_service, job)
 
 
+@router.post("/imports/upload", response_model=ImportJobView, status_code=status.HTTP_201_CREATED)
+async def upload_import(
+    request: Request,
+    files: list[UploadFile] = File(..., alias="files[]"),
+    profile: Literal["standard", "legacy"] = Form("standard"),
+):
+    temporary_directory: Optional[Path] = None
+    try:
+        if not files:
+            raise HTTPException(status_code=422, detail="Select at least one .md or .pdf file")
+
+        used_names: set[str] = set()
+        filenames = [
+            _browser_upload_filename(upload.filename, index, used_names)
+            for index, upload in enumerate(files)
+        ]
+        temporary_directory = _create_browser_upload_directory(
+            request.app.state.repository_root
+        )
+        paths = []
+        for upload, filename in zip(files, filenames):
+            destination = temporary_directory / filename
+            with destination.open("xb") as output:
+                while chunk := await upload.read(1024 * 1024):
+                    output.write(chunk)
+            paths.append(destination)
+        job = request.app.state.import_service.stage_paths(paths, profile)
+        return _import_job_view(request.app.state.import_service, job)
+    finally:
+        for upload in files:
+            await upload.close()
+        if temporary_directory is not None:
+            shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
 @router.get("/imports", response_model=list[ImportJobView])
 async def list_imports(
     request: Request,
@@ -475,6 +512,52 @@ def _upload_paths(repository_root: Path, supplied_paths: list[str]) -> list[Path
             raise ValueError("Import paths must stay under storage/uploads") from error
         result.append(resolved)
     return result
+
+
+def _browser_upload_filename(filename: Optional[str], index: int, used_names: set[str]) -> str:
+    supplied = (filename or "").replace("\\", "/")
+    name = PurePosixPath(supplied).name
+    name = re.sub(r'[\x00-\x1f<>:"/\\|?*]', "_", name).strip(" .")
+    if not name or name in {".", ".."}:
+        raise HTTPException(status_code=422, detail="Every uploaded file needs a filename")
+    if Path(name).suffix.lower() not in {".md", ".pdf"}:
+        raise HTTPException(
+            status_code=422,
+            detail="Only .md and .pdf files are supported: {}".format(name),
+        )
+    if re.match(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", name, re.IGNORECASE):
+        name = "_" + name
+
+    candidate = name
+    stem = Path(name).stem
+    suffix = Path(name).suffix
+    collision = 1
+    while candidate.casefold() in used_names:
+        candidate = "{}-{}{}".format(stem, index + collision, suffix)
+        collision += 1
+    used_names.add(candidate.casefold())
+    return candidate
+
+
+def _create_browser_upload_directory(repository_root: Path) -> Path:
+    repository_root = Path(repository_root).resolve()
+    storage_root = repository_root / "storage"
+    uploads_root = storage_root / "uploads"
+    browser_root = uploads_root / "browser"
+    for path in (storage_root, uploads_root, browser_root):
+        if path.is_symlink():
+            raise HTTPException(status_code=422, detail="Browser upload paths cannot be symbolic links")
+        try:
+            path.resolve().relative_to(repository_root)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail="Browser uploads must stay under storage/uploads/browser",
+            ) from error
+    browser_root.mkdir(parents=True, exist_ok=True)
+    temporary_directory = browser_root / uuid.uuid4().hex
+    temporary_directory.mkdir(exist_ok=False)
+    return temporary_directory
 
 
 def _import_job_view(service, job) -> dict:

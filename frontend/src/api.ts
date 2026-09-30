@@ -162,10 +162,11 @@ export interface SearchFilters {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(path, {
     ...init,
     headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
     },
   });
@@ -343,6 +344,13 @@ export function createImport(paths: string[], profile: "standard" | "legacy") {
     method: "POST",
     body: JSON.stringify({ paths, profile }),
   });
+}
+
+export function uploadImportFiles(files: File[], profile: "standard" | "legacy") {
+  const body = new FormData();
+  files.forEach((file) => body.append("files[]", file, file.name));
+  body.append("profile", profile);
+  return request<ImportJob>("/api/imports/upload", { method: "POST", body });
 }
 
 export interface ImportItemContent {

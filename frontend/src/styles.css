@@ -236,6 +236,24 @@ a { color: #2e7357; }
 .import-row > span:nth-child(2) { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .import-row strong { overflow: hidden; color: #53645a; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .file-mark { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 8px; color: #64866b; background: #eef4ef; font-size: 8px; font-weight: 700; }
+.browser-import-form { display: grid; gap: 11px; margin: 10px 0 14px; }
+.browser-import-dropzone { display: flex; min-height: 105px; align-items: center; gap: 13px; border: 1px dashed #cbd9ce; border-radius: 9px; padding: 17px; background: #fbfdfb; transition: border-color .15s ease, background .15s ease; }
+.browser-import-dropzone.is-active { border-color: #4c8a64; background: #f1f7f2; }
+.browser-import-dropzone > div { display: grid; flex: 1; gap: 5px; }
+.browser-import-dropzone > div strong { color: #4b6251; font-size: 11px; font-weight: 600; }
+.browser-import-dropzone > div small, .browser-import-files small { color: #93a098; font-size: 9px; }
+.browser-file-input { display: none; }
+.browser-import-icon { display: grid; width: 35px; height: 35px; place-items: center; border-radius: 10px; color: #5e8969; background: #edf4ee; font-size: 20px; }
+.browser-import-files { display: grid; gap: 0; margin: -3px 0 0; padding: 0; list-style: none; }
+.browser-import-files li { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid #eef1ee; padding: 8px 2px; }
+.browser-import-files li > span { display: grid; min-width: 0; gap: 3px; }
+.browser-import-files strong { overflow: hidden; color: #55675a; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.browser-import-controls { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.browser-import-controls .field-label { width: min(240px, 100%); }
+.browser-import-controls .button { min-height: 36px; }
+.advanced-import { margin-top: 12px; border-top: 1px solid #eef1ee; padding-top: 10px; }
+.advanced-import summary { color: #829187; font-size: 9px; cursor: pointer; }
+.advanced-import .legacy-import-form { grid-template-columns: minmax(180px, 1fr) auto; }
 .legacy-import-form { display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(130px, .7fr) auto; align-items: end; gap: 9px; margin: 8px 0; }
 .legacy-import-form .button { min-height: 36px; }
 .import-review-item { border-top: 1px solid #f0f2ef; }
@@ -525,6 +543,11 @@ a { color: #2e7357; }
   .knowledge-editor, .editor-preview-panel .markdown-content, .source-yaml-preview { min-height: 390px; }
   .editor-writing-panel, .editor-preview-panel, .conflict-panel, .ai-panel { padding: 13px; }
   .legacy-import-form, .import-source-fields { grid-template-columns: 1fr; }
+  .browser-import-dropzone { align-items: flex-start; flex-wrap: wrap; }
+  .browser-import-dropzone > div { min-width: calc(100% - 55px); }
+  .browser-import-controls { align-items: flex-start; flex-direction: column; }
+  .browser-import-controls .field-label { width: 100%; }
+  .browser-import-controls .button { width: 100%; }
   .import-review-details { padding-left: 0; }
   .annotation-toolbar { gap: 4px; }
   .editor-page > .page-header { align-items: flex-start; flex-direction: column; }

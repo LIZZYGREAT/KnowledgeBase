@@ -94,6 +94,7 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/review/link-issues",
         "/api/documents/recently-modified",
         "/api/sources/{entity_id}/pdf",
+        "/api/imports/upload",
         "/api/context/export",
         "/api/ai/document-review",
         "/api/ai/metadata-suggest",
@@ -556,6 +557,72 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
     assert (api_client.app.state.repository_root / "storage/papers/imported-pdf.pdf").is_file()
     blocked = api_client.post("/api/imports", json={"paths": ["../../knowledge/private.md"]})
     assert blocked.status_code == 422
+
+
+def test_browser_upload_stages_multiple_markdown_and_pdf_files(api_client):
+    repository = api_client.app.state.repository_root
+    original_revision = api_client.app.state.git_manager.current_revision()
+    markdown_content = _document_content("browser-note", "Browser Note").encode("utf-8")
+    files = [
+        ("files[]", ("browser-note.md", markdown_content, "text/markdown")),
+        ("files[]", ("browser-note.pdf", b"%PDF-1.7\nsource attachment", "application/pdf")),
+    ]
+
+    response = api_client.post(
+        "/api/imports/upload",
+        data={"profile": "legacy"},
+        files=files,
+    )
+
+    assert response.status_code == 201, response.json()
+    job = response.json()
+    assert job["status"] == "ready"
+    assert job["profile"] == "legacy"
+    assert {item["display_name"] for item in job["items"]} == {
+        "browser-note.md",
+        "browser-note.pdf",
+    }
+    assert {item["file_type"] for item in job["items"]} == {"markdown", "pdf"}
+    assert len(job["items"]) == 2
+
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        rows = connection.execute(
+            "SELECT path, file_type, metadata_json FROM import_items WHERE job_id = ?",
+            (job["id"],),
+        ).fetchall()
+    finally:
+        connection.close()
+    assert all(not Path(row["path"]).exists() for row in rows)
+    markdown_item = next(row for row in rows if row["file_type"] == "markdown")
+    markdown_metadata = json.loads(markdown_item["metadata_json"])
+    staged_markdown = repository / markdown_metadata["staging_path"]
+    assert staged_markdown.read_text(encoding="utf-8") == markdown_content.decode("utf-8")
+    assert markdown_metadata["profile"] == "legacy"
+    browser_uploads = repository / "storage" / "uploads" / "browser"
+    assert not list(browser_uploads.iterdir())
+    assert api_client.app.state.git_manager.current_revision() == original_revision
+    assert not (repository / "knowledge" / "documents" / "learning" / "browser-note.md").exists()
+    assert not (repository / "knowledge" / "sources" / "browser-note.yaml").exists()
+    assert not (repository / "storage" / "papers" / "browser-note.pdf").exists()
+
+    standard = api_client.post(
+        "/api/imports/upload",
+        data={"profile": "standard"},
+        files=[("files[]", ("standard-note.md", _document_content("standard-note", "Standard Note").encode("utf-8"), "text/markdown"))],
+    )
+    assert standard.status_code == 201, standard.json()
+    assert standard.json()["profile"] == "standard"
+    assert standard.json()["items"][0]["metadata"]["profile"] == "standard"
+    assert not list(browser_uploads.iterdir())
+
+    rejected = api_client.post(
+        "/api/imports/upload",
+        data={"profile": "standard"},
+        files=[("files[]", ("unsupported.txt", b"text", "text/plain"))],
+    )
+    assert rejected.status_code == 422
+    assert not list(browser_uploads.iterdir())
 
 
 def _create_repository(root: Path) -> Path:
