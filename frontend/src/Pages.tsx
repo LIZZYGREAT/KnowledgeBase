@@ -703,7 +703,7 @@ function ImportReviewItem({
     {expanded && <div className="import-review-details">
       {loading && <p className="subtle-copy">正在读取暂存文件…</p>}
       {detail?.file_type === "markdown" && <>
-        <p className="trust-note">Legacy 导入会在创建 Draft 时标记为 `legacy` 和 `unreviewed`。缺少或不完整的 Frontmatter 需要先在下方补齐。</p>
+        <p className="trust-note">Legacy 导入允许缺少 KnowledgeBase Frontmatter。创建 Draft 时会自动补入最小元数据，并标记为 legacy 和 unreviewed；原正文保持不变。已有 Frontmatter 仍可在下方编辑。</p>
         <textarea className="import-markdown-editor" value={content} onChange={(event) => setContent(event.target.value)} spellCheck={false} aria-label={`${item.display_name} 导入内容`} />
         <div className="import-review-actions"><button className="button button-secondary" disabled={busy || loading} onClick={() => void updateImportItem(item.id, content).then(() => setError("已保存暂存内容。"), (reason: unknown) => setError(errorMessage(reason)))}>{busy ? "保存中…" : "保存暂存内容"}</button><button className="button button-primary" disabled={busy || loading} onClick={() => void saveAndCreateDraft()}>{busy ? "正在创建…" : "保存并创建 Draft"}</button></div>
       </>}

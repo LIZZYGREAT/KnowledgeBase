@@ -259,7 +259,7 @@ a { color: #2e7357; }
 .import-review-item { border-top: 1px solid #f0f2ef; }
 .import-review-item .import-row { border-top: 0; }
 .import-review-details { display: grid; gap: 10px; padding: 10px 0 14px 41px; }
-.import-markdown-editor { width: 100%; min-height: 260px; resize: vertical; border: 1px solid #e5ebe5; border-radius: 7px; padding: 10px; color: #43574a; background: #fbfcfb; font: 10px/1.65 "Cascadia Code", Consolas, monospace; }
+.import-markdown-editor { width: 100%; min-height: 560px; resize: vertical; border: 1px solid #e5ebe5; border-radius: 7px; padding: 14px; color: #43574a; background: #fbfcfb; font: 16px/1.75 "Cascadia Code", Consolas, monospace; }
 .import-review-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
 .import-source-fields { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(180px, 1.3fr) minmax(120px, .7fr); gap: 9px; }
 
@@ -549,6 +549,7 @@ a { color: #2e7357; }
   .browser-import-controls .field-label { width: 100%; }
   .browser-import-controls .button { width: 100%; }
   .import-review-details { padding-left: 0; }
+  .import-markdown-editor { min-height: 420px; font-size: 15px; }
   .annotation-toolbar { gap: 4px; }
   .editor-page > .page-header { align-items: flex-start; flex-direction: column; }
   .editor-page > .page-header .page-header-action { width: 100%; }
