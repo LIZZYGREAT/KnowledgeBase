@@ -677,8 +677,13 @@ def test_publisher_refreshes_incremental_index_after_publish_and_restore(publish
 def _initialize_repository(repository: Path) -> None:
     repository.mkdir()
     shutil.copytree(_ROOT / "config", repository / "config")
-    shutil.copytree(_ROOT / "knowledge", repository / "knowledge")
+    (repository / "knowledge").mkdir()
+    shutil.copytree(
+        _ROOT / "knowledge" / "taxonomy",
+        repository / "knowledge" / "taxonomy",
+    )
     (repository / "knowledge" / "documents" / "papers").mkdir(parents=True, exist_ok=True)
+    (repository / "knowledge" / "documents" / "learning").mkdir(parents=True, exist_ok=True)
     (repository / "knowledge" / "terms").mkdir(parents=True, exist_ok=True)
     (repository / "knowledge" / "sources").mkdir(parents=True, exist_ok=True)
     (repository / "knowledge" / "documents" / "papers" / "ewc-review.md").write_text(

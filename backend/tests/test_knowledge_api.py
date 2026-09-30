@@ -629,7 +629,11 @@ def _create_repository(root: Path) -> Path:
     repository = root
     (repository / "config").mkdir(parents=True)
     shutil.copytree(_ROOT / "config", repository / "config", dirs_exist_ok=True)
-    shutil.copytree(_ROOT / "knowledge", repository / "knowledge", dirs_exist_ok=True)
+    (repository / "knowledge").mkdir()
+    shutil.copytree(
+        _ROOT / "knowledge" / "taxonomy",
+        repository / "knowledge" / "taxonomy",
+    )
     (repository / "knowledge" / "documents" / "learning").mkdir(parents=True, exist_ok=True)
     (repository / "knowledge" / "terms").mkdir(parents=True, exist_ok=True)
     (repository / "knowledge" / "sources").mkdir(parents=True, exist_ok=True)

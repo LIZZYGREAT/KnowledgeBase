@@ -15,7 +15,19 @@ def test_application_initializes_phase_services_from_configured_paths(
     repository = tmp_path / "repository"
     repository.mkdir()
     shutil.copytree(_ROOT / "config", repository / "config")
-    shutil.copytree(_ROOT / "knowledge", repository / "knowledge")
+    (repository / "knowledge").mkdir()
+    shutil.copytree(
+        _ROOT / "knowledge" / "taxonomy",
+        repository / "knowledge" / "taxonomy",
+    )
+    for relative in (
+        "documents/papers",
+        "documents/learning",
+        "documents/courses",
+        "terms",
+        "sources",
+    ):
+        (repository / "knowledge" / relative).mkdir(parents=True, exist_ok=True)
     database_path = tmp_path / "runtime" / "custom.db"
     subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
     monkeypatch.setenv("KNOWLEDGE_REPO_PATH", str(repository))

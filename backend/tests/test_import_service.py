@@ -509,7 +509,11 @@ def test_source_draft_cannot_publish_when_staged_pdf_is_missing(import_context, 
 def _initialize_repository(repository: Path) -> None:
     repository.mkdir(parents=True)
     shutil.copytree(_ROOT / "config", repository / "config")
-    shutil.copytree(_ROOT / "knowledge", repository / "knowledge")
+    (repository / "knowledge").mkdir()
+    shutil.copytree(
+        _ROOT / "knowledge" / "taxonomy",
+        repository / "knowledge" / "taxonomy",
+    )
     shutil.copy2(_ROOT / ".gitignore", repository / ".gitignore")
     for relative in (
         "knowledge/documents/papers",
