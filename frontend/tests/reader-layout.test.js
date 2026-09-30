@@ -25,6 +25,8 @@ test("reader outline has its own sticky scroll area and follows intersecting hea
   assert.match(pages, /new IntersectionObserver\(/);
   assert.match(pages, /rootMargin:\s*"-104px 0px -72% 0px"/);
   assert.match(pages, /aria-current=\{activeHeading === heading\.slug \? "location" : undefined\}/);
+  assert.ok(pages.includes('querySelectorAll<HTMLElement>("h1[id], h2[id], h3[id], h4[id], h5[id]")'));
+  assert.ok(pages.includes('const match = /^(#{1,5})'));
 });
 
 test("reader shortcut actions stay below the app header", () => {
@@ -33,4 +35,12 @@ test("reader shortcut actions stay below the app header", () => {
   assert.match(pages, /window\.scrollTo\(\{ top: 0, behavior: "smooth" \}\)/);
   assert.match(pages, /aria-expanded=\{contextExpanded\} aria-controls="reader-context-panel"/);
   assert.match(styles, /\.reader-sticky-actions\s*\{[^}]*position:\s*sticky;[^}]*top:\s*72px/);
+});
+
+test("reader metadata and helper copy use legible secondary text colors", () => {
+  assert.match(styles, /--text-secondary:\s*#52645a;/);
+  assert.match(styles, /--text-muted:\s*#6b7971;/);
+  assert.match(styles, /--text-subtle:\s*#7b8780;/);
+  assert.match(styles, /\.reader-context-counts\s*\{\s*color:\s*var\(--text-subtle\)/);
+  assert.match(styles, /\.context-link small, \.artifact-link small\s*\{[^}]*color:\s*var\(--text-subtle\)/);
 });

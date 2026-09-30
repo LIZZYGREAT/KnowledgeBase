@@ -776,7 +776,7 @@ export function EntityPage({
     let intersectionObserver: IntersectionObserver | null = null;
     const intersectingIds = new Set<string>();
     const observeHeadings = () => {
-      const nextHeadings = Array.from(root.querySelectorAll<HTMLElement>("h1[id], h2[id], h3[id]"));
+      const nextHeadings = Array.from(root.querySelectorAll<HTMLElement>("h1[id], h2[id], h3[id], h4[id], h5[id]"));
       if (nextHeadings.length === observedHeadings.length && nextHeadings.every((heading, index) => observedHeadings[index] === heading)) return;
       intersectionObserver?.disconnect();
       observedHeadings = nextHeadings;
@@ -1063,7 +1063,7 @@ function readArtifacts(value: unknown): Array<{ type: string; variant: string; u
 function markdownHeadings(markdown: string) {
   const counts = new Map<string, number>();
   return markdown.split("\n").flatMap((line) => {
-    const match = /^(#{1,3})\s+(.+?)\s*#*\s*$/.exec(line);
+    const match = /^(#{1,5})\s+(.+?)\s*#*\s*$/.exec(line);
     if (!match) return [];
     const text = match[2].replace(/[`*_~]/g, "");
     const base = text.toLocaleLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "section";
