@@ -31,8 +31,11 @@ test("long-form reading and Markdown controls use a clear size hierarchy", () =>
   assert.match(styles, /\.knowledge-editor\s*\{[^}]*font-size:\s*var\(--text-base\)/);
 });
 
-test("Context Export puts both complete selects above a full-width action", () => {
-  assert.match(styles, /\.context-export-controls\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+test("Context Export keeps readable controls on one line when the card has room", () => {
+  assert.match(styles, /\.context-export-controls\s*\{[^}]*grid-template-columns:\s*minmax\(104px,\s*\.9fr\)\s+minmax\(104px,\s*1fr\)\s+max-content/);
   assert.match(styles, /\.context-export-controls select\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0/);
-  assert.match(styles, /\.context-export-controls \.button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*width:\s*100%/);
+  assert.match(styles, /\.context-export-controls \.button\s*\{[^}]*min-width:\s*108px;[^}]*white-space:\s*nowrap/);
+  assert.match(styles, /@container\s*\(max-width:\s*330px\)/);
+  const narrowLayout = styles.split("@container (max-width: 330px)")[1]?.split("\n}")[0] ?? "";
+  assert.match(narrowLayout, /\.context-export-controls \.button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
 });

@@ -999,8 +999,8 @@ export function EntityPage({
   );
 }
 
-function ContextCard({ id, title, detail, children }: { id?: string; title: string; detail?: string; children: ReactNode }) {
-  return <section id={id} className="context-card surface"><div className="context-card-heading"><strong>{title}</strong>{detail && <small>{detail}</small>}</div>{children}</section>;
+function ContextCard({ id, className, title, detail, children }: { id?: string; className?: string; title: string; detail?: string; children: ReactNode }) {
+  return <section id={id} className={`context-card surface ${className ?? ""}`}><div className="context-card-heading"><strong>{title}</strong>{detail && <small>{detail}</small>}</div>{children}</section>;
 }
 
 function ContextExportPanel({ targetType, targetId }: { targetType: "document" | "source"; targetId: string }) {
@@ -1034,7 +1034,7 @@ function ContextExportPanel({ targetType, targetId }: { targetType: "document" |
     }
   }
 
-  return <ContextCard title="Context Export" detail="为研究任务导出有信任边界的知识包">
+  return <ContextCard className="context-export-card" title="Context Export" detail="为研究任务导出有信任边界的知识包">
     <div className="context-export-controls">
       <label>Trust<select value={trust} onChange={(event) => setTrust(event.target.value as ContextTrust)}><option value="raw">Raw</option><option value="reviewed">Reviewed</option><option value="verified">Verified</option></select></label>
       <label>Purpose<select value={purpose} onChange={(event) => setPurpose(event.target.value as ContextPurpose)}><option value="research">Research</option><option value="teaching">Teaching</option><option value="evidence">Evidence</option></select></label>
