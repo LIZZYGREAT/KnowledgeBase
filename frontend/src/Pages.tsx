@@ -745,6 +745,7 @@ export function EntityPage({
   const [contextExpanded, setContextExpanded] = useState(false);
   const [activeHeading, setActiveHeading] = useState("");
   const readerMarkdownRef = useRef<HTMLDivElement>(null);
+  const contextPanelRef = useRef<HTMLDetailsElement>(null);
   const documentBody = resource.data?.content ?? "";
   const headings = markdownHeadings(documentBody);
   const sourceIds = resource.data?.entity_type === "document"
@@ -915,13 +916,32 @@ export function EntityPage({
     }
   }
 
+  function toggleContextPanel() {
+    setContextExpanded((expanded) => !expanded);
+    contextPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function openSources() {
+    setContextExpanded(true);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      document.getElementById("reader-context-sources")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }));
+  }
+
   return (
     <div className="page-stack entity-page">
-      <div className="entity-actions"><button className="back-link" onClick={() => navigate(type === "term" ? "/terms" : type === "source" ? "/library?tab=sources" : "/library")}>← 返回{type === "term" ? "Terms" : type === "source" ? "Library" : "Library"}</button>{onEdit && <button className="button button-secondary" onClick={() => onEdit(type, id)}>编辑 Draft</button>}</div>
+      <div className="entity-actions"><button className="back-link" onClick={() => navigate(type === "term" ? "/terms" : type === "source" ? "/library?tab=sources" : "/library")}>← 返回{type === "term" ? "Terms" : type === "source" ? "Library" : "Library"}</button></div>
       <div className="entity-title-row">
         <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{entity.title}</h1><div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
       </div>
-      <details className="reader-context-panel surface" open={contextExpanded} onToggle={(event) => setContextExpanded(event.currentTarget.open)}>
+      <div className="reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作">
+        {onEdit && <button className="button button-secondary" onClick={() => onEdit(type, id)}>Edit Draft</button>}
+        <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
+        {type === "document" && sourceIds.length > 0 && <button className="button button-secondary" onClick={openSources}>Sources</button>}
+        <button className="button button-secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to top</button>
+        <button className="button button-secondary reader-action-more" aria-expanded={contextExpanded} aria-controls="reader-context-panel" onClick={toggleContextPanel}>{contextExpanded ? "Less" : "More"}</button>
+      </div>
+      <details id="reader-context-panel" ref={contextPanelRef} className="reader-context-panel surface" open={contextExpanded} onToggle={(event) => setContextExpanded(event.currentTarget.open)}>
         <summary className="reader-context-summary">
           <span className="reader-context-status"><strong>{typeLabel(entity)}</strong><span>·</span><span>{titleCase(status)}</span><span>·</span><span>{titleCase(maintenanceStatus(entity))}</span></span>
           <span className="reader-context-counts">{(type === "document" ? [`${sourceIds.length} Sources`, `${entity.related_terms.length} Terms`, `${evidence.length} Evidence`] : type === "term" ? [`${entity.backlinks.length} Backlinks`, `${entity.detected_mentions.length} Mentions`] : [`${entity.related_documents.length} Documents`, `${evidence.length} Evidence`]).map((item) => <span key={item}>{item}</span>)}</span>
@@ -930,7 +950,7 @@ export function EntityPage({
         <div className="reader-context-details">
           <div className="reader-context">
             {type === "document" && <ContextCard title="分类"><MetaChipList values={[...readList(entity.metadata, "domains"), ...readList(entity.metadata, "topics"), ...readList(entity.metadata, "tags")]} /></ContextCard>}
-            {type === "document" && <ContextCard title="Sources" detail={sourceIds.length ? `${sourceIds.length} 个关联来源` : "没有关联来源"}>{sourceResource.data?.map((source) => <button className="context-link" key={source.id} onClick={() => navigate(entityPath(source))}><span className="context-icon source">S</span><span><strong>{source.title}</strong><small>{readString(source.metadata.type) || "Source"}</small></span><span>↗</span></button>)}</ContextCard>}
+            {type === "document" && <ContextCard id="reader-context-sources" title="Sources" detail={sourceIds.length ? `${sourceIds.length} 个关联来源` : "没有关联来源"}>{sourceResource.data?.map((source) => <button className="context-link" key={source.id} onClick={() => navigate(entityPath(source))}><span className="context-icon source">S</span><span><strong>{source.title}</strong><small>{readString(source.metadata.type) || "Source"}</small></span><span>↗</span></button>)}</ContextCard>}
             <ContextCard title="Terms" detail={`${entity.related_terms.length} 个关联术语`}>{entity.related_terms.length ? entity.related_terms.map((term) => <button className="context-link" key={term.id} onClick={() => navigate(entityPath({ entity_type: "term", id: term.id }))}><span className="context-icon term">T</span><span><strong>{term.title}</strong><small>{term.id}</small></span><span>↗</span></button>) : <p className="subtle-copy">正文中的 Wiki Link 会在这里形成关系。</p>}</ContextCard>
             {type === "term" && <ContextCard title="Backlinks" detail="已正式链接到此 Term 的内容">{entity.backlinks.length ? entity.backlinks.map((backlink, index) => { const sourceType = readString(backlink.source_entity_type) === "document" ? "document" : "term"; const sourceId = readString(backlink.source_entity_id); return <button className="context-link" key={`${sourceId}:${index}`} onClick={() => navigate(`/${sourceType === "document" ? "documents" : "terms"}/${encodeURIComponent(sourceId)}`)}><span><strong>{sourceId}</strong><small>第 {String(backlink.line)} 行 · {readString(backlink.label) || readString(backlink.link_target)}</small></span><span>↗</span></button>; }) : <p className="subtle-copy">尚无内容通过 Wiki Link 指向这个 Term。</p>}</ContextCard>}
             {type === "term" && <ContextCard title="Detected Mentions" detail="文本提及尚未成为正式 Wiki Link">{entity.detected_mentions.length ? entity.detected_mentions.map((mention) => <button className="context-link" key={mention.id} onClick={() => navigate(`/documents/${encodeURIComponent(mention.id)}`)}><span><strong>{mention.title}</strong><small>{mention.id}</small></span><span>↗</span></button>) : <p className="subtle-copy">没有发现未链接的提及。</p>}</ContextCard>}
@@ -979,8 +999,8 @@ export function EntityPage({
   );
 }
 
-function ContextCard({ title, detail, children }: { title: string; detail?: string; children: ReactNode }) {
-  return <section className="context-card surface"><div className="context-card-heading"><strong>{title}</strong>{detail && <small>{detail}</small>}</div>{children}</section>;
+function ContextCard({ id, title, detail, children }: { id?: string; title: string; detail?: string; children: ReactNode }) {
+  return <section id={id} className="context-card surface"><div className="context-card-heading"><strong>{title}</strong>{detail && <small>{detail}</small>}</div>{children}</section>;
 }
 
 function ContextExportPanel({ targetType, targetId }: { targetType: "document" | "source"; targetId: string }) {
