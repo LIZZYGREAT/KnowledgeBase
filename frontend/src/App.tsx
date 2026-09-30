@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   recordSearchClick,
   type EntityType,
@@ -42,6 +42,16 @@ export default function App() {
   const [location, setLocation] = useState<LocationState>(() => currentLocation());
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [quickSearch, setQuickSearch] = useState("");
+  const [sidebarPinned, setSidebarPinned] = useState(() => {
+    try {
+      return window.localStorage.getItem("knowledgebase.sidebar-pinned") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [sidebarPeek, setSidebarPeek] = useState(false);
+  const [finePointer, setFinePointer] = useState(false);
+  const sidebarHoverTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const update = () => setLocation(currentLocation());
@@ -49,14 +59,66 @@ export default function App() {
     return () => window.removeEventListener("popstate", update);
   }, []);
 
+  useEffect(() => {
+    const media = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const update = () => setFinePointer(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("knowledgebase.sidebar-pinned", String(sidebarPinned));
+    } catch {
+      // Local storage can be unavailable in private browsing contexts.
+    }
+  }, [sidebarPinned]);
+
   const navigate = useCallback((path: string) => {
     window.history.pushState({}, "", path);
     setLocation(currentLocation());
     setMobileNavOpen(false);
+    setSidebarPeek(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   const route = useMemo(() => resolveRoute(location.pathname), [location.pathname]);
+  const contentWorkspace = route.kind === "reader" || route.kind === "editor" || route.kind === "new-note";
+  useEffect(() => {
+    setSidebarPeek(false);
+    if (sidebarHoverTimerRef.current !== null) {
+      window.clearTimeout(sidebarHoverTimerRef.current);
+      sidebarHoverTimerRef.current = null;
+    }
+  }, [location.pathname]);
+  useEffect(() => () => {
+    if (sidebarHoverTimerRef.current !== null) window.clearTimeout(sidebarHoverTimerRef.current);
+  }, []);
+
+  function handleSidebarPointerEnter() {
+    if (!contentWorkspace || !finePointer || sidebarPinned || sidebarPeek) return;
+    if (sidebarHoverTimerRef.current !== null) window.clearTimeout(sidebarHoverTimerRef.current);
+    sidebarHoverTimerRef.current = window.setTimeout(() => {
+      setSidebarPeek(true);
+      sidebarHoverTimerRef.current = null;
+    }, 100);
+  }
+
+  function handleSidebarPointerLeave() {
+    if (!contentWorkspace || !finePointer || sidebarPinned) return;
+    if (sidebarHoverTimerRef.current !== null) window.clearTimeout(sidebarHoverTimerRef.current);
+    sidebarHoverTimerRef.current = window.setTimeout(() => {
+      setSidebarPeek(false);
+      sidebarHoverTimerRef.current = null;
+    }, 300);
+  }
+
+  function toggleSidebarPin() {
+    const nextPinned = !sidebarPinned;
+    setSidebarPinned(nextPinned);
+    setSidebarPeek(!nextPinned);
+  }
   const activeNav = route.kind === "reader" || route.kind === "editor"
     ? route.entityType === "term" ? "/terms" : "/library"
     : navigation.find((item) => item.route === route.path)?.route ?? "/";
@@ -99,8 +161,18 @@ export default function App() {
   }
 
   return (
-    <div className="app-frame">
-      <aside className={`sidebar ${mobileNavOpen ? "sidebar-open" : ""}`}>
+    <div className={`app-frame ${contentWorkspace ? "content-workspace" : ""} ${sidebarPinned ? "sidebar-pinned" : ""} ${sidebarPeek ? "sidebar-peek" : ""}`}>
+      <aside
+        className={`sidebar ${mobileNavOpen ? "sidebar-open" : ""}`}
+        onPointerEnter={handleSidebarPointerEnter}
+        onPointerLeave={handleSidebarPointerLeave}
+        onFocus={() => { if (contentWorkspace && finePointer && !sidebarPinned) setSidebarPeek(true); }}
+        onBlur={(event) => {
+          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+          handleSidebarPointerLeave();
+        }}
+      >
+        {contentWorkspace && <button className="sidebar-rail-toggle" aria-label={sidebarPeek ? "收起导航" : "展开导航"} aria-expanded={sidebarPinned || sidebarPeek} onClick={() => setSidebarPeek((open) => !open)}>{sidebarPeek ? "‹" : "›"}</button>}
         <button className="brand" onClick={() => navigate("/")} aria-label="KnowledgeBase 首页">
           <span className="brand-mark">K</span>
           <span className="brand-copy"><strong>KnowledgeBase</strong><small>REFERENCE HUB</small></span>
@@ -123,6 +195,7 @@ export default function App() {
         </nav>
 
         <div className="sidebar-bottom">
+          {contentWorkspace && <button className="sidebar-pin-button" aria-pressed={sidebarPinned} onClick={toggleSidebarPin}>{sidebarPinned ? "取消固定侧栏" : "固定侧栏"}</button>}
           <div className="privacy-badge"><span className="privacy-icon">◈</span><span><strong>本地知识库</strong><small>Canonical · Markdown + YAML</small></span></div>
           <div className="sidebar-version"><span className="connection-dot" /> Private workspace <span>v1</span></div>
         </div>

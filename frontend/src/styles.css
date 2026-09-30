@@ -51,6 +51,9 @@ a { color: #2e7357; }
 .nav-active .nav-copy small { color: #9ab1a3; }
 .nav-current-mark { position: absolute; top: 13px; right: 0; width: 3px; height: 24px; border-radius: 3px 0 0 3px; background: #94c5a2; }
 .sidebar-bottom { display: grid; gap: 18px; margin-top: auto; padding: 12px 7px 0; }
+.sidebar-pin-button { border: 1px solid #ffffff1a; border-radius: 7px; padding: 8px 9px; color: #b7c8bd; background: #ffffff08; text-align: left; font-size: var(--text-xs); cursor: pointer; }
+.sidebar-pin-button:hover { color: #f5faf6; background: #ffffff12; }
+.sidebar-rail-toggle { display: none; position: absolute; top: calc(50% - 22px); right: 0; z-index: 2; width: 20px; height: 44px; place-items: center; border: 1px solid #ffffff1c; border-right: 0; border-radius: 7px 0 0 7px; color: #bdd3c4; background: #283d33; font-size: var(--text-md); cursor: pointer; }
 .privacy-badge { display: flex; align-items: center; gap: 10px; border: 1px solid #ffffff13; border-radius: 10px; padding: 12px 10px; background: #ffffff07; }
 .privacy-icon { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; color: #b4d3bf; background: #62816f33; font-size: var(--text-md); }
 .privacy-badge span:last-child { display: grid; gap: 3px; }
@@ -589,4 +592,17 @@ a { color: #2e7357; }
   .source-association-list { grid-template-columns: 1fr; }
   .paperskill-form { grid-template-columns: 1fr; }
   .paperskill-form .button { justify-self: start; }
+}
+
+@media (hover: hover) and (pointer: fine) and (min-width: 681px) {
+  .app-frame.content-workspace:not(.sidebar-pinned) .sidebar { width: 20px; overflow: hidden; padding: 0; box-shadow: none; transition: width .18s ease, padding .18s ease, box-shadow .18s ease; }
+  .app-frame.content-workspace.sidebar-peek:not(.sidebar-pinned) .sidebar { width: 252px; overflow: visible; padding: 24px 16px 18px; box-shadow: 14px 0 28px #13231b24; }
+  .app-frame.content-workspace.sidebar-pinned .sidebar { width: 252px; }
+  .app-frame.content-workspace:not(.sidebar-pinned) .main-column { margin-left: 20px; }
+  .app-frame.content-workspace.sidebar-pinned .main-column { margin-left: 252px; }
+  .app-frame.content-workspace:not(.sidebar-pinned):not(.sidebar-peek) .sidebar > :not(.sidebar-rail-toggle) { visibility: hidden; opacity: 0; pointer-events: none; }
+  .app-frame.content-workspace:not(.sidebar-pinned).sidebar-peek .sidebar > :not(.sidebar-rail-toggle),
+  .app-frame.content-workspace.sidebar-pinned .sidebar > :not(.sidebar-rail-toggle) { visibility: visible; opacity: 1; pointer-events: auto; }
+  .app-frame.content-workspace:not(.sidebar-pinned) .sidebar-rail-toggle { display: grid; }
+  .app-frame.content-workspace:not(.sidebar-pinned).sidebar-peek .sidebar-rail-toggle { right: 8px; transform: rotate(180deg); }
 }
