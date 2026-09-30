@@ -20,3 +20,13 @@ test("buttons and form controls use the documented moderate sizes", () => {
   assert.match(styles, /\.global-search input\s*\{[^}]*font-size:\s*var\(--text-base\)/);
   assert.match(styles, /\.search-input-wrap input\s*\{[^}]*font-size:\s*var\(--text-base\)/);
 });
+
+test("long-form reading and Markdown controls use a clear size hierarchy", () => {
+  assert.match(styles, /\.markdown-content\s*\{[^}]*font-size:\s*var\(--text-reading\);[^}]*line-height:\s*1\.8/);
+  assert.match(styles, /\.markdown-content h1\s*\{[^}]*font-size:\s*34px/);
+  assert.match(styles, /\.markdown-content h2\s*\{[^}]*font-size:\s*26px/);
+  assert.match(styles, /\.markdown-content h3\s*\{[^}]*font-size:\s*20px/);
+  assert.match(styles, /\.markdown-content h4\s*\{[^}]*font-size:\s*18px/);
+  assert.match(styles, /\.markdown-content pre\s*\{[^}]*padding:\s*16px;[^}]*font-size:\s*var\(--text-base\);[^}]*line-height:\s*1\.65/);
+  assert.match(styles, /\.knowledge-editor\s*\{[^}]*font-size:\s*var\(--text-base\)/);
+});
