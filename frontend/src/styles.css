@@ -296,7 +296,10 @@ a { color: #2e7357; }
 .reader-layout { display: grid; grid-template-columns: minmax(180px, 220px) minmax(0, 920px); justify-content: center; align-items: start; gap: 28px; }
 .reader-layout-source { grid-template-columns: minmax(0, 920px); }
 .reader-layout-source .reader-outline { display: none; }
-.reader-outline { position: sticky; top: 91px; padding: 15px 11px 16px; }
+.reader-outline { position: sticky; top: 96px; max-height: calc(100vh - 120px); overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #cbd7ce transparent; scrollbar-width: thin; padding: 15px 11px 16px; }
+.reader-outline::-webkit-scrollbar { width: 6px; }
+.reader-outline::-webkit-scrollbar-thumb { border-radius: 6px; background: #cbd7ce; }
+.reader-outline::-webkit-scrollbar-track { background: transparent; }
 .reader-outline > .eyebrow { padding: 0 7px; color: #9aa89e; font-size: var(--text-xs); }
 .reader-outline nav { display: grid; gap: 2px; }
 .reader-outline nav button { border: 0; border-left: 2px solid transparent; padding: 6px 7px; color: #839087; background: transparent; text-align: left; font-size: var(--text-sm); line-height: 1.5; cursor: pointer; }

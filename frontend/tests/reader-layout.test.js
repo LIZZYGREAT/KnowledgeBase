@@ -19,3 +19,10 @@ test("reader document stays centered at a comfortable maximum width", () => {
   assert.match(styles, /\.reader-document\s*\{[^}]*max-width:\s*920px/);
   assert.match(styles, /\.reader-layout\s*\{[^}]*grid-template-columns:\s*minmax\(180px,\s*220px\)\s+minmax\(0,\s*920px\);[^}]*justify-content:\s*center/);
 });
+
+test("reader outline has its own sticky scroll area and follows intersecting headings", () => {
+  assert.match(styles, /\.reader-outline\s*\{[^}]*position:\s*sticky;[^}]*max-height:\s*calc\(100vh - 120px\);[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain/);
+  assert.match(pages, /new IntersectionObserver\(/);
+  assert.match(pages, /rootMargin:\s*"-104px 0px -72% 0px"/);
+  assert.match(pages, /aria-current=\{activeHeading === heading\.slug \? "location" : undefined\}/);
+});

@@ -38,6 +38,7 @@ import {
   type UsageDocument,
 } from "./api";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, PageHeader, SectionHeading, formatDate, titleCase } from "./ui";
+import { latestIntersectingHeading } from "./readerNavigation.js";
 
 const MarkdownContent = lazy(() => import("./Markdown").then((module) => ({ default: module.MarkdownContent })));
 
@@ -742,7 +743,10 @@ export function EntityPage({
   const [annotationBusy, setAnnotationBusy] = useState(false);
   const [readerSelection, setReaderSelection] = useState<ReaderSelection | null>(null);
   const [contextExpanded, setContextExpanded] = useState(false);
+  const [activeHeading, setActiveHeading] = useState("");
   const readerMarkdownRef = useRef<HTMLDivElement>(null);
+  const documentBody = resource.data?.content ?? "";
+  const headings = markdownHeadings(documentBody);
   const sourceIds = resource.data?.entity_type === "document"
     ? Array.from(new Set([...readList(resource.data.metadata, "sources"), ...resource.data.evidence.map((item) => item.source_id)]))
     : [];
@@ -761,12 +765,45 @@ export function EntityPage({
       .catch((error: unknown) => { if (active) setAnnotationError(errorMessage(error)); });
     return () => { active = false; };
   }, [type, id, resource.data?.content]);
+  useEffect(() => {
+    const root = readerMarkdownRef.current;
+    if (!root || type === "source" || typeof IntersectionObserver === "undefined" || typeof MutationObserver === "undefined") {
+      setActiveHeading("");
+      return;
+    }
+    let observedHeadings: HTMLElement[] = [];
+    let intersectionObserver: IntersectionObserver | null = null;
+    const intersectingIds = new Set<string>();
+    const observeHeadings = () => {
+      const nextHeadings = Array.from(root.querySelectorAll<HTMLElement>("h1[id], h2[id], h3[id]"));
+      if (nextHeadings.length === observedHeadings.length && nextHeadings.every((heading, index) => observedHeadings[index] === heading)) return;
+      intersectionObserver?.disconnect();
+      observedHeadings = nextHeadings;
+      intersectingIds.clear();
+      setActiveHeading((current) => current && observedHeadings.some((heading) => heading.id === current) ? current : observedHeadings[0]?.id ?? "");
+      intersectionObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          const headingId = (entry.target as HTMLElement).id;
+          if (entry.isIntersecting) intersectingIds.add(headingId);
+          else intersectingIds.delete(headingId);
+        });
+        const currentHeading = latestIntersectingHeading(observedHeadings.map((heading) => heading.id), intersectingIds);
+        if (currentHeading) setActiveHeading(currentHeading);
+      }, { rootMargin: "-104px 0px -72% 0px", threshold: 0 });
+      observedHeadings.forEach((heading) => intersectionObserver?.observe(heading));
+    };
+    const mutationObserver = new MutationObserver(observeHeadings);
+    mutationObserver.observe(root, { childList: true, subtree: true });
+    observeHeadings();
+    return () => {
+      mutationObserver.disconnect();
+      intersectionObserver?.disconnect();
+    };
+  }, [documentBody, type]);
   if (resource.loading) return <LoadingState />;
   if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
   const entity = resource.data;
   const status = type === "source" ? readString((entity.metadata.metadata_review as Record<string, unknown> | undefined)?.status) || "unreviewed" : reviewStatus(entity);
-  const documentBody = entity.content ?? "";
-  const headings = markdownHeadings(documentBody);
   const evidence = entity.evidence;
   const artifacts = entity.entity_type === "document"
     ? readArtifacts(entity.metadata.external_artifacts)
@@ -910,7 +947,7 @@ export function EntityPage({
       <div className={`reader-layout ${type === "source" ? "reader-layout-source" : ""}`}>
         <aside className="reader-outline surface">
           <span className="eyebrow">ON THIS PAGE</span>
-          {headings.length ? <nav>{headings.map((heading, index) => <button className={`outline-level-${heading.level}`} key={`${heading.slug}:${index}`} onClick={() => document.getElementById(heading.slug)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{heading.text}</button>)}</nav> : <p className="subtle-copy">正文暂无章节标题。</p>}
+          {headings.length ? <nav>{headings.map((heading, index) => <button className={`outline-level-${heading.level} ${activeHeading === heading.slug ? "active" : ""}`} key={`${heading.slug}:${index}`} aria-current={activeHeading === heading.slug ? "location" : undefined} onClick={() => document.getElementById(heading.slug)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{heading.text}</button>)}</nav> : <p className="subtle-copy">正文暂无章节标题。</p>}
         </aside>
         <article className="reader-document">
           {type === "source" ? (
