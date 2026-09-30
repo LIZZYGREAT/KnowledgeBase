@@ -30,3 +30,9 @@ test("long-form reading and Markdown controls use a clear size hierarchy", () =>
   assert.match(styles, /\.markdown-content pre\s*\{[^}]*padding:\s*16px;[^}]*font-size:\s*var\(--text-base\);[^}]*line-height:\s*1\.65/);
   assert.match(styles, /\.knowledge-editor\s*\{[^}]*font-size:\s*var\(--text-base\)/);
 });
+
+test("Context Export puts both complete selects above a full-width action", () => {
+  assert.match(styles, /\.context-export-controls\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(styles, /\.context-export-controls select\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0/);
+  assert.match(styles, /\.context-export-controls \.button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*width:\s*100%/);
+});

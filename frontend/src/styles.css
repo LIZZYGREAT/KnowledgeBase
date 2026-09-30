@@ -464,10 +464,10 @@ a { color: #2e7357; }
 .paperskill-row strong { color: #516458; font-size: var(--text-sm); }
 .paperskill-row small { overflow-wrap: anywhere; color: #8c9990; font-size: var(--text-xs); }
 .source-pdf-editor .field-label { max-width: 520px; }
-.context-export-controls { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 7px; }
+.context-export-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 7px; }
 .context-export-controls label { display: grid; gap: 4px; color: #7c8a80; font-size: var(--text-xs); }
-.context-export-controls select { min-width: 0; height: 34px; border: 1px solid #e2e9e3; border-radius: 6px; padding: 0 7px; color: #4e6356; background: #fff; font-size: var(--text-base); }
-.context-export-controls .button { min-height: 34px; padding: 0 9px; }
+.context-export-controls select { width: 100%; min-width: 0; height: 36px; border: 1px solid #e2e9e3; border-radius: 6px; padding: 0 7px; color: #4e6356; background: #fff; font-size: var(--text-base); }
+.context-export-controls .button { grid-column: 1 / -1; width: 100%; min-height: 37px; padding: 0 12px; }
 .context-export-result { display: grid; gap: 5px; border-top: 1px solid #edf0ed; padding-top: 7px; }
 .context-export-result-heading { display: flex; align-items: center; justify-content: space-between; color: #849187; font-size: var(--text-xs); }
 .context-export-result pre { max-height: 230px; overflow: auto; margin: 0; border-radius: 6px; padding: 8px; color: #596b60; background: #f5f8f5; font: var(--text-sm)/1.55 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -565,6 +565,4 @@ a { color: #2e7357; }
   .source-association-list { grid-template-columns: 1fr; }
   .paperskill-form { grid-template-columns: 1fr; }
   .paperskill-form .button { justify-self: start; }
-  .context-export-controls { grid-template-columns: 1fr 1fr; }
-  .context-export-controls .button { grid-column: 1 / -1; justify-self: start; }
 }
