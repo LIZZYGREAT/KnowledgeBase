@@ -189,37 +189,129 @@ def test_hash_deduplication_detects_canonical_and_previous_imports(import_contex
     assert second_item.status == "ready"
 
 
-def test_legacy_batch_sets_unreviewed_and_legacy_defaults_and_allows_manual_fix(
-    import_context, tmp_path
-):
-    _, _, _, _, service = import_context
+def test_legacy_batch_generates_missing_metadata_and_applies_defaults(import_context, tmp_path):
+    _, _, _, imports, service = import_context
     batch = tmp_path / "legacy-notes"
     batch.mkdir()
-    (batch / "valid-legacy.md").write_text(
-        _document("valid-legacy", "Valid Legacy", include_review=False),
-        encoding="utf-8",
+    valid_legacy_content = (
+        "---\nschema_version: 1\nid: valid-legacy\ntitle: Valid Legacy\n"
+        "type: learning-note\ndomains: [algorithms]\ntopics: [ml]\ntags: [legacy]\n"
+        "sources: []\nreview:\n  ai:\n    status: passed\n    provider: test\n"
+        "maintenance:\n  status: current\n"
+        "provenance:\n  origin: human-authored\n  ai_assisted: true\n"
+        "---\n# Valid Legacy\n\nKeep existing content.\n"
     )
-    (batch / "needs-metadata.md").write_text("# An old note\n\nNo metadata yet.\n", encoding="utf-8")
+    valid_metadata_before = _frontmatter(valid_legacy_content)
+    (batch / "valid-legacy.md").write_text(valid_legacy_content, encoding="utf-8")
+    original_body = "## First section\n\nOld text.\n\n### Detail\nMore text.\n"
+    no_metadata_path = batch / "iCaRL前置知识.md"
+    no_metadata_path.write_text(original_body, encoding="utf-8")
+    original_body = no_metadata_path.read_bytes().decode("utf-8")
 
     job = service.stage_paths([batch], profile="legacy")
     items = {Path(item.path).name: item for item in service.get_items(job.id)}
-    assert items["needs-metadata.md"].status == "needs_review"
+    assert items["iCaRL前置知识.md"].status == "needs_review"
     assert items["valid-legacy.md"].status == "ready"
-    with pytest.raises(ImportValidationError, match="frontmatter"):
-        service.create_draft(items["needs-metadata.md"].id)
-
-    fixed = _document("needs-metadata", "Fixed Legacy", include_review=False)
-    updated = service.update_markdown_item(items["needs-metadata.md"].id, fixed)
-    assert updated.status == "ready"
-    fixed_draft = service.create_draft(updated.id)
-    fixed_metadata = _frontmatter(fixed_draft.content)
-    assert fixed_metadata["review"]["human"]["status"] == "unreviewed"
-    assert fixed_metadata["maintenance"]["status"] == "legacy"
+    generated_draft = service.create_draft(items["iCaRL前置知识.md"].id)
+    generated_metadata = _frontmatter(generated_draft.content)
+    assert generated_metadata["title"] == "iCaRL前置知识"
+    assert generated_metadata["type"] == "learning-note"
+    assert generated_metadata["id"] == "icarl"
+    assert generated_metadata["review"]["human"]["status"] == "unreviewed"
+    assert generated_metadata["maintenance"]["status"] == "legacy"
+    assert generated_metadata["provenance"] == {
+        "origin": "imported",
+        "ai_assisted": False,
+    }
+    assert generated_draft.content.endswith(original_body)
+    generated_item = imports.get_item(items["iCaRL前置知识.md"].id)
+    assert generated_item.metadata["legacy_frontmatter_generated"] is True
+    assert generated_item.metadata["generated_title"] == "iCaRL前置知识"
+    assert generated_item.metadata["generated_entity_id"] == "icarl"
 
     valid_draft = service.create_draft(items["valid-legacy.md"].id)
     legacy_metadata = _frontmatter(valid_draft.content)
     assert legacy_metadata["review"]["human"]["status"] == "unreviewed"
     assert legacy_metadata["maintenance"]["status"] == "legacy"
+    expected_metadata = dict(valid_metadata_before)
+    expected_metadata["review"] = dict(valid_metadata_before["review"])
+    expected_metadata["review"]["human"] = {"status": "unreviewed"}
+    expected_metadata["maintenance"] = {"status": "legacy"}
+    assert legacy_metadata == expected_metadata
+    valid_item = imports.get_item(items["valid-legacy.md"].id)
+    assert valid_item.metadata["legacy_frontmatter_generated"] is False
+
+
+def test_legacy_frontmatter_inference_prefers_first_h1_over_filename(
+    import_context, tmp_path
+):
+    _, _, _, _, service = import_context
+    source = tmp_path / "filename-title.md"
+    source.write_text("## Introduction\n\n# Actual H1 Title\n\nBody.\n", encoding="utf-8")
+
+    job = service.stage_paths([source], profile="legacy")
+    item = service.get_items(job.id)[0]
+    draft = service.create_draft(item.id)
+
+    assert _frontmatter(draft.content)["title"] == "Actual H1 Title"
+    assert draft.entity_id == "actual-h1-title"
+
+
+def test_legacy_non_ascii_filename_uses_content_hash_document_id(import_context, tmp_path):
+    _, _, _, _, service = import_context
+    source = tmp_path / "纯中文笔记.md"
+    body = "## 没有一级标题\n\n保留原始正文。\n"
+    source.write_text(body, encoding="utf-8")
+    body = source.read_bytes().decode("utf-8")
+
+    job = service.stage_paths([source], profile="legacy")
+    item = service.get_items(job.id)[0]
+    draft = service.create_draft(item.id)
+
+    expected_id = "document-{}".format(item.sha256[:12])
+    assert draft.entity_id == expected_id
+    assert _frontmatter(draft.content)["title"] == "纯中文笔记"
+    assert draft.content.endswith(body)
+
+
+@pytest.mark.parametrize(
+    "canonical_id, canonical_title",
+    [("icarl", "Existing Note"), ("another-note", "icarl")],
+)
+def test_legacy_generated_id_avoids_document_id_or_title_conflicts(
+    import_context, tmp_path, canonical_id, canonical_title
+):
+    repository, _, _, _, service = import_context
+    canonical_path = repository / "knowledge" / "documents" / "learning" / "existing.md"
+    canonical_content = _document(canonical_id, canonical_title)
+    canonical_path.write_text(canonical_content, encoding="utf-8")
+    source = tmp_path / "icarl.md"
+    body = "## Existing structure\n\nNew imported body.\n"
+    source.write_text(body, encoding="utf-8")
+
+    job = service.stage_paths([source], profile="legacy")
+    item = service.get_items(job.id)[0]
+    draft = service.create_draft(item.id)
+
+    assert draft.entity_id == "icarl-{}".format(item.sha256[:8])
+    assert canonical_path.read_text(encoding="utf-8") == canonical_content
+    assert not (
+        repository / "knowledge" / "documents" / "learning" / "icarl.md"
+    ).exists()
+
+
+def test_standard_markdown_without_frontmatter_still_cannot_create_draft(
+    import_context, tmp_path
+):
+    _, _, _, _, service = import_context
+    source = tmp_path / "standard-note.md"
+    source.write_text("## No metadata\n\nBody.\n", encoding="utf-8")
+
+    job = service.stage_paths([source], profile="standard")
+    item = service.get_items(job.id)[0]
+
+    with pytest.raises(ImportValidationError, match="frontmatter"):
+        service.create_draft(item.id)
 
 
 def test_kb_import_command_stages_legacy_markdown_and_pdf(import_context, tmp_path, capsys):
