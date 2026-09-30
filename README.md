@@ -54,6 +54,6 @@ Batch-stage local Markdown and PDFs for review with `python tools/kb.py import <
 - `docs/`: project contracts and implementation notes.
 - `docs/private/`: local source specifications; intentionally excluded from Git.
 
-See [Architecture](docs/ARCHITECTURE.md), [Knowledge Model](docs/KNOWLEDGE_MODEL.md), and [Writing Standard](docs/WRITING_STANDARD.md).
+See [Architecture](docs/ARCHITECTURE.md), [Knowledge Model](docs/KNOWLEDGE_MODEL.md), [Writing Standard](docs/WRITING_STANDARD.md), and the [中文服务启用与运维手册](docs/服务启用与运维手册.md).
 
 The Phase 6 `ImportService` stages Markdown and PDF files, detects SHA-256 duplicates, and records review candidates in Runtime SQLite. Markdown and PDF imports become Drafts; a PDF alone creates a Source Draft and never a Note. Imported PDFs remain under ignored `storage/papers/`, while only reviewed canonical metadata is published through `Publisher`.

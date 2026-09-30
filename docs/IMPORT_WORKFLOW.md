@@ -9,7 +9,7 @@ Input → Staging → Hash / Metadata Parse → Resolver → Deterministic Lint
 
 ## Stage local uploads
 
-The Reference Hub Import Review accepts files or directories beneath `storage/uploads/`. API import paths are relative to that folder; absolute paths, parent traversal, and symbolic links are rejected. Markdown and PDF files can be staged together, SHA-256 duplicates are reported, and matching Markdown/PDF names are suggested as a bundle.
+The Reference Hub Import Review accepts multiple `.md` and `.pdf` files from the browser through file selection or drag-and-drop. The temporary browser upload is copied into Import Pipeline staging and then removed. The Advanced server-path form and API accept paths beneath `storage/uploads/`; absolute paths, parent traversal, and symbolic links are rejected. Markdown and PDF files can be staged together, SHA-256 duplicates are reported, and matching Markdown/PDF names are suggested as a bundle.
 
 The command-line entry point can stage files from any readable local path:
 

@@ -1,5 +1,7 @@
 # Deployment
 
+For the step-by-step Chinese operator guide, see [服务启用与运维手册](服务启用与运维手册.md).
+
 ## Local development
 
 `docker compose up --build` runs the Vite development server and backend. Both ports bind to `127.0.0.1`; neither service is published publicly. Copy `.env.example` to `.env` for local settings.
