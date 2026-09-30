@@ -21,7 +21,7 @@ Use `--profile legacy` for older notes. The import service still does not write 
 
 ## Review Markdown
 
-Open Review → Import Review and expand the item. Inspect and edit the staged content. Valid canonical Frontmatter is required before a Document or Term Draft can be created; old files without metadata must be completed first. Legacy Draft creation sets human review to `unreviewed` and maintenance to `legacy`. Writing-style findings remain review information; structural and schema errors still block publishing.
+Open Review → Import Review and expand the item. Inspect the staged content. Standard imports require valid canonical Frontmatter before a Document or Term Draft can be created. With the Legacy profile, an older Markdown file may omit Frontmatter; Draft creation synthesizes minimal metadata, sets human review to `unreviewed` and maintenance to `legacy`, and preserves the original body. Review the generated metadata and refine it when needed. Writing-style findings remain review information; structural and schema errors still block publishing.
 
 After the Draft exists, the editor can request a DeepSeek metadata Proposal. The user must explicitly consent to send the Draft and required registry context. The result is stored as a Proposal; its suggested fields enter the Draft only after a human selects the apply action. Publishing remains a separate Publisher action.
 

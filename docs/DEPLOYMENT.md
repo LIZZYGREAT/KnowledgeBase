@@ -54,7 +54,7 @@ docker compose -f docker-compose.production.yml exec backend \
 
 Set `KB_IMPORT_DIRECTORY` in the server's `.env` to the host directory to be mounted read-only at `/imports`; the default is `./storage/uploads`. The CLI can also stage arbitrary local paths when run from a checkout with its configured Runtime database.
 
-Review each Markdown item before creating its Draft. If legacy Markdown lacks valid Frontmatter, add and validate its canonical metadata in the Import Review editor first. Creating a Draft applies `review.human.status: unreviewed` and `maintenance.status: legacy`. Open its Draft editor to request a metadata Proposal; the editor requires explicit consent before sending the Draft and registry context to DeepSeek. Review and apply suggested fields manually, then publish through Publisher.
+Review each Markdown item before creating its Draft. Standard imports require valid KnowledgeBase Frontmatter. With the Legacy profile, older Markdown may omit Frontmatter; when its Draft is created, KnowledgeBase synthesizes minimal metadata, marks the note `review.human.status: unreviewed` and `maintenance.status: legacy`, and preserves the original body. Review the generated metadata and refine it before publishing when needed. Open the Draft editor to request a metadata Proposal; the editor requires explicit consent before sending the Draft and registry context to DeepSeek. Review and apply suggested fields manually, then publish through Publisher.
 
 PDF items create Source Drafts only. Confirm the suggested Source ID and title in Import Review; the PDF is copied to `storage/papers/`. A PDF never creates a Document automatically. Review a representative sample of imported notes and Sources before continuing through the batch.
 
