@@ -10,22 +10,24 @@ const workspaceShell = readFileSync(new URL("../src/workspace/WorkspaceShell.tsx
 const inlineEditor = readFileSync(new URL("../src/workspace/WorkspaceInlineEditor.tsx", import.meta.url), "utf8");
 const reader = readFileSync(new URL("../src/reader/EntityReader.tsx", import.meta.url), "utf8");
 
-test("Workspace read and edit modes share the canonical entity route", () => {
+test("Workspace has one canonical entity route for reading and editing", () => {
   assert.equal(entityWorkspaceUrl("document", "graph-note"), "/documents/graph-note");
-  assert.equal(entityWorkspaceUrl("term", "fisher-information", { edit: true }), "/terms/fisher-information?edit=1");
+  assert.equal(entityWorkspaceUrl("term", "fisher-information"), "/terms/fisher-information");
 });
 
 test("Workspace URLs retain Collection context and batch publishing state", () => {
   assert.equal(
-    entityWorkspaceUrl("document", "new-note", { collectionId: "learning/path", edit: true, publishAll: true }),
-    "/documents/new-note?collection=learning%2Fpath&edit=1&publishAll=1",
+    entityWorkspaceUrl("document", "new-note", { collectionId: "learning/path", publishAll: true }),
+    "/documents/new-note?collection=learning%2Fpath&publishAll=1",
   );
   assert.throws(() => entityWorkspaceUrl("document", "note", { publishAll: true }), /requires a Collection ID/);
 });
 
-test("entity editing uses the canonical route and the legacy editor route is gone", () => {
-  assert.match(app, /query\.get\("edit"\) === "1"/);
+test("entity editing stays in the Reader workspace and the full-page editor is gone", () => {
+  assert.doesNotMatch(app, /query\.get\("edit"\)/);
   assert.doesNotMatch(app, /parts\[0\] === "edit"/);
+  assert.doesNotMatch(workspace, /WorkspaceEditingSurface|WorkspaceMode|initialMode/);
+  assert.match(reader, /setActiveDrawer\("source"\)/);
 });
 
 test("Workspace keeps its Explorer pane mounted while the selected entity follows the URL", () => {

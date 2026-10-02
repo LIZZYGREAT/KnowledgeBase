@@ -156,7 +156,7 @@ function RouteHarness() {
   const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
   const activeCollectionId = url.searchParams.get("collection") ?? undefined;
   const batchCollectionId = url.searchParams.get("publishAll") === "1" ? activeCollectionId : undefined;
-  return <WorkspacePage type="document" id={id} navigate={setPath} collectionId={activeCollectionId} batchCollectionId={batchCollectionId} initialMode="edit" />;
+  return <WorkspacePage type="document" id={id} navigate={setPath} collectionId={activeCollectionId} batchCollectionId={batchCollectionId} />;
 }
 
 describe("Explorer React integration", () => {
@@ -223,7 +223,7 @@ describe("Explorer React integration", () => {
     await user.type(screen.getByRole("textbox", { name: "笔记标题" }), "Nested note");
     await user.click(screen.getByRole("button", { name: "创建 Draft 并编辑" }));
 
-    await screen.findByRole("heading", { name: `编辑 ${createdNoteId}` });
+    await screen.findByRole("heading", { name: "Nested note" });
     await user.click(screen.getByRole("button", { name: "Publish All" }));
     const batchPublish = await screen.findByRole("button", { name: "Publish All · 一个 Git 提交" });
     await waitFor(() => expect((batchPublish as HTMLButtonElement).disabled).toBe(false));
@@ -256,7 +256,7 @@ describe("Explorer React integration", () => {
     await user.click(screen.getByRole("button", { name: "在 Renamed Notes 中新建笔记" }));
     await user.type(screen.getByRole("textbox", { name: "笔记标题" }), "Temporary note");
     await user.click(screen.getByRole("button", { name: "创建 Draft 并编辑" }));
-    await screen.findByRole("heading", { name: `编辑 ${createdNoteId}` });
+    await screen.findByRole("heading", { name: "Temporary note" });
     const createdDocumentDraft = drafts.find((draft) => draft.entity_type === "document" && draft.entity_id === createdNoteId);
     expect(createdDocumentDraft).toBeTruthy();
 

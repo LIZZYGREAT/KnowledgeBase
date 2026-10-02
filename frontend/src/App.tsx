@@ -13,7 +13,7 @@ const TopicsPage = lazy(() => import("./Pages").then((module) => ({ default: mod
 const ReviewPage = lazy(() => import("./Pages").then((module) => ({ default: module.ReviewPage })));
 const ExplorerPage = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
 const WorkspacePage = lazy(() => import("./Workspace").then((module) => ({ default: module.WorkspacePage })));
-const NewNotePage = lazy(() => import("./WorkspaceEditing").then((module) => ({ default: module.NewNotePage })));
+const NewNotePage = lazy(() => import("./workspace/NewNotePage").then((module) => ({ default: module.NewNotePage })));
 
 interface LocationState {
   pathname: string;
@@ -152,8 +152,7 @@ export default function App() {
     const query = new URLSearchParams(location.search);
     const collectionId = query.get("collection") ?? undefined;
     const batchCollectionId = query.get("publishAll") === "1" ? collectionId : undefined;
-    const initialMode = query.get("edit") === "1" ? "edit" : "read";
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} batchCollectionId={batchCollectionId} initialMode={initialMode} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} batchCollectionId={batchCollectionId} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;

@@ -10,10 +10,10 @@ import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } fro
 import { findEntityNodeId } from "../explorer/explorerModel.js";
 import { patchYamlField, readFrontmatterField } from "../metadataDraft.js";
 import type { PublishReviewItem } from "../publishReview.js";
-import type { WorkspaceEditingProps } from "./WorkspaceEditorTypes";
+import type { WorkspaceEditorContext } from "./WorkspaceEditorTypes";
 import { entityWorkspaceUrl } from "../workspaceRoute.js";
 
-export function useWorkspaceEditorController({ type, id, navigate, workspaceDraft, batchCollectionId, returnCollectionId }: WorkspaceEditingProps) {
+export function useWorkspaceEditorController({ type, id, navigate, workspaceDraft, batchCollectionId, returnCollectionId }: WorkspaceEditorContext) {
   const {
     draft,
     content,
@@ -40,7 +40,7 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
   const [selection, setSelection] = useState("");
   const [selectedText, setSelectedText] = useState("");
   const [publishing, setPublishing] = useState(false);
-  const [activeDrawer, setActiveDrawer] = useState<"metadata" | "ai" | "publish" | "conflict" | null>(null);
+  const [activeDrawer, setActiveDrawer] = useState<"metadata" | "ai" | "publish" | "conflict" | "source" | null>(null);
   const [publishReview, setPublishReview] = useState<PublishReviewItem[] | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
   useEffect(() => { if (comparison) setActiveDrawer("conflict"); }, [comparison]);

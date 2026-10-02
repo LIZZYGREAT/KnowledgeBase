@@ -5,6 +5,7 @@ import { PublishOutcomeNotice } from "./PublishOutcomeNotice";
 import { WorkspaceAIAssistDrawer } from "./WorkspaceAIAssistDrawer";
 import { WorkspaceConflictDrawer } from "./WorkspaceConflictDrawer";
 import { WorkspaceMetadataDrawer } from "./WorkspaceMetadataDrawer";
+import { WorkspaceSourceDrawer } from "./WorkspaceSourceDrawer";
 
 export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEditorController }) {
   const {
@@ -15,6 +16,7 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
     publishedRevision, publishedOutcome, batchCollectionId, comparison, mergeContent,
     setMergeContent, saveNow, runPreflight, reloadCanonical, applyRebase, generateProposal,
     actOnProposal, applyMetadataProposal, updateFrontmatter, updateFrontmatterList, updateSourcePdf,
+    isDirty, saveState, setSelectedText,
   } = controller;
 
   return <>
@@ -35,6 +37,17 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       onSave={() => void saveNow().catch(() => undefined)}
       onClose={() => setActiveDrawer(null)}
       onError={setSaveError}
+    />}
+    {activeDrawer === "source" && <WorkspaceSourceDrawer
+      type={type}
+      content={content}
+      isDirty={isDirty}
+      saveState={saveState}
+      onChange={controller.setEditorContent}
+      onSelectionChange={setSelectedText}
+      onNavigate={navigate}
+      onSave={() => void saveNow().catch(() => undefined)}
+      onClose={() => setActiveDrawer(null)}
     />}
     {activeDrawer === "ai" && <WorkspaceAIAssistDrawer
       type={type}

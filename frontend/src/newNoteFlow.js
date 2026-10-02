@@ -13,6 +13,6 @@ export function makeDocumentId(title, suffix) {
   return `${prefix}-${normalizedSuffix}`;
 }
 
-export function newNoteEditorPath(documentId, collectionId) {
-  return entityWorkspaceUrl("document", documentId, { collectionId, edit: true, publishAll: true });
+export function newNoteWorkspacePath(documentId, collectionId) {
+  return entityWorkspaceUrl("document", documentId, { collectionId, publishAll: true });
 }

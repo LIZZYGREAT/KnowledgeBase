@@ -200,15 +200,15 @@ function installApiBehavior() {
   api.reviewProposal.mockResolvedValue(undefined);
 }
 
-function renderWorkspace(initialMode: "read" | "edit" = "read", id = "quick-start") {
-  return render(<WorkspacePage type="document" id={id} navigate={vi.fn()} initialMode={initialMode} />);
+function renderWorkspace(id = "quick-start") {
+  return render(<WorkspacePage type="document" id={id} navigate={vi.fn()} />);
 }
 
 function EntitySwitchHarness() {
   const [id, setId] = useState("quick-start");
   return <>
     <button type="button" onClick={() => setId("second-note")}>切换实体</button>
-    <WorkspacePage type="document" id={id} navigate={vi.fn()} initialMode="edit" />
+    <WorkspacePage type="document" id={id} navigate={vi.fn()} />
   </>;
 }
 
@@ -311,7 +311,11 @@ describe("Workspace React integration", () => {
     await waitFor(() => expect(drafts[0]?.content).toContain("Revised paragraph."), { timeout: 2500 });
 
     await user.click(screen.getByRole("button", { name: "Source" }));
+    await screen.findByRole("heading", { name: "完整源码" });
     expect(container.querySelector(".workspace-shell")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "完整源码" }));
+    expect(screen.getByRole("textbox", { name: "Markdown 完整源码" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "关闭" }));
     await user.click(await screen.findByRole("button", { name: "发布" }));
     await screen.findByRole("heading", { name: "变更摘要" });
     const publishButton = await screen.findByRole("button", { name: "确认发布" });
@@ -372,7 +376,7 @@ describe("Workspace React integration", () => {
       }
       throw new Error("The stale revision guard should reject before publishing.");
     });
-    renderWorkspace("edit");
+    renderWorkspace();
 
     await user.click(await screen.findByRole("button", { name: "发布" }));
     await screen.findByRole("heading", { name: "变更摘要" });
@@ -409,14 +413,14 @@ describe("Workspace React integration", () => {
   });
 
   it("does not guess source offsets for formatted Markdown or links", async () => {
-    const formatted = renderWorkspace("read", "formatted-note");
+    const formatted = renderWorkspace("formatted-note");
     await screen.findByRole("heading", { name: "Formatted Note" });
     selectWholeParagraph(formatted.container);
     expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText(/无法无歧义地对应 Markdown 源文/)).toBeTruthy();
     formatted.unmount();
 
-    const linked = renderWorkspace("read", "linked-note");
+    const linked = renderWorkspace("linked-note");
     await screen.findByRole("heading", { name: "Linked Note" });
     selectWholeParagraph(linked.container);
     expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
@@ -424,7 +428,7 @@ describe("Workspace React integration", () => {
   });
 
   it("disables source formatting when selected text occurs more than once in a block", async () => {
-    const { container } = renderWorkspace("read", "repeated-note");
+    const { container } = renderWorkspace("repeated-note");
     await screen.findByRole("heading", { name: "Repeated Note" });
     selectParagraphSubstring(container, "same text");
 
@@ -470,17 +474,16 @@ describe("Workspace React integration", () => {
     api.updateDraft.mockImplementationOnce(() => pendingSave);
     render(<EntitySwitchHarness />);
 
-    await screen.findByRole("heading", { name: "编辑 quick-start" });
-    await user.click(screen.getAllByRole("button", { name: "编辑区块" })[1]);
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await user.click(screen.getByRole("button", { name: "编辑第 2 个区块" }));
     const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
     await user.clear(editor);
     await user.type(editor, "A pending content.");
     await user.click(screen.getByRole("button", { name: "完成区块" }));
-    await user.click(screen.getByRole("button", { name: "保存草稿" }));
-    await waitFor(() => expect(api.updateDraft).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.updateDraft).toHaveBeenCalledOnce(), { timeout: 2500 });
 
     await user.click(screen.getByRole("button", { name: "切换实体" }));
-    await screen.findByRole("heading", { name: "编辑 second-note" });
+    await screen.findByRole("heading", { name: "Second Note" });
     expect(await screen.findByText("Second entity content.")).toBeTruthy();
 
     await act(async () => {
@@ -534,7 +537,7 @@ describe("Workspace React integration", () => {
     const oldContent = canonicalContent.replace("selected phrase", "old phrase");
     const draft = seedDraft(oldContent);
     conflictOnPreflight = true;
-    renderWorkspace("edit");
+    renderWorkspace();
 
     await user.click(await screen.findByRole("button", { name: "发布" }));
     await screen.findByRole("heading", { name: "解决版本冲突" });
@@ -542,6 +545,6 @@ describe("Workspace React integration", () => {
 
     await waitFor(() => expect(api.discardDraft).toHaveBeenCalledWith(draft.id, draft.revision));
     const paragraph = await screen.findByText("A paragraph with a selected phrase.");
-    expect(paragraph.closest(".markdown-block")).not.toBeNull();
+    expect(paragraph.closest(".workspace-inline-block")).not.toBeNull();
   });
 });

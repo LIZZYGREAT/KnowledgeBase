@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { parse as parseYaml } from "yaml";
 import {
   createPresentationAnnotation, deletePresentationAnnotation, getCollectionNavigation,
   getEntity, listPresentationAnnotations,
   type AnnotationStyleType,
-  type EntityType, type PresentationAnnotation,
+  type EntityDetail, type EntityType, type PresentationAnnotation,
 } from "../api";
 import { ErrorState, LoadingState, titleCase } from "../ui";
 import { latestIntersectingHeading } from "../readerNavigation.js";
@@ -23,7 +24,6 @@ export function EntityPage({
   id,
   navigate,
   collectionId,
-  onEdit,
   workspaceDraft,
   workspaceEditorController,
 }: {
@@ -31,7 +31,6 @@ export function EntityPage({
   id: string;
   navigate: Navigate;
   collectionId?: string;
-  onEdit?: (type: EntityType, id: string) => void;
   workspaceDraft: WorkspaceDraftController;
   workspaceEditorController: WorkspaceEditorController;
 }) {
@@ -51,11 +50,16 @@ export function EntityPage({
   const readerMarkdownRef = useRef<HTMLDivElement>(null);
   const contextPanelRef = useRef<HTMLDetailsElement>(null);
   const workspaceEnvelope = useMemo(() => splitMarkdownFrontmatter(workspaceDraft.content), [workspaceDraft.content]);
+  const draftOnlyEntity = useMemo(() => {
+    if (resource.data || !workspaceDraft.draft || workspaceDraft.canonicalEntity) return null;
+    return makeDraftReaderEntity(type, id, workspaceDraft.content);
+  }, [id, resource.data, type, workspaceDraft.canonicalEntity, workspaceDraft.content, workspaceDraft.draft]);
+  const currentEntity = resource.data ?? draftOnlyEntity;
   const documentBody = type === "source" ? "" : workspaceEnvelope.body;
-  const annotationsMatchCanonical = documentBody === (resource.data?.content ?? "");
+  const annotationsMatchCanonical = Boolean(resource.data) && documentBody === (resource.data?.content ?? "");
   const headings = markdownHeadings(documentBody);
-  const sourceIds = resource.data?.entity_type === "document"
-    ? Array.from(new Set([...readList(resource.data.metadata, "sources"), ...resource.data.evidence.map((item) => item.source_id)]))
+  const sourceIds = currentEntity?.entity_type === "document"
+    ? Array.from(new Set([...readList(currentEntity.metadata, "sources"), ...currentEntity.evidence.map((item) => item.source_id)]))
     : [];
   const sourceResource = useResource(`sources:${sourceIds.join(",")}`, () => Promise.all(sourceIds.map((sourceId) => getEntity("source", sourceId))));
   useEffect(() => {
@@ -109,8 +113,8 @@ export function EntityPage({
   }, [documentBody, type]);
   if (resource.loading || workspaceDraft.loading) return <LoadingState />;
   if (workspaceDraft.loadError) return <ErrorState message={workspaceDraft.loadError} />;
-  if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
-  const entity = resource.data;
+  if (!currentEntity) return <ErrorState message={resource.error} retry={resource.retry} />;
+  const entity = currentEntity;
   const status = type === "source" ? readString((entity.metadata.metadata_review as Record<string, unknown> | undefined)?.status) || "unreviewed" : reviewStatus(entity);
   const evidence = entity.evidence;
   const artifacts = entity.entity_type === "document"
@@ -268,7 +272,7 @@ export function EntityPage({
         <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{entity.title}</h1><div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
       </div>
       <div className="reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作">
-        {onEdit && <button className="button button-secondary" onClick={() => onEdit(type, id)}>Source</button>}
+        <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("source")}>Source</button>
         <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("metadata")}>元数据</button>
         <button className="button button-secondary" disabled={type === "source"} onClick={() => workspaceEditorController.setActiveDrawer("ai")}>AI 审阅</button>
         <button
@@ -279,7 +283,12 @@ export function EntityPage({
             workspaceEditorController.setActiveDrawer("publish");
             void workspaceEditorController.runPreflight();
           }}
-        >发布</button>
+        >{workspaceEditorController.batchCollectionId ? "Publish All" : "发布"}</button>
+        {workspaceEditorController.draft && <button
+          className="button button-danger"
+          disabled={workspaceEditorController.publishing}
+          onClick={() => void workspaceEditorController.discardCurrentDraft()}
+        >{workspaceEditorController.batchCollectionId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button>}
         <span className={`workspace-reader-save-state ${workspaceDraft.saveState.toLowerCase()}`} role="status">{workspaceDraft.saveState === "Ready" ? "正式版" : workspaceDraft.saveState === "Unsaved" ? "有未保存修改" : workspaceDraft.saveState === "Saving" ? "正在保存 Draft…" : workspaceDraft.saveState === "Saved" ? workspaceDraft.draft ? "Draft 已保存 · 尚未发布" : "已发布" : "Draft 冲突"}</span>
         {workspaceDraft.saveState === "Conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}
         <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
@@ -362,4 +371,33 @@ export function EntityPage({
       <WorkspaceEditorDrawers controller={workspaceEditorController} />
     </div>
   );
+}
+
+function makeDraftReaderEntity(type: EntityType, id: string, content: string): EntityDetail {
+  const envelope = splitMarkdownFrontmatter(content);
+  const yamlText = envelope.frontmatter
+    ? envelope.frontmatter.replace(/^---\r?\n/, "").replace(/\r?\n---\r?\n?$/, "")
+    : type === "source" ? content : "";
+  let metadata: Record<string, unknown> = {};
+  try {
+    const value: unknown = yamlText ? parseYaml(yamlText) : {};
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      metadata = value as Record<string, unknown>;
+    }
+  } catch {
+    metadata = {};
+  }
+  return {
+    id,
+    title: typeof metadata.title === "string" && metadata.title.trim() ? metadata.title : id,
+    entity_type: type,
+    metadata,
+    content: type === "source" ? null : envelope.body,
+    canonical_content: null,
+    related_terms: [],
+    backlinks: [],
+    detected_mentions: [],
+    evidence: [],
+    related_documents: [],
+  };
 }

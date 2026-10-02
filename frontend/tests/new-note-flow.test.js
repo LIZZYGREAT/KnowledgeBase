@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { makeDocumentId, newNoteEditorPath } from "../src/newNoteFlow.js";
+import { makeDocumentId, newNoteWorkspacePath } from "../src/newNoteFlow.js";
 
 test("new note IDs use a canonical title prefix and unique lowercase suffix", () => {
   assert.equal(makeDocumentId("Graph Neural Networks", "A1B2-C3D4"), "graph-neural-networks-a1b2c3d4");
@@ -9,9 +9,9 @@ test("new note IDs use a canonical title prefix and unique lowercase suffix", ()
   assert.throws(() => makeDocumentId("A note", "---"), /unique suffix/);
 });
 
-test("new note editor route retains its Collection batch-publish context", () => {
+test("new note workspace route retains its Collection batch-publish context", () => {
   assert.equal(
-    newNoteEditorPath("graph-note", "learning/path"),
-    "/documents/graph-note?collection=learning%2Fpath&edit=1&publishAll=1",
+    newNoteWorkspacePath("graph-note", "learning/path"),
+    "/documents/graph-note?collection=learning%2Fpath&publishAll=1",
   );
 });

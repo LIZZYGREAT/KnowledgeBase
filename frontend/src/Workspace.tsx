@@ -1,5 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
-import { WorkspaceEditingSurface } from "./WorkspaceEditing";
+import { lazy, Suspense } from "react";
 import { EntityPage } from "./Pages";
 import { WorkspaceShell } from "./workspace/WorkspaceShell";
 import { useWorkspaceDraft } from "./useWorkspaceDraft";
@@ -10,49 +9,24 @@ import { useWorkspaceEditorController } from "./workspace/useWorkspaceEditorCont
 
 const WorkspaceExplorer = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
 
-type WorkspaceMode = "read" | "edit";
-
 export function WorkspacePage({
   type,
   id,
   navigate,
   collectionId,
   batchCollectionId,
-  initialMode = "read",
 }: {
   type: EntityType;
   id: string;
   navigate: (path: string) => void;
   collectionId?: string;
   batchCollectionId?: string;
-  initialMode?: WorkspaceMode;
 }) {
-  const [mode, setMode] = useState<WorkspaceMode>(initialMode);
   const workspaceDraft = useWorkspaceDraft(type, id);
-
-  useEffect(() => {
-    setMode(initialMode);
-  }, [type, id, initialMode]);
-
-  function navigateFromEditor(path: string) {
-    const currentEntityPath = entityWorkspaceUrl(type, id).split("?")[0];
-    const target = new URL(path, window.location.origin);
-    if (target.pathname === currentEntityPath) {
-      const currentQuery = new URLSearchParams(window.location.search);
-      if (currentQuery.has("edit") || currentQuery.has("publishAll") || target.search !== window.location.search) {
-        navigate(path);
-      } else {
-        setMode("read");
-      }
-      return;
-    }
-    navigate(path);
-  }
-
   const workspaceEditorController = useWorkspaceEditorController({
     type,
     id,
-    navigate: navigateFromEditor,
+    navigate,
     workspaceDraft,
     batchCollectionId,
     returnCollectionId: collectionId ?? batchCollectionId,
@@ -72,18 +46,15 @@ export function WorkspacePage({
           />
         </Suspense>}
       >
-        {mode === "edit"
-          ? <WorkspaceEditingSurface controller={workspaceEditorController} />
-          : <EntityPage
-            key={`read:${type}:${id}:${collectionId ?? ""}`}
-            type={type}
-            id={id}
-            navigate={navigate}
-            collectionId={collectionId}
-            onEdit={() => setMode("edit")}
-            workspaceDraft={workspaceDraft}
-            workspaceEditorController={workspaceEditorController}
-          />}
+        <EntityPage
+          key={`reader:${type}:${id}:${collectionId ?? ""}`}
+          type={type}
+          id={id}
+          navigate={navigate}
+          collectionId={collectionId}
+          workspaceDraft={workspaceDraft}
+          workspaceEditorController={workspaceEditorController}
+        />
       </WorkspaceShell>
       <WorkspaceRuntimeDraftConflictDrawer workspaceDraft={workspaceDraft} />
     </>

@@ -1,7 +1,7 @@
 import type { EntityType } from "../api";
 import type { WorkspaceDraftController } from "../useWorkspaceDraft";
 
-export interface WorkspaceEditingProps {
+export interface WorkspaceEditorContext {
   type: EntityType;
   id: string;
   navigate: (path: string) => void;

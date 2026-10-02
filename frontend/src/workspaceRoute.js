@@ -9,7 +9,6 @@ export function entityWorkspaceUrl(type, id, options = {}) {
   if (!route) throw new Error(`Unsupported entity type: ${type}`);
   const params = new URLSearchParams();
   if (options.collectionId) params.set("collection", options.collectionId);
-  if (options.edit) params.set("edit", "1");
   if (options.publishAll) {
     if (!options.collectionId) throw new Error("Batch publishing requires a Collection ID.");
     params.set("publishAll", "1");

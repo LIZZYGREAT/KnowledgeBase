@@ -13,7 +13,7 @@ import {
 } from "../collectionEditing.js";
 import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft, type DraftCollection } from "../collectionDraftModel";
 import { collectionEntityUrl, filterCollectionNodes, restoreExplorerPreferences } from "../explorerTree.js";
-import { makeDocumentId, newNoteEditorPath } from "../newNoteFlow.js";
+import { makeDocumentId, newNoteWorkspacePath } from "../newNoteFlow.js";
 import { changedCollectionPositions, moveCollectionInOrder } from "../collectionOrdering.js";
 import type { ExplorerView, Resource, ExplorerPageProps, DragPayload } from "./ExplorerTypes";
 import { allSectionKeys, containsEntityReference, findEntityNodeId, sectionKey } from "./explorerModel";
@@ -310,7 +310,7 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
     if (!savedCollectionDraft) throw new Error("Collection Draft 尚未保存；请重试。 ");
     setNewNoteTarget(null);
     setCreatedNoteDraft(null);
-    navigate(newNoteEditorPath(draft.entity_id, selectedCollectionId));
+    navigate(newNoteWorkspacePath(draft.entity_id, selectedCollectionId));
   }
 
   async function cancelNewNoteHere() {
