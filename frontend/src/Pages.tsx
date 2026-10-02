@@ -44,6 +44,9 @@ import { latestIntersectingHeading } from "./readerNavigation.js";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
 import { splitMarkdownFrontmatter } from "./markdownBlocks.js";
 import { WorkspaceInlineEditor } from "./workspace/WorkspaceInlineEditor";
+import { WorkspaceSelectionToolbar } from "./workspace/WorkspaceSelectionToolbar";
+import { WorkspaceSelectionAIDrawer } from "./workspace/WorkspaceSelectionAIDrawer";
+import { applyMarkdownFormatting, type MarkdownFormattingAction } from "./markdownFormatting.js";
 import type { WorkspaceDraftController } from "./useWorkspaceDraft";
 
 type Navigate = (path: string) => void;
@@ -56,9 +59,6 @@ interface ReaderSelection {
   top: number;
   left: number;
 }
-
-const annotationHighlightPalette = ["yellow", "green", "blue", "pink", "gray"] as const;
-const annotationTextPalette = ["red", "orange", "green", "blue", "purple", "muted"] as const;
 
 interface Resource<T> {
   data: T | null;
@@ -800,6 +800,8 @@ export function EntityPage({
   const [annotationError, setAnnotationError] = useState("");
   const [annotationBusy, setAnnotationBusy] = useState(false);
   const [readerSelection, setReaderSelection] = useState<ReaderSelection | null>(null);
+  const [aiSelection, setAISelection] = useState("");
+  const [aiDrawerOpen, setAIDrawerOpen] = useState(false);
   const [contextExpanded, setContextExpanded] = useState(false);
   const [activeHeading, setActiveHeading] = useState("");
   const readerMarkdownRef = useRef<HTMLDivElement>(null);
@@ -919,8 +921,8 @@ export function EntityPage({
       selected_text: selectedText,
       start_offset: sourceStart,
       end_offset: sourceStart + selectedText.length,
-      top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 76)),
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 430)),
+      top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 150)),
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 576)),
     });
   }
 
@@ -975,6 +977,27 @@ export function EntityPage({
     } finally {
       setAnnotationBusy(false);
     }
+  }
+
+  function formatReaderSelection(action: MarkdownFormattingAction) {
+    if (!readerSelection || workspaceDraft.saveState === "Conflict") return;
+    try {
+      const formatted = applyMarkdownFormatting(documentBody, readerSelection.start_offset, readerSelection.end_offset, action);
+      workspaceDraft.updateContent(`${workspaceEnvelope.frontmatter}${formatted.value}`);
+      setReaderSelection(null);
+      setAnnotationError("");
+      window.getSelection()?.removeAllRanges();
+    } catch (error) {
+      setAnnotationError(errorMessage(error));
+    }
+  }
+
+  function openSelectionAI() {
+    if (!readerSelection || type !== "document" || workspaceDraft.saveState === "Conflict") return;
+    setAISelection(readerSelection.selected_text);
+    setAIDrawerOpen(true);
+    setReaderSelection(null);
+    window.getSelection()?.removeAllRanges();
   }
 
   function toggleContextPanel() {
@@ -1053,19 +1076,28 @@ export function EntityPage({
               onNavigate={navigate}
             />
             {workspaceDraft.error && <p className="workspace-reader-save-error" role="alert">Draft 保存失败：{workspaceDraft.error}</p>}
-            {readerSelection && annotationsMatchCanonical && <div className="annotation-toolbar" role="toolbar" aria-label="阅读标注工具" style={{ top: readerSelection.top, left: readerSelection.left }} onMouseDown={(event) => event.preventDefault()}>
-              <span className="annotation-toolbar-label">高亮</span>
-              {annotationHighlightPalette.map((color) => <button key={`highlight-${color}`} type="button" className={`annotation-swatch swatch-${color}`} aria-label={`${color} 高亮`} title={`${color} 高亮`} disabled={annotationBusy} onClick={() => void saveReaderAnnotation("highlight", color)} />)}
-              <span className="toolbar-divider" />
-              <span className="annotation-toolbar-label">文字</span>
-              {annotationTextPalette.map((color) => <button key={`text-${color}`} type="button" className={`annotation-swatch text-swatch text-${color}`} aria-label={`${color} 文字颜色`} title={`${color} 文字颜色`} disabled={annotationBusy} onClick={() => void saveReaderAnnotation("text_color", color)} />)}
-              <button type="button" className="annotation-underline-button" disabled={annotationBusy} onClick={() => void saveReaderAnnotation("underline", null)}>下划线</button>
-              <button type="button" className="annotation-clear-button" disabled={annotationBusy} onClick={() => void clearReaderAnnotations()}>清除</button>
-            </div>}
+            {readerSelection && <WorkspaceSelectionToolbar
+              selectedText={readerSelection.selected_text}
+              top={readerSelection.top}
+              left={readerSelection.left}
+              formatDisabled={workspaceDraft.saveState === "Conflict"}
+              canAnnotate={annotationsMatchCanonical && (type === "document" || type === "term")}
+              annotationBusy={annotationBusy}
+              aiDisabled={workspaceDraft.saveState === "Conflict"}
+              onFormat={formatReaderSelection}
+              onAnnotate={(styleType, styleValue) => void saveReaderAnnotation(styleType, styleValue)}
+              onClear={() => void clearReaderAnnotations()}
+              onAskAI={type === "document" ? openSelectionAI : undefined}
+            />}
             {annotationError && <p className="annotation-error" role="status">{annotationError}</p>}
           </div>}
         </article>
       </div>
+      {aiDrawerOpen && type === "document" && <WorkspaceSelectionAIDrawer
+        selectedText={aiSelection}
+        workspaceDraft={workspaceDraft}
+        onClose={() => setAIDrawerOpen(false)}
+      />}
     </div>
   );
 }

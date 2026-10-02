@@ -14,6 +14,11 @@ const formattingActions: { action: MarkdownFormattingAction; label: string; titl
   { action: "italic", label: "斜体", title: "斜体", text: "I" },
   { action: "strike", label: "删除线", title: "删除线", text: "S" },
   { action: "code", label: "行内代码", title: "行内代码", text: "</>" },
+  { action: "link", label: "链接", title: "插入链接", text: "↗" },
+  { action: "heading", label: "标题", title: "转换为二级标题", text: "H2" },
+  { action: "blockquote", label: "引用", title: "转换为引用", text: "❝" },
+  { action: "bulletList", label: "项目符号列表", title: "项目符号列表", text: "•" },
+  { action: "numberedList", label: "编号列表", title: "编号列表", text: "1." },
   { action: "inlineMath", label: "行内公式", title: "行内公式", text: "$x$" },
   { action: "displayMath", label: "块级公式", title: "块级公式", text: "$$" },
   { action: "alignedMath", label: "多行公式", title: "多行公式", text: "Align" },
@@ -118,7 +123,7 @@ export function MarkdownBlockEditor({
       >{mode === "source" ? "区块编辑" : "完整源码"}</button>
     </div>
     <div className="markdown-toolbar" role="toolbar" aria-label="Markdown 格式工具" onMouseDown={(event) => event.preventDefault()}>
-      {formattingActions.map(({ action, label, title, text }, index) => <span className={index === 4 ? "toolbar-group-start" : undefined} key={action}>
+      {formattingActions.map(({ action, label, title, text }, index) => <span className={index === 9 ? "toolbar-group-start" : undefined} key={action}>
         <button type="button" aria-label={label} title={title} disabled={!canFormat} onClick={() => format(action)}>{text}</button>
       </span>)}
       {!canFormat && <small>{mode === "source" ? "请选择正文中的文字或光标" : "先编辑一个区块"}</small>}

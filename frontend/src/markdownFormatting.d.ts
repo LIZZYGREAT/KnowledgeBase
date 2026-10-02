@@ -5,7 +5,12 @@ export type MarkdownFormattingAction =
   | "code"
   | "inlineMath"
   | "displayMath"
-  | "alignedMath";
+  | "alignedMath"
+  | "link"
+  | "heading"
+  | "blockquote"
+  | "bulletList"
+  | "numberedList";
 
 export interface MarkdownFormattingResult {
   value: string;
