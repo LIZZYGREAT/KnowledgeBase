@@ -1,4 +1,5 @@
 export type EntityType = "document" | "term" | "source";
+export type DraftEntityType = EntityType | "taxonomy" | "collection";
 export type AnnotationStyleType = "highlight" | "text_color" | "underline";
 
 export interface PresentationAnnotation {
@@ -138,7 +139,7 @@ export interface Proposal {
 
 export interface Draft {
   id: string;
-  entity_type: EntityType | "taxonomy";
+  entity_type: DraftEntityType;
   entity_id: string;
   base_git_revision: string;
   base_content_hash: string;
@@ -163,6 +164,12 @@ export interface PublishedDraft {
   entity_id: string;
   commit_revision: string;
   proposal_id: string | null;
+  warnings: string[];
+}
+
+export interface BatchPublishedDrafts {
+  results: PublishedDraft[];
+  commit_revision: string;
   warnings: string[];
 }
 
@@ -334,12 +341,12 @@ export function listProposals(status?: string, targetType?: EntityType, targetId
   return request<Proposal[]>(`/api/proposals?${params.toString()}`);
 }
 
-export function listDrafts(entityType: EntityType, entityId: string) {
+export function listDrafts(entityType: DraftEntityType, entityId: string) {
   const params = new URLSearchParams({ entity_type: entityType, entity_id: entityId });
   return request<Draft[]>(`/api/drafts?${params.toString()}`);
 }
 
-export function createDraft(entityType: EntityType, entityId: string, content: string) {
+export function createDraft(entityType: DraftEntityType, entityId: string, content: string) {
   return request<Draft>("/api/drafts", {
     method: "POST",
     body: JSON.stringify({ entity_type: entityType, entity_id: entityId, content }),
@@ -391,6 +398,13 @@ export function publishDraft(draftId: string) {
   return request<PublishedDraft>("/api/publish", {
     method: "POST",
     body: JSON.stringify({ draft_id: draftId }),
+  });
+}
+
+export function publishDraftsBatch(draftIds: string[], commitMessage?: string) {
+  return request<BatchPublishedDrafts>("/api/publish/batch", {
+    method: "POST",
+    body: JSON.stringify({ draft_ids: draftIds, commit_message: commitMessage }),
   });
 }
 
