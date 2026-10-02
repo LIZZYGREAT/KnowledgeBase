@@ -1,4 +1,4 @@
-import { entityWorkspaceUrl } from "../workspaceRoute.js";
+import { entityWorkspaceUrl } from "../workspaceRoute";
 import type { WorkspaceEditorController } from "./useWorkspaceEditorController";
 import { WorkspacePublishDrawer } from "./WorkspacePublishDrawer";
 import { PublishOutcomeNotice } from "./PublishOutcomeNotice";

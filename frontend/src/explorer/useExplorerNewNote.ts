@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { createBlankDocument, discardDraft, type Draft } from "../api";
-import { addEntityReference, removeCollectionNode } from "../collectionEditing.js";
+import { addEntityReference, removeCollectionNode } from "../collectionEditing";
 import { findEntityNodeId } from "./explorerModel";
-import { makeDocumentId, newNoteWorkspacePath } from "../newNoteFlow.js";
+import { makeDocumentId, newNoteWorkspacePath } from "../newNoteFlow";
 import type { CollectionDraftController } from "../useCollectionDraft";
 import type { Navigate } from "./ExplorerTypes";
 

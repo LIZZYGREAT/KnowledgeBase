@@ -8,7 +8,7 @@ import {
 } from "../api";
 import { Chip, EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading, formatDate, titleCase } from "../ui";
 import { EntityList, errorMessage, maintenanceStatus, reviewStatus, statusTone, useResource, type Navigate, type SelectEntity } from "./PageShared";
-import { entityWorkspaceUrl } from "../workspaceRoute.js";
+import { entityWorkspaceUrl } from "../workspaceRoute";
 interface ReviewData {
   entities: EntitySummary[];
   proposals: Proposal[];

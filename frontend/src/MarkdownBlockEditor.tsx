@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { applyMarkdownFormatting, type MarkdownFormattingAction } from "./markdownFormatting.js";
+import { applyMarkdownFormatting, type MarkdownFormattingAction } from "./markdownFormatting";
 import {
   parseMarkdownBlocks,
   replaceMarkdownBlock,
   splitMarkdownFrontmatter,
-} from "./markdownBlocks.js";
+} from "./markdownBlocks";
 import { SectionHeading } from "./ui";
 
 const MarkdownContent = lazy(() => import("./Markdown").then((module) => ({ default: module.MarkdownContent })));

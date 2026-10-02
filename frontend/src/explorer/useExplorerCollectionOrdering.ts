@@ -12,9 +12,9 @@ import {
   type Draft,
   type PublishOutcome,
 } from "../api";
-import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel.js";
-import { changedCollectionPositions, moveCollectionInOrder } from "../collectionOrdering.js";
-import { toPublishOutcome } from "../publishOutcome.js";
+import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel";
+import { changedCollectionPositions, moveCollectionInOrder } from "../collectionOrdering";
+import { toPublishOutcome } from "../publishOutcome";
 import type { CollectionDraftController } from "../useCollectionDraft";
 import type { Resource } from "./ExplorerTypes";
 

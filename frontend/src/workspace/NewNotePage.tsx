@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { createBlankDocument } from "../api";
 import { PageHeader } from "../ui";
-import { entityWorkspaceUrl } from "../workspaceRoute.js";
+import { entityWorkspaceUrl } from "../workspaceRoute";
 
 export function NewNotePage({ navigate }: { navigate: (path: string) => void }) {
   const [title, setTitle] = useState("");

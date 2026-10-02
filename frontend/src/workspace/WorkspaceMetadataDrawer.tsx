@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { EntitySummary, EntityType } from "../api";
-import { readFrontmatterField } from "../metadataDraft.js";
+import { readFrontmatterField } from "../metadataDraft";
 import { WorkspaceDrawer } from "../WorkspaceDrawer";
 import { SectionHeading, titleCase } from "../ui";
 import { readDraftCitations, readPaperSkillArtifacts, readSourcePdf, readStringArray, stringValue } from "./workspaceEditingModel";

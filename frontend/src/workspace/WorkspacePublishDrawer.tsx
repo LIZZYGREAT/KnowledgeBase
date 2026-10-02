@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { PublishReviewItem } from "../publishReview.js";
-import { createLineDiff, summarizePublishChanges } from "../publishReview.js";
+import type { PublishReviewItem } from "../publishReview";
+import { createLineDiff, summarizePublishChanges } from "../publishReview";
 import { WorkspaceDrawer } from "../WorkspaceDrawer";
 
 export function WorkspacePublishDrawer({

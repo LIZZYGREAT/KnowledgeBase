@@ -8,7 +8,7 @@ import {
   type Collection,
   type EntitySummary,
 } from "../api";
-import { restoreExplorerPreferences } from "../explorerTree.js";
+import { restoreExplorerPreferences } from "../explorerTree";
 import type { ExplorerView, Resource } from "./ExplorerTypes";
 
 const PREFERENCES_KEY = "knowledgebase.explorer-preferences";

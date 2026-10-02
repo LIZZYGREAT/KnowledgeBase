@@ -4,7 +4,7 @@ import { WorkspaceShell } from "./workspace/WorkspaceShell";
 import { useWorkspaceDraft } from "./useWorkspaceDraft";
 import { WorkspaceRuntimeDraftConflictDrawer } from "./workspace/WorkspaceRuntimeDraftConflictDrawer";
 import type { EntityType } from "./api";
-import { entityWorkspaceUrl } from "./workspaceRoute.js";
+import { entityWorkspaceUrl } from "./workspaceRoute";
 import { useWorkspaceEditorController } from "./workspace/useWorkspaceEditorController";
 
 const WorkspaceExplorer = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));

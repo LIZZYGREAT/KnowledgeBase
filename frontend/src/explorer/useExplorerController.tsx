@@ -5,7 +5,7 @@ import {
   type EntityType,
   type PublishOutcome,
 } from "../api";
-import { collectionEntityUrl, filterCollectionNodes } from "../explorerTree.js";
+import { collectionEntityUrl, filterCollectionNodes } from "../explorerTree";
 import { useCollectionDraft } from "../useCollectionDraft";
 import { allSectionKeys, containsEntityReference, sectionKey } from "./explorerModel";
 import { useExplorerCollectionOrdering, readDraftPosition } from "./useExplorerCollectionOrdering";
@@ -14,7 +14,7 @@ import { useExplorerEditing } from "./useExplorerEditing";
 import { useExplorerNewNote } from "./useExplorerNewNote";
 import { useExplorerPreferences, useExplorerResources } from "./useExplorerResources";
 import type { ExplorerView, ExplorerPageProps } from "./ExplorerTypes";
-import type { PublishReviewItem } from "../publishReview.js";
+import type { PublishReviewItem } from "../publishReview";
 
 const PREFERENCES_KEY = "knowledgebase.explorer-preferences";
 

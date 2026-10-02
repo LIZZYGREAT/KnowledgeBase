@@ -7,10 +7,10 @@
     "dev": "vite",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:unit && npm run test:integration",
-    "test:unit": "node --test",
-    "test:integration": "vitest run",
-    "build": "tsc -b && vite build"
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "build": "vite build"
   },
   "dependencies": {
     "katex": "^0.18.9",

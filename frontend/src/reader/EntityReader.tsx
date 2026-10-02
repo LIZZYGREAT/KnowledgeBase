@@ -7,12 +7,12 @@ import {
   type EntityDetail, type EntityType, type PresentationAnnotation,
 } from "../api";
 import { ErrorState, LoadingState, titleCase } from "../ui";
-import { latestIntersectingHeading } from "../readerNavigation.js";
-import { splitMarkdownFrontmatter } from "../markdownBlocks.js";
+import { latestIntersectingHeading } from "../readerNavigation";
+import { splitMarkdownFrontmatter } from "../markdownBlocks";
 import { WorkspaceInlineEditor } from "../workspace/WorkspaceInlineEditor";
 import { WorkspaceSelectionToolbar } from "../workspace/WorkspaceSelectionToolbar";
 import { WorkspaceSelectionAIDrawer } from "../workspace/WorkspaceSelectionAIDrawer";
-import { applyMarkdownFormatting, type MarkdownFormattingAction } from "../markdownFormatting.js";
+import { applyMarkdownFormatting, type MarkdownFormattingAction } from "../markdownFormatting";
 import type { WorkspaceDraftController } from "../useWorkspaceDraft";
 import type { WorkspaceEditorController } from "../workspace/useWorkspaceEditorController";
 import { WorkspaceEditorDrawers } from "../workspace/WorkspaceEditorDrawers";

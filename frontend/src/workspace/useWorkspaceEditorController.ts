@@ -5,13 +5,13 @@ import {
   preflightDraft, requestAIProposal, rejectProposal, updateDraft,
   type Draft, type EntitySummary, type Proposal,
 } from "../api";
-import { removeCollectionNode } from "../collectionEditing.js";
-import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel.js";
-import { findEntityNodeId } from "../explorer/explorerModel.js";
-import { patchYamlField } from "../metadataDraft.js";
-import type { PublishReviewItem } from "../publishReview.js";
+import { removeCollectionNode } from "../collectionEditing";
+import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel";
+import { findEntityNodeId } from "../explorer/explorerModel";
+import { patchYamlField } from "../metadataDraft";
+import type { PublishReviewItem } from "../publishReview";
 import type { WorkspaceEditorContext } from "./WorkspaceEditorTypes";
-import { entityWorkspaceUrl } from "../workspaceRoute.js";
+import { entityWorkspaceUrl } from "../workspaceRoute";
 
 export function useWorkspaceEditorController({ type, id, navigate, workspaceDraft, batchCollectionId, returnCollectionId }: WorkspaceEditorContext) {
   const {

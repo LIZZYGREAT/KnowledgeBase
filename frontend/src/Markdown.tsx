@@ -4,8 +4,8 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { PresentationAnnotation } from "./api";
-import type { MarkdownBlockRange } from "./markdownBlocks.js";
-import { remarkPresentationAnnotations } from "./markdownAnnotations.js";
+import type { MarkdownBlockRange } from "./markdownBlocks";
+import { remarkPresentationAnnotations } from "./markdownAnnotations";
 
 interface MarkdownNode {
   type: string;

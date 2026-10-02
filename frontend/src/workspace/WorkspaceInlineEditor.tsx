@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { PresentationAnnotation } from "../api";
-import { parseMarkdownBlocks, replaceMarkdownBlock } from "../markdownBlocks.js";
+import { parseMarkdownBlocks, replaceMarkdownBlock } from "../markdownBlocks";
 
 const MarkdownContent = lazy(() => import("../Markdown").then((module) => ({ default: module.MarkdownContent })));
 

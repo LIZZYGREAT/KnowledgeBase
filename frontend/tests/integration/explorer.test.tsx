@@ -5,7 +5,7 @@ import { parse } from "yaml";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExplorerPage } from "../../src/Explorer";
 import { WorkspacePage } from "../../src/Workspace";
-import { collectionToDraft, serializeCollectionDraft } from "../../src/collectionDraftModel.js";
+import { collectionToDraft, serializeCollectionDraft } from "../../src/collectionDraftModel";
 import type { Collection, CollectionSummary, Draft, EntitySummary } from "../../src/api";
 
 const api = vi.hoisted(() => ({

@@ -19,10 +19,10 @@ import {
   addEntityReference,
   deleteCollectionSection,
   renameCollectionSection,
-} from "../collectionEditing.js";
-import type { DraftCollection } from "../collectionDraftModel.js";
-import { toPublishOutcome } from "../publishOutcome.js";
-import type { PublishReviewItem } from "../publishReview.js";
+} from "../collectionEditing";
+import type { DraftCollection } from "../collectionDraftModel";
+import { toPublishOutcome } from "../publishOutcome";
+import type { PublishReviewItem } from "../publishReview";
 import type { CollectionDraftController } from "../useCollectionDraft";
 import type { ExplorerView, Resource } from "./ExplorerTypes";
 

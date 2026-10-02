@@ -14,9 +14,9 @@ import {
 import {
   addEntityReference,
   moveCollectionNode,
-} from "../collectionEditing.js";
-import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel.js";
-import type { DraftCollection } from "../collectionDraftModel.js";
+} from "../collectionEditing";
+import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel";
+import type { DraftCollection } from "../collectionDraftModel";
 import type { CollectionDraftController } from "../useCollectionDraft";
 import type { DragPayload } from "./ExplorerTypes";
 

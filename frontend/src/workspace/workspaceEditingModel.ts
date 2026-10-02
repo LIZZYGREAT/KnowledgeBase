@@ -1,4 +1,4 @@
-import { readFrontmatterField } from "../metadataDraft.js";
+import { readFrontmatterField } from "../metadataDraft";
 
 export interface PaperSkillArtifact {
   type: "paperskill";

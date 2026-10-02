@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { addEntityReference, moveCollectionSibling, removeCollectionNode } from "./collectionEditing.js";
+import { addEntityReference, moveCollectionSibling, removeCollectionNode } from "./collectionEditing";
 import { EmptyState, ErrorState, LoadingState, PageHeader } from "./ui";
 import { CollectionConflictDrawer } from "./explorer/CollectionConflictDrawer";
 import { CollectionRuntimeDraftConflictDrawer } from "./explorer/CollectionRuntimeDraftConflictDrawer";

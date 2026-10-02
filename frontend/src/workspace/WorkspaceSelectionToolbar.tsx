@@ -1,5 +1,5 @@
 import type { AnnotationStyleType } from "../api";
-import type { MarkdownFormattingAction } from "../markdownFormatting.js";
+import type { MarkdownFormattingAction } from "../markdownFormatting";
 
 const formats: Array<{ action: MarkdownFormattingAction; label: string; icon: string }> = [
   { action: "bold", label: "加粗", icon: "B" },
