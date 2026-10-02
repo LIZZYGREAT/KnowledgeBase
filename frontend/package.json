@@ -7,7 +7,7 @@
     "dev": "vite",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test",
+    "test": "npm run test:unit && npm run test:integration",
     "test:unit": "node --test",
     "test:integration": "vitest run",
     "build": "tsc -b && vite build"

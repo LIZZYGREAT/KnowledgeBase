@@ -45,9 +45,13 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Run frontend tests
+      - name: Run frontend unit tests
         working-directory: frontend
-        run: npm test
+        run: npm run test:unit
+
+      - name: Run frontend integration tests
+        working-directory: frontend
+        run: npm run test:integration
 
       - name: Typecheck frontend
         working-directory: frontend
