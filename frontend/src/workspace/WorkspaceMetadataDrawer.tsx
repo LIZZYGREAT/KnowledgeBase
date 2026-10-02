@@ -1,0 +1,100 @@
+import { useState, type FormEvent } from "react";
+import type { EntitySummary, EntityType } from "../api";
+import { readFrontmatterField } from "../metadataDraft.js";
+import { WorkspaceDrawer } from "../WorkspaceDrawer";
+import { SectionHeading, titleCase } from "../ui";
+import { readDraftCitations, readPaperSkillArtifacts, readSourcePdf, readStringArray, stringValue } from "./workspaceEditingModel";
+
+export function WorkspaceMetadataDrawer({
+  type,
+  id,
+  content,
+  sourceEntries,
+  sourceError,
+  canonicalEvidenceCount,
+  onFrontmatterUpdate,
+  onFrontmatterListUpdate,
+  onSourcePdfChange,
+  onSave,
+  onClose,
+  onError,
+}: {
+  type: EntityType;
+  id: string;
+  content: string;
+  sourceEntries: EntitySummary[];
+  sourceError: string;
+  canonicalEvidenceCount: number;
+  onFrontmatterUpdate: (key: string, value: unknown) => void;
+  onFrontmatterListUpdate: (key: string, value: string) => void;
+  onSourcePdfChange: (value: string) => void;
+  onSave: () => void;
+  onClose: () => void;
+  onError: (message: string) => void;
+}) {
+  const [paperSkillVariant, setPaperSkillVariant] = useState<"canonical" | "enhanced">("canonical");
+  const [paperSkillUrl, setPaperSkillUrl] = useState("");
+  const associatedSourceIds = readStringArray(readFrontmatterField(content, type, "sources"));
+  const paperSkills = readPaperSkillArtifacts(readFrontmatterField(content, type, "external_artifacts"));
+  const pdfAttachment = readSourcePdf(content);
+  const body = type === "source" ? "" : content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  const citations = readDraftCitations(body);
+
+  function addPaperSkill(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    let url: URL;
+    try { url = new URL(paperSkillUrl); } catch { onError("请填写有效的 PaperSkill URL。"); return; }
+    if (!["http:", "https:"].includes(url.protocol)) { onError("PaperSkill URL 必须使用 HTTP 或 HTTPS。"); return; }
+    const current = readPaperSkillArtifacts(readFrontmatterField(content, type, "external_artifacts"));
+    onFrontmatterUpdate("external_artifacts", [
+      ...current,
+      { type: "paperskill", variant: paperSkillVariant, url: url.toString() },
+    ]);
+    setPaperSkillVariant("canonical");
+    setPaperSkillUrl("");
+  }
+
+  return <WorkspaceDrawer title="元数据" description="结构化字段会写入 Draft frontmatter，发布仍由 Publisher 完成。" onClose={onClose}>
+    <section className="drawer-section">
+      <SectionHeading title="基本信息" detail="实体类型决定 Canonical 路径，不能在这里更改。" />
+      <label className="field-label">标题<input value={stringValue(readFrontmatterField(content, type, "title"))} onChange={(event) => onFrontmatterUpdate("title", event.target.value)} /></label>
+      <div className="drawer-readonly-row"><span>实体 ID</span><strong>{id}</strong></div>
+      <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
+      {type !== "source" && <>
+        <label className="field-label">Domains<input value={readStringArray(readFrontmatterField(content, type, "domains")).join(", ")} onChange={(event) => onFrontmatterListUpdate("domains", event.target.value)} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">Topics<input value={readStringArray(readFrontmatterField(content, type, "topics")).join(", ")} onChange={(event) => onFrontmatterListUpdate("topics", event.target.value)} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">Tags<input value={readStringArray(readFrontmatterField(content, type, "tags")).join(", ")} onChange={(event) => onFrontmatterListUpdate("tags", event.target.value)} placeholder="用逗号分隔 ID" /></label>
+      </>}
+    </section>
+
+    {type === "document" && <section className="drawer-section">
+      <SectionHeading title="Sources & Evidence" detail="Source 关系来自 frontmatter；引用行会在发布后生成 Evidence 索引。" />
+      <div className="source-association-list">
+        {sourceEntries.map((source) => <label className="source-association-option" key={source.id}><input type="checkbox" checked={associatedSourceIds.includes(source.id)} onChange={(event) => onFrontmatterUpdate("sources", event.target.checked ? [...new Set([...associatedSourceIds, source.id])] : associatedSourceIds.filter((sourceId) => sourceId !== source.id))} /><span><strong>{source.title}</strong><small>{source.id}</small></span></label>)}
+        {!sourceEntries.length && <p className="subtle-copy">暂无已索引 Source。请先通过 Import Pipeline 创建并发布 Source。</p>}
+      </div>
+      {sourceError && <p className="error-copy" role="alert">{sourceError}</p>}
+      <div className="draft-evidence-box"><div className="context-card-heading"><strong>Draft citations</strong><small>{citations.length} 条</small></div>
+        {citations.length ? citations.map((citation, index) => <div className="draft-citation-row" key={`${citation.source_id}:${citation.line}:${index}`}><strong>[@{citation.source_id}{citation.locator ? `, ${citation.locator}` : ""}]</strong><span>{citation.claim || "此引用行尚无 claim 文本"}</span><small>第 {citation.line} 行 · 发布后索引为 Evidence；不代表人工已核验</small></div>) : <p className="subtle-copy">使用 [@source-id, locator] 在 Markdown 正文中标记引用位置。</p>}
+        {canonicalEvidenceCount > 0 && <p className="trust-note">当前正式版有 {canonicalEvidenceCount} 条已索引引用，来源和 Locator 会在发布后重新索引。</p>}
+      </div>
+    </section>}
+
+    {type === "document" && <section className="drawer-section">
+      <SectionHeading title="PaperSkill 链接" detail="只记录外部成品链接；不会复制或管理 PaperSkill 内容。" />
+      <form className="paperskill-form" onSubmit={addPaperSkill}>
+        <label className="field-label">变体<select value={paperSkillVariant} onChange={(event) => setPaperSkillVariant(event.target.value as typeof paperSkillVariant)}><option value="canonical">Canonical</option><option value="enhanced">Enhanced</option></select></label>
+        <label className="field-label">URL<input type="url" required value={paperSkillUrl} onChange={(event) => setPaperSkillUrl(event.target.value)} placeholder="https://…" /></label>
+        <button className="button button-secondary" type="submit">添加链接</button>
+      </form>
+      {paperSkills.length ? <div className="paperskill-list">{paperSkills.map((item, index) => <div className="paperskill-row" key={`${item.url}:${index}`}><span><strong>{titleCase(item.variant)}</strong><small>{item.url}{item.owner ? ` · ${item.owner}` : ""}</small></span><button className="text-button" onClick={() => onFrontmatterUpdate("external_artifacts", paperSkills.filter((_, itemIndex) => itemIndex !== index))}>移除</button></div>)}</div> : <p className="subtle-copy">还没有 PaperSkill 链接。</p>}
+    </section>}
+
+    {type === "source" && <section className="drawer-section">
+      <SectionHeading title="本地 PDF 关联" detail="文件需先通过 Import Pipeline 放入 storage/papers；发布会检查关联文件。" />
+      <label className="field-label">附件 URI<input value={pdfAttachment} onChange={(event) => onSourcePdfChange(event.target.value)} placeholder="storage://papers/source-id.pdf" /></label>
+      <p className="trust-note">此处只设置 Source 元数据引用，不会上传或复制文件。</p>
+    </section>}
+    <div className="drawer-footer"><span>自动保存到运行时 Draft</span><button className="button button-primary" onClick={onSave}>保存草稿</button></div>
+  </WorkspaceDrawer>;
+}

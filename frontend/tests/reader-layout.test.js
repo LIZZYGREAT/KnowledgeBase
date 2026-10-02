@@ -2,17 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const pages = readFileSync(new URL("../src/Pages.tsx", import.meta.url), "utf8");
+const reader = readFileSync(new URL("../src/reader/EntityReader.tsx", import.meta.url), "utf8");
+const readerModel = readFileSync(new URL("../src/reader/readerModel.ts", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 test("reader context is a collapsed summary above the document layout", () => {
-  const contextPosition = pages.indexOf('<details id="reader-context-panel"');
-  const documentPosition = pages.indexOf('<div className={`reader-layout');
+  const contextPosition = reader.indexOf('<details id="reader-context-panel"');
+  const documentPosition = reader.indexOf('<div className={`reader-layout');
 
   assert.ok(contextPosition >= 0 && documentPosition > contextPosition);
-  assert.match(pages, /const \[contextExpanded, setContextExpanded\] = useState\(false\)/);
-  assert.match(pages, /reader-context-counts/);
-  assert.doesNotMatch(pages, /<aside className="reader-context">/);
+  assert.match(reader, /const \[contextExpanded, setContextExpanded\] = useState\(false\)/);
+  assert.match(reader, /reader-context-counts/);
+  assert.doesNotMatch(reader, /<aside className="reader-context">/);
 });
 
 test("reader document stays centered at a comfortable maximum width", () => {
@@ -22,18 +23,18 @@ test("reader document stays centered at a comfortable maximum width", () => {
 
 test("reader outline has its own sticky scroll area and follows intersecting headings", () => {
   assert.match(styles, /\.reader-outline\s*\{[^}]*position:\s*sticky;[^}]*max-height:\s*calc\(100vh - 120px\);[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain/);
-  assert.match(pages, /new IntersectionObserver\(/);
-  assert.match(pages, /rootMargin:\s*"-104px 0px -72% 0px"/);
-  assert.match(pages, /aria-current=\{activeHeading === heading\.slug \? "location" : undefined\}/);
-  assert.ok(pages.includes('querySelectorAll<HTMLElement>("h1[id], h2[id], h3[id], h4[id], h5[id]")'));
-  assert.ok(pages.includes('const match = /^(#{1,5})'));
+  assert.match(reader, /new IntersectionObserver\(/);
+  assert.match(reader, /rootMargin:\s*"-104px 0px -72% 0px"/);
+  assert.match(reader, /aria-current=\{activeHeading === heading\.slug \? "location" : undefined\}/);
+  assert.ok(reader.includes('querySelectorAll<HTMLElement>("h1[id], h2[id], h3[id], h4[id], h5[id]")'));
+  assert.ok(readerModel.includes('const match = /^(#{1,5})'));
 });
 
 test("reader shortcut actions stay below the app header", () => {
-  assert.match(pages, /reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作/);
-  assert.match(pages, /navigate\("\/review"\)/);
-  assert.match(pages, /window\.scrollTo\(\{ top: 0, behavior: "smooth" \}\)/);
-  assert.match(pages, /aria-expanded=\{contextExpanded\} aria-controls="reader-context-panel"/);
+  assert.match(reader, /reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作/);
+  assert.match(reader, /navigate\("\/review"\)/);
+  assert.match(reader, /window\.scrollTo\(\{ top: 0, behavior: "smooth" \}\)/);
+  assert.match(reader, /aria-expanded=\{contextExpanded\} aria-controls="reader-context-panel"/);
   assert.match(styles, /\.reader-sticky-actions\s*\{[^}]*position:\s*sticky;[^}]*top:\s*72px/);
 });
 

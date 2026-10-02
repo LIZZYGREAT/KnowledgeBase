@@ -8,7 +8,7 @@ const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const workspace = readFileSync(new URL("../src/Workspace.tsx", import.meta.url), "utf8");
 const workspaceShell = readFileSync(new URL("../src/workspace/WorkspaceShell.tsx", import.meta.url), "utf8");
 const inlineEditor = readFileSync(new URL("../src/workspace/WorkspaceInlineEditor.tsx", import.meta.url), "utf8");
-const pages = readFileSync(new URL("../src/Pages.tsx", import.meta.url), "utf8");
+const reader = readFileSync(new URL("../src/reader/EntityReader.tsx", import.meta.url), "utf8");
 
 test("Workspace read and edit modes share the canonical entity route", () => {
   assert.equal(entityWorkspaceUrl("document", "graph-note"), "/documents/graph-note");
@@ -40,7 +40,7 @@ test("Workspace keeps its Explorer pane mounted while the selected entity follow
 test("Reader block editing updates the shared Draft by replacing an AST source range", () => {
   assert.match(workspace, /const workspaceDraft = useWorkspaceDraft\(type, id\)/);
   assert.match(workspace, /workspaceDraft=\{workspaceDraft\}/);
-  assert.match(pages, /onBodyChange=\{\(body\) => workspaceDraft\.updateContent/);
+  assert.match(reader, /onBodyChange=\{\(body\) => workspaceDraft\.updateContent/);
   assert.match(inlineEditor, /replaceMarkdownBlock\(editing\.baseBody, editing\.index, value\)/);
   assert.match(inlineEditor, /Ctrl\/Cmd \+ Enter 完成/);
 });
