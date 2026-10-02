@@ -6,11 +6,11 @@ import {
   listAllEntities,
   listDrafts,
   listProposals,
+  compareDraft,
   preflightDraft,
   requestAIProposal,
   reviewProposal,
   type Draft,
-  type DraftPreflight,
   type EntitySummary,
   type EntityType,
   type Proposal,
@@ -18,6 +18,8 @@ import {
 import { patchYamlField, readFrontmatterField } from "./metadataDraft.js";
 import { MarkdownBlockEditor } from "./MarkdownBlockEditor";
 import { WorkspaceDrawer } from "./WorkspaceDrawer";
+import { WorkspacePublishDrawer } from "./workspace/WorkspacePublishDrawer";
+import type { PublishReviewItem } from "./publishReview.js";
 import { Chip, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "./ui";
 import type { WorkspaceDraftController } from "./useWorkspaceDraft";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
@@ -82,10 +84,10 @@ export function WorkspaceEditingSurface({ type, id, navigate, workspaceDraft, ba
   const [selectedText, setSelectedText] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [activeDrawer, setActiveDrawer] = useState<"metadata" | "ai" | "publish" | "conflict" | null>(null);
-  const [preflight, setPreflight] = useState<DraftPreflight | null>(null);
+  const [publishReview, setPublishReview] = useState<PublishReviewItem[] | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
   useEffect(() => { if (comparison) setActiveDrawer("conflict"); }, [comparison]);
-  useEffect(() => { setPreflight(null); }, [draft?.revision, isDirty]);
+  useEffect(() => { setPublishReview(null); }, [draft?.revision, isDirty]);
 
   async function refreshProposals() {
     try {
@@ -132,20 +134,46 @@ export function WorkspaceEditingSurface({ type, id, navigate, workspaceDraft, ba
     }
   }
 
-  async function runPreflight(): Promise<DraftPreflight | null> {
+  async function runPreflight(): Promise<boolean> {
     setPreflightBusy(true);
-    setPreflight(null);
+    setPublishReview(null);
     setSaveError("");
     try {
       const currentDraft = await saveNow();
-      const result = await preflightDraft(currentDraft.id);
-      setPreflight(result);
-      if (result.conflict) await openComparison();
-      else if (!result.valid) setSaveError(result.errors.join("；"));
-      return result;
+      const targets: Array<{ id: string; entityType: Draft["entity_type"]; label: string }> = [{
+        id: currentDraft.id,
+        entityType: currentDraft.entity_type,
+        label: currentDraft.entity_type === "document" ? "Document" : currentDraft.entity_type,
+      }];
+      if (batchCollectionId) {
+        const collectionDraft = (await listDrafts("collection", batchCollectionId))[0];
+        if (!collectionDraft) throw new Error("找不到此 Collection 的 Draft；请返回 Explorer 检查目录变更。");
+        targets.push({ id: collectionDraft.id, entityType: collectionDraft.entity_type, label: "Collection" });
+      }
+      const reviewed = await Promise.all(targets.map(async (target) => {
+        const [preflight, comparison] = await Promise.all([
+          preflightDraft(target.id),
+          compareDraft(target.id),
+        ]);
+        return { label: target.label, entityType: target.entityType, preflight, comparison };
+      }));
+      setPublishReview(reviewed);
+
+      const documentConflict = reviewed.some((item) => item.entityType !== "collection" && (item.preflight.conflict || item.comparison.canonical_changed));
+      const collectionConflict = reviewed.some((item) => item.entityType === "collection" && (item.preflight.conflict || item.comparison.canonical_changed));
+      if (documentConflict) {
+        await openComparison();
+        return false;
+      }
+      if (collectionConflict && batchCollectionId) {
+        setActiveDrawer(null);
+        navigate(`/explorer?collection=${encodeURIComponent(batchCollectionId)}`);
+        return false;
+      }
+      return reviewed.every((item) => item.preflight.valid && !item.preflight.conflict && !item.comparison.canonical_changed);
     } catch (error) {
       setSaveError(errorMessage(error));
-      return null;
+      return false;
     } finally {
       setPreflightBusy(false);
     }
@@ -195,8 +223,7 @@ export function WorkspaceEditingSurface({ type, id, navigate, workspaceDraft, ba
     setPublishing(true);
     setSaveError("");
     try {
-      const check = await runPreflight();
-      if (!check?.valid) return;
+      if (!await runPreflight()) return;
       let relatedDraftIds: string[] = [];
       if (batchCollectionId) {
         const collectionDraft = (await listDrafts("collection", batchCollectionId))[0];
@@ -339,9 +366,8 @@ export function WorkspaceEditingSurface({ type, id, navigate, workspaceDraft, ba
         action={<div className="editor-main-actions workspace-tools">
           <button className="button button-secondary" onClick={() => setActiveDrawer("metadata")}>元数据</button>
           <button className="button button-secondary" disabled={type === "source"} onClick={() => setActiveDrawer("ai")}>AI 审阅</button>
-          <button className="button button-secondary" disabled={!draft} onClick={() => void openComparison()}>比较版本</button>
           <button className="button button-secondary" disabled={!isDirty || publishing || saveState === "Conflict"} onClick={() => void saveNow().catch(() => undefined)}>保存草稿</button>
-          <button className="button button-primary" disabled={publishing || saveState === "Conflict" || Boolean(comparison?.canonical_changed) || Boolean(publishedRevision) || (!draft && !isDirty)} onClick={() => { setActiveDrawer("publish"); void runPreflight(); }}>{publishing ? "发布中…" : batchCollectionId ? "Publish All" : "发布"}</button>
+          <button className="button button-primary" disabled={publishing || saveState === "Conflict" || Boolean(publishedRevision) || (!draft && !isDirty)} onClick={() => { setPublishReview(null); setActiveDrawer("publish"); void runPreflight(); }}>{publishing ? "发布中…" : batchCollectionId ? "Publish All" : "发布"}</button>
         </div>}
       />
 
@@ -435,16 +461,17 @@ export function WorkspaceEditingSurface({ type, id, navigate, workspaceDraft, ba
         </div>
       </WorkspaceDrawer>}
 
-      {activeDrawer === "publish" && <WorkspaceDrawer title={batchCollectionId ? "发布工作区" : "发布检查"} description={batchCollectionId ? "Document 与所在 Collection Draft 将在一次 Publisher 操作中校验并写入同一个 Git 提交。" : "先检查 Draft，再由 Publisher 写入 Canonical 并创建 Git 提交。"} onClose={() => setActiveDrawer(null)}>
-        <section className="drawer-section">
-          <div className="preflight-summary"><strong>{preflightBusy ? "正在检查…" : preflight?.valid ? "检查通过" : preflight ? "需要处理" : "尚未检查"}</strong><span>{draft ? `Draft revision ${draft.revision}` : isDirty ? "正在保存 Draft" : "当前没有 Draft"}</span></div>
-          {preflight?.errors.length ? <ul className="preflight-errors">{preflight.errors.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ul> : null}
-          {preflight?.warnings.length ? <div className="preflight-warnings"><strong>发布警告</strong><ul>{preflight.warnings.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ul></div> : null}
-          {saveError && <p className="error-copy" role="alert">{saveError}</p>}
-          <p className="trust-note">检查不会写入 Canonical。{batchCollectionId ? "当前显示 Document 预检；Publisher 会在提交前对 Document 和 Collection 一起执行最终校验。" : "发布时 Publisher 会再次校验引用和冲突。"}成功后正文、索引和 Draft 状态由服务端更新。</p>
-          <div className="drawer-footer"><button className="button button-secondary" disabled={preflightBusy} onClick={() => void runPreflight()}>重新检查</button><button className="button button-primary" disabled={preflightBusy || publishing || !preflight?.valid || isDirty || Boolean(comparison?.canonical_changed) || Boolean(publishedRevision)} onClick={() => void publishCurrentDraft()}>{publishing ? "发布中…" : batchCollectionId ? "Publish All · 一个 Git 提交" : "确认发布"}</button></div>
-        </section>
-      </WorkspaceDrawer>}
+      {activeDrawer === "publish" && <WorkspacePublishDrawer
+        items={publishReview ?? []}
+        busy={preflightBusy}
+        publishing={publishing}
+        published={Boolean(publishedRevision)}
+        error={saveError}
+        batch={Boolean(batchCollectionId)}
+        onClose={() => setActiveDrawer(null)}
+        onRefresh={() => void runPreflight()}
+        onPublish={() => void publishCurrentDraft()}
+      />}
 
       {activeDrawer === "conflict" && comparison && <WorkspaceDrawer title={comparison.canonical_changed ? "解决版本冲突" : "版本比较"} description={comparison.canonical_changed ? "请对比基线、当前正式版和 Draft，再选择重新载入或手动合并。此操作不会自动发布。" : "当前正式版与 Draft 基线一致；可以检查内容，也可以关闭此面板继续编辑。"} wide onClose={() => setActiveDrawer(null)}>
         <div className="conflict-columns">

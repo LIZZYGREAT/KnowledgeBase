@@ -485,6 +485,23 @@ a { color: #2e7357; }
 .preflight-warnings { border: 1px solid #f0e1bd; border-radius: 8px; padding: 11px; color: #8c703c; background: #fffaf0; }
 .preflight-warnings strong { display: block; margin-bottom: 7px; font-size: var(--text-xs); }
 .preflight-warnings ul { color: #846b3f; }
+.workspace-publish-review { gap: 18px; }
+.publish-review-section { display: grid; gap: 9px; }
+.publish-review-section h3 { margin: 0; color: #40594a; font-size: var(--text-sm); font-weight: 700; }
+.publish-summary-list { display: grid; gap: 6px; margin: 0; padding-left: 19px; color: #5f7166; font-size: var(--text-xs); line-height: 1.65; }
+.publish-validation-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.publish-validation-list li { display: flex; justify-content: space-between; gap: 12px; border: 1px solid #e6ece6; border-radius: 7px; padding: 8px 10px; color: #5f7166; font-size: var(--text-xs); }
+.publish-validation-list strong { font-weight: 650; }
+.publish-check-pass { color: #39764a; }
+.publish-check-fail { color: #a1483d; }
+.publish-review-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.publish-diff-target { display: grid; gap: 7px; }
+.publish-diff-target h4 { margin: 2px 0 0; color: #4c6354; font-size: var(--text-xs); }
+.publish-full-diff { max-height: 430px; overflow: auto; margin: 0; border: 1px solid #e4eae4; border-radius: 7px; padding: 10px; color: #586960; background: #f8faf8; font: var(--text-xs)/1.65 "Cascadia Code", Consolas, monospace; white-space: pre; }
+.publish-diff-line { display: block; min-height: 1.65em; }
+.publish-diff-line > span:first-child { display: inline-block; width: 18px; color: #9aa59d; }
+.publish-diff-line.added { color: #27693a; background: #eaf6ec; }
+.publish-diff-line.removed { color: #a13f38; background: #fff0ed; }
 .workspace-drawer .conflict-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .workspace-drawer .conflict-panel { padding: 0; }
 .toolbar-divider { width: 1px; height: 21px; margin: 0 3px; background: #e4e9e4; }
