@@ -1,7 +1,6 @@
 """Draft, Proposal, Import, Publish, and Usage API routes."""
 
 from dataclasses import asdict
-import json
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -45,12 +44,6 @@ from backend.app.api.schemas import (
     UsageEventView,
     UsageRequest,
 )
-from backend.app.domain.document import DocumentMetadata
-from backend.app.domain.collection import Collection
-from backend.app.domain.source import SourceMetadata
-from backend.app.domain.taxonomy import TaxonomyRegistry as TaxonomyRegistryModel
-from backend.app.domain.term import TermMetadata
-from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.publisher import PublishedResult
 
 
@@ -137,9 +130,9 @@ async def delete_annotation(annotation_id: str, request: Request):
 
 @router.post("/drafts", response_model=DraftAcquireView, status_code=status.HTTP_201_CREATED)
 async def create_draft(body: DraftCreateRequest, request: Request, response: Response):
-    root = request.app.state.repository_root
-    target = _draft_target_path(root, body.entity_type, body.entity_id, body.content,
-                                request.app.state.runtime_connection)
+    target = request.app.state.canonical_target_resolver.resolve_target(
+        body.entity_type, body.entity_id, body.content
+    ).path
     git = request.app.state.git_manager
     result = request.app.state.draft_service.create_or_get(
         body.entity_type,
@@ -182,9 +175,9 @@ async def update_draft(draft_id: str, body: DraftUpdateRequest, request: Request
 @router.get("/drafts/{draft_id}/compare", response_model=DraftCompareView)
 async def compare_draft(draft_id: str, request: Request):
     draft = request.app.state.draft_service.get(draft_id)
-    root = request.app.state.repository_root
-    connection = request.app.state.runtime_connection
-    target = _draft_compare_target_path(root, draft, connection)
+    target = request.app.state.canonical_target_resolver.resolve_target(
+        draft.entity_type, draft.entity_id, draft.content
+    ).path
     git = request.app.state.git_manager
     current_revision = git.current_revision()
     current_hash = git.content_hash(target)
@@ -209,11 +202,9 @@ async def preflight_draft(draft_id: str, request: Request):
 @router.put("/drafts/{draft_id}/rebase", response_model=DraftView)
 async def rebase_draft(draft_id: str, body: DraftRebaseRequest, request: Request):
     draft = request.app.state.draft_service.get(draft_id)
-    target = _draft_compare_target_path(
-        request.app.state.repository_root,
-        draft,
-        request.app.state.runtime_connection,
-    )
+    target = request.app.state.canonical_target_resolver.resolve_target(
+        draft.entity_type, draft.entity_id, draft.content
+    ).path
     git = request.app.state.git_manager
     current_hash = git.content_hash(target)
     if body.expected_current_hash != current_hash:
@@ -457,81 +448,6 @@ def _proposal_draft(request: Request, proposal):
     if draft.entity_type != proposal.target_type or draft.entity_id != proposal.target_id:
         raise ValueError("Proposal target does not match its Draft")
     return draft
-
-
-def _draft_target_path(
-    root: Path, entity_type: str, entity_id: str, content: str, connection
-) -> Path:
-    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", entity_id):
-        raise ValueError("entity_id must be a lowercase canonical slug")
-    if entity_type in {"document", "term"}:
-        parsed = parse_markdown(content)
-        if parsed.frontmatter is None:
-            raise ValueError("Draft content must have valid YAML frontmatter")
-        entity = (
-            DocumentMetadata.model_validate(parsed.frontmatter)
-            if entity_type == "document"
-            else TermMetadata.model_validate(parsed.frontmatter)
-        )
-        if entity.id != entity_id:
-            raise ValueError("Draft content id must match entity_id")
-        table = "document_index" if entity_type == "document" else "term_index"
-        # Existing Documents retain their indexed path; new ones use their schema type.
-        # Terms have one canonical directory and are resolved the same way.
-        if entity_type == "document":
-            row = _index_path(connection, table, entity_id)
-            if row is not None:
-                indexed = json.loads(row["metadata_json"])
-                if indexed.get("type") != entity.type:
-                    raise ValueError("A Document Draft cannot change its canonical type")
-                return root / row["path"]
-            folder = {"paper-note": "papers", "learning-note": "learning", "course-note": "courses"}[entity.type]
-            return root / "knowledge" / "documents" / folder / "{}.md".format(entity_id)
-        row = _index_path(connection, table, entity_id)
-        return root / row["path"] if row is not None else root / "knowledge" / "terms" / "{}.md".format(entity_id)
-    if entity_type == "source":
-        entity = SourceMetadata.model_validate(parse_yaml(content))
-        if entity.id != entity_id:
-            raise ValueError("Source Draft content id must match entity_id")
-        return root / "knowledge" / "sources" / "{}.yaml".format(entity_id)
-    if entity_type == "collection":
-        entity = Collection.model_validate(parse_yaml(content))
-        if entity.id != entity_id:
-            raise ValueError("Collection Draft content id must match entity_id")
-        return root / "knowledge" / "collections" / "{}.yaml".format(entity_id)
-    files = {"domains": "domains.yaml", "topics": "topics.yaml", "tags": "tags.yaml"}
-    if entity_type == "taxonomy" and entity_id in files:
-        TaxonomyRegistryModel.model_validate(parse_yaml(content))
-        return root / "knowledge" / "taxonomy" / files[entity_id]
-    raise ValueError("Unsupported canonical Draft target")
-
-
-def _draft_compare_target_path(root: Path, draft, connection) -> Path:
-    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", draft.entity_id):
-        raise ValueError("entity_id must be a lowercase canonical slug")
-    if draft.entity_type in {"document", "term"}:
-        table = "document_index" if draft.entity_type == "document" else "term_index"
-        row = _index_path(connection, table, draft.entity_id)
-        if row is not None:
-            return root / row["path"]
-        return _draft_target_path(
-            root, draft.entity_type, draft.entity_id, draft.content, connection
-        )
-    if draft.entity_type == "source":
-        return root / "knowledge" / "sources" / "{}.yaml".format(draft.entity_id)
-    if draft.entity_type == "taxonomy" and draft.entity_id in {"domains", "topics", "tags"}:
-        return root / "knowledge" / "taxonomy" / "{}.yaml".format(draft.entity_id)
-    if draft.entity_type == "collection":
-        return root / "knowledge" / "collections" / "{}.yaml".format(draft.entity_id)
-    raise ValueError("Unsupported canonical Draft target")
-
-
-def _index_path(connection, table: str, entity_id: str):
-    # The table names are fixed by entity_type above; values remain parameterized.
-    return connection.execute(
-        "SELECT path, metadata_json FROM {} WHERE entity_id = ?".format(table),
-        (entity_id,),
-    ).fetchone()
 
 
 def _upload_paths(repository_root: Path, supplied_paths: list[str]) -> list[Path]:

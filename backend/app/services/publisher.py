@@ -10,7 +10,6 @@ import yaml
 from pydantic import ValidationError
 
 from backend.app.domain.collection import Collection
-from backend.app.domain.document import DocumentMetadata
 from backend.app.domain.runtime import Draft
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.taxonomy import TaxonomyRegistry as TaxonomyRegistryModel
@@ -20,6 +19,7 @@ from backend.app.services.git_manager import (
     GitManager,
     _atomic_write,
 )
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
@@ -95,6 +95,8 @@ class Publisher:
         indexer: Indexer,
         proposal_service: Optional[ProposalService] = None,
         git_manager: Optional[GitManager] = None,
+        *,
+        canonical_target_resolver: CanonicalTargetResolver,
     ):
         self.repository_root = Path(repository_root).resolve()
         self.knowledge_root = self.repository_root / "knowledge"
@@ -104,6 +106,7 @@ class Publisher:
         self.proposal_service = proposal_service
         self.git = git_manager or GitManager(self.repository_root)
         self.indexer = indexer
+        self.canonical_target_resolver = canonical_target_resolver
         self.standard = load_writing_standard(
             self.repository_root / "config" / "writing-standard.yaml"
         )
@@ -125,7 +128,10 @@ class Publisher:
         """Validate a Draft without writing canonical files or creating a Git commit."""
         draft = self.draft_service.get(draft_id)
         try:
-            path, metadata = self._target_path(draft, draft.content)
+            target = self.canonical_target_resolver.resolve_target(
+                draft.entity_type, draft.entity_id, draft.content
+            )
+            path, metadata = target.path, target.metadata
         except (ValueError, ValidationError, yaml.YAMLError, TypeError) as error:
             return DraftPreflightResult(draft_id, False, errors=(str(error),))
 
@@ -199,7 +205,10 @@ class Publisher:
             content = draft.content
 
             try:
-                path, metadata = self._target_path(draft, content)
+                target = self.canonical_target_resolver.resolve_target(
+                    draft.entity_type, draft.entity_id, content
+                )
+                path, metadata = target.path, target.metadata
             except (ValueError, ValidationError, yaml.YAMLError, TypeError) as error:
                 raise PublishValidationError(str(error)) from error
 
@@ -393,7 +402,10 @@ class Publisher:
             candidate = SimpleNamespace(
                 entity_type=entity_type, entity_id=Path(relative_path).stem
             )
-            candidate_path, metadata = self._target_path(candidate, content)
+            target = self.canonical_target_resolver.resolve_target(
+                entity_type, candidate.entity_id, content
+            )
+            candidate_path, metadata = target.path, target.metadata
             if candidate_path.resolve() != (self.repository_root / relative_path).resolve():
                 raise PublishValidationError(
                     "Restore content does not match its canonical path"
@@ -427,64 +439,6 @@ class Publisher:
                 "Restore content is not valid canonical content: {}".format(error)
             ) from error
 
-    def _target_path(self, draft: Draft, content: str):
-        if not isinstance(content, str):
-            raise ValueError("Canonical content must be text")
-        entity_id = _require_slug(draft.entity_id, "entity_id")
-        if draft.entity_type in {"document", "term"}:
-            parsed = parse_markdown(content)
-            if parsed.frontmatter is None:
-                raise ValueError("Canonical Markdown requires valid YAML frontmatter")
-            if draft.entity_type == "document":
-                metadata = DocumentMetadata.model_validate(parsed.frontmatter)
-                folder = {
-                    "paper-note": "papers",
-                    "learning-note": "learning",
-                    "course-note": "courses",
-                }[metadata.type]
-                relative = (
-                    Path("knowledge")
-                    / "documents"
-                    / folder
-                    / "{}.md".format(entity_id)
-                )
-            else:
-                metadata = TermMetadata.model_validate(parsed.frontmatter)
-                relative = Path("knowledge") / "terms" / "{}.md".format(entity_id)
-            if metadata.id != entity_id:
-                raise ValueError("Draft entity_id must match canonical frontmatter id")
-            return self.repository_root / relative, metadata
-
-        if draft.entity_type == "source":
-            value = parse_yaml(content)
-            metadata = SourceMetadata.model_validate(value)
-            if metadata.id != entity_id:
-                raise ValueError("Draft entity_id must match Source id")
-            relative = Path("knowledge") / "sources" / "{}.yaml".format(entity_id)
-            return self.repository_root / relative, metadata
-
-        if draft.entity_type == "taxonomy":
-            registry_name_to_kind = {
-                "domains": "domain",
-                "topics": "topic",
-                "tags": "tag",
-            }
-            if entity_id not in registry_name_to_kind:
-                raise ValueError("Taxonomy Draft entity_id must be domains, topics, or tags")
-            value = parse_yaml(content)
-            metadata = TaxonomyRegistryModel.model_validate(value)
-            relative = Path("knowledge") / "taxonomy" / "{}.yaml".format(entity_id)
-            return self.repository_root / relative, metadata
-
-        if draft.entity_type == "collection":
-            metadata = Collection.model_validate(parse_yaml(content))
-            if metadata.id != entity_id:
-                raise ValueError("Draft entity_id must match Collection id")
-            relative = Path("knowledge") / "collections" / "{}.yaml".format(entity_id)
-            return self.repository_root / relative, metadata
-
-        raise ValueError("Unsupported Draft entity type: {}".format(draft.entity_type))
-
     def _validate_candidate(
         self,
         draft: Draft,
@@ -494,7 +448,6 @@ class Publisher:
         allow_style_warnings: bool = False,
         validate_references: bool = True,
     ) -> list[str]:
-        self._ensure_entity_path(draft, path)
         if draft.entity_type == "source":
             self._validate_source_attachment(metadata)
             return []
@@ -570,40 +523,6 @@ class Publisher:
                 "; ".join("{}: {}".format(issue.path, issue.message) for issue in references)
             )
         return warnings
-
-    def _ensure_entity_path(self, draft: Draft, target_path: Path) -> None:
-        if draft.entity_type == "document":
-            search_roots = [self.knowledge_root / "documents"]
-            suffix = ".md"
-        elif draft.entity_type == "term":
-            search_roots = [self.knowledge_root / "terms"]
-            suffix = ".md"
-        elif draft.entity_type == "source":
-            search_roots = [self.knowledge_root / "sources"]
-            suffix = ".yaml"
-        else:
-            return
-        for root in search_roots:
-            if not root.exists():
-                continue
-            for existing in root.rglob("*{}".format(suffix)):
-                if existing.resolve() == target_path.resolve():
-                    continue
-                try:
-                    text = existing.read_text(encoding="utf-8")
-                    if draft.entity_type == "document" or draft.entity_type == "term":
-                        parsed = parse_markdown(text)
-                        current_id = (parsed.frontmatter or {}).get("id")
-                    else:
-                        current_id = (parse_yaml(text) or {}).get("id")
-                except Exception:
-                    continue
-                if current_id == draft.entity_id:
-                    raise PublishValidationError(
-                        "Entity already exists at a different canonical path: {}".format(
-                            existing.relative_to(self.repository_root).as_posix()
-                        )
-                    )
 
     def _validate_source_attachment(self, metadata: SourceMetadata) -> None:
         attachment = metadata.attachments.local_pdf
@@ -729,8 +648,4 @@ class Publisher:
                 errors.append("{}: {}".format(path, error))
         return errors
 
-
-def _require_slug(value: str, field: str) -> str:
-    if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
-        raise ValueError("{} must be a lowercase canonical slug".format(field))
-    return value
+\n

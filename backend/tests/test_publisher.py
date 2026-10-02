@@ -9,6 +9,7 @@ from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.draft_service import DraftService
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.git_manager import GitManager, GitOperationError
 from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
@@ -32,7 +33,13 @@ def publish_context(tmp_path):
     proposals = ProposalService(ProposalRepository(connection))
     indexer = Indexer(repository, connection)
     indexer.full_rebuild()
-    publisher = Publisher(repository, drafts, indexer, proposals)
+    publisher = Publisher(
+        repository,
+        drafts,
+        indexer,
+        proposals,
+        canonical_target_resolver=CanonicalTargetResolver(repository, connection),
+    )
     yield repository, connection, drafts, proposals, publisher
     connection.close()
 
@@ -394,7 +401,11 @@ def test_publish_rejects_changed_target_content_without_overwriting(publish_cont
     git = GitManager(repository)
     target = "knowledge/documents/papers/ewc-review.md"
     original = (repository / target).read_bytes()
-    content = _document("ewc-review", title="Edited title")
+    content = original.decode("utf-8").replace(
+        "title: Overcoming Catastrophic Forgetting in Neural Networks",
+        "title: Edited title",
+        1,
+    )
     draft = _create_draft(drafts, git, "document", "ewc-review", content, target)
     (repository / target).write_text("external unstaged edit\n", encoding="utf-8")
 
@@ -425,7 +436,12 @@ def test_deleting_target_conflicts_with_existing_file_base(publish_context):
     git = GitManager(repository)
     target = "knowledge/documents/papers/ewc-review.md"
     draft = _create_draft(
-        drafts, git, "document", "ewc-review", _document("ewc-review"), target
+        drafts,
+        git,
+        "document",
+        "ewc-review",
+        (repository / target).read_text(encoding="utf-8"),
+        target,
     )
     (repository / target).unlink()
 

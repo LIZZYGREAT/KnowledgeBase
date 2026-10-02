@@ -10,6 +10,7 @@ from backend.app.domain.imports import ImportJob
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.import_repository import ImportRepository
 from backend.app.services.draft_service import DraftService
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.git_manager import GitManager
 from backend.app.services.import_service import ImportService, ImportValidationError
 from backend.app.services.indexer import Indexer
@@ -220,6 +221,7 @@ def test_pdf_source_publish_commits_metadata_and_keeps_pdf_out_of_git(
         drafts,
         indexer,
         ProposalService(ProposalRepository(connection)),
+        canonical_target_resolver=CanonicalTargetResolver(repository, connection),
     )
 
     result = publisher.publish(draft.id)
@@ -558,6 +560,7 @@ def test_import_draft_cannot_publish_over_a_changed_canonical_document(import_co
         drafts,
         indexer,
         ProposalService(ProposalRepository(connection)),
+        canonical_target_resolver=CanonicalTargetResolver(repository, connection),
     )
 
     with pytest.raises(PublishConflictError):
@@ -582,6 +585,7 @@ def test_source_draft_cannot_publish_when_staged_pdf_is_missing(import_context, 
         drafts,
         Indexer(repository, connection),
         ProposalService(ProposalRepository(connection)),
+        canonical_target_resolver=CanonicalTargetResolver(repository, connection),
     )
 
     with pytest.raises(PublishValidationError, match="attachment is missing"):

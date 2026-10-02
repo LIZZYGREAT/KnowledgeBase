@@ -25,6 +25,7 @@ from backend.app.services.ai_client import (
 )
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.ai_proposal_service import AIProposalService
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.collection_service import CollectionService
 from backend.app.services.context_export_service import ContextExportService
 from backend.app.services.draft_service import DraftService
@@ -78,6 +79,7 @@ async def lifespan(application: FastAPI):
         usage_service = UsageService(connection)
         annotation_service = PresentationAnnotationService(AnnotationRepository(connection))
         indexer = Indexer(repository_root, connection)
+        canonical_target_resolver = CanonicalTargetResolver(repository_root, connection)
         knowledge_read_service = KnowledgeReadService(repository_root, connection)
         collection_service = CollectionService(repository_root, connection)
         context_export_service = ContextExportService(knowledge_read_service, connection)
@@ -93,6 +95,7 @@ async def lifespan(application: FastAPI):
             indexer,
             proposal_service,
             git_manager,
+            canonical_target_resolver=canonical_target_resolver,
         )
 
         application.state.repository_root = repository_root
@@ -109,6 +112,7 @@ async def lifespan(application: FastAPI):
         application.state.collection_service = collection_service
         application.state.context_export_service = context_export_service
         application.state.indexer = indexer
+        application.state.canonical_target_resolver = canonical_target_resolver
         application.state.import_service = import_service
         application.state.publisher = publisher
         yield
