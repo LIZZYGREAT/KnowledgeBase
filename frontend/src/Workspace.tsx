@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { WorkspaceEditingSurface } from "./WorkspaceEditing";
 import { EntityPage } from "./Pages";
+import { WorkspaceShell } from "./workspace/WorkspaceShell";
 import type { EntityType } from "./api";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
 
@@ -38,15 +39,16 @@ export function WorkspacePage({
     navigate(path);
   }
 
-  if (mode === "edit") {
-    return <WorkspaceEditingSurface key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} batchCollectionId={batchCollectionId} returnCollectionId={collectionId ?? batchCollectionId} />;
-  }
-  return <EntityPage
-    key={`read:${type}:${id}:${collectionId ?? ""}`}
-    type={type}
-    id={id}
-    navigate={navigate}
-    collectionId={collectionId}
-    onEdit={() => setMode("edit")}
-  />;
+  return <WorkspaceShell type={type} id={id}>
+    {mode === "edit"
+      ? <WorkspaceEditingSurface key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} batchCollectionId={batchCollectionId} returnCollectionId={collectionId ?? batchCollectionId} />
+      : <EntityPage
+        key={`read:${type}:${id}:${collectionId ?? ""}`}
+        type={type}
+        id={id}
+        navigate={navigate}
+        collectionId={collectionId}
+        onEdit={() => setMode("edit")}
+      />}
+  </WorkspaceShell>;
 }

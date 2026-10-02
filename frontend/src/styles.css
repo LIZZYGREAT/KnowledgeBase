@@ -278,6 +278,8 @@ a { color: #2e7357; }
 .import-source-fields { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(180px, 1.3fr) minmax(120px, .7fr); gap: 9px; }
 
 /* Document and entity reader */
+.workspace-shell { width: 100%; min-width: 0; }
+.workspace-document-pane { min-width: 0; }
 .entity-page { gap: 18px; }
 .entity-actions { display: flex; align-items: center; justify-content: space-between; }
 .reader-sticky-actions { position: sticky; top: 72px; z-index: 18; display: flex; min-height: 50px; align-items: center; flex-wrap: wrap; gap: 7px; border-bottom: 1px solid #e8ede8; padding: 7px 0; background: rgb(244 246 243 / 94%); backdrop-filter: blur(14px); }
