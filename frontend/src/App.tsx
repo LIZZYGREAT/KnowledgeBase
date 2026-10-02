@@ -147,7 +147,9 @@ export default function App() {
 
   let page: ReactNode;
   if (route.kind === "editor") {
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`edit:${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} initialMode="edit" /></Suspense>;
+    const query = new URLSearchParams(location.search);
+    const batchCollectionId = query.get("publishAll") === "1" ? query.get("collection") ?? undefined : undefined;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`edit:${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} batchCollectionId={batchCollectionId} initialMode="edit" /></Suspense>;
   } else if (route.kind === "new-note") {
     page = <Suspense fallback={<LoadingState />}><NewNotePage navigate={navigate} /></Suspense>;
   } else if (route.kind === "reader") {

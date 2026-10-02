@@ -6,10 +6,12 @@ import {
   getEntity,
   listDrafts,
   publishDraft,
+  publishDraftsBatch,
   rebaseDraft,
   updateDraft,
   type Draft,
   type DraftComparison,
+  type BatchPublishedDrafts,
   type EntityDetail,
   type EntityType,
   type PublishedDraft,
@@ -219,10 +221,12 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     return created;
   }, [id, saveNow, type]);
 
-  const publish = useCallback(async (): Promise<PublishedDraft | null> => {
+  const publish = useCallback(async (additionalDraftIds: string[] = []): Promise<PublishedDraft | BatchPublishedDrafts | null> => {
     const saved = await saveNow();
     if (!saved) return null;
-    const result = await publishDraft(saved.id);
+    const result = additionalDraftIds.length
+      ? await publishDraftsBatch([...new Set([saved.id, ...additionalDraftIds])])
+      : await publishDraft(saved.id);
     canonicalContentRef.current = contentRef.current;
     lastSavedRef.current = contentRef.current;
     draftRef.current = null;

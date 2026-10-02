@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from "react";
 import {
+  createBlankDocument,
   createDraft,
+  discardDraft,
   getCollection,
   listDrafts,
   listAllEntities,
@@ -30,6 +32,7 @@ import {
 } from "./collectionEditing.js";
 import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft, type DraftCollection } from "./collectionDraftModel";
 import { collectionEntityUrl, filterCollectionNodes, restoreExplorerPreferences } from "./explorerTree.js";
+import { makeDocumentId, newNoteEditorPath } from "./newNoteFlow.js";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, PageHeader } from "./ui";
 import { useCollectionDraft } from "./useCollectionDraft";
 
@@ -90,6 +93,10 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
   const [createCollectionError, setCreateCollectionError] = useState("");
+  const [newNoteTarget, setNewNoteTarget] = useState<{ sectionId: string; title: string } | null>(null);
+  const [newNoteError, setNewNoteError] = useState("");
+  const [newNoteBusy, setNewNoteBusy] = useState(false);
+  const [createdNoteDraft, setCreatedNoteDraft] = useState<Draft | null>(null);
   const [copyingEntity, setCopyingEntity] = useState<Extract<CollectionNode, { kind: "entity" }> | null>(null);
   const [copyTargetId, setCopyTargetId] = useState("");
   const [actionError, setActionError] = useState("");
@@ -278,6 +285,67 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
     }
   }
 
+  function startNewNoteHere(sectionId: string, sectionTitle: string) {
+    setNewNoteTarget({ sectionId, title: sectionTitle });
+    setNewNoteError("");
+    setCreatedNoteDraft(null);
+  }
+
+  async function createNoteHere(title: string, documentType: "paper-note" | "learning-note" | "course-note") {
+    if (!newNoteTarget || !collectionDraft.collection || collectionDraft.collection.status !== "active") return;
+    setNewNoteBusy(true);
+    setNewNoteError("");
+    let created = createdNoteDraft;
+    try {
+      if (!created) {
+        await collectionDraft.flush();
+        const entityId = makeDocumentId(title, globalThis.crypto.randomUUID());
+        created = await createBlankDocument(title, documentType, entityId);
+        setCreatedNoteDraft(created);
+        collectionDraft.change((current) => addEntityReference(
+          current,
+          "document",
+          created!.entity_id,
+          title,
+          newNoteTarget.sectionId,
+        ));
+      }
+      await enterNewNoteWorkspace(created);
+    } catch (reason) {
+      setNewNoteError(errorMessage(reason));
+    } finally {
+      setNewNoteBusy(false);
+    }
+  }
+
+  async function enterNewNoteWorkspace(draft: Draft) {
+    if (!newNoteTarget || !selectedCollectionId) return;
+    const savedCollectionDraft = await collectionDraft.flush();
+    if (!savedCollectionDraft) throw new Error("Collection Draft 尚未保存；请重试。 ");
+    setNewNoteTarget(null);
+    setCreatedNoteDraft(null);
+    navigate(newNoteEditorPath(draft.entity_id, selectedCollectionId));
+  }
+
+  async function cancelNewNoteHere() {
+    if (newNoteBusy) return;
+    try {
+      if (createdNoteDraft && newNoteTarget) {
+        collectionDraft.change((current) => {
+          const nodeId = findEntityNodeId(current.nodes, "document", createdNoteDraft.entity_id);
+          return nodeId ? removeCollectionNode(current, nodeId) : current;
+        });
+        await collectionDraft.flush();
+        await discardDraft(createdNoteDraft.id, createdNoteDraft.revision);
+      }
+      setNewNoteTarget(null);
+      setCreatedNoteDraft(null);
+      setNewNoteError("");
+    } catch (reason) {
+      setNewNoteError(errorMessage(reason));
+    }
+  }
+
   async function toggleArchive() {
     if (!collectionDraft.collection) return;
     changeDraft((current) => ({ ...current, status: current.status === "archived" ? "active" : "archived" }));
@@ -462,6 +530,7 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
               onRenameSection={renameSection}
               onMoveSibling={(nodeId, direction) => changeDraft((current) => moveCollectionSibling(current, nodeId, direction))}
               onDeleteSection={deleteSection}
+              onNewNoteHere={(sectionId, sectionTitle) => startNewNoteHere(sectionId, sectionTitle)}
             />}
             {!collectionResource.loading && !selectedCollectionId && <EmptyState title="还没有 Collection" description="发布的 Collection 会显示在这里。" />}
           </div>
@@ -539,6 +608,15 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
         onClose={() => setCreateCollectionOpen(false)}
         onCreate={(id, title, description) => void createCollection(id, title, description)}
       />}
+      {newNoteTarget && <NewNoteHereDialog
+        sectionTitle={newNoteTarget.title}
+        error={newNoteError}
+        busy={newNoteBusy}
+        createdDraft={createdNoteDraft}
+        onClose={() => void cancelNewNoteHere()}
+        onCreate={(title, type) => void createNoteHere(title, type)}
+        onContinue={() => createdNoteDraft && void enterNewNoteWorkspace(createdNoteDraft).catch((reason: unknown) => setNewNoteError(errorMessage(reason)))}
+      />}
       {copyingEntity && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCopyingEntity(null); }}>
         <section className="explorer-modal surface" role="dialog" aria-modal="true" aria-labelledby="copy-reference-title">
           <div className="section-heading"><div><h2 id="copy-reference-title">Copy to Collection</h2><p>{copyingEntity.title}</p></div><button className="text-button" onClick={() => setCopyingEntity(null)}>关闭</button></div>
@@ -573,6 +651,7 @@ interface CollectionTreeProps {
   onRenameSection: (node: CollectionSectionNode) => void;
   onMoveSibling: (nodeId: string, direction: number) => void;
   onDeleteSection: (node: CollectionSectionNode) => void;
+  onNewNoteHere: (sectionId: string, sectionTitle: string) => void;
 }
 
 function CollectionTree(props: CollectionTreeProps) {
@@ -621,6 +700,7 @@ function SectionTreeNode({
       </button>
       {editMode && <div className="explorer-node-actions">
         <button title="Add existing Entity" aria-label={`在 ${node.title} 中添加已有 Entity`} onClick={() => props.onAddExisting(node.id)}>⊕</button>
+        <button title="New Note Here" aria-label={`在 ${node.title} 中新建笔记`} onClick={() => props.onNewNoteHere(node.id, node.title)}>N</button>
         <button title="Add nested Section" aria-label={`在 ${node.title} 中新建 Section`} onClick={() => props.onNewSection(node.id)}>＋</button>
         <button title="Move up" aria-label={`上移 ${node.title}`} onClick={() => props.onMoveSibling(node.id, -1)}>↑</button>
         <button title="Move down" aria-label={`下移 ${node.title}`} onClick={() => props.onMoveSibling(node.id, 1)}>↓</button>
@@ -804,6 +884,41 @@ function CreateCollectionDialog({
   </div>;
 }
 
+function NewNoteHereDialog({
+  sectionTitle,
+  error,
+  busy,
+  createdDraft,
+  onClose,
+  onCreate,
+  onContinue,
+}: {
+  sectionTitle: string;
+  error: string;
+  busy: boolean;
+  createdDraft: Draft | null;
+  onClose: () => void;
+  onCreate: (title: string, documentType: "paper-note" | "learning-note" | "course-note") => void;
+  onContinue: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [documentType, setDocumentType] = useState<"paper-note" | "learning-note" | "course-note">("learning-note");
+  return <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="explorer-modal surface" role="dialog" aria-modal="true" aria-labelledby="new-note-here-title">
+      <div className="section-heading"><div><h2 id="new-note-here-title">New Note Here</h2><p>将在 “{sectionTitle}” 下创建笔记，并与 Collection Draft 一起发布。</p></div><button className="text-button" onClick={onClose} disabled={busy}>关闭</button></div>
+      <form className="explorer-create-form" onSubmit={(event) => { event.preventDefault(); onCreate(title.trim(), documentType); }}>
+        <label className="field-label">笔记标题<input autoFocus required maxLength={240} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：Transformer 阅读笔记" disabled={Boolean(createdDraft)} /></label>
+        <label className="field-label">笔记类型<select value={documentType} onChange={(event) => setDocumentType(event.target.value as typeof documentType)} disabled={Boolean(createdDraft)}><option value="learning-note">Learning Note</option><option value="paper-note">Paper Note</option><option value="course-note">Course Note</option></select></label>
+        {createdDraft && <p className="trust-note">Document Draft {createdDraft.entity_id} 已创建。保存 Section 的 Collection Draft 后可继续编辑。</p>}
+        {error && <p className="error-copy" role="alert">{error}</p>}
+        <div className="editor-main-actions"><button className="button button-secondary" type="button" onClick={onClose} disabled={busy}>取消</button>{createdDraft
+          ? <button className="button button-primary" type="button" disabled={busy} onClick={onContinue}>{busy ? "正在保存目录…" : "重试并进入编辑"}</button>
+          : <button className="button button-primary" type="submit" disabled={busy || !title.trim()}>{busy ? "正在创建 Draft…" : "创建 Draft 并编辑"}</button>}</div>
+      </form>
+    </section>
+  </div>;
+}
+
 function CollectionOverview({
   collection,
   loading,
@@ -960,6 +1075,18 @@ function readDragPayload(event: DragEvent<HTMLElement>): DragPayload | null {
 
 function errorMessage(reason: unknown) {
   return reason instanceof Error ? reason.message : "未知错误";
+}
+
+function findEntityNodeId(nodes: CollectionNode[], entityType: EntityType, entityId: string): string | null {
+  for (const node of nodes) {
+    if (node.kind === "section") {
+      const nestedId = findEntityNodeId(node.children, entityType, entityId);
+      if (nestedId) return nestedId;
+    } else if (node.entity_type === entityType && node.entity_id === entityId) {
+      return node.id;
+    }
+  }
+  return null;
 }
 
 function containsEntityReference(nodes: CollectionNode[], entityType: EntityType, entityId: string): boolean {

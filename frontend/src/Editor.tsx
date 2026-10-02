@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { parseDocument } from "yaml";
 import {
   createBlankDocument,
+  discardDraft,
   listAllEntities,
+  listDrafts,
   listProposals,
   preflightDraft,
   requestAIProposal,
@@ -50,7 +52,7 @@ export function NewNotePage({ navigate }: { navigate: (path: string) => void }) 
   </div>;
 }
 
-export function EditorPage({ type, id, navigate }: { type: EntityType; id: string; navigate: (path: string) => void }) {
+export function EditorPage({ type, id, navigate, batchCollectionId }: { type: EntityType; id: string; navigate: (path: string) => void; batchCollectionId?: string }) {
   const workspaceDraft = useWorkspaceDraft(type, id);
   const {
     draft,
@@ -175,10 +177,18 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   }
 
   async function discardCurrentDraft() {
-    if (!window.confirm("丢弃尚未发布的修改？运行时 Draft 会被删除。")) return;
+    if (!window.confirm(batchCollectionId
+      ? "同时丢弃这篇笔记和所在 Collection 的运行时 Draft？"
+      : "丢弃尚未发布的修改？运行时 Draft 会被删除。")) return;
     try {
+      const relatedCollectionDraft = batchCollectionId
+        ? (await listDrafts("collection", batchCollectionId))[0]
+        : null;
+      if (relatedCollectionDraft) await discardDraft(relatedCollectionDraft.id, relatedCollectionDraft.revision);
       await workspaceDraft.discard();
-      navigate(canonicalEntity ? `/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}` : "/");
+      navigate(batchCollectionId
+        ? `/explorer?collection=${encodeURIComponent(batchCollectionId)}`
+        : canonicalEntity ? `/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}` : "/");
     } catch (error) {
       setSaveError(errorMessage(error));
     }
@@ -190,7 +200,13 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     try {
       const check = await runPreflight();
       if (!check?.valid) return;
-      const result = await workspaceDraft.publish();
+      let relatedDraftIds: string[] = [];
+      if (batchCollectionId) {
+        const collectionDraft = (await listDrafts("collection", batchCollectionId))[0];
+        if (!collectionDraft) throw new Error("找不到此 Collection 的 Draft；请返回 Explorer 检查目录变更。");
+        relatedDraftIds = [collectionDraft.id];
+      }
+      const result = await workspaceDraft.publish(relatedDraftIds);
       if (!result) throw new Error("还没有可发布的 Draft 变化。");
       setActiveDrawer(null);
       await refreshProposals();
@@ -317,7 +333,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   return (
     <div className="page-stack editor-page">
       <div className="editor-topline">
-        <button className="back-link" onClick={() => navigate(canonicalEntity ? `/${type === "term" ? "terms" : "library"}` : "/")}>← 返回阅读</button>
+        <button className="back-link" onClick={() => navigate(batchCollectionId ? `/explorer?collection=${encodeURIComponent(batchCollectionId)}` : canonicalEntity ? `/${type === "term" ? "terms" : "library"}` : "/")}>← 返回阅读</button>
         <div className="editor-save-state"><span className={`save-indicator ${saveState.toLowerCase()}`} />{saveStateLabel}</div>
       </div>
       <PageHeader
@@ -329,11 +345,11 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
           <button className="button button-secondary" disabled={type === "source"} onClick={() => setActiveDrawer("ai")}>AI 审阅</button>
           <button className="button button-secondary" disabled={!draft} onClick={() => void openComparison()}>比较版本</button>
           <button className="button button-secondary" disabled={!isDirty || publishing || saveState === "Conflict"} onClick={() => void saveNow().catch(() => undefined)}>保存草稿</button>
-          <button className="button button-primary" disabled={publishing || saveState === "Conflict" || Boolean(comparison?.canonical_changed) || Boolean(publishedRevision) || (!draft && !isDirty)} onClick={() => { setActiveDrawer("publish"); void runPreflight(); }}>{publishing ? "发布中…" : "发布"}</button>
+          <button className="button button-primary" disabled={publishing || saveState === "Conflict" || Boolean(comparison?.canonical_changed) || Boolean(publishedRevision) || (!draft && !isDirty)} onClick={() => { setActiveDrawer("publish"); void runPreflight(); }}>{publishing ? "发布中…" : batchCollectionId ? "Publish All" : "发布"}</button>
         </div>}
       />
 
-      {publishedRevision && <div className="editor-notice success-notice" role="status"><strong>已发布</strong><span>Git revision {publishedRevision.slice(0, 12)}</span><button className="button button-secondary" onClick={() => navigate(`/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}`)}>返回阅读</button></div>}
+      {publishedRevision && <div className="editor-notice success-notice" role="status"><strong>{batchCollectionId ? "已合并发布" : "已发布"}</strong><span>Git revision {publishedRevision.slice(0, 12)}</span><button className="button button-secondary" onClick={() => navigate(`/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}${batchCollectionId ? `?collection=${encodeURIComponent(batchCollectionId)}` : ""}`)}>返回阅读</button></div>}
       {visibleSaveError && <div className="editor-notice error-notice" role="alert"><span>{visibleSaveError}</span><button className="text-button" onClick={() => { setSaveError(""); setDraftError(""); }}>关闭</button>{saveState === "Conflict" && <button className="button button-secondary" onClick={() => void openComparison()}>比较版本</button>}</div>}
 
       {type === "source" ? <div className="editor-grid">
@@ -423,14 +439,14 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
         </div>
       </WorkspaceDrawer>}
 
-      {activeDrawer === "publish" && <WorkspaceDrawer title="发布检查" description="先检查 Draft，再由 Publisher 写入 Canonical 并创建 Git 提交。" onClose={() => setActiveDrawer(null)}>
+      {activeDrawer === "publish" && <WorkspaceDrawer title={batchCollectionId ? "发布工作区" : "发布检查"} description={batchCollectionId ? "Document 与所在 Collection Draft 将在一次 Publisher 操作中校验并写入同一个 Git 提交。" : "先检查 Draft，再由 Publisher 写入 Canonical 并创建 Git 提交。"} onClose={() => setActiveDrawer(null)}>
         <section className="drawer-section">
           <div className="preflight-summary"><strong>{preflightBusy ? "正在检查…" : preflight?.valid ? "检查通过" : preflight ? "需要处理" : "尚未检查"}</strong><span>{draft ? `Draft revision ${draft.revision}` : isDirty ? "正在保存 Draft" : "当前没有 Draft"}</span></div>
           {preflight?.errors.length ? <ul className="preflight-errors">{preflight.errors.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ul> : null}
           {preflight?.warnings.length ? <div className="preflight-warnings"><strong>发布警告</strong><ul>{preflight.warnings.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ul></div> : null}
           {saveError && <p className="error-copy" role="alert">{saveError}</p>}
-          <p className="trust-note">检查不会写入 Canonical。发布时 Publisher 会再次校验引用和冲突；成功后正文、索引和 Draft 状态由服务端更新。</p>
-          <div className="drawer-footer"><button className="button button-secondary" disabled={preflightBusy} onClick={() => void runPreflight()}>重新检查</button><button className="button button-primary" disabled={preflightBusy || publishing || !preflight?.valid || Boolean(comparison?.canonical_changed) || Boolean(publishedRevision)} onClick={() => void publishCurrentDraft()}>{publishing ? "发布中…" : "确认发布"}</button></div>
+          <p className="trust-note">检查不会写入 Canonical。{batchCollectionId ? "当前显示 Document 预检；Publisher 会在提交前对 Document 和 Collection 一起执行最终校验。" : "发布时 Publisher 会再次校验引用和冲突。"}成功后正文、索引和 Draft 状态由服务端更新。</p>
+          <div className="drawer-footer"><button className="button button-secondary" disabled={preflightBusy} onClick={() => void runPreflight()}>重新检查</button><button className="button button-primary" disabled={preflightBusy || publishing || !preflight?.valid || isDirty || Boolean(comparison?.canonical_changed) || Boolean(publishedRevision)} onClick={() => void publishCurrentDraft()}>{publishing ? "发布中…" : batchCollectionId ? "Publish All · 一个 Git 提交" : "确认发布"}</button></div>
         </section>
       </WorkspaceDrawer>}
 
@@ -446,7 +462,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
         <div className="editor-main-actions drawer-footer"><button className="button button-secondary" onClick={() => void reloadCanonical()}>放弃 Draft 并载入当前正式版</button><button className="button button-primary" onClick={() => void applyRebase()}>保存合并内容并更新基线</button></div>
       </WorkspaceDrawer>}
 
-      <div className="editor-bottom-actions"><button className="button button-danger" disabled={!draft && !isDirty} onClick={() => void discardCurrentDraft()}>丢弃 Draft</button><span>{draft ? "草稿与当前正式内容关联" : "基于当前正式内容"} · Publisher 会检查外部更改</span></div>
+      <div className="editor-bottom-actions"><button className="button button-danger" disabled={!draft && !isDirty} onClick={() => void discardCurrentDraft()}>{batchCollectionId ? "丢弃两个 Draft" : "丢弃 Draft"}</button><span>{batchCollectionId ? `发布目标：Document + Collection ${batchCollectionId}` : draft ? "草稿与当前正式内容关联" : "基于当前正式内容"} · Publisher 会检查外部更改</span></div>
     </div>
   );
 }

@@ -10,12 +10,14 @@ export function WorkspacePage({
   id,
   navigate,
   collectionId,
+  batchCollectionId,
   initialMode = "read",
 }: {
   type: EntityType;
   id: string;
   navigate: (path: string) => void;
   collectionId?: string;
+  batchCollectionId?: string;
   initialMode?: WorkspaceMode;
 }) {
   const [mode, setMode] = useState<WorkspaceMode>(initialMode);
@@ -30,7 +32,7 @@ export function WorkspacePage({
   }
 
   if (mode === "edit") {
-    return <EditorPage key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} />;
+    return <EditorPage key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} batchCollectionId={batchCollectionId} />;
   }
   return <EntityPage
     key={`read:${type}:${id}:${collectionId ?? ""}`}

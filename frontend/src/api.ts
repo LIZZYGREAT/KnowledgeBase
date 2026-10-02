@@ -361,10 +361,10 @@ export function createDraft(entityType: DraftEntityType, entityId: string, conte
   });
 }
 
-export function createBlankDocument(title: string, documentType: "paper-note" | "learning-note" | "course-note") {
+export function createBlankDocument(title: string, documentType: "paper-note" | "learning-note" | "course-note", entityId?: string) {
   return request<Draft>("/api/imports/blank-document", {
     method: "POST",
-    body: JSON.stringify({ title, document_type: documentType }),
+    body: JSON.stringify({ title, document_type: documentType, ...(entityId ? { entity_id: entityId } : {}) }),
   });
 }
 
