@@ -116,4 +116,3 @@ def _term(entity_id: str) -> str:
         "depth: standard\naliases: []\ndomains: []\ntopics: []\ntags: []\n"
         "sources: []\n---\n# Example\n"
     ).format(entity_id)
-\n

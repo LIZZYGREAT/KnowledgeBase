@@ -647,5 +647,3 @@ class Publisher:
             except Exception as error:
                 errors.append("{}: {}".format(path, error))
         return errors
-
-\n

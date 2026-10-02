@@ -191,5 +191,3 @@ class CanonicalTargetResolver:
                 raise ValueError(
                     "Entity already exists at a different canonical path: {}".format(relative)
                 )
-
-\n
