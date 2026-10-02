@@ -1,9 +1,10 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { createElement, useEffect, useId, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { PresentationAnnotation } from "./api";
+import type { MarkdownBlockRange } from "./markdownBlocks.js";
 import { remarkPresentationAnnotations } from "./markdownAnnotations.js";
 
 interface MarkdownNode {
@@ -158,21 +159,70 @@ function makeComponents(onNavigate?: (path: string) => void): Components {
   };
 }
 
+interface PositionedRenderProps {
+  children?: ReactNode;
+  node?: { position?: { start?: { offset?: number } } };
+  [key: string]: unknown;
+}
+
+type PositionedRenderer = (props: PositionedRenderProps) => ReactNode;
+type MarkdownBlockRenderer = (block: MarkdownBlockRange, index: number, rendered: ReactNode) => ReactNode;
+
+function makeWorkspaceComponents(
+  onNavigate: ((path: string) => void) | undefined,
+  blockRanges: MarkdownBlockRange[],
+  renderBlock: MarkdownBlockRenderer,
+): Components {
+  const base = makeComponents(onNavigate);
+  const wrap = (renderer: PositionedRenderer): PositionedRenderer => (props) => {
+    const { node, ...renderProps } = props;
+    const rendered = renderer(renderProps);
+    const start = node?.position?.start?.offset;
+    const index = blockRanges.findIndex((block) => block.start === start);
+    return index >= 0 ? renderBlock(blockRanges[index], index, rendered) : rendered;
+  };
+
+  const components = { ...base } as Record<string, PositionedRenderer>;
+  const original = (name: string, tag: string): PositionedRenderer => {
+    const renderer = components[name];
+    if (renderer) return renderer;
+    return ({ children, ...props }) => {
+      return createElement(tag, props, children);
+    };
+  };
+
+  for (const [name, tag] of [
+    ["h1", "h1"], ["h2", "h2"], ["h3", "h3"], ["h4", "h4"], ["h5", "h5"],
+    ["p", "p"], ["ul", "ul"], ["ol", "ol"], ["blockquote", "blockquote"],
+    ["pre", "pre"], ["table", "table"], ["div", "div"], ["hr", "hr"],
+  ] as const) {
+    components[name] = wrap(original(name, tag));
+  }
+  return components as Components;
+}
+
 export function MarkdownContent({
   content,
   onNavigate,
   annotations = [],
+  blockRanges,
+  renderBlock,
 }: {
   content: string;
   onNavigate?: (path: string) => void;
   annotations?: PresentationAnnotation[];
+  blockRanges?: MarkdownBlockRange[];
+  renderBlock?: MarkdownBlockRenderer;
 }) {
+  const components = blockRanges && renderBlock
+    ? makeWorkspaceComponents(onNavigate, blockRanges, renderBlock)
+    : makeComponents(onNavigate);
   return (
     <div className="markdown-content">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath, [remarkPresentationAnnotations, { annotations }], remarkKnowledgeLinks]}
         rehypePlugins={[rehypeKatex]}
-        components={makeComponents(onNavigate)}
+        components={components}
       >
         {content}
       </ReactMarkdown>

@@ -292,6 +292,10 @@ a { color: #2e7357; }
 .workspace-shell .reader-layout-source { grid-template-columns: minmax(0, 1fr); }
 .workspace-shell .reader-outline { position: relative; top: auto; max-height: 170px; }
 .workspace-explorer-scrim { display: none; }
+.workspace-reader-save-state { color: #87948b; font-size: var(--text-xs); white-space: nowrap; }
+.workspace-reader-save-state.unsaved, .workspace-reader-save-state.saving { color: #a27635; }
+.workspace-reader-save-state.conflict { color: #a84f45; font-weight: 650; }
+.workspace-reader-save-error { margin: 10px 0 0; color: #a84f45; font-size: var(--text-sm); }
 .entity-page { gap: 18px; }
 .entity-actions { display: flex; align-items: center; justify-content: space-between; }
 .reader-sticky-actions { position: sticky; top: 72px; z-index: 18; display: flex; min-height: 50px; align-items: center; flex-wrap: wrap; gap: 7px; border-bottom: 1px solid #e8ede8; padding: 7px 0; background: rgb(244 246 243 / 94%); backdrop-filter: blur(14px); }
@@ -368,6 +372,24 @@ a { color: #2e7357; }
 /* Markdown display */
 .markdown-content { padding-top: 17px; color: #526359; font-size: var(--text-reading); line-height: 1.8; overflow-wrap: anywhere; }
 .markdown-content > :first-child { margin-top: 0; }
+.workspace-inline-block { position: relative; min-width: 0; border-radius: 6px; }
+.workspace-inline-rendered .markdown-content > .workspace-inline-block:first-child > :first-child { margin-top: 0; }
+.workspace-inline-rendered .markdown-content > .workspace-inline-block:last-child > :first-child:last-child { margin-bottom: 0; }
+.workspace-inline-block:hover { background: #fbfdfb; }
+.workspace-inline-edit-button { position: absolute; top: 2px; right: 2px; z-index: 2; display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #dfe8e1; border-radius: 7px; color: #477456; background: #fff; opacity: 0; cursor: pointer; transition: opacity .14s ease, background .14s ease; }
+.workspace-inline-block:hover > .workspace-inline-edit-button, .workspace-inline-edit-button:focus-visible { opacity: 1; }
+.workspace-inline-edit-button:disabled { opacity: .35; cursor: not-allowed; }
+.workspace-inline-edit-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
+.workspace-inline-block-editing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 10px; border: 1px solid #c7d9c9; border-radius: 9px; padding: 11px; background: #fbfdfb; }
+.workspace-inline-textarea { min-height: 220px; resize: vertical; }
+.workspace-inline-preview { min-width: 0; overflow: auto; border: 1px solid #e7ece7; border-radius: 8px; padding: 12px; background: #fff; }
+.workspace-inline-preview .markdown-content { padding-top: 0; }
+.workspace-inline-preview .markdown-content > :first-child { margin-top: 0; }
+.workspace-inline-preview .markdown-content > :last-child { margin-bottom: 0; }
+.workspace-inline-actions { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.workspace-inline-actions > span { color: #87948b; font-size: var(--text-xs); }
+.workspace-inline-add-button { width: 100%; margin-top: 12px; border: 1px dashed #cedace; border-radius: 8px; padding: 10px; color: #56745e; background: #fbfdfb; font-size: var(--text-sm); cursor: pointer; }
+.workspace-inline-add-button:hover { border-color: #a9c3ad; background: #f3f8f3; }
 .markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4, .markdown-content h5 { scroll-margin-top: 100px; color: #2e4337; font-family: Manrope, "Noto Sans SC", sans-serif; font-weight: 600; letter-spacing: -.035em; line-height: 1.45; }
 .markdown-content h1 { margin: 1.2em 0 .55em; font-size: 34px; }
 .markdown-content h2 { margin: 2em 0 .55em; border-bottom: 1px solid #edf0ed; padding-bottom: 8px; font-size: 26px; }
@@ -660,6 +682,8 @@ a { color: #2e7357; }
   .markdown-block-actions { grid-column: auto; }
   .markdown-source-layout .knowledge-editor, .markdown-source-layout .markdown-live-preview { min-height: 390px; }
   .workspace-drawer, .workspace-drawer.wide { width: 100%; }
+  .workspace-inline-block-editing { grid-template-columns: 1fr; }
+  .workspace-inline-actions { grid-column: auto; }
   .workspace-drawer-header { padding: 16px 15px 13px; }
   .workspace-drawer-body { padding: 14px 15px 21px; }
   .workspace-drawer .conflict-columns { grid-template-columns: 1fr; }

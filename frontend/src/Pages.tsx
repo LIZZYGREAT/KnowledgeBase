@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import {
   getEntity,
   getCollectionNavigation,
@@ -42,8 +42,9 @@ import {
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, PageHeader, SectionHeading, formatDate, titleCase } from "./ui";
 import { latestIntersectingHeading } from "./readerNavigation.js";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
-
-const MarkdownContent = lazy(() => import("./Markdown").then((module) => ({ default: module.MarkdownContent })));
+import { splitMarkdownFrontmatter } from "./markdownBlocks.js";
+import { WorkspaceInlineEditor } from "./workspace/WorkspaceInlineEditor";
+import type { WorkspaceDraftController } from "./useWorkspaceDraft";
 
 type Navigate = (path: string) => void;
 type SelectEntity = (type: EntityType, id: string, clickedFromSearch?: boolean) => void;
@@ -781,12 +782,14 @@ export function EntityPage({
   navigate,
   collectionId,
   onEdit,
+  workspaceDraft,
 }: {
   type: EntityType;
   id: string;
   navigate: Navigate;
   collectionId?: string;
   onEdit?: (type: EntityType, id: string) => void;
+  workspaceDraft: WorkspaceDraftController;
 }) {
   const resource = useResource(`entity:${type}:${id}`, () => loadEntity(type, id));
   const collectionNavigation = useResource(
@@ -801,7 +804,9 @@ export function EntityPage({
   const [activeHeading, setActiveHeading] = useState("");
   const readerMarkdownRef = useRef<HTMLDivElement>(null);
   const contextPanelRef = useRef<HTMLDetailsElement>(null);
-  const documentBody = resource.data?.content ?? "";
+  const workspaceEnvelope = useMemo(() => splitMarkdownFrontmatter(workspaceDraft.content), [workspaceDraft.content]);
+  const documentBody = type === "source" ? "" : workspaceEnvelope.body;
+  const annotationsMatchCanonical = documentBody === (resource.data?.content ?? "");
   const headings = markdownHeadings(documentBody);
   const sourceIds = resource.data?.entity_type === "document"
     ? Array.from(new Set([...readList(resource.data.metadata, "sources"), ...resource.data.evidence.map((item) => item.source_id)]))
@@ -856,7 +861,8 @@ export function EntityPage({
       intersectionObserver?.disconnect();
     };
   }, [documentBody, type]);
-  if (resource.loading) return <LoadingState />;
+  if (resource.loading || workspaceDraft.loading) return <LoadingState />;
+  if (workspaceDraft.loadError) return <ErrorState message={workspaceDraft.loadError} />;
   if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
   const entity = resource.data;
   const status = type === "source" ? readString((entity.metadata.metadata_review as Record<string, unknown> | undefined)?.status) || "unreviewed" : reviewStatus(entity);
@@ -878,7 +884,7 @@ export function EntityPage({
 
   function captureReaderSelection(event: MouseEvent | KeyboardEvent) {
     if (event.target instanceof HTMLElement && event.target.closest(".annotation-toolbar")) return;
-    const root = readerMarkdownRef.current?.querySelector(".markdown-content");
+    const root = readerMarkdownRef.current;
     const selection = window.getSelection();
     if (!root || !selection || selection.isCollapsed || !selection.rangeCount) {
       setReaderSelection(null);
@@ -898,7 +904,7 @@ export function EntityPage({
     prefixRange.selectNodeContents(root);
     prefixRange.setEnd(range.startContainer, range.startOffset);
     const visiblePrefix = prefixRange.toString();
-    const sourceBody = entity.content ?? "";
+    const sourceBody = documentBody;
     const visibleOccurrence = countTextOccurrences(visiblePrefix, selectedText);
     const sourceOccurrences = textOccurrences(sourceBody, selectedText);
     const sourceStart = sourceOccurrences[visibleOccurrence];
@@ -990,7 +996,9 @@ export function EntityPage({
         <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{entity.title}</h1><div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
       </div>
       <div className="reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作">
-        {onEdit && <button className="button button-secondary" onClick={() => onEdit(type, id)}>Edit Draft</button>}
+        {onEdit && <button className="button button-secondary" onClick={() => onEdit(type, id)}>完整编辑器</button>}
+        <span className={`workspace-reader-save-state ${workspaceDraft.saveState.toLowerCase()}`} role="status">{workspaceDraft.saveState === "Ready" ? "正式版" : workspaceDraft.saveState === "Unsaved" ? "有未保存修改" : workspaceDraft.saveState === "Saving" ? "正在保存 Draft…" : workspaceDraft.saveState === "Saved" ? workspaceDraft.draft ? "Draft 已保存 · 尚未发布" : "已发布" : "Draft 冲突"}</span>
+        {workspaceDraft.saveState === "Conflict" && onEdit && <button className="button button-secondary" onClick={() => { void workspaceDraft.openComparison().finally(() => onEdit(type, id)); }}>处理冲突</button>}
         <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
         {type === "document" && sourceIds.length > 0 && <button className="button button-secondary" onClick={openSources}>Sources</button>}
         <button className="button button-secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to top</button>
@@ -1036,8 +1044,16 @@ export function EntityPage({
               <div className="attachment-note"><span className="attachment-icon">PDF</span><span><strong>{localPdf ? "本地 PDF 已关联" : "没有本地 PDF"}</strong><small>PDF 保存在本机私有存储，不进入 Git。</small></span>{localPdf && <a className="button button-secondary source-pdf-button" href={`/api/sources/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noreferrer">打开 PDF</a>}</div>
             </div>
           ) : <div ref={readerMarkdownRef} className="reader-markdown-wrap" onMouseUp={captureReaderSelection} onKeyUp={captureReaderSelection}>
-            <Suspense fallback={<LoadingState label="正在准备阅读视图…" />}><MarkdownContent content={documentBody} onNavigate={navigate} annotations={annotations} /></Suspense>
-            {readerSelection && <div className="annotation-toolbar" role="toolbar" aria-label="阅读标注工具" style={{ top: readerSelection.top, left: readerSelection.left }} onMouseDown={(event) => event.preventDefault()}>
+            <WorkspaceInlineEditor
+              body={documentBody}
+              annotations={annotationsMatchCanonical ? annotations : []}
+              disabled={workspaceDraft.saveState === "Conflict"}
+              onBodyChange={(body) => workspaceDraft.updateContent(`${workspaceEnvelope.frontmatter}${body}`)}
+              onBeginEdit={() => setReaderSelection(null)}
+              onNavigate={navigate}
+            />
+            {workspaceDraft.error && <p className="workspace-reader-save-error" role="alert">Draft 保存失败：{workspaceDraft.error}</p>}
+            {readerSelection && annotationsMatchCanonical && <div className="annotation-toolbar" role="toolbar" aria-label="阅读标注工具" style={{ top: readerSelection.top, left: readerSelection.left }} onMouseDown={(event) => event.preventDefault()}>
               <span className="annotation-toolbar-label">高亮</span>
               {annotationHighlightPalette.map((color) => <button key={`highlight-${color}`} type="button" className={`annotation-swatch swatch-${color}`} aria-label={`${color} 高亮`} title={`${color} 高亮`} disabled={annotationBusy} onClick={() => void saveReaderAnnotation("highlight", color)} />)}
               <span className="toolbar-divider" />

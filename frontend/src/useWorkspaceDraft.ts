@@ -18,6 +18,7 @@ import {
 } from "./api";
 
 export type WorkspaceSaveState = "Ready" | "Unsaved" | "Saving" | "Saved" | "Conflict";
+export type WorkspaceDraftController = ReturnType<typeof useWorkspaceDraft>;
 
 export function useWorkspaceDraft(type: EntityType, id: string) {
   const [draft, setDraft] = useState<Draft | null>(null);

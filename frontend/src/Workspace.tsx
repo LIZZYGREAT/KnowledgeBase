@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { WorkspaceEditingSurface } from "./WorkspaceEditing";
 import { EntityPage } from "./Pages";
 import { WorkspaceShell } from "./workspace/WorkspaceShell";
+import { useWorkspaceDraft } from "./useWorkspaceDraft";
 import type { EntityType } from "./api";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
 
@@ -25,6 +26,7 @@ export function WorkspacePage({
   initialMode?: WorkspaceMode;
 }) {
   const [mode, setMode] = useState<WorkspaceMode>(initialMode);
+  const workspaceDraft = useWorkspaceDraft(type, id);
 
   useEffect(() => {
     setMode(initialMode);
@@ -58,7 +60,7 @@ export function WorkspacePage({
     </Suspense>}
   >
     {mode === "edit"
-      ? <WorkspaceEditingSurface key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} batchCollectionId={batchCollectionId} returnCollectionId={collectionId ?? batchCollectionId} />
+      ? <WorkspaceEditingSurface key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} workspaceDraft={workspaceDraft} batchCollectionId={batchCollectionId} returnCollectionId={collectionId ?? batchCollectionId} />
       : <EntityPage
         key={`read:${type}:${id}:${collectionId ?? ""}`}
         type={type}
@@ -66,6 +68,7 @@ export function WorkspacePage({
         navigate={navigate}
         collectionId={collectionId}
         onEdit={() => setMode("edit")}
+        workspaceDraft={workspaceDraft}
       />}
   </WorkspaceShell>;
 }

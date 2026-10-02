@@ -19,7 +19,7 @@ import { patchYamlField, readFrontmatterField } from "./metadataDraft.js";
 import { MarkdownBlockEditor } from "./MarkdownBlockEditor";
 import { WorkspaceDrawer } from "./WorkspaceDrawer";
 import { Chip, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "./ui";
-import { useWorkspaceDraft } from "./useWorkspaceDraft";
+import type { WorkspaceDraftController } from "./useWorkspaceDraft";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
 
 export function NewNotePage({ navigate }: { navigate: (path: string) => void }) {
@@ -53,8 +53,7 @@ export function NewNotePage({ navigate }: { navigate: (path: string) => void }) 
   </div>;
 }
 
-export function WorkspaceEditingSurface({ type, id, navigate, batchCollectionId, returnCollectionId }: { type: EntityType; id: string; navigate: (path: string) => void; batchCollectionId?: string; returnCollectionId?: string }) {
-  const workspaceDraft = useWorkspaceDraft(type, id);
+export function WorkspaceEditingSurface({ type, id, navigate, workspaceDraft, batchCollectionId, returnCollectionId }: { type: EntityType; id: string; navigate: (path: string) => void; workspaceDraft: WorkspaceDraftController; batchCollectionId?: string; returnCollectionId?: string }) {
   const {
     draft,
     content,
