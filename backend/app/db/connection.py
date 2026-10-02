@@ -4,6 +4,8 @@ from pathlib import Path
 import sqlite3
 from typing import Union
 
+from backend.app.db.migrations import migrate_database
+
 
 _SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
@@ -22,5 +24,6 @@ def connect_database(path: Union[str, Path]) -> sqlite3.Connection:
 
 
 def initialize_database(connection: sqlite3.Connection) -> None:
+    migrate_database(connection)
     schema = _SCHEMA_PATH.read_text(encoding="utf-8")
     connection.executescript(schema)

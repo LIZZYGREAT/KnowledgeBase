@@ -3,11 +3,11 @@
 from datetime import datetime, timezone
 import uuid
 
-from backend.app.domain.runtime import Draft, EntityType
+from backend.app.domain.runtime import Draft, DraftEntityType
 from backend.app.repositories.draft_repository import DraftNotFoundError, DraftRepository
 
 
-_ENTITY_TYPES = {"document", "term", "source", "taxonomy"}
+_DRAFT_ENTITY_TYPES = {"document", "term", "source", "taxonomy", "collection"}
 
 
 class DraftService:
@@ -16,13 +16,13 @@ class DraftService:
 
     def create(
         self,
-        entity_type: EntityType,
+        entity_type: DraftEntityType,
         entity_id: str,
         content: str,
         base_git_revision: str,
         base_content_hash: str,
     ) -> Draft:
-        if entity_type not in _ENTITY_TYPES:
+        if entity_type not in _DRAFT_ENTITY_TYPES:
             raise ValueError("Unsupported Draft entity type: {}".format(entity_type))
         _require_text(entity_id, "entity_id")
         _require_text(base_git_revision, "base_git_revision")
@@ -51,7 +51,7 @@ class DraftService:
         return draft
 
     def list_for_target(self, entity_type: str, entity_id: str) -> list[Draft]:
-        if entity_type not in _ENTITY_TYPES:
+        if entity_type not in _DRAFT_ENTITY_TYPES:
             raise ValueError("Unsupported Draft entity type: {}".format(entity_type))
         _require_text(entity_id, "entity_id")
         return self.repository.list_for_target(entity_type, entity_id)

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional
 
 
-EntityType = Literal["document", "term", "source", "taxonomy"]
+DraftEntityType = Literal["document", "term", "source", "taxonomy", "collection"]
+ProposalTargetType = Literal["document", "term", "source", "taxonomy"]
 ProposalKind = Literal[
     "metadata",
     "link",
@@ -25,7 +26,7 @@ AnnotationStatus = Literal["active", "stale"]
 @dataclass(frozen=True)
 class Draft:
     id: str
-    entity_type: EntityType
+    entity_type: DraftEntityType
     entity_id: str
     base_git_revision: str
     base_content_hash: str
@@ -38,7 +39,7 @@ class Draft:
 @dataclass(frozen=True)
 class Proposal:
     id: str
-    target_type: EntityType
+    target_type: ProposalTargetType
     target_id: str
     kind: ProposalKind
     status: ProposalStatus

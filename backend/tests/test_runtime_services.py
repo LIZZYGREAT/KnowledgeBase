@@ -42,6 +42,9 @@ def test_runtime_schema_contains_runtime_and_derived_index_tables(runtime_connec
         "document_index",
         "term_index",
         "source_index",
+        "collection_index",
+        "collection_node_index",
+        "collection_progress",
         "alias_index",
         "taxonomy_index",
         "backlink_index",
@@ -55,6 +58,7 @@ def test_runtime_schema_contains_runtime_and_derived_index_tables(runtime_connec
         "source_fts",
         "evidence_fts",
     } <= tables
+    assert runtime_connection.execute("PRAGMA user_version").fetchone()[0] == 1
 
 
 def test_runtime_data_persists_when_database_is_reopened(tmp_path):

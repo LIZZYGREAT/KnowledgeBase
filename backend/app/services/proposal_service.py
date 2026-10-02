@@ -9,7 +9,7 @@ import uuid
 
 from backend.app.domain.runtime import (
     CandidateType,
-    EntityType,
+    ProposalTargetType,
     Proposal,
     ProposalKind,
     ProposalStatus,
@@ -23,7 +23,7 @@ from backend.app.repositories.proposal_repository import (
 from backend.app.services.resolution import normalize_key
 
 
-_ENTITY_TYPES = {"document", "term", "source", "taxonomy"}
+_PROPOSAL_TARGET_TYPES = {"document", "term", "source", "taxonomy"}
 _PROPOSAL_KINDS = {
     "metadata",
     "link",
@@ -48,7 +48,7 @@ class ProposalService:
 
     def create(
         self,
-        target_type: EntityType,
+        target_type: ProposalTargetType,
         target_id: str,
         kind: ProposalKind,
         base_content_hash: str,
@@ -60,7 +60,7 @@ class ProposalService:
         base_content: Optional[str] = None,
         proposed_content: Optional[str] = None,
     ) -> Proposal:
-        if target_type not in _ENTITY_TYPES:
+        if target_type not in _PROPOSAL_TARGET_TYPES:
             raise ValueError("Unsupported Proposal target type: {}".format(target_type))
         if kind not in _PROPOSAL_KINDS:
             raise ValueError("Unsupported Proposal kind: {}".format(kind))

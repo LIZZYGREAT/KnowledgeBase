@@ -40,6 +40,7 @@ from backend.app.api.schemas import (
     UsageRequest,
 )
 from backend.app.domain.document import DocumentMetadata
+from backend.app.domain.collection import Collection
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.taxonomy import TaxonomyRegistry as TaxonomyRegistryModel
 from backend.app.domain.term import TermMetadata
@@ -148,7 +149,7 @@ async def create_draft(body: DraftCreateRequest, request: Request):
 @router.get("/drafts", response_model=list[DraftView])
 async def list_drafts(
     request: Request,
-    entity_type: Literal["document", "term", "source", "taxonomy"],
+    entity_type: Literal["document", "term", "source", "taxonomy", "collection"],
     entity_id: str,
 ):
     return [
@@ -457,6 +458,11 @@ def _draft_target_path(
         if entity.id != entity_id:
             raise ValueError("Source Draft content id must match entity_id")
         return root / "knowledge" / "sources" / "{}.yaml".format(entity_id)
+    if entity_type == "collection":
+        entity = Collection.model_validate(parse_yaml(content))
+        if entity.id != entity_id:
+            raise ValueError("Collection Draft content id must match entity_id")
+        return root / "knowledge" / "collections" / "{}.yaml".format(entity_id)
     files = {"domains": "domains.yaml", "topics": "topics.yaml", "tags": "tags.yaml"}
     if entity_type == "taxonomy" and entity_id in files:
         TaxonomyRegistryModel.model_validate(parse_yaml(content))
@@ -479,6 +485,8 @@ def _draft_compare_target_path(root: Path, draft, connection) -> Path:
         return root / "knowledge" / "sources" / "{}.yaml".format(draft.entity_id)
     if draft.entity_type == "taxonomy" and draft.entity_id in {"domains", "topics", "tags"}:
         return root / "knowledge" / "taxonomy" / "{}.yaml".format(draft.entity_id)
+    if draft.entity_type == "collection":
+        return root / "knowledge" / "collections" / "{}.yaml".format(draft.entity_id)
     raise ValueError("Unsupported canonical Draft target")
 
 

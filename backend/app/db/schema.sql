@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS drafts (
     id TEXT PRIMARY KEY,
-    entity_type TEXT NOT NULL CHECK (entity_type IN ('document', 'term', 'source', 'taxonomy')),
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('document', 'term', 'source', 'taxonomy', 'collection')),
     entity_id TEXT NOT NULL,
     base_git_revision TEXT NOT NULL,
     base_content_hash TEXT NOT NULL,
@@ -136,6 +136,14 @@ CREATE INDEX IF NOT EXISTS collection_node_parent_idx
     ON collection_node_index (collection_id, parent_node_id, ordinal);
 CREATE INDEX IF NOT EXISTS collection_node_entity_idx
     ON collection_node_index (entity_type, entity_id);
+
+CREATE TABLE IF NOT EXISTS collection_progress (
+    collection_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('reading', 'done')),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (collection_id, document_id)
+);
 
 CREATE TABLE IF NOT EXISTS alias_index (
     term_id TEXT NOT NULL,

@@ -308,6 +308,43 @@ def test_draft_compare_rebase_list_and_discard_are_revision_guarded(api_client):
     assert api_client.get("/api/drafts/{}".format(draft["id"])).status_code == 404
 
 
+def test_collection_draft_uses_the_existing_runtime_lifecycle(api_client):
+    repository = api_client.app.state.repository_root
+    collection_path = repository / "knowledge" / "collections" / "reading.yaml"
+    collection_path.parent.mkdir(parents=True, exist_ok=True)
+    content = (
+        "schema_version: 1\nid: reading\ntitle: Reading\nstatus: active\n"
+        "position: 0\nnodes:\n  - id: notes\n    kind: section\n"
+        "    title: Notes\n    children:\n      - id: neural-indexing-node\n"
+        "        kind: entity\n        entity_type: document\n"
+        "        entity_id: neural-indexing\n"
+    )
+    collection_path.write_text(content, encoding="utf-8")
+
+    created = api_client.post(
+        "/api/drafts",
+        json={"entity_type": "collection", "entity_id": "reading", "content": content},
+    )
+
+    assert created.status_code == 201, created.json()
+    draft = created.json()
+    assert draft["entity_type"] == "collection"
+    assert api_client.get(
+        "/api/drafts", params={"entity_type": "collection", "entity_id": "reading"}
+    ).json()[0]["id"] == draft["id"]
+    comparison = api_client.get("/api/drafts/{}/compare".format(draft["id"]))
+    assert comparison.status_code == 200
+    assert comparison.json()["canonical_changed"] is False
+
+    updated = api_client.put(
+        "/api/drafts/{}".format(draft["id"]),
+        json={"content": content.replace("title: Reading", "title: New Reading"), "expected_revision": 1},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["revision"] == 2
+    assert updated.json()["entity_type"] == "collection"
+
+
 def test_source_pdf_open_is_confined_to_valid_attached_papers(api_client):
     root = api_client.app.state.repository_root
     source_path = root / "knowledge" / "sources" / "source-alpha.yaml"

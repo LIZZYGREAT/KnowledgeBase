@@ -3,7 +3,7 @@
 import sqlite3
 from typing import Optional
 
-from backend.app.domain.runtime import Draft, EntityType
+from backend.app.domain.runtime import Draft
 
 
 class DraftNotFoundError(LookupError):
