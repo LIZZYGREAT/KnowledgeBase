@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import subprocess
+import stat
 import tempfile
 
 
@@ -199,16 +200,65 @@ def _validate_revision(revision: str) -> str:
 
 def _atomic_write(target: Path, content: bytes) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
+
+    # Production is Linux, but development/tests may run on Windows.
+    # Windows does not provide POSIX ownership APIs such as geteuid/fchown.
+    preserve_posix_metadata = os.name == "posix"
+
+    desired_mode = None
+    desired_uid = None
+    desired_gid = None
+
+    if preserve_posix_metadata:
+        if target.exists():
+            target_stat = target.stat()
+            desired_mode = stat.S_IMODE(target_stat.st_mode)
+            desired_uid = target_stat.st_uid
+            desired_gid = target_stat.st_gid
+        else:
+            parent_stat = target.parent.stat()
+
+            # New canonical files inherit the parent directory's
+            # read/write policy while dropping directory execute bits.
+            desired_mode = stat.S_IMODE(parent_stat.st_mode) & 0o666
+            desired_uid = parent_stat.st_uid
+            desired_gid = parent_stat.st_gid
+
     handle = tempfile.NamedTemporaryFile(
-        mode="wb", dir=str(target.parent), prefix=".kb-publish-", delete=False
+        mode="wb",
+        dir=str(target.parent),
+        prefix=".kb-publish-",
+        delete=False,
     )
     temporary = Path(handle.name)
+
     try:
         with handle:
             handle.write(content)
             handle.flush()
+
+            if preserve_posix_metadata:
+                # The production backend currently runs as root. For a
+                # new bind-mounted canonical file, adopt the canonical
+                # directory owner/group instead of leaving root:root.
+                if (
+                    hasattr(os, "geteuid")
+                    and hasattr(os, "fchown")
+                    and os.geteuid() == 0
+                ):
+                    os.fchown(
+                        handle.fileno(),
+                        desired_uid,
+                        desired_gid,
+                    )
+
+                if hasattr(os, "fchmod"):
+                    os.fchmod(handle.fileno(), desired_mode)
+
             os.fsync(handle.fileno())
+
         os.replace(str(temporary), str(target))
+
     finally:
         if temporary.exists():
             temporary.unlink()

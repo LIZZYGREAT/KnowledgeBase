@@ -4,7 +4,7 @@ import shutil
 import subprocess
 
 import pytest
-
+import os
 from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
@@ -35,7 +35,6 @@ def publish_context(tmp_path):
     publisher = Publisher(repository, drafts, indexer, proposals)
     yield repository, connection, drafts, proposals, publisher
     connection.close()
-
 
 def test_publish_writes_one_canonical_file_and_commit_only_includes_target(
     publish_context,
@@ -672,6 +671,65 @@ def test_publisher_refreshes_incremental_index_after_publish_and_restore(publish
         "SELECT 1 FROM document_index WHERE entity_id = ?", ("indexed-note",)
     ).fetchone() is None
     _git(repository, "cat-file", "-e", published.commit_revision)
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX filesystem permission semantics required",
+)
+def test_publish_new_file_uses_canonical_file_permissions(
+    publish_context,
+):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+
+    target = "knowledge/documents/learning/permission-note.md"
+    content = _document("permission-note")
+
+    draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "permission-note",
+        content,
+        target,
+    )
+
+    publisher.publish(draft.id)
+
+    path = repository / target
+    assert path.stat().st_mode & 0o777 == 0o664
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="POSIX filesystem permission semantics required",
+)
+def test_publish_existing_file_preserves_permissions(
+    publish_context,
+):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+
+    relative_target = "knowledge/documents/papers/ewc-review.md"
+    target = repository / relative_target
+    original_content = target.read_text(encoding="utf-8")
+    updated_content = original_content + "\nPermission preservation update.\n"
+
+    target.chmod(0o640)
+
+    draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "ewc-review",
+        updated_content,
+        relative_target,
+    )
+
+    publisher.publish(draft.id)
+
+    assert target.read_text(encoding="utf-8") == updated_content
+    assert target.stat().st_mode & 0o777 == 0o640
 
 
 def _initialize_repository(repository: Path) -> None:
