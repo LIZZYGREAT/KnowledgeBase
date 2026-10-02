@@ -1,6 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { parseDocument } from "yaml";
-import { applyMarkdownFormatting, type MarkdownFormattingAction } from "./markdownFormatting.js";
 import {
   createBlankDocument,
   listAllEntities,
@@ -13,10 +12,9 @@ import {
   type Proposal,
 } from "./api";
 import { patchYamlField, readFrontmatterField } from "./metadataDraft.js";
+import { MarkdownBlockEditor } from "./MarkdownBlockEditor";
 import { Chip, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "./ui";
 import { useWorkspaceDraft } from "./useWorkspaceDraft";
-
-const MarkdownContent = lazy(() => import("./Markdown").then((module) => ({ default: module.MarkdownContent })));
 
 export function NewNotePage({ navigate }: { navigate: (path: string) => void }) {
   const [title, setTitle] = useState("");
@@ -79,7 +77,6 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   const [selectedText, setSelectedText] = useState("");
   const [publishing, setPublishing] = useState(false);
   const contentRef = useRef("");
-  const editorRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { contentRef.current = content; }, [content]);
 
@@ -230,22 +227,6 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     workspaceDraft.updateContent(value);
   }
 
-  function formatMarkdown(action: MarkdownFormattingAction) {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const result = applyMarkdownFormatting(
-      contentRef.current,
-      editor.selectionStart,
-      editor.selectionEnd,
-      action,
-    );
-    setEditorContent(result.value);
-    requestAnimationFrame(() => {
-      editor.focus();
-      editor.setSelectionRange(result.selectionStart, result.selectionEnd);
-    });
-  }
-
   function updateFrontmatter(key: string, value: unknown) {
     try {
       setEditorContent(patchYamlField(contentRef.current, type, key, value));
@@ -355,37 +336,31 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
         <p className="trust-note">此处只设置 Source 元数据引用，不会上传或复制文件。PDF 保存在本机忽略目录中。</p>
       </section>}
 
-      <div className="editor-grid">
+      {type === "source" ? <div className="editor-grid">
         <section className="surface editor-writing-panel">
-          <SectionHeading title={type === "source" ? "Source YAML" : "Markdown"} detail="第一次修改后自动创建 Draft · 650ms 后保存" />
-          {type !== "source" && <div className="markdown-toolbar" role="toolbar" aria-label="Markdown 格式工具" onMouseDown={(event) => event.preventDefault()}>
-            <button type="button" aria-label="加粗" title="加粗" onClick={() => formatMarkdown("bold")}><strong>B</strong></button>
-            <button type="button" aria-label="斜体" title="斜体" onClick={() => formatMarkdown("italic")}><em>I</em></button>
-            <button type="button" aria-label="删除线" title="删除线" onClick={() => formatMarkdown("strike")}><s>S</s></button>
-            <button type="button" aria-label="行内代码" title="行内代码" onClick={() => formatMarkdown("code")}>&lt;/&gt;</button>
-            <span className="toolbar-divider" />
-            <button type="button" aria-label="行内公式" title="行内公式" onClick={() => formatMarkdown("inlineMath")}>$x$</button>
-            <button type="button" aria-label="块级公式" title="块级公式" onClick={() => formatMarkdown("displayMath")}>$$</button>
-            <button type="button" aria-label="多行公式" title="多行公式" onClick={() => formatMarkdown("alignedMath")}>Align</button>
-          </div>}
+          <SectionHeading title="Source YAML" detail="第一次修改后自动创建 Draft · 650ms 后保存" />
           <textarea
-            ref={editorRef}
             className="knowledge-editor"
             value={content}
             onChange={(event) => setEditorContent(event.target.value)}
-            onSelect={(event) => {
-              setSelectedText(event.currentTarget.value.slice(event.currentTarget.selectionStart, event.currentTarget.selectionEnd));
-            }}
             onBlur={() => { if (isDirty) void saveNow().catch(() => undefined); }}
             spellCheck={false}
-            aria-label={type === "source" ? "Source YAML Draft" : "Markdown Draft"}
+            aria-label="Source YAML Draft"
           />
         </section>
         <section className="surface editor-preview-panel">
-          <SectionHeading title={type === "source" ? "YAML 预览" : "阅读预览"} detail="与 Reference Hub 阅读端一致" />
-          {type === "source" ? <pre className="source-yaml-preview">{content}</pre> : <Suspense fallback={<LoadingState label="正在生成预览…" />}><MarkdownContent content={body} /></Suspense>}
+          <SectionHeading title="YAML 预览" detail="完整 Source 元数据" />
+          <pre className="source-yaml-preview">{content}</pre>
         </section>
-      </div>
+      </div> : <section className="surface markdown-block-editor-panel">
+        <MarkdownBlockEditor
+          content={content}
+          onChange={setEditorContent}
+          onSelectionChange={setSelectedText}
+          onBlur={() => { if (isDirty) void saveNow().catch(() => undefined); }}
+          onNavigate={navigate}
+        />
+      </section>}
 
       <section className="surface ai-panel">
         <div className="ai-panel-heading"><div><p className="eyebrow">PROPOSAL WORKFLOW</p><h2>AI 辅助审阅</h2><p>AI 结果会保存为 Proposal；它不会自动修改 Draft 或正式内容。</p></div><Chip>需人工审阅</Chip></div>

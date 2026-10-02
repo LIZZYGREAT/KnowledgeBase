@@ -399,6 +399,32 @@ a { color: #2e7357; }
 .markdown-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0 0 9px; }
 .markdown-toolbar button { min-width: 34px; height: 30px; border: 1px solid #e5ebe5; border-radius: 6px; padding: 0 8px; color: #40594a; background: #fff; font-size: var(--text-sm); cursor: pointer; }
 .markdown-toolbar button:hover { border-color: #b7cbb9; background: #f3f8f3; }
+.markdown-toolbar button:disabled { opacity: .45; cursor: not-allowed; }
+.markdown-toolbar small { margin-left: 4px; color: #8a978e; font-size: var(--text-xs); }
+.toolbar-group-start { margin-left: 7px; padding-left: 8px; border-left: 1px solid #e4e9e4; }
+.markdown-block-editor-panel { min-width: 0; padding: 17px; }
+.markdown-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.markdown-editor-heading .section-heading { margin-bottom: 12px; }
+.markdown-workspace-editor > .markdown-toolbar { margin-bottom: 13px; }
+.markdown-block-list { display: grid; gap: 10px; }
+.markdown-block { position: relative; min-width: 0; border: 1px solid #e7ece7; border-radius: 9px; padding: 13px 15px; background: #fff; cursor: text; }
+.markdown-block:hover { border-color: #c8d8ca; background: #fcfefc; }
+.markdown-block-content .markdown-content > :first-child { margin-top: 0; }
+.markdown-block-content .markdown-content > :last-child { margin-bottom: 0; }
+.markdown-block-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 10px; border: 1px solid #c7d9c9; border-radius: 9px; padding: 11px; background: #fbfdfb; }
+.markdown-block-textarea { min-height: 220px; }
+.markdown-live-preview { min-width: 0; overflow: auto; border: 1px solid #e7ece7; border-radius: 8px; padding: 12px; background: #fff; }
+.markdown-live-preview .section-heading { margin-bottom: 10px; }
+.markdown-block-live-preview .markdown-content > :first-child { margin-top: 0; }
+.markdown-block-live-preview .markdown-content > :last-child { margin-bottom: 0; }
+.markdown-block-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.markdown-block-edit-button { position: absolute; top: 8px; right: 10px; z-index: 1; border: 1px solid #e5ebe5; border-radius: 5px; padding: 3px 7px; background: #fff; font-size: var(--text-xs); }
+.markdown-empty-state { margin: 0; border: 1px dashed #d6e0d7; border-radius: 8px; padding: 22px; color: #819087; text-align: center; }
+.markdown-add-block { width: 100%; margin-top: 11px; border: 1px dashed #cedace; border-radius: 8px; padding: 10px; color: #56745e; background: #fbfdfb; font-size: var(--text-sm); cursor: pointer; }
+.markdown-add-block:hover { border-color: #a9c3ad; background: #f3f8f3; }
+.markdown-source-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 12px; }
+.markdown-source-layout .knowledge-editor, .markdown-source-layout .markdown-live-preview { min-height: 620px; }
+.markdown-source-layout .markdown-content { padding: 2px 4px; }
 .toolbar-divider { width: 1px; height: 21px; margin: 0 3px; background: #e4e9e4; }
 .reader-markdown-wrap { position: relative; }
 .annotation-toolbar { position: fixed; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; width: min(420px, calc(100vw - 16px)); border: 1px solid #dce5dd; border-radius: 10px; padding: 9px; background: #fff; box-shadow: 0 10px 28px #1c30201f; }
@@ -585,9 +611,11 @@ a { color: #2e7357; }
   .library-toolbar { align-items: flex-start; flex-direction: column; }
   .filter-pair { width: 100%; }
   .filter-pair .field-label { flex: 1; }
-  .editor-grid, .conflict-columns { grid-template-columns: 1fr; }
+  .editor-grid, .conflict-columns, .markdown-source-layout, .markdown-block-edit { grid-template-columns: 1fr; }
   .knowledge-editor, .editor-preview-panel .markdown-content, .source-yaml-preview { min-height: 390px; }
-  .editor-writing-panel, .editor-preview-panel, .conflict-panel, .ai-panel { padding: 13px; }
+  .editor-writing-panel, .editor-preview-panel, .markdown-block-editor-panel, .conflict-panel, .ai-panel { padding: 13px; }
+  .markdown-block-actions { grid-column: auto; }
+  .markdown-source-layout .knowledge-editor, .markdown-source-layout .markdown-live-preview { min-height: 390px; }
   .legacy-import-form, .import-source-fields { grid-template-columns: 1fr; }
   .browser-import-dropzone { align-items: flex-start; flex-wrap: wrap; }
   .browser-import-dropzone > div { min-width: calc(100% - 55px); }
