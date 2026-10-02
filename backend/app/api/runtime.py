@@ -307,14 +307,22 @@ async def merge_proposal(
     proposal = request.app.state.proposal_service.get(proposal_id)
     draft = _proposal_draft(request, proposal)
     return _published_view(
-        request.app.state.publisher.publish(draft.id, proposal_id, body.commit_message)
+        request.app.state.publisher.publish(
+            draft.id,
+            proposal_id,
+            body.commit_message,
+            expected_revision=draft.revision,
+        )
     )
 
 
 @router.post("/publish", response_model=PublishedView)
 async def publish(body: PublishRequest, request: Request):
     result = request.app.state.publisher.publish(
-        body.draft_id, body.proposal_id, body.commit_message
+        body.draft_id,
+        body.proposal_id,
+        body.commit_message,
+        expected_revision=body.expected_revision,
     )
     return _published_view(result)
 
@@ -322,7 +330,11 @@ async def publish(body: PublishRequest, request: Request):
 @router.post("/publish/batch", response_model=BatchPublishedView)
 async def publish_batch(body: BatchPublishRequest, request: Request):
     result = request.app.state.publisher.publish_batch(
-        body.draft_ids, body.commit_message
+        [item.draft_id for item in body.drafts],
+        body.commit_message,
+        expected_revisions={
+            item.draft_id: item.expected_revision for item in body.drafts
+        },
     )
     return {
         "results": [_published_view(item) for item in result.results],

@@ -53,7 +53,7 @@ export function WorkspacePublishDrawer({
         {busy && <p className="subtle-copy" role="status">正在保存 Draft 并检查 Canonical…</p>}
         {items.length > 0 && <ul className="publish-validation-list">
           {items.map((item) => <li key={item.comparison.draft.id}>
-            <span>{item.label} · Publisher 预检（结构、Markdown 与引用）</span>
+            <span>{item.label} · Draft revision {item.draftRevision} · Publisher 预检（结构、Markdown 与引用）</span>
             <strong className={item.preflight.valid ? "publish-check-pass" : "publish-check-fail"}>{item.preflight.valid ? "通过" : "未通过"}</strong>
           </li>)}
           <li>

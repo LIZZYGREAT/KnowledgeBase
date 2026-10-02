@@ -383,7 +383,10 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
         reorderDrafts.push(draft);
       }
 
-      const outcome = await publishDraftsBatch(reorderDrafts.map((draft) => draft.id));
+      const outcome = await publishDraftsBatch(reorderDrafts.map((draft) => ({
+        draft_id: draft.id,
+        expected_revision: draft.revision,
+      })));
       const refreshed = await getCollection(selectedCollectionId);
       collectionDraft.reset(refreshed);
       collectionResource.retry();
@@ -466,7 +469,9 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
           throw new Error("此 Collection 已在另一个标签页创建不同内容的 Draft；请先检查并处理。");
         }
       }
-      const published = await publishDraftsBatch([draft.id]);
+      const published = await publishDraftsBatch([
+        { draft_id: draft.id, expected_revision: draft.revision },
+      ]);
       setCreateCollectionOpen(false);
       setCreateCollectionError("");
       setPublishOutcome(toPublishOutcome(published));

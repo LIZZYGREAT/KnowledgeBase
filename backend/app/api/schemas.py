@@ -207,6 +207,7 @@ class ProposalReviewRequest(APIModel):
 
 class PublishRequest(APIModel):
     draft_id: str
+    expected_revision: int = Field(ge=1)
     proposal_id: Optional[str] = None
     commit_message: Optional[str] = None
 
@@ -220,8 +221,13 @@ class PublishedView(APIModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class DraftPublishExpectation(APIModel):
+    draft_id: NonEmptyText
+    expected_revision: int = Field(ge=1)
+
+
 class BatchPublishRequest(APIModel):
-    draft_ids: list[NonEmptyText] = Field(min_length=1, max_length=100)
+    drafts: list[DraftPublishExpectation] = Field(min_length=1, max_length=100)
     commit_message: Optional[str] = None
 
 

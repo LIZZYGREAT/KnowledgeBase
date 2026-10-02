@@ -3,6 +3,7 @@ import type { DraftComparison, DraftEntityType, DraftPreflight } from "./api";
 export interface PublishReviewItem {
   label: string;
   entityType: DraftEntityType;
+  draftRevision: number;
   preflight: DraftPreflight;
   comparison: DraftComparison;
 }

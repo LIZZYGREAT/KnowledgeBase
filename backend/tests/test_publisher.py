@@ -112,6 +112,79 @@ def test_publish_collection_and_remove_successful_draft(publish_context):
     ).fetchone()["title"] == "Reading"
 
 
+def test_publish_rejects_changed_draft_revision_without_writing_or_committing(
+    publish_context,
+):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/reviewed-note.md"
+    content = _document("reviewed-note", title="Reviewed Note")
+    draft = _create_draft(drafts, git, "document", "reviewed-note", content, target)
+    drafts.save(
+        draft.id,
+        _document("reviewed-note", title="Changed After Review"),
+        expected_revision=draft.revision,
+    )
+    current_commit = git.current_revision()
+
+    with pytest.raises(
+        PublishConflictError,
+        match="Draft changed after review. Refresh the Publish Review before publishing.",
+    ):
+        publisher.publish(draft.id, expected_revision=draft.revision)
+
+    assert not (repository / target).exists()
+    assert git.current_revision() == current_commit
+    assert drafts.get(draft.id).revision == draft.revision + 1
+
+
+def test_batch_publish_rejects_any_changed_reviewed_revision_atomically(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    document_path = "knowledge/documents/learning/reviewed-batch-note.md"
+    collection_path = "knowledge/collections/reviewed-batch.yaml"
+    document = _create_draft(
+        drafts,
+        git,
+        "document",
+        "reviewed-batch-note",
+        _document("reviewed-batch-note", title="Reviewed Batch Note"),
+        document_path,
+    )
+    collection = _create_draft(
+        drafts,
+        git,
+        "collection",
+        "reviewed-batch",
+        _collection("reviewed-batch", "Reviewed Batch"),
+        collection_path,
+    )
+    drafts.save(
+        collection.id,
+        _collection("reviewed-batch", "Changed After Review"),
+        expected_revision=collection.revision,
+    )
+    current_commit = git.current_revision()
+
+    with pytest.raises(
+        PublishConflictError,
+        match="Draft changed after review. Refresh the Publish Review before publishing.",
+    ):
+        publisher.publish_batch(
+            [document.id, collection.id],
+            expected_revisions={
+                document.id: document.revision,
+                collection.id: collection.revision,
+            },
+        )
+
+    assert not (repository / document_path).exists()
+    assert not (repository / collection_path).exists()
+    assert git.current_revision() == current_commit
+    assert drafts.get(document.id).revision == document.revision
+    assert drafts.get(collection.id).revision == collection.revision + 1
+
+
 def test_publish_collection_metadata_and_reorder_updates_the_derived_order(publish_context):
     repository, connection, drafts, _, publisher = publish_context
     git = GitManager(repository)

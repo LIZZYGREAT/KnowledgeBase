@@ -108,7 +108,13 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
           preflightDraft(target.id),
           compareDraft(target.id),
         ]);
-        return { label: target.label, entityType: target.entityType, preflight, comparison };
+        return {
+          label: target.label,
+          entityType: target.entityType,
+          draftRevision: comparison.draft.revision,
+          preflight,
+          comparison,
+        };
       }));
       setPublishReview(reviewed);
 
@@ -176,14 +182,18 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
     setPublishing(true);
     setSaveError("");
     try {
-      if (!await runPreflight()) return;
-      let relatedDraftIds: string[] = [];
-      if (batchCollectionId) {
-        const collectionDraft = (await listDrafts("collection", batchCollectionId))[0];
-        if (!collectionDraft) throw new Error("找不到此 Collection 的 Draft；请返回 Explorer 检查目录变更。");
-        relatedDraftIds = [collectionDraft.id];
-      }
-      const result = await workspaceDraft.publish(relatedDraftIds);
+      if (!publishReview?.length || !publishReview.every((item) =>
+        item.preflight.valid && !item.preflight.conflict && !item.comparison.canonical_changed
+      )) throw new Error("请先完成并检查发布审阅，再确认发布。");
+      const currentReview = publishReview.find((item) => item.comparison.draft.id === draft?.id);
+      if (!currentReview) throw new Error("当前 Draft 不在本次发布审阅中，请重新检查。");
+      const relatedDrafts = publishReview
+        .filter((item) => item.comparison.draft.id !== currentReview.comparison.draft.id)
+        .map((item) => ({
+          draft_id: item.comparison.draft.id,
+          expected_revision: item.draftRevision,
+        }));
+      const result = await workspaceDraft.publish(currentReview.draftRevision, relatedDrafts);
       if (!result) throw new Error("还没有可发布的 Draft 变化。");
       setActiveDrawer(null);
       await refreshProposals();

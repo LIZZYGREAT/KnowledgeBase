@@ -205,7 +205,9 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
   const publish = useCallback(async () => {
     const saved = await saveNow();
     if (!saved) return null;
-    return publishDraftsBatch([saved.id]);
+    return publishDraftsBatch([
+      { draft_id: saved.id, expected_revision: saved.revision },
+    ]);
   }, [saveNow]);
 
   const openComparison = useCallback(async () => {

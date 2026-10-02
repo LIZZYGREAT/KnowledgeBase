@@ -10,6 +10,7 @@ import {
   rebaseDraft,
   updateDraft,
   type Draft,
+  type DraftPublishExpectation,
   type DraftAcquireResult,
   type DraftComparison,
   type BatchPublishedDrafts,
@@ -392,15 +393,21 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     }
   }, [id, runtimeMergeContent, session, type]);
 
-  const publish = useCallback(async (additionalDraftIds: string[] = []): Promise<PublishedDraft | BatchPublishedDrafts | null> => {
+  const publish = useCallback(async (
+    expectedRevision: number,
+    additionalDrafts: DraftPublishExpectation[] = [],
+  ): Promise<PublishedDraft | BatchPublishedDrafts | null> => {
     const activeSession = session;
     if (activeSession !== sessionRef.current) return null;
     const saved = await saveNow();
     if (activeSession !== sessionRef.current) return null;
     if (!saved) return null;
-    const result = additionalDraftIds.length
-      ? await publishDraftsBatch([...new Set([saved.id, ...additionalDraftIds])])
-      : await publishDraft(saved.id);
+    const result = additionalDrafts.length
+      ? await publishDraftsBatch([
+        { draft_id: saved.id, expected_revision: expectedRevision },
+        ...additionalDrafts,
+      ])
+      : await publishDraft(saved.id, expectedRevision);
     if (activeSession !== sessionRef.current) return null;
     canonicalContentRef.current = contentRef.current;
     lastSavedRef.current = contentRef.current;

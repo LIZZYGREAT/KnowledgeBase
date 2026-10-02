@@ -142,7 +142,7 @@ function installApiBehavior() {
     errors: conflictOnPreflight ? ["Canonical changed"] : [],
     warnings: [],
   }));
-  api.publishDraft.mockImplementation(async (id: string) => ({
+  api.publishDraft.mockImplementation(async (id: string, _expectedRevision: number) => ({
     draft_id: id,
     entity_type: "document",
     entity_id: "quick-start",
@@ -248,6 +248,36 @@ describe("Workspace React integration", () => {
     await waitFor(() => expect((publishButton as HTMLButtonElement).disabled).toBe(false));
     await user.click(publishButton);
     await waitFor(() => expect(api.publishDraft).toHaveBeenCalledOnce());
+    expect(api.publishDraft).toHaveBeenCalledWith("draft-1", 1);
+  });
+
+  it("publishes only the Draft revision captured by Publish Review", async () => {
+    const user = userEvent.setup();
+    const reviewedDraft = seedDraft(canonicalContent.replace("selected phrase", "reviewed phrase"));
+    api.publishDraft.mockImplementationOnce(async (id: string, expectedRevision: number) => {
+      const current = drafts.find((draft) => draft.id === id);
+      if (current?.revision !== expectedRevision) {
+        throw Object.assign(
+          new Error("Draft changed after review. Refresh the Publish Review before publishing."),
+          { status: 409 },
+        );
+      }
+      throw new Error("The stale revision guard should reject before publishing.");
+    });
+    renderWorkspace("edit");
+
+    await user.click(await screen.findByRole("button", { name: "发布" }));
+    await screen.findByRole("heading", { name: "变更摘要" });
+    const publishButton = await screen.findByRole("button", { name: "确认发布" });
+    await waitFor(() => expect((publishButton as HTMLButtonElement).disabled).toBe(false));
+    reviewedDraft.revision += 1;
+    reviewedDraft.content = reviewedDraft.content.replace("reviewed phrase", "later revision");
+
+    await user.click(publishButton);
+
+    await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith(reviewedDraft.id, 1));
+    await screen.findByRole("heading", { name: "版本比较" });
+    expect(screen.queryByText("发布成功")).toBeNull();
   });
 
   it("formats a Reader text selection and autosaves the Markdown source change", async () => {

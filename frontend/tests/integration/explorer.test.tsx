@@ -114,9 +114,9 @@ function installApiBehavior() {
       canonical_changed: collectionConflict,
     };
   });
-  api.publishDraftsBatch.mockImplementation(async (ids: string[]) => {
-    for (const id of ids) {
-      const draft = drafts.find((item) => item.id === id);
+  api.publishDraftsBatch.mockImplementation(async (draftsToPublish: Array<{ draft_id: string; expected_revision: number }>) => {
+    for (const expected of draftsToPublish) {
+      const draft = drafts.find((item) => item.id === expected.draft_id);
       if (draft?.entity_type === "collection") {
         const next = parse(draft.content) as Collection;
         canonical = { ...canonical, ...next };
@@ -195,7 +195,9 @@ describe("Explorer React integration", () => {
     expect(api.createDraft.mock.calls[0][2]).toContain("orphan-note");
     await user.click(await screen.findByRole("button", { name: "Publish" }));
     await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledOnce());
-    expect(api.publishDraftsBatch.mock.calls[0][0]).toEqual(["draft-1"]);
+    expect(api.publishDraftsBatch.mock.calls[0][0]).toEqual([
+      { draft_id: "draft-1", expected_revision: 1 },
+    ]);
   });
 
   it("recovers a conflicted Collection Draft by discarding it and reloading Canonical", async () => {
@@ -229,7 +231,7 @@ describe("Explorer React integration", () => {
 
     await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledOnce());
     expect(api.publishDraftsBatch.mock.calls[0][0]).toHaveLength(2);
-    expect(api.publishDraftsBatch.mock.calls[0][0]).toContain("draft-1");
-    expect(api.publishDraftsBatch.mock.calls[0][0]).toContain("draft-2");
+    expect(api.publishDraftsBatch.mock.calls[0][0].map((item) => item.draft_id)).toContain("draft-1");
+    expect(api.publishDraftsBatch.mock.calls[0][0].map((item) => item.draft_id)).toContain("draft-2");
   });
 });

@@ -186,6 +186,11 @@ export interface BatchPublishedDrafts {
   warnings: string[];
 }
 
+export interface DraftPublishExpectation {
+  draft_id: string;
+  expected_revision: number;
+}
+
 export interface PublishOutcome {
   commitRevision: string;
   warnings: string[];
@@ -417,17 +422,17 @@ export function discardDraft(draftId: string, expectedRevision: number) {
   });
 }
 
-export function publishDraft(draftId: string) {
+export function publishDraft(draftId: string, expectedRevision: number) {
   return request<PublishedDraft>("/api/publish", {
     method: "POST",
-    body: JSON.stringify({ draft_id: draftId }),
+    body: JSON.stringify({ draft_id: draftId, expected_revision: expectedRevision }),
   });
 }
 
-export function publishDraftsBatch(draftIds: string[], commitMessage?: string) {
+export function publishDraftsBatch(drafts: DraftPublishExpectation[], commitMessage?: string) {
   return request<BatchPublishedDrafts>("/api/publish/batch", {
     method: "POST",
-    body: JSON.stringify({ draft_ids: draftIds, commit_message: commitMessage }),
+    body: JSON.stringify({ drafts, commit_message: commitMessage }),
   });
 }
 

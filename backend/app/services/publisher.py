@@ -115,9 +115,14 @@ class Publisher:
         draft_id: str,
         proposal_id: Optional[str] = None,
         commit_message: Optional[str] = None,
+        expected_revision: Optional[int] = None,
     ) -> PublishedResult:
+        if expected_revision is None:
+            expected_revision = self.draft_service.get(draft_id).revision
         proposal_ids = {draft_id: proposal_id} if proposal_id is not None else None
-        result = self.publish_batch([draft_id], commit_message, proposal_ids)
+        result = self.publish_batch(
+            [draft_id], commit_message, proposal_ids, {draft_id: expected_revision}
+        )
         return result.results[0]
 
     def preflight(self, draft_id: str) -> DraftPreflightResult:
@@ -167,6 +172,7 @@ class Publisher:
         draft_ids,
         commit_message: Optional[str] = None,
         proposal_ids: Optional[dict[str, str]] = None,
+        expected_revisions: Optional[dict[str, int]] = None,
     ) -> BatchPublishedResult:
         """Validate and publish multiple Drafts in one canonical Git commit."""
         if isinstance(draft_ids, (str, bytes)) or not draft_ids:
@@ -177,11 +183,27 @@ class Publisher:
         proposal_ids = proposal_ids or {}
         if set(proposal_ids) - set(draft_ids):
             raise PublishValidationError("A Proposal may only be applied to a Draft in the batch")
+        if expected_revisions is not None and set(expected_revisions) != set(draft_ids):
+            raise PublishValidationError(
+                "Every Draft in a publish batch must include its reviewed revision"
+            )
 
         prepared = []
         target_paths = set()
         for draft_id in draft_ids:
             draft = self.draft_service.get(draft_id)
+            expected_revision = (
+                expected_revisions[draft_id]
+                if expected_revisions is not None
+                else draft.revision
+            )
+            if draft.revision != expected_revision:
+                raise PublishConflictError(
+                    "Draft changed after review. Refresh the Publish Review before publishing. "
+                    "(expected revision {}, current revision {})".format(
+                        expected_revision, draft.revision
+                    )
+                )
             content = draft.content
             proposal = None
             proposal_id = proposal_ids.get(draft.id)

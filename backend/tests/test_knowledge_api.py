@@ -665,7 +665,10 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
         api_client.app.state.repository_root
         / "knowledge/documents/learning/api-draft.md"
     ).exists()
-    published = api_client.post("/api/publish", json={"draft_id": draft["id"]})
+    published = api_client.post(
+        "/api/publish",
+        json={"draft_id": draft["id"], "expected_revision": draft["revision"]},
+    )
     assert published.status_code == 200
     assert published.json()["entity_id"] == "api-draft"
     assert "path" not in published.json()
@@ -739,7 +742,18 @@ def test_batch_publish_api_publishes_document_and_collection_in_one_commit(api_c
 
     published = api_client.post(
         "/api/publish/batch",
-        json={"draft_ids": [document.json()["draft"]["id"], collection.json()["draft"]["id"]]},
+        json={
+            "drafts": [
+                {
+                    "draft_id": document.json()["draft"]["id"],
+                    "expected_revision": document.json()["draft"]["revision"],
+                },
+                {
+                    "draft_id": collection.json()["draft"]["id"],
+                    "expected_revision": collection.json()["draft"]["revision"],
+                },
+            ]
+        },
     )
 
     assert published.status_code == 200, published.json()
@@ -758,6 +772,37 @@ def test_batch_publish_api_publishes_document_and_collection_in_one_commit(api_c
     assert api_client.get(
         "/api/drafts/{}".format(collection.json()["draft"]["id"])
     ).status_code == 404
+
+
+def test_publish_api_rejects_draft_changed_after_review(api_client):
+    created = api_client.post(
+        "/api/imports/blank-document",
+        json={"title": "Reviewed API Draft", "entity_id": "reviewed-api-draft"},
+    )
+    assert created.status_code == 201
+    reviewed = created.json()
+    changed = api_client.put(
+        "/api/drafts/{}".format(reviewed["id"]),
+        json={
+            "content": reviewed["content"].replace("# Reviewed API Draft", "# Changed API Draft"),
+            "expected_revision": reviewed["revision"],
+        },
+    )
+    assert changed.status_code == 200
+    repository = api_client.app.state.repository_root
+    target = repository / "knowledge/documents/learning/reviewed-api-draft.md"
+    current_commit = api_client.app.state.git_manager.current_revision()
+
+    stale_publish = api_client.post(
+        "/api/publish",
+        json={"draft_id": reviewed["id"], "expected_revision": reviewed["revision"]},
+    )
+
+    assert stale_publish.status_code == 409
+    assert "Refresh the Publish Review" in stale_publish.json()["detail"]
+    assert not target.exists()
+    assert api_client.app.state.git_manager.current_revision() == current_commit
+    assert api_client.get("/api/drafts/{}".format(reviewed["id"])).json()["revision"] == reviewed["revision"] + 1
 
 
 def test_browser_upload_stages_multiple_markdown_and_pdf_files(api_client):
