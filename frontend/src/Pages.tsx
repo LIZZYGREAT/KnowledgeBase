@@ -761,7 +761,7 @@ function CollectionReaderContext({
     <section className="collection-reader-context surface" aria-label="Collection 阅读位置">
       <div className="collection-reader-breadcrumbs">
         {navigation ? <>
-          <button className="text-button" onClick={() => navigate(`/explorer?collection=${encodeURIComponent(navigation.collection_id)}`)}>{navigation.collection_title}</button>
+          <span className="collection-reader-title">{navigation.collection_title}</span>
           {navigation.breadcrumbs.map((crumb, index) => <span className="collection-reader-crumb" key={`${crumb}:${index}`}>› {crumb}</span>)}
           <span className="collection-reader-current">› {currentTitle}</span>
         </> : loading ? <span>正在读取 Collection 位置…</span> : <span role="alert">{error || "Collection 位置暂不可用。"}</span>}
@@ -985,7 +985,6 @@ export function EntityPage({
 
   return (
     <div className="page-stack entity-page">
-      <div className="entity-actions"><button className="back-link" onClick={() => collectionId ? navigate(`/explorer?collection=${encodeURIComponent(collectionId)}`) : navigate(type === "term" ? "/terms" : type === "source" ? "/library?tab=sources" : "/library")}>{collectionId ? "← 返回 Collection" : `← 返回${type === "term" ? "Terms" : "Library"}`}</button></div>
       {collectionId && <CollectionReaderContext navigation={collectionNavigation.data} loading={collectionNavigation.loading} error={collectionNavigation.error} currentType={type} currentId={id} currentTitle={entity.title} navigate={navigate} />}
       <div className="entity-title-row">
         <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{entity.title}</h1><div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>

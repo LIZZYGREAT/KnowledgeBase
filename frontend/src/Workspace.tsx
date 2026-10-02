@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { WorkspaceEditingSurface } from "./WorkspaceEditing";
 import { EntityPage } from "./Pages";
 import { WorkspaceShell } from "./workspace/WorkspaceShell";
 import type { EntityType } from "./api";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
+
+const WorkspaceExplorer = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
 
 type WorkspaceMode = "read" | "edit";
 
@@ -24,6 +26,10 @@ export function WorkspacePage({
 }) {
   const [mode, setMode] = useState<WorkspaceMode>(initialMode);
 
+  useEffect(() => {
+    setMode(initialMode);
+  }, [type, id, initialMode]);
+
   function navigateFromEditor(path: string) {
     const currentEntityPath = entityWorkspaceUrl(type, id).split("?")[0];
     const target = new URL(path, window.location.origin);
@@ -39,7 +45,18 @@ export function WorkspacePage({
     navigate(path);
   }
 
-  return <WorkspaceShell type={type} id={id}>
+  return <WorkspaceShell
+    type={type}
+    id={id}
+    explorer={<Suspense fallback={<div className="workspace-explorer-loading">正在载入 Explorer…</div>}>
+      <WorkspaceExplorer
+        embedded
+        selectedEntity={{ type, id }}
+        onOpen={(entityType, entityId) => navigate(entityWorkspaceUrl(entityType, entityId))}
+        navigate={navigate}
+      />
+    </Suspense>}
+  >
     {mode === "edit"
       ? <WorkspaceEditingSurface key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} batchCollectionId={batchCollectionId} returnCollectionId={collectionId ?? batchCollectionId} />
       : <EntityPage

@@ -80,10 +80,11 @@ function readPreferences() {
   }
 }
 
-export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigate: Navigate }) {
+export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntity }: { onOpen: OpenEntity; navigate: Navigate; embedded?: boolean; selectedEntity?: { type: EntityType; id: string } }) {
   const [initialPreferences] = useState(readPreferences);
+  const routeCollectionId = new URLSearchParams(window.location.search).get("collection") || "";
   const [selectedCollectionId, setSelectedCollectionId] = useState(() =>
-    new URLSearchParams(window.location.search).get("collection") || initialPreferences.collectionId,
+    routeCollectionId || initialPreferences.collectionId,
   );
   const [expandedSections, setExpandedSections] = useState<string[] | null>(initialPreferences.expandedSections);
   const [panelWidth, setPanelWidth] = useState(initialPreferences.width);
@@ -113,6 +114,10 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
     ),
   );
   const collections: CollectionSummary[] = collectionsResource.data ?? [];
+
+  useEffect(() => {
+    if (embedded) setSelectedCollectionId(routeCollectionId || initialPreferences.collectionId);
+  }, [embedded, routeCollectionId, initialPreferences.collectionId]);
 
   useEffect(() => {
     if (!collectionsResource.data) return;
@@ -519,13 +524,13 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
   const layoutStyle = { "--explorer-width": `${panelWidth}px` } as CSSProperties;
 
   return (
-    <div className="page-stack">
-      <PageHeader
+    <div className={embedded ? "explorer-embedded" : "page-stack"}>
+      {!embedded && <PageHeader
         eyebrow="BROWSE CANONICAL KNOWLEDGE"
         title="Knowledge Explorer"
         description="按 Collection 阅读有序知识路径，也可以查看全部、未归档和最近打开的笔记。"
-      />
-      <div className="explorer-layout" style={layoutStyle}>
+      />}
+      <div className={`explorer-layout ${embedded ? "explorer-layout-embedded" : ""}`} style={layoutStyle}>
         <aside className="explorer-sidebar surface" aria-label="Knowledge Explorer navigation">
           <div className="explorer-sidebar-header">
             <span className="eyebrow">COLLECTION</span>
@@ -544,7 +549,15 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
               onChange={(event) => {
                 const nextCollectionId = event.target.value;
                 void collectionDraft.flush()
-                  .then(() => setSelectedCollectionId(nextCollectionId))
+                  .then(() => {
+                    setSelectedCollectionId(nextCollectionId);
+                    if (embedded) {
+                      const search = new URLSearchParams(window.location.search);
+                      if (nextCollectionId) search.set("collection", nextCollectionId);
+                      else search.delete("collection");
+                      navigate(`${window.location.pathname}${search.size ? `?${search}` : ""}${window.location.hash}`);
+                    }
+                  })
                   .catch((reason: unknown) => setActionError(errorMessage(reason)));
                 setView("collection");
               }}
@@ -569,6 +582,7 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
               filter={treeFilter}
               onToggle={toggleSection}
               onOpen={openCollectionEntity}
+              selectedEntity={selectedEntity}
               editMode={treeEditMode}
               onStartDrag={startNodeDrag}
               onDrop={handleDrop}
@@ -696,6 +710,7 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
 interface CollectionTreeProps {
   nodes: CollectionNode[];
   collectionId: string;
+  selectedEntity?: { type: EntityType; id: string };
   expandedSections: string[] | null;
   filter: string;
   onToggle: (sectionId: string) => void;
@@ -791,11 +806,13 @@ function EntityTreeNode({
   parentSectionId: string | null;
 }) {
   const { editMode, onDrop } = props;
+  const selected = props.selectedEntity?.type === node.entity_type && props.selectedEntity.id === node.entity_id;
   const icon = node.entity_type === "document" ? "D" : node.entity_type === "term" ? "T" : "S";
   const progressLabel = node.progress === "done" ? "继续阅读" : node.progress === "reading" ? "标为已读" : "开始阅读";
   return <li
-    className="explorer-tree-entity"
+    className={`explorer-tree-entity ${selected ? "explorer-tree-entity-selected" : ""}`}
     role="treeitem"
+    aria-current={selected ? "page" : undefined}
     draggable={editMode}
     onDragStart={(event) => props.onStartDrag(event, node)}
     onDragOver={(event) => { if (editMode) event.preventDefault(); }}

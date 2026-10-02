@@ -153,7 +153,7 @@ export default function App() {
     const collectionId = query.get("collection") ?? undefined;
     const batchCollectionId = query.get("publishAll") === "1" ? collectionId : undefined;
     const initialMode = query.get("edit") === "1" ? "edit" : "read";
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`workspace:${route.entityType}:${route.id}:${collectionId ?? ""}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} batchCollectionId={batchCollectionId} initialMode={initialMode} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} batchCollectionId={batchCollectionId} initialMode={initialMode} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;
@@ -224,7 +224,7 @@ export default function App() {
           </form>
           <div className="top-header-end"><span className="top-status-dot" /><span>私有工作区</span><button className="avatar-button" title="KnowledgeBase">KB</button></div>
         </header>
-        <div className="page-container" key={`${route.kind}:${route.path}:${location.search}`}>
+        <div className="page-container" key={route.kind === "reader" ? "reader-workspace" : `${route.kind}:${route.path}:${location.search}`}>
           {page}
         </div>
         <footer className="main-footer"><span>KnowledgeBase</span><span>Canonical knowledge stays in Markdown and YAML.</span></footer>
