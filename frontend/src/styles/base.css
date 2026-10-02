@@ -1,0 +1,36 @@
+:root {
+  font-family: "Noto Sans SC", "Segoe UI", sans-serif;
+  color: #23332d;
+  background: #f4f6f3;
+  font-synthesis: none;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 16px;
+  --text-reading: 16px;
+  --text-primary: #23332d;
+  --text-secondary: #52645a;
+  --text-muted: #6b7971;
+  --text-subtle: #7b8780;
+  text-rendering: optimizeLegibility;
+  --ink: #23332d;
+  --muted: #7e8c84;
+  --muted-dark: #596960;
+  --line: #e6ebe6;
+  --paper: #fff;
+  --green: #31745a;
+  --green-dark: #204f3d;
+  --green-soft: #e8f2ec;
+  --sidebar: #172722;
+  --sidebar-muted: #a1b1a9;
+  --shadow: 0 5px 20px rgb(30 59 44 / 4%);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: #f4f6f3; font-size: var(--text-base); line-height: 1.55; }
+button, input, select, textarea { font: inherit; }
+small { font-size: var(--text-xs); }
+button { color: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #8cbca2; outline-offset: 2px; }
+a { color: #2e7357; }

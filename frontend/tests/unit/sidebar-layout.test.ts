@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "vitest";
+import { readStyles } from "../readStyles";
 
 const app = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
-const styles = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+const styles = readStyles();
 
 test("content workspaces remember the desktop sidebar pin preference", () => {
   assert.match(app, /route\.kind === "reader" \|\| route\.kind === "new-note"/);

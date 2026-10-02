@@ -1,0 +1,58 @@
+.source-yaml-preview { min-height: 620px; margin: 0; overflow: auto; border-radius: 8px; padding: 14px; color: #4e6356; background: #f7faf7; font-family: "Cascadia Code", Consolas, monospace; font-size: var(--text-base); line-height: 1.75; white-space: pre-wrap; }
+.editor-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 11px; border: 1px solid #e8e9d4; border-radius: 9px; padding: 11px 14px; background: #fffdf5; color: #6c704e; font-size: var(--text-xs); }
+.editor-notice strong { color: #507559; }
+.success-notice { border-color: #d8eadc; background: #f3faf4; color: #54705d; }
+.error-notice { justify-content: flex-start; border-color: #edd8d4; background: #fff8f6; color: #935b53; }
+.error-notice .text-button { margin-left: auto; }
+
+.field-label { display: grid; gap: 7px; color: #4e6256; font-size: var(--text-xs); font-weight: 600; }
+.field-label input, .field-label select { width: 100%; min-height: 39px; border: 1px solid #e1e8e2; border-radius: 7px; padding: 0 11px; color: #33463a; background: #fff; font-size: var(--text-base); }
+.merge-label span { color: #929d96; font-weight: 400; }
+.merge-textarea { width: 100%; min-height: 220px; resize: vertical; border: 1px solid #e1e8e2; border-radius: 8px; padding: 12px; color: #35473d; background: #fcfdfc; font: var(--text-base)/1.65 "Cascadia Code", Consolas, monospace; }
+.ai-consent { display: flex; align-items: flex-start; gap: 8px; color: #66766c; font-size: var(--text-sm); line-height: 1.6; }
+.ai-consent input { margin: 1px 0 0; accent-color: #31745a; }
+.ai-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.selection-input { width: min(370px, 100%); min-height: 37px; border: 1px solid #e1e8e2; border-radius: 7px; padding: 0 10px; font-size: var(--text-base); }
+.proposal-message { margin: 0; color: #76867b; font-size: var(--text-sm); line-height: 1.6; }
+.proposal-list { display: grid; gap: 9px; border-top: 1px solid #edf0ed; padding-top: 12px; }
+.proposal-card { display: grid; gap: 10px; border: 1px solid #e6ebe6; border-radius: 9px; padding: 12px; background: #fbfcfb; }
+.proposal-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.proposal-card-top > div { display: grid; gap: 4px; }
+.proposal-card-top strong { color: #405449; font-size: var(--text-sm); }
+.proposal-card-top small { color: #96a198; font-size: var(--text-xs); }
+.proposal-diff, .proposal-payload { max-height: 180px; overflow: auto; margin: 0; border-radius: 6px; padding: 9px; color: #63736a; background: #f1f5f1; font: var(--text-sm)/1.6 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.proposal-card-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
+.new-note-form { display: grid; max-width: 610px; gap: 18px; padding: 22px; }
+.new-note-form .editor-main-actions { margin-top: 4px; }
+.error-copy { margin: 0; color: #a75a50; font-size: var(--text-sm); }
+.source-pdf-button { margin-left: auto; white-space: nowrap; }
+.attachment-note { flex-wrap: wrap; }
+.source-association-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.source-association-option { display: flex; min-width: 0; align-items: center; gap: 9px; border: 1px solid #e9eee9; border-radius: 7px; padding: 9px; background: #fbfcfb; cursor: pointer; }
+.source-association-option input { accent-color: #31745a; }
+.source-association-option > span { display: grid; min-width: 0; gap: 3px; }
+.source-association-option strong { overflow: hidden; color: #506257; font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.source-association-option small { color: #98a39b; font-size: var(--text-xs); }
+.draft-evidence-box { display: grid; gap: 7px; border-top: 1px solid #edf0ed; padding-top: 11px; }
+.draft-citation-row { display: grid; gap: 3px; border-left: 2px solid #afcbb5; padding: 5px 9px; }
+.draft-citation-row strong { color: #4c755a; font-family: "Cascadia Code", Consolas, monospace; font-size: var(--text-xs); }
+.draft-citation-row span { color: #5f7065; font-size: var(--text-sm); line-height: 1.5; }
+.draft-citation-row small { color: #98a39b; font-size: var(--text-xs); }
+.paperskill-form { display: grid; grid-template-columns: minmax(120px, .75fr) minmax(190px, 1.4fr) auto; align-items: end; gap: 8px; }
+.paperskill-list { display: grid; gap: 5px; }
+.paperskill-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #edf0ed; padding: 8px 1px; }
+.paperskill-row > span { display: grid; min-width: 0; gap: 3px; }
+.paperskill-row strong { color: #516458; font-size: var(--text-sm); }
+.paperskill-row small { overflow-wrap: anywhere; color: #8c9990; font-size: var(--text-xs); }
+.context-export-card { container-type: inline-size; }
+.context-export-controls { display: grid; grid-template-columns: minmax(104px, .9fr) minmax(104px, 1fr) max-content; align-items: end; gap: 7px; }
+.context-export-controls label { display: grid; min-width: 0; gap: 4px; color: #7c8a80; font-size: var(--text-xs); }
+.context-export-controls select { width: 100%; min-width: 0; height: 36px; border: 1px solid #e2e9e3; border-radius: 6px; padding: 0 7px; color: #4e6356; background: #fff; font-size: var(--text-base); }
+.context-export-controls .button { min-width: 108px; min-height: 37px; padding: 0 10px; white-space: nowrap; }
+@container (max-width: 330px) {
+  .context-export-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .context-export-controls .button { grid-column: 1 / -1; width: 100%; }
+}
+.context-export-result { display: grid; gap: 5px; border-top: 1px solid #edf0ed; padding-top: 7px; }
+.context-export-result-heading { display: flex; align-items: center; justify-content: space-between; color: #849187; font-size: var(--text-xs); }
+.context-export-result pre { max-height: 230px; overflow: auto; margin: 0; border-radius: 6px; padding: 8px; color: #596b60; background: #f5f8f5; font: var(--text-sm)/1.55 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
