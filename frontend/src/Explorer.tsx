@@ -34,6 +34,7 @@ import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft, type
 import { collectionEntityUrl, filterCollectionNodes, restoreExplorerPreferences } from "./explorerTree.js";
 import { makeDocumentId, newNoteEditorPath } from "./newNoteFlow.js";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, PageHeader } from "./ui";
+import { CollectionConflictDrawer } from "./explorer/CollectionConflictDrawer";
 import { useCollectionDraft } from "./useCollectionDraft";
 
 type Navigate = (path: string) => void;
@@ -101,6 +102,7 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
   const [copyTargetId, setCopyTargetId] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
+  const [collectionConflictOpen, setCollectionConflictOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const resizeStart = useRef<{ pointerId: number; x: number; width: number } | null>(null);
 
@@ -151,6 +153,13 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
 
   const collection = collectionResource.data;
   const collectionDraft = useCollectionDraft(collection);
+  useEffect(() => {
+    if (collectionDraft.status !== "conflict") return;
+    setCollectionConflictOpen(true);
+    if (!collectionDraft.comparison) {
+      void collectionDraft.openComparison().catch((reason: unknown) => setActionError(errorMessage(reason)));
+    }
+  }, [collectionDraft.status, collectionDraft.comparison, collectionDraft.openComparison]);
   const displayedCollection: DraftCollection | CollectionData | null = collectionDraft.collection ?? collection;
   const treeEditMode = editMode
     && displayedCollection?.status === "active"
@@ -436,6 +445,48 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
     }
   }
 
+  async function reloadCanonicalCollection() {
+    setBusy(true);
+    setActionError("");
+    try {
+      await collectionDraft.reloadCanonical();
+      setCollectionConflictOpen(false);
+      setEditMode(false);
+      setActionNotice("Draft 已丢弃，已载入当前 Canonical Collection。");
+      collectionResource.retry();
+      collectionsResource.retry();
+    } catch (reason) {
+      setActionError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function keepDraftAndRebaseCollection() {
+    setBusy(true);
+    setActionError("");
+    try {
+      await collectionDraft.applyRebase(collectionDraft.mergeContent);
+      setCollectionConflictOpen(false);
+      setEditMode(true);
+      setActionNotice("Draft 已保留并更新基线；检查合并结果后再发布。");
+    } catch (reason) {
+      setActionError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reviewCollectionConflict() {
+    setActionError("");
+    try {
+      const result = await collectionDraft.openComparison();
+      if (result) setCollectionConflictOpen(true);
+    } catch (reason) {
+      setActionError(errorMessage(reason));
+    }
+  }
+
   function toggleSection(sectionId: string) {
     if (!collection) return;
     const key = sectionKey(collection.id, sectionId);
@@ -577,6 +628,7 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
             onArchive={() => void toggleArchive()}
             onPublish={() => void publishCollectionDraft()}
             onDiscard={() => void discardCollectionDraft()}
+            onReviewConflict={() => void reviewCollectionConflict()}
           />}
           {view === "collection" ? <>
             <CollectionOverview
@@ -628,6 +680,15 @@ export function ExplorerPage({ onOpen, navigate }: { onOpen: OpenEntity; navigat
           <div className="editor-main-actions"><button className="button button-secondary" onClick={() => setCopyingEntity(null)}>取消</button><button className="button button-primary" disabled={!copyTargetId || busy} onClick={() => void copyEntityToCollection(copyTargetId, copyingEntity)}>{busy ? "正在复制…" : "复制引用"}</button></div>
         </section>
       </div>}
+      {collectionConflictOpen && collectionDraft.comparison && <CollectionConflictDrawer
+        comparison={collectionDraft.comparison}
+        mergeContent={collectionDraft.mergeContent}
+        busy={busy}
+        onMergeContentChange={collectionDraft.setMergeContent}
+        onReloadCanonical={() => void reloadCanonicalCollection()}
+        onApplyRebase={() => void keepDraftAndRebaseCollection()}
+        onClose={() => setCollectionConflictOpen(false)}
+      />}
     </div>
   );
 }
@@ -771,6 +832,7 @@ function CollectionDraftToolbar({
   onArchive,
   onPublish,
   onDiscard,
+  onReviewConflict,
 }: {
   collection: CollectionData | DraftCollection | null;
   status: string;
@@ -785,6 +847,7 @@ function CollectionDraftToolbar({
   onArchive: () => void;
   onPublish: () => void;
   onDiscard: () => void;
+  onReviewConflict: () => void;
 }) {
   if (!collection) return null;
   const archived = collection.status === "archived";
@@ -809,6 +872,7 @@ function CollectionDraftToolbar({
             <button className="button button-secondary" onClick={onNewSection} disabled={!canEdit}>New Section</button>
             <button className="button button-quiet" onClick={onArchive} disabled={busy || status === "loading" || status === "load-error" || status === "conflict"}>Archive</button>
           </>}
+        {status === "conflict" && <button className="button button-secondary" onClick={onReviewConflict} disabled={busy}>Review Conflict</button>}
         {hasChanges && <>
           <button className="button button-secondary" onClick={onDiscard} disabled={busy || status === "loading"}>Discard Draft</button>
           <button className="button button-primary" onClick={onPublish} disabled={busy || status === "loading" || status === "conflict"}>Publish</button>

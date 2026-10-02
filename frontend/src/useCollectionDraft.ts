@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createDraft,
+  compareDraft,
   discardDraft,
+  getCollection,
   listDrafts,
   publishDraftsBatch,
+  rebaseDraft,
   updateDraft,
   type BatchPublishedDrafts,
   type Collection,
   type Draft,
+  type DraftComparison,
 } from "./api";
 import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft, updateEntityProgress, type DraftCollection } from "./collectionDraftModel";
 
@@ -18,11 +22,17 @@ export interface CollectionDraftController {
   draft: Draft | null;
   status: CollectionDraftStatus;
   error: string;
+  comparison: DraftComparison | null;
+  mergeContent: string;
+  setMergeContent: (content: string) => void;
   change: (transform: (current: DraftCollection) => DraftCollection) => void;
   setProgress: (entityId: string, progress: "reading" | "done") => void;
   flush: () => Promise<Draft | null>;
   publish: () => Promise<BatchPublishedDrafts | null>;
   discard: () => Promise<void>;
+  openComparison: () => Promise<DraftComparison | null>;
+  reloadCanonical: () => Promise<void>;
+  applyRebase: (content: string) => Promise<void>;
   reset: (canonical: Collection) => void;
 }
 
@@ -31,6 +41,8 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
   const [draft, setDraft] = useState<Draft | null>(null);
   const [status, setStatus] = useState<CollectionDraftStatus>(canonical ? "loading" : "clean");
   const [error, setError] = useState("");
+  const [comparison, setComparison] = useState<DraftComparison | null>(null);
+  const [mergeContent, setMergeContent] = useState("");
   const collectionRef = useRef<DraftCollection | null>(null);
   const draftRef = useRef<Draft | null>(null);
   const canonicalRef = useRef<Collection | null>(canonical);
@@ -48,6 +60,8 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     serializedRef.current = nextDraft ? nextDraft.content : serialized;
     lastSavedRef.current = savedContent ?? (nextDraft ? nextDraft.content : serialized);
     setError("");
+    setComparison(null);
+    setMergeContent("");
     setStatus(nextDraft ? "saved" : "clean");
   }, []);
 
@@ -70,13 +84,25 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     canonicalRef.current = canonical;
     setStatus("loading");
     void listDrafts("collection", canonical.id)
-      .then((drafts) => {
+      .then(async (drafts) => {
         if (!active) return;
         const currentDraft = drafts[0] ?? null;
         const currentCollection = currentDraft
           ? parseCollectionDraft(currentDraft.content, canonical)
           : collectionToDraft(canonical);
         install(currentCollection, currentDraft);
+        if (currentDraft) {
+          const result = await compareDraft(currentDraft.id);
+          if (!active) return;
+          draftRef.current = result.draft;
+          setDraft(result.draft);
+          setComparison(result);
+          setMergeContent(currentDraft.content);
+          if (result.canonical_changed) {
+            setStatus("conflict");
+            setError("Canonical Collection 已变化。请先检查并恢复 Draft 冲突。");
+          }
+        }
       })
       .catch((reason: unknown) => {
         if (!active) return;
@@ -165,6 +191,69 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     return publishDraftsBatch([saved.id]);
   }, [saveNow]);
 
+  const openComparison = useCallback(async () => {
+    let currentDraft = draftRef.current;
+    if (serializedRef.current !== lastSavedRef.current) {
+      try {
+        currentDraft = await saveNow();
+      } catch (reason) {
+        if ((reason as { status?: number })?.status !== 409) throw reason;
+        currentDraft = draftRef.current;
+      }
+    }
+    if (!currentDraft) return null;
+    setError("");
+    try {
+      const result = await compareDraft(currentDraft.id);
+      draftRef.current = result.draft;
+      setDraft(result.draft);
+      setComparison(result);
+      setMergeContent(currentDraft.content);
+      if (result.canonical_changed) setStatus("conflict");
+      return result;
+    } catch (reason) {
+      setError(errorMessage(reason));
+      throw reason;
+    }
+  }, [saveNow]);
+
+  const reloadCanonical = useCallback(async () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    if (savePromiseRef.current) await savePromiseRef.current.catch(() => undefined);
+    const currentDraft = draftRef.current;
+    if (currentDraft) await discardDraft(currentDraft.id, currentDraft.revision);
+    const currentCanonical = canonicalRef.current;
+    if (!currentCanonical) throw new Error("当前没有可载入的 Canonical Collection。");
+    const latestCanonical = await getCollection(currentCanonical.id);
+    canonicalRef.current = latestCanonical;
+    install(collectionToDraft(latestCanonical), null);
+  }, [install]);
+
+  const applyRebase = useCallback(async (content: string) => {
+    const currentComparison = comparison;
+    const currentDraft = draftRef.current;
+    const currentCanonical = canonicalRef.current;
+    if (!currentComparison || !currentDraft || !currentCanonical) return;
+    const latestCanonical = parseCollectionDraft(currentComparison.current_content, currentCanonical);
+    const mergedCollection = parseCollectionDraft(content, latestCanonical);
+    const next = await rebaseDraft(
+      currentDraft.id,
+      content,
+      currentDraft.revision,
+      currentComparison.current_content_hash,
+    );
+    canonicalRef.current = {
+      ...currentCanonical,
+      title: latestCanonical.title,
+      description: latestCanonical.description,
+      status: latestCanonical.status,
+      position: latestCanonical.position,
+      nodes: latestCanonical.nodes,
+    };
+    install(mergedCollection, next, next.content);
+  }, [comparison, install]);
+
   const reset = useCallback((nextCanonical: Collection) => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
@@ -182,7 +271,24 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     if (currentCanonical) install(collectionToDraft(currentCanonical), null);
   }, [install]);
 
-  return { collection, draft, status, error, change, setProgress, flush, publish, discard, reset };
+  return {
+    collection,
+    draft,
+    status,
+    error,
+    comparison,
+    mergeContent,
+    setMergeContent,
+    change,
+    setProgress,
+    flush,
+    publish,
+    discard,
+    openComparison,
+    reloadCanonical,
+    applyRebase,
+    reset,
+  };
 }
 
 function errorMessage(reason: unknown) {
