@@ -15,7 +15,7 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
     proposals, publishing, activeDrawer, setActiveDrawer, publishReview, preflightBusy,
     publishedRevision, publishedOutcome, batchCollectionId, comparison, mergeContent,
     setMergeContent, saveNow, runPreflight, reloadCanonical, applyRebase, generateProposal,
-    actOnProposal, applyMetadataProposal, updateFrontmatter, updateFrontmatterList, updateSourcePdf,
+    actOnProposal, applyProposalToDraft, updateFrontmatter, updateFrontmatterList, updateSourcePdf,
     isDirty, saveState, setSelectedText,
   } = controller;
 
@@ -58,12 +58,11 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       selectedText={selectedText}
       onSelectionChange={setSelection}
       proposalError={proposalError}
-      proposals={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status))}
-      pendingCount={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status)).length}
+      proposals={proposals.filter((proposal) => ["proposed", "drafted", "approved"].includes(proposal.status))}
+      pendingCount={proposals.filter((proposal) => ["proposed", "drafted", "approved"].includes(proposal.status)).length}
       onGenerate={(task) => void generateProposal(task)}
-      onReview={(proposalId, action) => void actOnProposal(proposalId, action)}
-      onUseContent={(value) => controller.setEditorContent(value)}
-      onApplyMetadata={applyMetadataProposal}
+      onReview={(proposalId) => void actOnProposal(proposalId)}
+      onApplyToDraft={(proposalId) => void applyProposalToDraft(proposalId)}
       onClose={() => setActiveDrawer(null)}
     />}
     {activeDrawer === "publish" && <WorkspacePublishDrawer

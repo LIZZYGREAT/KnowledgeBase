@@ -9,10 +9,12 @@ from fastapi.testclient import TestClient
 
 from backend.app.db.connection import connect_database
 from backend.app.main import app
+from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.ai_client import MockDeepSeekClient
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.indexer import Indexer
+from backend.app.services.proposal_service import ProposalService
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -638,6 +640,54 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
     assert merged.status_code == 200
     assert api_client.get("/api/proposals/{}".format(proposal_id)).json()["status"] == "merged"
     assert (api_client.app.state.repository_root / "knowledge/terms/api-term.md").is_file()
+
+
+def test_apply_proposal_api_checks_draft_revision_and_publish_closes_proposal(api_client):
+    base = _document_content("apply-target", "Before Apply")
+    candidate = _document_content("apply-target", "Applied Candidate")
+    draft_response = api_client.post(
+        "/api/drafts",
+        json={"entity_type": "document", "entity_id": "apply-target", "content": base},
+    )
+    assert draft_response.status_code == 201, draft_response.json()
+    draft = draft_response.json()["draft"]
+    proposal_connection = connect_database(api_client.app.state.database_path)
+    try:
+        proposal = ProposalService(ProposalRepository(proposal_connection)).create(
+            "document",
+            "apply-target",
+            "document_revision",
+            hashlib.sha256(base.encode("utf-8")).hexdigest(),
+            {"draft_id": draft["id"], "content": candidate},
+            "ai",
+        )
+    finally:
+        proposal_connection.close()
+    path = "/api/proposals/{}/apply".format(proposal.id)
+
+    stale_revision = api_client.post(
+        path,
+        json={"draft_id": draft["id"], "expected_draft_revision": 2},
+    )
+    assert stale_revision.status_code == 409
+    assert api_client.get("/api/proposals/{}".format(proposal.id)).json()["status"] == "proposed"
+    assert api_client.get("/api/drafts/{}".format(draft["id"])).json()["content"] == base
+
+    applied = api_client.post(
+        path,
+        json={"draft_id": draft["id"], "expected_draft_revision": 1},
+    )
+    assert applied.status_code == 200, applied.json()
+    assert applied.json()["proposal"]["status"] == "drafted"
+    assert applied.json()["draft"]["revision"] == 2
+    assert applied.json()["draft"]["content"] == candidate
+
+    published = api_client.post(
+        "/api/publish",
+        json={"draft_id": draft["id"], "expected_revision": 2},
+    )
+    assert published.status_code == 200, published.json()
+    assert api_client.get("/api/proposals/{}".format(proposal.id)).json()["status"] == "merged"
 
 
 def test_draft_publish_usage_and_import_routes(api_client, tmp_path):

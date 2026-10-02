@@ -2,13 +2,16 @@
 
 from datetime import datetime, timezone
 from difflib import unified_diff
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import hashlib
 import re
 import uuid
 
+import yaml
+
 from backend.app.domain.runtime import (
     CandidateType,
+    Draft,
     ProposalTargetType,
     Proposal,
     ProposalKind,
@@ -20,6 +23,8 @@ from backend.app.repositories.proposal_repository import (
     ProposalRepository,
     ProposalTransitionError,
 )
+from backend.app.repositories.draft_repository import DraftRevisionConflict
+from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.resolution import normalize_key
 
 
@@ -111,7 +116,7 @@ class ProposalService:
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[Proposal]:
+    ) -> List[Proposal]:
         if target_type is not None and target_type not in _ENTITY_TYPES:
             raise ValueError("Unsupported Proposal target type: {}".format(target_type))
         if kind is not None and kind not in _PROPOSAL_KINDS:
@@ -137,6 +142,47 @@ class ProposalService:
         if not isinstance(payload, dict):
             raise ValueError("Proposal payload must be a JSON object")
         return self.repository.update_draft(proposal_id, payload, diff_text)
+
+    def apply_to_draft(
+        self, proposal_id: str, draft: Draft, expected_revision: int
+    ) -> tuple[Proposal, Draft]:
+        if draft.revision != expected_revision:
+            raise DraftRevisionConflict(expected_revision, draft.revision)
+        current_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
+        proposal = self._require_current_base(proposal_id, current_hash)
+        if proposal.status not in {"proposed", "drafted", "approved"}:
+            raise ProposalTransitionError(
+                "Cannot apply a Proposal in '{}' status".format(proposal.status)
+            )
+        if (
+            proposal.target_type != draft.entity_type
+            or proposal.target_id != draft.entity_id
+            or proposal.payload.get("draft_id") != draft.id
+        ):
+            raise ValueError("Proposal target does not match its Draft")
+
+        content = _apply_candidate_content(proposal, draft)
+        applied_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        return self.repository.apply_to_draft(
+            proposal.id,
+            draft.id,
+            expected_revision,
+            content,
+            applied_hash,
+            _utc_now(),
+        )
+
+    def finalize_draft_publish(
+        self, draft: Draft, published_content: str
+    ) -> List[Proposal]:
+        published_hash = hashlib.sha256(published_content.encode("utf-8")).hexdigest()
+        return self.repository.finalize_draft_publish(
+            draft.id,
+            draft.entity_type,
+            draft.entity_id,
+            published_hash,
+            _utc_now(),
+        )
 
     def approve(
         self,
@@ -291,6 +337,40 @@ def build_unified_diff(before: str, after: str) -> str:
             tofile="proposal",
         )
     )
+
+
+def _apply_candidate_content(proposal: Proposal, draft: Draft) -> str:
+    content = proposal.payload.get("content")
+    if isinstance(content, str):
+        return content
+
+    result = proposal.payload.get("result")
+    changes = result.get("changes") if isinstance(result, dict) else None
+    if proposal.kind != "metadata" or not isinstance(changes, dict) or not changes:
+        raise ValueError("Proposal does not contain content or applicable metadata changes")
+    if draft.entity_type not in {"document", "term"}:
+        raise ValueError("Metadata Proposal can only be applied to a Markdown Draft")
+
+    parsed = parse_markdown(draft.content)
+    if parsed.frontmatter is None or parsed.frontmatter_end_line is None:
+        raise ValueError("Draft must have valid YAML frontmatter before applying metadata")
+    metadata = dict(parsed.frontmatter)
+    allowed_fields = {"title", "domains", "topics", "tags", "sources"}
+    for field, value in changes.items():
+        if field == "type":
+            if value != metadata.get("type"):
+                raise ValueError("A metadata Proposal cannot change the canonical Document type")
+            continue
+        if field not in allowed_fields:
+            raise ValueError("Unsupported metadata Proposal field: {}".format(field))
+        metadata[field] = value
+
+    lines = draft.content.splitlines(keepends=True)
+    body = "".join(lines[parsed.frontmatter_end_line :])
+    frontmatter = yaml.safe_dump(
+        metadata, allow_unicode=True, sort_keys=False, default_flow_style=False
+    )
+    return "---\n{}---\n{}".format(frontmatter, body)
 
 
 def _require_text(value: str, field: str) -> None:

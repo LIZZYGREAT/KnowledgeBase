@@ -43,12 +43,12 @@ export function WorkspaceSelectionAIDrawer({
     }
   }
 
-  async function markProposal(action: "approve" | "reject") {
+  async function rejectProposal() {
     if (!proposal) return;
     setBusy(true);
     setError("");
     try {
-      setProposal(await reviewProposal(proposal.id, action));
+      setProposal(await reviewProposal(proposal.id, "reject"));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法更新 Proposal 状态。");
     } finally {
@@ -56,16 +56,24 @@ export function WorkspaceSelectionAIDrawer({
     }
   }
 
-  function useCandidateContent() {
-    const content = proposal?.payload.content;
-    if (typeof content !== "string") return;
-    workspaceDraft.updateContent(content);
-    setNotice("候选内容已载入 Draft；请检查后再发布。");
+  async function applyCandidate() {
+    if (!proposal) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await workspaceDraft.applyProposalToDraft(proposal.id);
+      setProposal(result.proposal);
+      setNotice("候选已写入 Draft；发布前仍可继续编辑和检查。");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法将 Proposal 应用到 Draft。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return <WorkspaceDrawer
     title="审阅选中文字"
-    description="选区会作为 selection 直接发送。AI 输出只保存为 Proposal，不会自动修改或发布知识内容。"
+    description="选区会作为 selection 直接发送。AI 输出先保存为 Proposal；Apply to Draft 后仍需检查并单独发布。"
     onClose={onClose}
   >
     <section className="drawer-section workspace-selection-ai-drawer">
@@ -78,10 +86,10 @@ export function WorkspaceSelectionAIDrawer({
         <div className="proposal-card-top"><div><strong>Selection Review</strong><small>{proposal.provider ?? proposal.created_by} · {proposal.status}</small></div><span className="chip chip-amber">Proposal</span></div>
         {proposal.diff_text && <pre className="proposal-diff">{proposal.diff_text}</pre>}
         <pre className="proposal-payload">{JSON.stringify(proposal.payload.result ?? proposal.payload, null, 2)}</pre>
+        {typeof proposal.payload.applied_content_hash === "string" && <p className="proposal-message" role="status">已写入当前 Draft；完成检查后发布，Proposal 会随最终内容结算。</p>}
         <div className="proposal-card-actions">
-          {typeof proposal.payload.content === "string" && <button className="button button-secondary" type="button" onClick={useCandidateContent}>将候选内容载入 Draft</button>}
-          <button className="button button-secondary" type="button" disabled={busy} onClick={() => void markProposal("reject")}>拒绝</button>
-          <button className="button button-primary" type="button" disabled={busy} onClick={() => void markProposal("approve")}>标记已审阅</button>
+          {typeof proposal.payload.content === "string" && typeof proposal.payload.applied_content_hash !== "string" && <button className="button button-primary" type="button" disabled={busy} onClick={() => void applyCandidate()}>Apply to Draft</button>}
+          {typeof proposal.payload.applied_content_hash !== "string" && <button className="button button-secondary" type="button" disabled={busy} onClick={() => void rejectProposal()}>拒绝</button>}
         </div>
       </article>}
     </section>

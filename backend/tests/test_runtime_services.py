@@ -188,6 +188,64 @@ def test_proposal_draft_approve_assert_and_merge_follow_state_machine(runtime_co
     assert merged.review_note == "reviewed"
 
 
+def test_apply_proposal_updates_draft_and_proposal_in_one_lifecycle(runtime_connection):
+    drafts = DraftService(DraftRepository(runtime_connection))
+    proposals = ProposalService(ProposalRepository(runtime_connection))
+    base_content = "# Before\n"
+    candidate = "# Candidate\n"
+    draft = drafts.create(
+        "document", "note", base_content, "rev-a", hashlib.sha256(b"canonical").hexdigest()
+    )
+    proposal = proposals.create(
+        "document",
+        "note",
+        "document_revision",
+        hashlib.sha256(base_content.encode("utf-8")).hexdigest(),
+        {"draft_id": draft.id, "content": candidate},
+        "ai",
+    )
+
+    applied_proposal, applied_draft = proposals.apply_to_draft(
+        proposal.id, draft, expected_revision=1
+    )
+
+    assert applied_proposal.status == "drafted"
+    assert applied_proposal.payload["applied_content_hash"] == hashlib.sha256(
+        candidate.encode("utf-8")
+    ).hexdigest()
+    assert applied_draft.content == candidate
+    assert applied_draft.revision == 2
+
+
+def test_metadata_proposal_applies_changes_without_replacing_markdown_body(runtime_connection):
+    drafts = DraftService(DraftRepository(runtime_connection))
+    proposals = ProposalService(ProposalRepository(runtime_connection))
+    base_content = (
+        "---\nschema_version: 1\nid: note\ntitle: Before\ntype: learning-note\n"
+        "domains: []\ntopics: []\ntags: []\nsources: []\n---\n# Body\n\nKeep this text.\n"
+    )
+    draft = drafts.create(
+        "document", "note", base_content, "rev-a", hashlib.sha256(b"canonical").hexdigest()
+    )
+    proposal = proposals.create(
+        "document",
+        "note",
+        "metadata",
+        hashlib.sha256(base_content.encode("utf-8")).hexdigest(),
+        {"draft_id": draft.id, "result": {"changes": {"title": "After", "tags": ["reviewed"]}}},
+        "ai",
+    )
+
+    applied_proposal, applied_draft = proposals.apply_to_draft(
+        proposal.id, draft, expected_revision=1
+    )
+
+    assert applied_proposal.status == "drafted"
+    assert "title: After" in applied_draft.content
+    assert "reviewed" in applied_draft.content
+    assert applied_draft.content.endswith("# Body\n\nKeep this text.\n")
+
+
 def test_approved_proposal_cannot_be_rejected_after_merge(runtime_connection):
     service = ProposalService(ProposalRepository(runtime_connection))
     proposal = service.create(

@@ -313,6 +313,15 @@ class Publisher:
                     post_publish_warnings.append(
                         "Proposal status update failed after commit: {}".format(error)
                     )
+            elif self.proposal_service is not None:
+                try:
+                    self.proposal_service.finalize_draft_publish(
+                        draft, item["content"]
+                    )
+                except Exception as error:
+                    post_publish_warnings.append(
+                        "Proposal status update failed after commit: {}".format(error)
+                    )
 
         for item in prepared:
             try:

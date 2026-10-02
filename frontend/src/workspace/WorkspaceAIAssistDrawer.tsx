@@ -7,8 +7,7 @@ export type ProposalTask = "document-review" | "metadata-suggest" | "selection-r
 
 export function WorkspaceAIAssistDrawer({
   type, consent, onConsentChange, busy, selection, selectedText, onSelectionChange,
-  proposalError, proposals, pendingCount, onGenerate, onReview, onUseContent,
-  onApplyMetadata, onClose,
+  proposalError, proposals, pendingCount, onGenerate, onReview, onApplyToDraft, onClose,
 }: {
   type: EntityType;
   consent: boolean;
@@ -21,12 +20,11 @@ export function WorkspaceAIAssistDrawer({
   proposals: Proposal[];
   pendingCount: number;
   onGenerate: (task: ProposalTask) => void;
-  onReview: (id: string, action: "approve" | "reject") => void;
-  onUseContent: (content: string) => void;
-  onApplyMetadata: (proposal: Proposal) => void;
+  onReview: (id: string) => void;
+  onApplyToDraft: (id: string) => void;
   onClose: () => void;
 }) {
-  return <WorkspaceDrawer title="AI 辅助审阅" description="AI 输出保存为 Proposal；它不会自动修改 Draft 或正式内容。" onClose={onClose}>
+  return <WorkspaceDrawer title="AI 辅助审阅" description="AI 输出先保存为 Proposal。只有选择 Apply to Draft 后才会写入当前 Draft，正式内容仍需单独发布。" onClose={onClose}>
     <div className="drawer-section"><Chip>需人工审阅</Chip>
       <label className="ai-consent"><input type="checkbox" checked={consent} onChange={(event) => onConsentChange(event.target.checked)} /><span>我同意将此 Draft 和完成任务所需的注册表上下文发送给 DeepSeek。</span></label>
       <div className="ai-actions">
@@ -38,7 +36,7 @@ export function WorkspaceAIAssistDrawer({
       {proposalError && <p className="proposal-message" role="status">{proposalError}</p>}
       <div className="proposal-list">
         <div className="context-card-heading"><strong>此内容的 Proposals</strong><small>{pendingCount} 条等待处理</small></div>
-        {proposals.length ? proposals.map((proposal) => <WorkspaceProposalCard key={proposal.id} proposal={proposal} onReview={onReview} onUseContent={onUseContent} onApplyMetadata={onApplyMetadata} />) : <p className="subtle-copy">目前没有等待处理的 Proposal。</p>}
+        {proposals.length ? proposals.map((proposal) => <WorkspaceProposalCard key={proposal.id} proposal={proposal} busy={busy} onReview={onReview} onApplyToDraft={onApplyToDraft} />) : <p className="subtle-copy">目前没有等待处理的 Proposal。</p>}
       </div>
     </div>
   </WorkspaceDrawer>;

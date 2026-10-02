@@ -629,6 +629,42 @@ def test_proposal_becomes_stale_when_its_draft_changes(publish_context):
     assert proposals.get(proposal.id).status == "stale"
 
 
+@pytest.mark.parametrize(
+    ("edit_after_apply", "expected_status"),
+    [(False, "merged"), (True, "stale")],
+)
+def test_applied_proposal_closes_when_its_draft_is_published(
+    publish_context, edit_after_apply, expected_status
+):
+    repository, _, drafts, proposals, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/applied-proposal.md"
+    base = _document("applied-proposal", title="Before")
+    candidate = _document("applied-proposal", title="Candidate")
+    draft = _create_draft(
+        drafts, git, "document", "applied-proposal", base, target
+    )
+    proposal = proposals.create(
+        "document",
+        "applied-proposal",
+        "document_revision",
+        hashlib.sha256(base.encode("utf-8")).hexdigest(),
+        {"draft_id": draft.id, "content": candidate},
+        "ai",
+    )
+    _, applied_draft = proposals.apply_to_draft(proposal.id, draft, 1)
+
+    if edit_after_apply:
+        applied_draft = drafts.save(
+            applied_draft.id,
+            _document("applied-proposal", title="Manual Edit"),
+            expected_revision=applied_draft.revision,
+        )
+    publisher.publish(applied_draft.id, expected_revision=applied_draft.revision)
+
+    assert proposals.get(proposal.id).status == expected_status
+
+
 def test_restore_creates_a_new_commit_and_preserves_published_history(publish_context):
     repository, _, drafts, _, publisher = publish_context
     git = GitManager(repository)

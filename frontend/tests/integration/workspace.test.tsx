@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspacePage } from "../../src/Workspace";
-import type { Draft, EntityDetail, PresentationAnnotation } from "../../src/api";
+import type { Draft, EntityDetail, PresentationAnnotation, Proposal } from "../../src/api";
 
 const api = vi.hoisted(() => ({
   getEntity: vi.fn(),
@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   createPresentationAnnotation: vi.fn(),
   deletePresentationAnnotation: vi.fn(),
   requestAIProposal: vi.fn(),
+  applyProposalToDraft: vi.fn(),
   reviewProposal: vi.fn(),
 }));
 
@@ -50,6 +51,7 @@ const canonicalContent = [
 ].join("\n");
 
 let drafts: Draft[];
+let proposals: Proposal[];
 let annotations: PresentationAnnotation[];
 let draftSequence: number;
 let conflictOnPreflight: boolean;
@@ -163,7 +165,7 @@ function installApiBehavior() {
     warnings: [],
   }));
   api.publishDraftsBatch.mockResolvedValue({ results: [], commit_revision: "batch-revision", warnings: [] });
-  api.listProposals.mockResolvedValue([]);
+  api.listProposals.mockImplementation(async () => proposals);
   api.listAllEntities.mockResolvedValue([]);
   api.recordDocumentOpen.mockResolvedValue(undefined);
   api.listPresentationAnnotations.mockImplementation(async () => annotations);
@@ -178,8 +180,8 @@ function installApiBehavior() {
     return annotation;
   });
   api.deletePresentationAnnotation.mockResolvedValue(undefined);
-  api.requestAIProposal.mockResolvedValue({
-    proposal: {
+  api.requestAIProposal.mockImplementation(async () => {
+    const proposal: Proposal = {
       id: "proposal-selection",
       target_type: "document",
       target_id: "quick-start",
@@ -194,10 +196,34 @@ function installApiBehavior() {
       created_at: "2026-10-02T00:00:00Z",
       reviewed_at: null,
       review_note: null,
-    },
-    external_provider_notice: "Selection sent for review.",
+    };
+    proposals = [...proposals, proposal];
+    return { proposal, external_provider_notice: "Selection sent for review." };
   });
-  api.reviewProposal.mockResolvedValue(undefined);
+  api.applyProposalToDraft.mockImplementation(async (proposalId: string, draftId: string, revision: number) => {
+    const draft = drafts.find((item) => item.id === draftId);
+    if (!draft) throw new Error("Draft not found");
+    if (draft.revision !== revision) throw Object.assign(new Error("Draft revision conflict"), { status: 409 });
+    const proposal = proposals.find((item) => item.id === proposalId);
+    if (!proposal) throw new Error("Proposal not found");
+    const content = proposal.payload.content;
+    if (typeof content !== "string") throw new Error("Proposal has no content candidate");
+    Object.assign(draft, { content, revision: revision + 1 });
+    const applied = {
+      ...proposal,
+      status: "drafted",
+      payload: { ...proposal.payload, applied_content_hash: "candidate-hash" },
+    };
+    proposals = proposals.map((item) => item.id === proposalId ? applied : item);
+    return { draft: { ...draft }, proposal: applied };
+  });
+  api.reviewProposal.mockImplementation(async (proposalId: string) => {
+    const updated = proposals.find((item) => item.id === proposalId);
+    if (!updated) throw new Error("Proposal not found");
+    const rejected = { ...updated, status: "rejected" };
+    proposals = proposals.map((item) => item.id === proposalId ? rejected : item);
+    return rejected;
+  });
 }
 
 function renderWorkspace(id = "quick-start") {
@@ -290,6 +316,7 @@ function selectAcrossReaderBlocks(container: HTMLElement) {
 describe("Workspace React integration", () => {
   beforeEach(() => {
     drafts = [];
+    proposals = [];
     annotations = [];
     draftSequence = 0;
     conflictOnPreflight = false;
@@ -345,6 +372,46 @@ describe("Workspace React integration", () => {
 
     await screen.findByRole("heading", { name: "AI 辅助审阅" });
     expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
+  });
+
+  it("applies a content Proposal to the saved Draft and advances its revision", async () => {
+    const user = userEvent.setup();
+    const candidate = canonicalContent.replace("selected phrase", "AI candidate");
+    api.requestAIProposal.mockImplementationOnce(async () => {
+      const proposal: Proposal = {
+        id: "proposal-content",
+        target_type: "document",
+        target_id: "quick-start",
+        kind: "document_revision",
+        status: "proposed",
+        base_content_hash: "draft-hash",
+        payload: { draft_id: "draft-1", content: candidate },
+        diff_text: "candidate diff",
+        created_by: "ai",
+        provider: "mock",
+        model: "mock",
+        created_at: "2026-10-02T00:00:00Z",
+        reviewed_at: null,
+        review_note: null,
+      };
+      proposals = [proposal];
+      return { proposal, external_provider_notice: "Candidate ready." };
+    });
+    renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await user.click(screen.getByRole("button", { name: "AI 审阅" }));
+    await user.click(screen.getByRole("checkbox", { name: /我同意/ }));
+    await user.click(screen.getByRole("button", { name: "文档审阅" }));
+    await screen.findByText("candidate diff");
+
+    await user.click(screen.getByRole("button", { name: "Apply to Draft" }));
+
+    await waitFor(() => expect(api.applyProposalToDraft).toHaveBeenCalledWith(
+      "proposal-content", "draft-1", 1,
+    ));
+    expect(drafts[0].content).toBe(candidate);
+    expect(drafts[0].revision).toBe(2);
+    expect(screen.getByText(/候选已写入 Draft/)).toBeTruthy();
   });
 
   it("opens and confirms Publish Review directly from the Reader", async () => {

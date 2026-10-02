@@ -3,6 +3,7 @@ import {
   compareDraft,
   createDraft,
   discardDraft,
+  applyProposalToDraft as applyProposalToDraftRequest,
   getEntity,
   listDrafts,
   publishDraft,
@@ -333,6 +334,25 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     return created;
   }, [id, saveNow, session, type]);
 
+  const applyProposalToDraft = useCallback(async (proposalId: string) => {
+    const activeSession = session;
+    if (activeSession !== sessionRef.current) throw new Error("Workspace 已切换到其他实体。");
+    const saved = await saveNow();
+    if (activeSession !== sessionRef.current) throw new Error("Workspace 已切换到其他实体。");
+    if (!saved) throw new Error("请先创建此实体的 Draft，再应用 Proposal。");
+    const result = await applyProposalToDraftRequest(
+      proposalId,
+      saved.id,
+      saved.revision,
+    );
+    if (activeSession !== sessionRef.current) throw new Error("Workspace 已切换到其他实体。");
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    installDraft(result.draft, true);
+    setError("");
+    return result;
+  }, [installDraft, saveNow, session]);
+
   const reloadExistingDraft = useCallback(async () => {
     const activeSession = session;
     if (activeSession !== sessionRef.current) return;
@@ -457,6 +477,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     discard,
     publish,
     ensureDraft,
+    applyProposalToDraft,
     reloadExistingDraft,
     applyRuntimeMerge,
   };

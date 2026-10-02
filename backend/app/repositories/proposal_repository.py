@@ -1,11 +1,13 @@
 """SQLite persistence for Proposals and rejected candidates."""
 
+import hashlib
 import json
 import sqlite3
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 import uuid
 
-from backend.app.domain.runtime import CandidateType, Proposal, ProposalStatus, RejectedCandidate
+from backend.app.domain.runtime import CandidateType, Draft, Proposal, ProposalStatus, RejectedCandidate
+from backend.app.repositories.draft_repository import DraftNotFoundError, DraftRevisionConflict
 
 
 class ProposalNotFoundError(LookupError):
@@ -64,7 +66,7 @@ class ProposalRepository:
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[Proposal]:
+    ) -> List[Proposal]:
         filters = {
             "target_type": target_type,
             "target_id": target_id,
@@ -104,6 +106,159 @@ class ProposalRepository:
                 "Cannot draft a Proposal in '{}' status".format(proposal.status)
             )
         return self.get(proposal_id)
+
+    def apply_to_draft(
+        self,
+        proposal_id: str,
+        draft_id: str,
+        expected_revision: int,
+        content: str,
+        applied_content_hash: str,
+        updated_at: str,
+    ) -> tuple[Proposal, Draft]:
+        """Update a Draft and its Proposal state as one Runtime transaction."""
+        with self.connection:
+            draft_row = self.connection.execute(
+                "SELECT * FROM drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+            if draft_row is None:
+                raise DraftNotFoundError("Draft '{}' does not exist".format(draft_id))
+
+            proposal_row = self.connection.execute(
+                "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
+            ).fetchone()
+            if proposal_row is None:
+                raise ProposalNotFoundError(
+                    "Proposal '{}' does not exist".format(proposal_id)
+                )
+            proposal = _proposal_from_row(proposal_row)
+            if (
+                proposal.target_type != draft_row["entity_type"]
+                or proposal.target_id != draft_row["entity_id"]
+                or proposal.payload.get("draft_id") != draft_id
+            ):
+                raise ValueError("Proposal target does not match its Draft")
+            if proposal.status not in {"proposed", "drafted", "approved"}:
+                raise ProposalTransitionError(
+                    "Cannot apply a Proposal in '{}' status".format(proposal.status)
+                )
+            if draft_row["revision"] != expected_revision:
+                raise DraftRevisionConflict(expected_revision, draft_row["revision"])
+
+            cursor = self.connection.execute(
+                """UPDATE drafts
+                   SET content = ?, revision = revision + 1, updated_at = ?
+                   WHERE id = ? AND revision = ?""",
+                (content, updated_at, draft_id, expected_revision),
+            )
+            if cursor.rowcount != 1:
+                current = self.connection.execute(
+                    "SELECT revision FROM drafts WHERE id = ?", (draft_id,)
+                ).fetchone()
+                if current is None:
+                    raise DraftNotFoundError("Draft '{}' does not exist".format(draft_id))
+                raise DraftRevisionConflict(expected_revision, current["revision"])
+
+            payload = dict(proposal.payload)
+            payload["applied_content_hash"] = applied_content_hash
+            payload_json = json.dumps(
+                payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+            expected_payload_json = json.dumps(
+                proposal.payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            cursor = self.connection.execute(
+                """UPDATE proposals
+                   SET status = 'drafted', payload_json = ?, reviewed_at = ?,
+                       review_note = ?
+                   WHERE id = ? AND status = ? AND payload_json = ?""",
+                (
+                    payload_json,
+                    updated_at,
+                    "Applied to Draft",
+                    proposal_id,
+                    proposal.status,
+                    expected_payload_json,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ProposalTransitionError(
+                    "Proposal changed while it was being applied"
+                )
+
+            updated_draft_row = self.connection.execute(
+                "SELECT * FROM drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+            updated_proposal_row = self.connection.execute(
+                "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
+            ).fetchone()
+        return _proposal_from_row(updated_proposal_row), _draft_from_row(updated_draft_row)
+
+    def finalize_draft_publish(
+        self,
+        draft_id: str,
+        entity_type: str,
+        entity_id: str,
+        published_content_hash: str,
+        reviewed_at: str,
+    ) -> List[Proposal]:
+        """Close active proposals tied to a Draft after its canonical publish."""
+        active_statuses = ("proposed", "drafted", "approved")
+        placeholders = ", ".join("?" for _ in active_statuses)
+        finalized = []
+        with self.connection:
+            rows = self.connection.execute(
+                """SELECT * FROM proposals
+                   WHERE target_type = ? AND target_id = ?
+                     AND status IN ({})""".format(placeholders),
+                [entity_type, entity_id, *active_statuses],
+            ).fetchall()
+            for row in rows:
+                proposal = _proposal_from_row(row)
+                if proposal.payload.get("draft_id") != draft_id:
+                    continue
+                candidate_hash = proposal.payload.get("applied_content_hash")
+                candidate_content = proposal.payload.get("content")
+                if (
+                    candidate_hash != published_content_hash
+                    and isinstance(candidate_content, str)
+                ):
+                    candidate_hash = hashlib.sha256(
+                        candidate_content.encode("utf-8")
+                    ).hexdigest()
+                status: ProposalStatus = (
+                    "merged" if candidate_hash == published_content_hash else "stale"
+                )
+                note = (
+                    "Proposal candidate was published."
+                    if status == "merged"
+                    else "Draft was published with content different from this Proposal candidate."
+                )
+                cursor = self.connection.execute(
+                    """UPDATE proposals
+                       SET status = ?, reviewed_at = ?, review_note = ?
+                       WHERE id = ? AND status = ? AND payload_json = ?""",
+                    (
+                        status,
+                        reviewed_at,
+                        note,
+                        proposal.id,
+                        proposal.status,
+                        row["payload_json"],
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ProposalTransitionError(
+                        "Proposal changed while Draft publish was being finalized"
+                    )
+                updated = self.connection.execute(
+                    "SELECT * FROM proposals WHERE id = ?", (proposal.id,)
+                ).fetchone()
+                finalized.append(_proposal_from_row(updated))
+        return finalized
 
     def transition(
         self,
@@ -215,6 +370,20 @@ def _proposal_from_row(row: sqlite3.Row) -> Proposal:
         created_at=row["created_at"],
         reviewed_at=row["reviewed_at"],
         review_note=row["review_note"],
+    )
+
+
+def _draft_from_row(row: sqlite3.Row) -> Draft:
+    return Draft(
+        id=row["id"],
+        entity_type=row["entity_type"],
+        entity_id=row["entity_id"],
+        base_git_revision=row["base_git_revision"],
+        base_content_hash=row["base_content_hash"],
+        content=row["content"],
+        revision=row["revision"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 

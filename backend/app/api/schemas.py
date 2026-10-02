@@ -205,6 +205,16 @@ class ProposalReviewRequest(APIModel):
     scope: str = "global"
 
 
+class ProposalApplyRequest(APIModel):
+    draft_id: NonEmptyText
+    expected_draft_revision: int = Field(ge=1)
+
+
+class ProposalApplyView(APIModel):
+    proposal: ProposalView
+    draft: DraftView
+
+
 class PublishRequest(APIModel):
     draft_id: str
     expected_revision: int = Field(ge=1)

@@ -137,6 +137,11 @@ export interface Proposal {
   review_note: string | null;
 }
 
+export interface ProposalApplyResult {
+  proposal: Proposal;
+  draft: Draft;
+}
+
 export interface Draft {
   id: string;
   entity_type: DraftEntityType;
@@ -472,6 +477,20 @@ export function reviewProposal(proposalId: string, action: "approve" | "reject")
   return request<Proposal>(`/api/proposals/${encodeURIComponent(proposalId)}/${action}`, {
     method: "POST",
     body: JSON.stringify(action === "reject" ? { review_note: "用户拒绝此 Proposal" } : {}),
+  });
+}
+
+export function applyProposalToDraft(
+  proposalId: string,
+  draftId: string,
+  expectedDraftRevision: number,
+) {
+  return request<ProposalApplyResult>(`/api/proposals/${encodeURIComponent(proposalId)}/apply`, {
+    method: "POST",
+    body: JSON.stringify({
+      draft_id: draftId,
+      expected_draft_revision: expectedDraftRevision,
+    }),
   });
 }
 

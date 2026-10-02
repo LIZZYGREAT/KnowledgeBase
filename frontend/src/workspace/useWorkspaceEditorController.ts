@@ -8,7 +8,7 @@ import {
 import { removeCollectionNode } from "../collectionEditing.js";
 import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel.js";
 import { findEntityNodeId } from "../explorer/explorerModel.js";
-import { patchYamlField, readFrontmatterField } from "../metadataDraft.js";
+import { patchYamlField } from "../metadataDraft.js";
 import type { PublishReviewItem } from "../publishReview.js";
 import type { WorkspaceEditorContext } from "./WorkspaceEditorTypes";
 import { entityWorkspaceUrl } from "../workspaceRoute.js";
@@ -244,39 +244,30 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
     }
   }
 
-  async function actOnProposal(proposalId: string, action: "approve" | "reject") {
+  async function actOnProposal(proposalId: string) {
+    setProposalBusy(true);
+    setProposalError("");
     try {
-      await reviewProposal(proposalId, action);
+      await reviewProposal(proposalId, "reject");
       await refreshProposals();
     } catch (error) {
       setProposalError(errorMessage(error));
+    } finally {
+      setProposalBusy(false);
     }
   }
 
-  function applyMetadataProposal(proposal: Proposal) {
-    const result = proposal.payload.result;
-    const changes = result && typeof result === "object"
-      ? (result as Record<string, unknown>).changes
-      : null;
-    if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
-      setProposalError("此 Metadata Proposal 没有可应用的字段。");
-      return;
-    }
-    let next = workspaceDraft.getCurrentContent();
-    let skippedDocumentType = false;
+  async function applyProposalToDraft(proposalId: string) {
+    setProposalBusy(true);
+    setProposalError("");
     try {
-      for (const [key, value] of Object.entries(changes as Record<string, unknown>)) {
-        if (!["title", "type", "domains", "topics", "tags", "sources"].includes(key)) continue;
-        if (key === "type" && value !== readFrontmatterField(next, type, "type")) {
-          skippedDocumentType = true;
-          continue;
-        }
-        next = patchYamlField(next, type, key, value);
-      }
-      setEditorContent(next);
-      setProposalError(skippedDocumentType ? "建议中的 Document 类型与现有 Canonical 路径不同，已跳过该字段。" : "");
+      await workspaceDraft.applyProposalToDraft(proposalId);
+      await refreshProposals();
+      setProposalError("候选已写入 Draft；发布前仍可继续编辑和检查。");
     } catch (error) {
       setProposalError(errorMessage(error));
+    } finally {
+      setProposalBusy(false);
     }
   }
 
@@ -318,7 +309,7 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
     consent, setConsent, selection, setSelection, selectedText, setSelectedText,
     publishing, activeDrawer, setActiveDrawer, publishReview, setPublishReview, preflightBusy,
     saveNow, openComparison, runPreflight, reloadCanonical, applyRebase, discardCurrentDraft,
-    publishCurrentDraft, generateProposal, actOnProposal, applyMetadataProposal,
+    publishCurrentDraft, generateProposal, actOnProposal, applyProposalToDraft,
     setEditorContent, updateFrontmatter, updateFrontmatterList, updateSourcePdf,
   };
 }

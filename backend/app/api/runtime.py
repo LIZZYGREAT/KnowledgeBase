@@ -34,6 +34,8 @@ from backend.app.api.schemas import (
     ImportItemContentView,
     ImportJobView,
     ProposalMergeRequest,
+    ProposalApplyRequest,
+    ProposalApplyView,
     ProposalReviewRequest,
     ProposalView,
     PublishRequest,
@@ -271,6 +273,23 @@ async def list_proposals(
 @router.get("/proposals/{proposal_id}", response_model=ProposalView)
 async def get_proposal(proposal_id: str, request: Request):
     return asdict(request.app.state.proposal_service.get(proposal_id))
+
+
+@router.post(
+    "/proposals/{proposal_id}/apply",
+    response_model=ProposalApplyView,
+)
+async def apply_proposal(
+    proposal_id: str, body: ProposalApplyRequest, request: Request
+):
+    proposal = request.app.state.proposal_service.get(proposal_id)
+    draft = _proposal_draft(request, proposal)
+    if draft.id != body.draft_id:
+        raise ValueError("Proposal target does not match its Draft")
+    applied_proposal, applied_draft = request.app.state.proposal_service.apply_to_draft(
+        proposal_id, draft, body.expected_draft_revision
+    )
+    return {"proposal": asdict(applied_proposal), "draft": asdict(applied_draft)}
 
 
 @router.post("/proposals/{proposal_id}/approve", response_model=ProposalView)
