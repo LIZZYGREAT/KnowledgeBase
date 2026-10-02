@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { PresentationAnnotation } from "../api";
 import { parseMarkdownBlocks, replaceMarkdownBlock } from "../markdownBlocks.js";
 
@@ -57,31 +57,50 @@ export function WorkspaceInlineEditor({
     setEditing(null);
   }
 
-  function renderBlock(block: (typeof blocks)[number], index: number, rendered: ReactNode) {
-    if (editing?.index === index) return <InlineBlockInput
+  const renderStateRef = useRef<{
+    editing: EditingBlock | null;
+    source: string;
+    blocks: ReturnType<typeof parseMarkdownBlocks>["blocks"];
+    disabled: boolean;
+    editorRef: RefObject<HTMLTextAreaElement | null>;
+    onNavigate: (path: string) => void;
+    startEditing: typeof startEditing;
+    updateBlock: typeof updateBlock;
+    finishEditing: typeof finishEditing;
+    cancelEditing: typeof cancelEditing;
+  } | null>(null);
+  renderStateRef.current = {
+    editing, source, blocks, disabled, editorRef, onNavigate,
+    startEditing, updateBlock, finishEditing, cancelEditing,
+  };
+
+  const renderBlock = useCallback((block: (typeof blocks)[number], index: number, rendered: ReactNode): ReactNode => {
+    const state = renderStateRef.current;
+    if (!state) return rendered;
+    if (state.editing?.index === index) return <InlineBlockInput
       key={`edit:${block.id}`}
       index={index}
-      value={editing.value}
-      onChange={updateBlock}
-      onDone={finishEditing}
-      onCancel={cancelEditing}
-      editorRef={editorRef}
-      onNavigate={onNavigate}
-      disabled={disabled}
+      value={state.editing.value}
+      onChange={state.updateBlock}
+      onDone={state.finishEditing}
+      onCancel={state.cancelEditing}
+      editorRef={state.editorRef}
+      onNavigate={state.onNavigate}
+      disabled={state.disabled}
     />;
 
-    return <div className="workspace-inline-block" key={block.id} onDoubleClick={() => startEditing(index, block.raw, source, blocks)}>
+    return <div className="workspace-inline-block" key={block.id} onDoubleClick={() => state.startEditing(index, block.raw, state.source, state.blocks)}>
       {rendered}
       <button
         className="workspace-inline-edit-button"
         type="button"
         aria-label={`编辑第 ${index + 1} 个区块`}
         title="编辑区块"
-        disabled={disabled}
-        onClick={() => startEditing(index, block.raw, source, blocks)}
+        disabled={state.disabled}
+        onClick={() => state.startEditing(index, block.raw, state.source, state.blocks)}
       ><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.8 2.2a1.5 1.5 0 0 1 2.1 2.1L6 12.2l-3.2.8.8-3.2 8.2-7.6Z" /><path d="m10.7 3.3 2.1 2.1" /></svg></button>
     </div>;
-  }
+  }, []);
 
   const appendBlock = editing?.index === blocks.length;
   return <div className="workspace-inline-editor">

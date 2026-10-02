@@ -1,4 +1,4 @@
-import { createElement, useEffect, useId, useState, type ReactNode } from "react";
+import { createElement, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -214,9 +214,11 @@ export function MarkdownContent({
   blockRanges?: MarkdownBlockRange[];
   renderBlock?: MarkdownBlockRenderer;
 }) {
-  const components = blockRanges && renderBlock
-    ? makeWorkspaceComponents(onNavigate, blockRanges, renderBlock)
-    : makeComponents(onNavigate);
+  const workspaceComponents = useMemo(
+    () => blockRanges && renderBlock ? makeWorkspaceComponents(onNavigate, blockRanges, renderBlock) : null,
+    [blockRanges, onNavigate, renderBlock],
+  );
+  const components = workspaceComponents ?? makeComponents(onNavigate);
   return (
     <div className="markdown-content">
       <ReactMarkdown
