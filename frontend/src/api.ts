@@ -181,6 +181,12 @@ export interface BatchPublishedDrafts {
   warnings: string[];
 }
 
+export interface PublishOutcome {
+  commitRevision: string;
+  warnings: string[];
+  results: PublishedDraft[];
+}
+
 export type ContextTrust = "raw" | "reviewed" | "verified";
 export type ContextPurpose = "research" | "teaching" | "evidence";
 export type ExportedContext = Record<string, unknown> & {

@@ -19,6 +19,7 @@ import {
   type Draft,
   type EntitySummary,
   type EntityType,
+  type PublishOutcome,
 } from "./api";
 import { stringify } from "yaml";
 import {
@@ -36,6 +37,8 @@ import { makeDocumentId, newNoteEditorPath } from "./newNoteFlow.js";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, PageHeader } from "./ui";
 import { CollectionConflictDrawer } from "./explorer/CollectionConflictDrawer";
 import { useCollectionDraft } from "./useCollectionDraft";
+import { toPublishOutcome } from "./publishOutcome";
+import { PublishOutcomeNotice } from "./workspace/PublishOutcomeNotice";
 
 type Navigate = (path: string) => void;
 type ExplorerView = "collection" | "all" | "unfiled" | "recent";
@@ -103,9 +106,12 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
   const [copyTargetId, setCopyTargetId] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
+  const [publishOutcome, setPublishOutcome] = useState<PublishOutcome | null>(null);
   const [collectionConflictOpen, setCollectionConflictOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const resizeStart = useRef<{ pointerId: number; x: number; width: number } | null>(null);
+
+  useEffect(() => { if (actionNotice) setPublishOutcome(null); }, [actionNotice]);
 
   const collectionsResource = useResource(
     "collections:active-and-archived",
@@ -371,6 +377,7 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
     setBusy(true);
     setActionError("");
     setActionNotice("");
+    setPublishOutcome(null);
     try {
       const result = await collectionDraft.publish();
       if (!result) return;
@@ -379,7 +386,7 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
       collectionResource.retry();
       collectionsResource.retry();
       setEditMode(false);
-      setActionNotice(`Collection 已发布（${result.commit_revision.slice(0, 8)}）。`);
+      setPublishOutcome(toPublishOutcome(result));
     } catch (reason) {
       setActionError(errorMessage(reason));
     } finally {
@@ -405,6 +412,8 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
     }
     setBusy(true);
     setCreateCollectionError("");
+    setActionNotice("");
+    setPublishOutcome(null);
     try {
       await collectionDraft.flush();
       const position = Math.max(-1, ...collections.map((item) => item.position)) + 1;
@@ -425,7 +434,7 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
       const published = await publishDraftsBatch([draft.id]);
       setCreateCollectionOpen(false);
       setCreateCollectionError("");
-      setActionNotice(`Collection 已创建并发布（${published.commit_revision.slice(0, 8)}）。`);
+      setPublishOutcome(toPublishOutcome(published));
       setSelectedCollectionId(normalizedId);
       setView("collection");
       collectionsResource.retry();
@@ -628,6 +637,7 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
         />
 
         <main className="explorer-content surface">
+          {publishOutcome && <PublishOutcomeNotice outcome={publishOutcome} />}
           {collection && <CollectionDraftToolbar
             collection={displayedCollection}
             status={collectionDraft.status}

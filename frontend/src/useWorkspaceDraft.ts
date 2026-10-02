@@ -15,7 +15,9 @@ import {
   type EntityDetail,
   type EntityType,
   type PublishedDraft,
+  type PublishOutcome,
 } from "./api";
+import { toPublishOutcome } from "./publishOutcome";
 
 export type WorkspaceSaveState = "Ready" | "Unsaved" | "Saving" | "Saved" | "Conflict";
 export type WorkspaceDraftController = ReturnType<typeof useWorkspaceDraft>;
@@ -31,6 +33,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const [comparison, setComparison] = useState<DraftComparison | null>(null);
   const [mergeContent, setMergeContent] = useState("");
   const [publishedRevision, setPublishedRevision] = useState("");
+  const [publishedOutcome, setPublishedOutcome] = useState<PublishOutcome | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const draftRef = useRef<Draft | null>(null);
   const contentRef = useRef("");
@@ -63,6 +66,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setError("");
     setComparison(null);
     setPublishedRevision("");
+    setPublishedOutcome(null);
     setCanonicalEntity(null);
     void listDrafts(type, id)
       .then(async (drafts) => {
@@ -198,6 +202,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setComparison(null);
     setError("");
     setPublishedRevision("");
+    setPublishedOutcome(null);
   }, [id, installDraft, type]);
 
   const applyRebase = useCallback(async (contentValue: string) => {
@@ -226,6 +231,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setComparison(null);
     setError("");
     setPublishedRevision("");
+    setPublishedOutcome(null);
   }, [installDraft]);
 
   const ensureDraft = useCallback(async () => {
@@ -255,6 +261,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setSaveState("Saved");
     setComparison(null);
     setPublishedRevision(result.commit_revision);
+    setPublishedOutcome(toPublishOutcome(result));
     setError("");
     return result;
   }, [saveNow]);
@@ -280,6 +287,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     mergeContent,
     setMergeContent,
     publishedRevision,
+    publishedOutcome,
     isDirty,
     updateContent,
     getCurrentContent,

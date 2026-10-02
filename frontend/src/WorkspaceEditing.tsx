@@ -19,6 +19,7 @@ import { patchYamlField, readFrontmatterField } from "./metadataDraft.js";
 import { MarkdownBlockEditor } from "./MarkdownBlockEditor";
 import { WorkspaceDrawer } from "./WorkspaceDrawer";
 import { WorkspacePublishDrawer } from "./workspace/WorkspacePublishDrawer";
+import { PublishOutcomeNotice } from "./workspace/PublishOutcomeNotice";
 import type { PublishReviewItem } from "./publishReview.js";
 import { Chip, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "./ui";
 import type { WorkspaceDraftController } from "./useWorkspaceDraft";
@@ -69,6 +70,7 @@ export function WorkspaceEditingSurface({ type, id, navigate, workspaceDraft, ba
     mergeContent,
     setMergeContent,
     publishedRevision,
+    publishedOutcome,
     isDirty,
   } = workspaceDraft;
   const [saveError, setSaveError] = useState("");
@@ -371,7 +373,7 @@ export function WorkspaceEditingSurface({ type, id, navigate, workspaceDraft, ba
         </div>}
       />
 
-      {publishedRevision && <div className="editor-notice success-notice" role="status"><strong>{batchCollectionId ? "已合并发布" : "已发布"}</strong><span>Git revision {publishedRevision.slice(0, 12)}</span><button className="button button-secondary" onClick={() => navigate(entityWorkspaceUrl(type, id, { collectionId: returnCollectionId }))}>返回阅读</button></div>}
+      {publishedOutcome && <PublishOutcomeNotice outcome={publishedOutcome} onReturn={() => navigate(entityWorkspaceUrl(type, id, { collectionId: returnCollectionId }))} />}
       {visibleSaveError && <div className="editor-notice error-notice" role="alert"><span>{visibleSaveError}</span><button className="text-button" onClick={() => { setSaveError(""); setDraftError(""); }}>关闭</button>{saveState === "Conflict" && <button className="button button-secondary" onClick={() => void openComparison()}>比较版本</button>}</div>}
 
       {type === "source" ? <div className="editor-grid">
