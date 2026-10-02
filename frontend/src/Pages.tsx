@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import {
   getEntity,
+  getCollectionNavigation,
   exportKnowledgeContext,
   listAllEntities,
   listImports,
@@ -23,6 +24,7 @@ import {
   type EntityDetail,
   type EntitySummary,
   type EntityType,
+  type CollectionNavigation,
   type AnnotationStyleType,
   type PresentationAnnotation,
   type ContextPurpose,
@@ -726,18 +728,70 @@ function ReviewCount({ label, count, tone }: { label: string; count: number; ton
   return <div className="surface review-count"><span className={`status-indicator ${tone}`} /><strong>{count}</strong><span>{label}</span></div>;
 }
 
+function CollectionReaderContext({
+  navigation,
+  loading,
+  error,
+  currentType,
+  currentId,
+  currentTitle,
+  navigate,
+}: {
+  navigation: CollectionNavigation | null;
+  loading: boolean;
+  error: string;
+  currentType: EntityType;
+  currentId: string;
+  currentTitle: string;
+  navigate: Navigate;
+}) {
+  const openEntity = (type: EntityType, id: string) => {
+    const prefix = type === "document" ? "documents" : type === "term" ? "terms" : "sources";
+    const collectionId = navigation?.collection_id;
+    const query = collectionId ? `?collection=${encodeURIComponent(collectionId)}` : "";
+    navigate(`/${prefix}/${encodeURIComponent(id)}${query}`);
+  };
+  const leaveContext = () => {
+    const prefix = currentType === "document" ? "documents" : currentType === "term" ? "terms" : "sources";
+    navigate(`/${prefix}/${encodeURIComponent(currentId)}`);
+  };
+
+  return (
+    <section className="collection-reader-context surface" aria-label="Collection 阅读位置">
+      <div className="collection-reader-breadcrumbs">
+        {navigation ? <>
+          <button className="text-button" onClick={() => navigate(`/explorer?collection=${encodeURIComponent(navigation.collection_id)}`)}>{navigation.collection_title}</button>
+          {navigation.breadcrumbs.map((crumb, index) => <span className="collection-reader-crumb" key={`${crumb}:${index}`}>› {crumb}</span>)}
+          <span className="collection-reader-current">› {currentTitle}</span>
+        </> : loading ? <span>正在读取 Collection 位置…</span> : <span role="alert">{error || "Collection 位置暂不可用。"}</span>}
+      </div>
+      <div className="collection-reader-controls">
+        {navigation?.previous ? <button className="button button-secondary" onClick={() => openEntity(navigation.previous!.entity_type, navigation.previous!.entity_id)}>← {navigation.previous.title}</button> : <span />}
+        {navigation?.next ? <button className="button button-secondary" onClick={() => openEntity(navigation.next!.entity_type, navigation.next!.entity_id)}>{navigation.next.title} →</button> : <span />}
+        {error && <button className="text-button" onClick={leaveContext}>打开独立阅读</button>}
+      </div>
+    </section>
+  );
+}
+
 export function EntityPage({
   type,
   id,
   navigate,
+  collectionId,
   onEdit,
 }: {
   type: EntityType;
   id: string;
   navigate: Navigate;
+  collectionId?: string;
   onEdit?: (type: EntityType, id: string) => void;
 }) {
   const resource = useResource(`entity:${type}:${id}`, () => loadEntity(type, id));
+  const collectionNavigation = useResource(
+    `collection-navigation:${collectionId ?? ""}:${type}:${id}`,
+    () => collectionId ? getCollectionNavigation(collectionId, type, id) : Promise.resolve(null),
+  );
   const [annotations, setAnnotations] = useState<PresentationAnnotation[]>([]);
   const [annotationError, setAnnotationError] = useState("");
   const [annotationBusy, setAnnotationBusy] = useState(false);
@@ -930,7 +984,8 @@ export function EntityPage({
 
   return (
     <div className="page-stack entity-page">
-      <div className="entity-actions"><button className="back-link" onClick={() => navigate(type === "term" ? "/terms" : type === "source" ? "/library?tab=sources" : "/library")}>← 返回{type === "term" ? "Terms" : type === "source" ? "Library" : "Library"}</button></div>
+      <div className="entity-actions"><button className="back-link" onClick={() => collectionId ? navigate(`/explorer?collection=${encodeURIComponent(collectionId)}`) : navigate(type === "term" ? "/terms" : type === "source" ? "/library?tab=sources" : "/library")}>{collectionId ? "← 返回 Collection" : `← 返回${type === "term" ? "Terms" : "Library"}`}</button></div>
+      {collectionId && <CollectionReaderContext navigation={collectionNavigation.data} loading={collectionNavigation.loading} error={collectionNavigation.error} currentType={type} currentId={id} currentTitle={entity.title} navigate={navigate} />}
       <div className="entity-title-row">
         <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{entity.title}</h1><div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
       </div>

@@ -89,6 +89,11 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/documents/{entity_id}",
         "/api/terms/{entity_id}",
         "/api/sources/{entity_id}",
+        "/api/collections",
+        "/api/collections/{collection_id}",
+        "/api/collections/{collection_id}/navigation",
+        "/api/collections/{collection_id}/progress/{document_id}",
+        "/api/library/unfiled",
         "/api/search",
         "/api/taxonomy",
         "/api/review/link-issues",
@@ -344,6 +349,73 @@ def test_collection_draft_uses_the_existing_runtime_lifecycle(api_client):
     assert updated.status_code == 200
     assert updated.json()["revision"] == 2
     assert updated.json()["entity_type"] == "collection"
+
+
+def test_collection_api_resolves_tree_navigation_unfiled_and_progress(api_client):
+    repository = api_client.app.state.repository_root
+    collections_root = repository / "knowledge" / "collections"
+    collections_root.mkdir(parents=True, exist_ok=True)
+    collection_path = collections_root / "reading.yaml"
+    collection_path.write_text(
+        "schema_version: 1\nid: reading\ntitle: Reading\ndescription: A reading path\n"
+        "status: active\nposition: 2\nnodes:\n"
+        "  - id: foundations\n    kind: section\n    title: Foundations\n"
+        "    children:\n      - id: note-node\n        kind: entity\n"
+        "        entity_type: document\n        entity_id: neural-indexing\n"
+        "      - id: term-node\n        kind: entity\n"
+        "        entity_type: term\n        entity_id: neural-indexing\n",
+        encoding="utf-8",
+    )
+    archived_path = collections_root / "archived-reading.yaml"
+    archived_path.write_text(
+        "schema_version: 1\nid: archived-reading\ntitle: Archived Reading\n"
+        "status: archived\nposition: 1\nnodes: []\n",
+        encoding="utf-8",
+    )
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        indexer = Indexer(repository, connection)
+        indexer.update_path(collection_path)
+        indexer.update_path(archived_path)
+    finally:
+        connection.close()
+
+    assert [item["id"] for item in api_client.get("/api/collections").json()] == ["reading"]
+    assert [item["id"] for item in api_client.get(
+        "/api/collections", params={"status": "archived"}
+    ).json()] == ["archived-reading"]
+    assert [item["id"] for item in api_client.get("/api/library/unfiled").json()] == []
+
+    detail = api_client.get("/api/collections/reading")
+    assert detail.status_code == 200
+    section = detail.json()["nodes"][0]
+    assert section["title"] == "Foundations"
+    assert [(node["entity_type"], node["title"]) for node in section["children"]] == [
+        ("document", "Neural Indexing"),
+        ("term", "Neural Indexing"),
+    ]
+
+    navigation = api_client.get(
+        "/api/collections/reading/navigation",
+        params={"entity_type": "document", "entity_id": "neural-indexing"},
+    )
+    assert navigation.status_code == 200
+    assert navigation.json()["breadcrumbs"] == ["Foundations"]
+    assert navigation.json()["previous"] is None
+    assert navigation.json()["next"]["entity_type"] == "term"
+    assert navigation.json()["next"]["entity_id"] == "neural-indexing"
+
+    progress = api_client.put(
+        "/api/collections/reading/progress/neural-indexing", json={"status": "reading"}
+    )
+    assert progress.status_code == 200
+    assert progress.json()["status"] == "reading"
+    updated_detail = api_client.get("/api/collections/reading").json()
+    assert updated_detail["nodes"][0]["children"][0]["progress"] == "reading"
+    assert api_client.put(
+        "/api/collections/reading/progress/missing-note", json={"status": "done"}
+    ).status_code == 422
+    assert api_client.get("/api/collections/missing-collection").status_code == 404
 
 
 def test_source_pdf_open_is_confined_to_valid_attached_papers(api_client):

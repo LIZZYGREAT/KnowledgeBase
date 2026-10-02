@@ -8,6 +8,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from backend.app.api.schemas import (
+    CollectionNavigationView,
+    CollectionSummaryView,
+    CollectionView,
     ContextExportRequest,
     ContextExportView,
     EntityDetail,
@@ -21,6 +24,40 @@ from backend.app.services.search_service import SearchFilters, SearchService
 
 
 router = APIRouter(prefix="/api", tags=["Knowledge"])
+
+
+@router.get("/collections", response_model=list[CollectionSummaryView])
+async def list_collections(
+    request: Request,
+    status: str = Query("active", pattern="^(active|archived)$"),
+):
+    return request.app.state.collection_service.list_collections(status)
+
+
+@router.get("/collections/{collection_id}/navigation", response_model=CollectionNavigationView)
+async def collection_navigation(
+    collection_id: str,
+    request: Request,
+    entity_type: str = Query(pattern="^(document|term|source)$"),
+    entity_id: str = Query(min_length=1),
+):
+    return request.app.state.collection_service.navigation(
+        collection_id, entity_type, entity_id
+    )
+
+
+@router.get("/collections/{collection_id}", response_model=CollectionView)
+async def get_collection(collection_id: str, request: Request):
+    return request.app.state.collection_service.get_collection(collection_id)
+
+
+@router.get("/library/unfiled", response_model=list[EntitySummary])
+async def unfiled_documents(
+    request: Request,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    return request.app.state.knowledge_read_service.unfiled_documents(limit, offset)
 
 
 @router.get("/documents", response_model=list[EntitySummary])

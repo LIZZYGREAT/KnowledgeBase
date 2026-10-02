@@ -1,6 +1,6 @@
 """Stable request and response contracts exposed by the Knowledge API."""
 
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -37,6 +37,77 @@ class TaxonomyEntryView(APIModel):
     id: str
     title: str
     kind: Literal["domain", "topic", "tag"]
+
+
+class CollectionSummaryView(APIModel):
+    id: str
+    title: str
+    description: Optional[str]
+    status: Literal["active", "archived"]
+    position: int
+    node_count: int
+    entity_count: int
+    document_count: int
+
+
+class CollectionEntityNodeView(APIModel):
+    id: str
+    kind: Literal["entity"]
+    entity_type: Literal["document", "term", "source"]
+    entity_id: str
+    title: str
+    progress: Optional[Literal["reading", "done"]] = None
+
+
+class CollectionSectionNodeView(APIModel):
+    id: str
+    kind: Literal["section"]
+    title: str
+    children: list["CollectionNodeView"]
+
+
+CollectionNodeView = Annotated[
+    Union[CollectionSectionNodeView, CollectionEntityNodeView],
+    Field(discriminator="kind"),
+]
+CollectionSectionNodeView.model_rebuild(
+    _types_namespace={"CollectionNodeView": CollectionNodeView}
+)
+
+
+class CollectionView(APIModel):
+    id: str
+    title: str
+    description: Optional[str]
+    status: Literal["active", "archived"]
+    position: int
+    nodes: list[CollectionNodeView]
+
+
+class CollectionNavigationItemView(APIModel):
+    entity_type: Literal["document", "term", "source"]
+    entity_id: str
+    title: str
+    breadcrumbs: list[str]
+
+
+class CollectionNavigationView(APIModel):
+    collection_id: str
+    collection_title: str
+    breadcrumbs: list[str]
+    previous: Optional[CollectionNavigationItemView]
+    next: Optional[CollectionNavigationItemView]
+
+
+class CollectionProgressRequest(APIModel):
+    status: Literal["reading", "done"]
+
+
+class CollectionProgressView(APIModel):
+    collection_id: str
+    document_id: str
+    status: Literal["reading", "done"]
+    updated_at: str
 
 
 class RecentlyModifiedView(EntitySummary):

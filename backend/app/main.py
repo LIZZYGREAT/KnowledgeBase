@@ -25,6 +25,7 @@ from backend.app.services.ai_client import (
 )
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.ai_proposal_service import AIProposalService
+from backend.app.services.collection_service import CollectionService
 from backend.app.services.context_export_service import ContextExportService
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
@@ -78,6 +79,7 @@ async def lifespan(application: FastAPI):
         annotation_service = PresentationAnnotationService(AnnotationRepository(connection))
         indexer = Indexer(repository_root, connection)
         knowledge_read_service = KnowledgeReadService(repository_root, connection)
+        collection_service = CollectionService(repository_root, connection)
         context_export_service = ContextExportService(knowledge_read_service, connection)
         import_service = ImportService(
             repository_root,
@@ -104,6 +106,7 @@ async def lifespan(application: FastAPI):
         application.state.usage_service = usage_service
         application.state.annotation_service = annotation_service
         application.state.knowledge_read_service = knowledge_read_service
+        application.state.collection_service = collection_service
         application.state.context_export_service = context_export_service
         application.state.indexer = indexer
         application.state.import_service = import_service

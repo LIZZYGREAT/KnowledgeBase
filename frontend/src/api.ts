@@ -63,6 +63,54 @@ export interface TaxonomyEntry {
   kind: "domain" | "topic" | "tag";
 }
 
+export interface CollectionSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  status: "active" | "archived";
+  position: number;
+  node_count: number;
+  entity_count: number;
+  document_count: number;
+}
+
+export interface CollectionEntityNode {
+  id: string;
+  kind: "entity";
+  entity_type: EntityType;
+  entity_id: string;
+  title: string;
+  progress: "reading" | "done" | null;
+}
+
+export interface CollectionSectionNode {
+  id: string;
+  kind: "section";
+  title: string;
+  children: CollectionNode[];
+}
+
+export type CollectionNode = CollectionEntityNode | CollectionSectionNode;
+
+export interface Collection extends Omit<CollectionSummary, "node_count" | "entity_count" | "document_count"> {
+  nodes: CollectionNode[];
+}
+
+export interface CollectionNavigationItem {
+  entity_type: EntityType;
+  entity_id: string;
+  title: string;
+  breadcrumbs: string[];
+}
+
+export interface CollectionNavigation {
+  collection_id: string;
+  collection_title: string;
+  breadcrumbs: string[];
+  previous: CollectionNavigationItem | null;
+  next: CollectionNavigationItem | null;
+}
+
 export interface UsageDocument {
   entity_id: string;
   title: string;
@@ -200,6 +248,56 @@ export async function listAllEntities(type: EntityType): Promise<EntitySummary[]
     if (page.length < 100) return all;
     offset += page.length;
   }
+}
+
+export function listCollections(status: "active" | "archived" = "active") {
+  return request<CollectionSummary[]>(`/api/collections?status=${status}`);
+}
+
+export function getCollection(collectionId: string) {
+  return request<Collection>(`/api/collections/${encodeURIComponent(collectionId)}`);
+}
+
+export function getCollectionNavigation(
+  collectionId: string,
+  entityType: EntityType,
+  entityId: string,
+) {
+  const params = new URLSearchParams({ entity_type: entityType, entity_id: entityId });
+  return request<CollectionNavigation>(
+    `/api/collections/${encodeURIComponent(collectionId)}/navigation?${params.toString()}`,
+  );
+}
+
+export function listUnfiledDocuments(limit = 100, offset = 0) {
+  return request<EntitySummary[]>(`/api/library/unfiled?limit=${limit}&offset=${offset}`);
+}
+
+export async function listAllUnfiledDocuments(): Promise<EntitySummary[]> {
+  const all: EntitySummary[] = [];
+  let offset = 0;
+  for (;;) {
+    const page = await listUnfiledDocuments(100, offset);
+    all.push(...page);
+    if (page.length < 100) return all;
+    offset += page.length;
+  }
+}
+
+export function updateCollectionProgress(
+  collectionId: string,
+  documentId: string,
+  status: "reading" | "done",
+) {
+  return request<{
+    collection_id: string;
+    document_id: string;
+    status: "reading" | "done";
+    updated_at: string;
+  }>(
+    `/api/collections/${encodeURIComponent(collectionId)}/progress/${encodeURIComponent(documentId)}`,
+    { method: "PUT", body: JSON.stringify({ status }) },
+  );
 }
 
 export function listRecentlyModified(limit = 8) {

@@ -11,6 +11,7 @@ const LibraryPage = lazy(() => import("./Pages").then((module) => ({ default: mo
 const TermsPage = lazy(() => import("./Pages").then((module) => ({ default: module.TermsPage })));
 const TopicsPage = lazy(() => import("./Pages").then((module) => ({ default: module.TopicsPage })));
 const ReviewPage = lazy(() => import("./Pages").then((module) => ({ default: module.ReviewPage })));
+const ExplorerPage = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
 const EntityPage = lazy(() => import("./Pages").then((module) => ({ default: module.EntityPage })));
 const EditorPage = lazy(() => import("./Editor").then((module) => ({ default: module.EditorPage })));
 const NewNotePage = lazy(() => import("./Editor").then((module) => ({ default: module.NewNotePage })));
@@ -28,6 +29,7 @@ const navigation = [
   { route: "/terms", title: "Terms", translation: "术语", icon: "Aa" },
   { route: "/topics", title: "Topics", translation: "主题", icon: "✳" },
   { route: "/review", title: "Review", translation: "审阅", icon: "✓" },
+  { route: "/explorer", title: "Explorer", translation: "知识探索", icon: "⌘" },
 ];
 
 function currentLocation(): LocationState {
@@ -126,10 +128,16 @@ export default function App() {
     ? route.entityType === "document" ? "Document" : route.entityType === "term" ? "Term" : "Source"
     : route.kind === "new-note" ? "New Note" : navigation.find((item) => item.route === activeNav)?.title ?? "Home";
 
-  const openEntity = useCallback((type: EntityType, id: string, clickedFromSearch = false) => {
+  const openEntity = useCallback((
+    type: EntityType,
+    id: string,
+    clickedFromSearch = false,
+    collectionId?: string,
+  ) => {
     if (clickedFromSearch && type === "document") void recordSearchClick(id).catch(() => undefined);
     const prefix = type === "document" ? "documents" : type === "term" ? "terms" : "sources";
-    navigate(`/${prefix}/${encodeURIComponent(id)}`);
+    const context = collectionId ? `?collection=${encodeURIComponent(collectionId)}` : "";
+    navigate(`/${prefix}/${encodeURIComponent(id)}${context}`);
   }, [navigate]);
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -144,7 +152,8 @@ export default function App() {
   } else if (route.kind === "new-note") {
     page = <Suspense fallback={<LoadingState />}><NewNotePage navigate={navigate} /></Suspense>;
   } else if (route.kind === "reader") {
-    page = <Suspense fallback={<LoadingState />}><EntityPage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} onEdit={(type, id) => navigate(`/edit/${type}/${encodeURIComponent(id)}`)} /></Suspense>;
+    const collectionId = new URLSearchParams(location.search).get("collection") ?? undefined;
+    page = <Suspense fallback={<LoadingState />}><EntityPage key={`${route.entityType}:${route.id}:${collectionId ?? ""}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} onEdit={(type, id) => navigate(`/edit/${type}/${encodeURIComponent(id)}`)} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;
@@ -156,6 +165,8 @@ export default function App() {
     page = <Suspense fallback={<LoadingState />}><TopicsPage onOpen={openEntity} /></Suspense>;
   } else if (route.path === "/review") {
     page = <Suspense fallback={<LoadingState />}><ReviewPage onOpen={openEntity} navigate={navigate} /></Suspense>;
+  } else if (route.path === "/explorer") {
+    page = <Suspense fallback={<LoadingState />}><ExplorerPage onOpen={openEntity} navigate={navigate} /></Suspense>;
   } else {
     page = <Suspense fallback={<LoadingState />}><HomePage onOpen={openEntity} navigate={navigate} /></Suspense>;
   }

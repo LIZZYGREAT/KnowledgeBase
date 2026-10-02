@@ -17,6 +17,8 @@ from backend.app.api.schemas import (
     BlankDocumentRequest,
     BundleAssociationRequest,
     BundleAssociationView,
+    CollectionProgressRequest,
+    CollectionProgressView,
     ConfirmSourceRequest,
     DraftCreateRequest,
     DraftDeleteRequest,
@@ -223,6 +225,21 @@ async def rebase_draft(draft_id: str, body: DraftRebaseRequest, request: Request
 async def discard_draft(draft_id: str, body: DraftDeleteRequest, request: Request):
     request.app.state.draft_service.discard(draft_id, body.expected_revision)
     return {"deleted": True}
+
+
+@router.put(
+    "/collections/{collection_id}/progress/{document_id}",
+    response_model=CollectionProgressView,
+)
+async def set_collection_progress(
+    collection_id: str,
+    document_id: str,
+    body: CollectionProgressRequest,
+    request: Request,
+):
+    return request.app.state.collection_service.set_progress(
+        collection_id, document_id, body.status
+    )
 
 
 @router.get("/proposals", response_model=list[ProposalView])
