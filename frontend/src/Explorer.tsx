@@ -8,6 +8,7 @@ import { CollectionTree } from "./explorer/ExplorerTree";
 import type { ExplorerPageProps } from "./explorer/ExplorerTypes";
 import { useExplorerController } from "./explorer/useExplorerController";
 import { PublishOutcomeNotice } from "./workspace/PublishOutcomeNotice";
+import { WorkspacePublishDrawer } from "./workspace/WorkspacePublishDrawer";
 
 export function ExplorerPage(props: ExplorerPageProps) {
   const {
@@ -17,13 +18,14 @@ export function ExplorerPage(props: ExplorerPageProps) {
     editCollectionMetadataOpen, setEditCollectionMetadataOpen, createCollectionError, setCreateCollectionError,
     newNoteTarget, newNoteError, setNewNoteError, newNoteBusy, createdNoteDraft,
     copyingEntity, setCopyingEntity, copyTargetId, setCopyTargetId, actionError, setActionError,
-    actionNotice, publishOutcome, collectionConflictOpen, setCollectionConflictOpen, busy,
+    actionNotice, publishOutcome, collectionPublishReview, setCollectionPublishReview,
+    collectionReviewBusy, collectionPublishing, collectionConflictOpen, setCollectionConflictOpen, busy,
     collectionsResource, collections, collectionResource, virtualResource, collection, collectionDraft,
     displayedCollection, treeEditMode, filteredNodes, changeDraft, openAddExisting, addExistingEntity,
     createSection, renameSection, deleteSection, handleDrop, startNodeDrag, startReferenceDrag,
     updateProgress, copyEntityToCollection, startNewNoteHere, createNoteHere, enterNewNoteWorkspace,
     cancelNewNoteHere, toggleArchive, saveCollectionMetadata, moveSelectedCollection,
-    publishCollectionDraft, createCollection, discardCollectionDraft, reloadCanonicalCollection,
+    reviewCollectionDraftPublish, publishCollectionDraft, createCollection, discardCollectionDraft, reloadCanonicalCollection,
     keepDraftAndRebaseCollection, reviewCollectionConflict, toggleSection, openCollectionEntity,
     startResize, moveResize, stopResize, containsEntityReference, errorMessage,
   } = useExplorerController(props);
@@ -145,13 +147,13 @@ export function ExplorerPage(props: ExplorerPageProps) {
             error={collectionDraft.error || actionError}
             notice={actionNotice}
             editMode={editMode}
-            busy={busy}
+            busy={busy || collectionReviewBusy}
             onToggleEdit={() => setEditMode((current) => !current)}
             onEditMetadata={() => setEditCollectionMetadataOpen(true)}
             onAddExisting={() => openAddExisting()}
             onNewSection={() => createSection()}
             onArchive={() => void toggleArchive()}
-            onPublish={() => void publishCollectionDraft()}
+            onPublish={() => void reviewCollectionDraftPublish()}
             onDiscard={() => void discardCollectionDraft()}
             onReviewConflict={() => void reviewCollectionConflict()}
           />}
@@ -219,6 +221,17 @@ export function ExplorerPage(props: ExplorerPageProps) {
         onReloadCanonical={() => void reloadCanonicalCollection()}
         onApplyRebase={() => void keepDraftAndRebaseCollection()}
         onClose={() => setCollectionConflictOpen(false)}
+      />}
+      {collectionPublishReview && <WorkspacePublishDrawer
+        items={collectionPublishReview}
+        busy={collectionReviewBusy}
+        publishing={collectionPublishing}
+        published={false}
+        error={actionError}
+        batch={false}
+        onClose={() => setCollectionPublishReview(null)}
+        onRefresh={() => void reviewCollectionDraftPublish(true)}
+        onPublish={() => void publishCollectionDraft()}
       />}
     </div>
   );

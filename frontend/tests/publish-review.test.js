@@ -43,8 +43,55 @@ test("reports Collection updates in a batch summary", () => {
   const item = reviewItem({ type: "collection", label: "Collection", before: "title: Old\n", after: "title: New\n" });
   const summary = summarizePublishChanges([item]);
   assert.equal(summary.collectionUpdated, true);
-  assert.deepEqual(summary.metadataByTarget, [{ label: "Collection", fields: ["标题"] }]);
+  assert.deepEqual(summary.metadataByTarget, []);
+  assert.deepEqual(summary.collectionChangesByTarget, [{ label: "Collection", fields: ["标题"] }]);
   assert.equal(summarizePublishChanges([reviewItem({ type: "collection", before: "title: Same\n", after: "title: Same\n" })]).collectionUpdated, false);
+});
+
+test("summarizes Collection metadata, Section, and Entity reference changes for review", () => {
+  const before = [
+    "schema_version: 1",
+    "id: study-path",
+    "title: Study Path",
+    "description: Original description",
+    "status: active",
+    "position: 0",
+    "nodes:",
+    "  - id: section-notes",
+    "    kind: section",
+    "    title: Notes",
+    "    children:",
+    "      - id: reference-one",
+    "        kind: entity",
+    "        entity_type: document",
+    "        entity_id: note-one",
+  ].join("\n") + "\n";
+  const after = [
+    "schema_version: 1",
+    "id: study-path",
+    "title: Renamed Path",
+    "description: Updated description",
+    "status: archived",
+    "position: 2",
+    "nodes:",
+    "  - id: section-reading",
+    "    kind: section",
+    "    title: Reading",
+    "    children:",
+    "      - id: reference-two",
+    "        kind: entity",
+    "        entity_type: document",
+    "        entity_id: note-two",
+    "  - id: section-notes",
+    "    kind: section",
+    "    title: Notes",
+    "    children: []",
+  ].join("\n") + "\n";
+  const summary = summarizePublishChanges([reviewItem({ type: "collection", label: "Study Path", before, after })]);
+  assert.deepEqual(summary.collectionChangesByTarget, [{
+    label: "Study Path",
+    fields: ["标题", "描述", "状态", "排序位置", "分区结构", "Entity 引用"],
+  }]);
 });
 
 test("does not report YAML source edits as Markdown block changes", () => {

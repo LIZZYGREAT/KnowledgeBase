@@ -14,6 +14,8 @@ const metadataLabels = {
   sections: "分区",
   documents: "文档",
   order: "顺序",
+  status: "状态",
+  position: "排序位置",
 };
 
 function stableValue(value) {
@@ -92,8 +94,24 @@ export function countChangedMarkdownBlocks(before, after, type = "document") {
 }
 
 export function summarizePublishChanges(items) {
+  const collectionChangesByTarget = [];
   const metadataByTarget = items.flatMap((item) => {
     const changed = metadataKeys(item.entityType, item.comparison.current_content, item.comparison.draft.content);
+    if (item.entityType === "collection") {
+      const rootFields = ["title", "description", "status", "position"]
+        .filter((key) => changed.includes(key))
+        .map((key) => metadataLabels[key]);
+      const otherFields = changed
+        .filter((key) => !["title", "description", "status", "position", "nodes"].includes(key))
+        .map((key) => metadataLabels[key] ?? key);
+      const structureFields = collectionStructureChanges(
+        item.comparison.current_content,
+        item.comparison.draft.content,
+      );
+      const fields = [...rootFields, ...otherFields, ...structureFields];
+      if (fields.length) collectionChangesByTarget.push({ label: item.label, fields });
+      return [];
+    }
     if (!changed.length) return [];
     return [{
       label: item.label,
@@ -103,8 +121,55 @@ export function summarizePublishChanges(items) {
   return {
     changedBlockCount: items.reduce((total, item) => total + countChangedMarkdownBlocks(item.comparison.current_content, item.comparison.draft.content, item.entityType), 0),
     metadataByTarget,
+    collectionChangesByTarget,
     collectionUpdated: items.some((item) => item.entityType === "collection" && item.comparison.current_content !== item.comparison.draft.content),
   };
+}
+
+function collectionStructureChanges(before, after) {
+  const oldCollection = parseMetadata("collection", before);
+  const newCollection = parseMetadata("collection", after);
+  if (!oldCollection || !newCollection) return [];
+  const oldStructure = flattenCollectionNodes(oldCollection.nodes);
+  const newStructure = flattenCollectionNodes(newCollection.nodes);
+  const fields = [];
+  if (JSON.stringify(oldStructure.sections) !== JSON.stringify(newStructure.sections)) fields.push("分区结构");
+  if (JSON.stringify(oldStructure.references) !== JSON.stringify(newStructure.references)) fields.push("Entity 引用");
+  return fields;
+}
+
+function flattenCollectionNodes(nodes) {
+  const sections = [];
+  const references = [];
+  function visit(items, parentSectionIds) {
+    if (!Array.isArray(items)) return;
+    let sectionPosition = 0;
+    let referencePosition = 0;
+    for (const node of items) {
+      if (!node || typeof node !== "object" || Array.isArray(node)) continue;
+      if (node.kind === "section") {
+        sections.push({
+          id: node.id,
+          title: node.title,
+          parentSectionIds,
+          position: sectionPosition,
+        });
+        sectionPosition += 1;
+        visit(node.children, [...parentSectionIds, node.id]);
+      } else if (node.kind === "entity") {
+        references.push({
+          id: node.id,
+          entityType: node.entity_type,
+          entityId: node.entity_id,
+          parentSectionIds,
+          position: referencePosition,
+        });
+        referencePosition += 1;
+      }
+    }
+  }
+  visit(nodes, []);
+  return { sections, references };
 }
 
 export function createLineDiff(before, after) {

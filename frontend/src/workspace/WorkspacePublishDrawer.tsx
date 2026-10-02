@@ -40,11 +40,13 @@ export function WorkspacePublishDrawer({
       <section className="publish-review-section" aria-labelledby="publish-summary-heading">
         <h3 id="publish-summary-heading">变更摘要</h3>
         <ul className="publish-summary-list">
-          <li>Markdown 区块变化：{summary.changedBlockCount}</li>
-          <li>元数据变化：{summary.metadataByTarget.length
+          {items.some((item) => item.entityType !== "collection") && <li>Markdown 区块变化：{summary.changedBlockCount}</li>}
+          {items.some((item) => item.entityType !== "collection") && <li>元数据变化：{summary.metadataByTarget.length
             ? summary.metadataByTarget.map((item) => `${item.label}：${item.fields.join("、")}`).join("；")
-            : "无"}</li>
-          {summary.collectionUpdated && <li>Collection 已更新</li>}
+            : "无"}</li>}
+          {items.some((item) => item.entityType === "collection") && <li>Collection 变化：{summary.collectionChangesByTarget.length
+            ? summary.collectionChangesByTarget.map((item) => `${item.label}：${item.fields.join("、")}`).join("；")
+            : summary.collectionUpdated ? "Canonical YAML 已更新" : "无"}</li>}
         </ul>
       </section>
 

@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { parse } from "yaml";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExplorerPage } from "../../src/Explorer";
 import { WorkspacePage } from "../../src/Workspace";
+import { collectionToDraft, serializeCollectionDraft } from "../../src/collectionDraftModel.js";
 import type { Collection, CollectionSummary, Draft, EntitySummary } from "../../src/api";
 
 const api = vi.hoisted(() => ({
@@ -107,8 +108,8 @@ function installApiBehavior() {
     if (!draft) throw new Error("Draft not found");
     return {
       draft: { ...draft },
-      base_content: "title: Base Collection\n",
-      current_content: "title: Current Collection\n",
+      base_content: canonical ? serializeCollectionDraft(collectionToDraft(canonical)) : "",
+      current_content: canonical ? serializeCollectionDraft(collectionToDraft(canonical)) : "",
       current_git_revision: "current-revision",
       current_content_hash: collectionConflict ? "changed-hash" : "base-hash",
       canonical_changed: collectionConflict,
@@ -194,6 +195,8 @@ describe("Explorer React integration", () => {
     expect(api.createDraft.mock.calls[0][0]).toBe("collection");
     expect(api.createDraft.mock.calls[0][2]).toContain("orphan-note");
     await user.click(await screen.findByRole("button", { name: "Publish" }));
+    await screen.findByRole("heading", { name: "发布变更" });
+    await user.click(screen.getByRole("button", { name: "确认发布" }));
     await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledOnce());
     expect(api.publishDraftsBatch.mock.calls[0][0]).toEqual([
       { draft_id: "draft-1", expected_revision: 1 },
@@ -210,6 +213,58 @@ describe("Explorer React integration", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "放弃 Draft 并载入 Canonical" }));
     await waitFor(() => expect(api.discardDraft).toHaveBeenCalledWith(staleDraft.id, staleDraft.revision));
     expect(await screen.findByRole("heading", { name: "Study Path" })).toBeTruthy();
+  });
+
+  it("reviews Collection YAML before publishing and binds confirmation to the reviewed revision", async () => {
+    const user = userEvent.setup();
+    const collectionDraft = makeDraft("collection", collectionId, [
+      "schema_version: 1",
+      `id: ${collectionId}`,
+      "title: Renamed Study Path",
+      "description: Reviewed description",
+      "status: archived",
+      "position: 3",
+      "nodes:",
+      "  - id: section-reading",
+      "    kind: section",
+      "    title: Reading",
+      "    children:",
+      "      - id: reference-one",
+      "        kind: entity",
+      "        entity_type: document",
+      "        entity_id: orphan-note",
+    ].join("\n") + "\n");
+    collectionDraft.revision = 5;
+    drafts.push(collectionDraft);
+    api.publishDraftsBatch.mockImplementationOnce(async (expectations: Array<{ draft_id: string; expected_revision: number }>) => {
+      const expected = expectations[0];
+      if (expected.expected_revision !== collectionDraft.revision) {
+        throw Object.assign(new Error("Draft changed after review."), { status: 409 });
+      }
+      return { results: [], commit_revision: "reviewed-revision", warnings: [] };
+    });
+    const { container } = renderExplorer();
+
+    await user.click(await screen.findByRole("button", { name: "Publish" }));
+    await screen.findByRole("heading", { name: "发布变更" });
+    expect(await screen.findByText(/Collection 变化：Study Path：标题、描述、状态、排序位置、分区结构、Entity 引用/)).toBeTruthy();
+    const showDiff = screen.getByRole("button", { name: "查看完整差异" });
+    await user.click(showDiff);
+    expect(container.querySelector(".publish-full-diff")?.textContent).toContain("section-reading");
+    expect(screen.getByText(/Draft revision 5/)).toBeTruthy();
+
+    collectionDraft.revision = 6;
+    collectionDraft.content = collectionDraft.content.replace("Reviewed description", "Changed after review");
+    await user.click(screen.getByRole("button", { name: "确认发布" }));
+    await within(screen.getByRole("dialog", { name: "发布变更" })).findByRole("alert");
+    expect(api.publishDraftsBatch).toHaveBeenNthCalledWith(1, [{ draft_id: collectionDraft.id, expected_revision: 5 }]);
+
+    await user.click(screen.getByRole("button", { name: "重新检查" }));
+    await waitFor(() => expect(screen.getByText(/Draft revision 6/)).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "确认发布" }));
+
+    await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledTimes(2));
+    expect(api.publishDraftsBatch).toHaveBeenNthCalledWith(2, [{ draft_id: collectionDraft.id, expected_revision: 6 }]);
   });
 
   it("creates a note inside a Collection and batch-publishes both Drafts in one Publisher call", async () => {

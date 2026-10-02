@@ -11,6 +11,7 @@ export interface PublishReviewItem {
 export interface PublishChangeSummary {
   changedBlockCount: number;
   metadataByTarget: Array<{ label: string; fields: string[] }>;
+  collectionChangesByTarget: Array<{ label: string; fields: string[] }>;
   collectionUpdated: boolean;
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent } from "react";
 import {
-  createBlankDocument, createDraft, discardDraft, getCollection, listDrafts,
-  listAllEntities, listAllUnfiledDocuments, listCollections, listUsage,
+  compareDraft, createBlankDocument, createDraft, discardDraft, getCollection, listDrafts,
+  listAllEntities, listAllUnfiledDocuments, listCollections, listUsage, preflightDraft,
   publishDraftsBatch, updateCollectionProgress, updateDraft,
   type Collection as CollectionData, type CollectionNode, type CollectionSectionNode,
   type CollectionSummary, type Draft, type EntitySummary, type EntityType, type PublishOutcome,
@@ -19,6 +19,7 @@ import type { ExplorerView, Resource, ExplorerPageProps, DragPayload } from "./E
 import { allSectionKeys, containsEntityReference, findEntityNodeId, sectionKey } from "./explorerModel";
 import { useCollectionDraft } from "../useCollectionDraft";
 import { toPublishOutcome } from "../publishOutcome";
+import type { PublishReviewItem } from "../publishReview.js";
 
 const PREFERENCES_KEY = "knowledgebase.explorer-preferences";
 
@@ -73,6 +74,9 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
   const [publishOutcome, setPublishOutcome] = useState<PublishOutcome | null>(null);
+  const [collectionPublishReview, setCollectionPublishReview] = useState<PublishReviewItem[] | null>(null);
+  const [collectionReviewBusy, setCollectionReviewBusy] = useState(false);
+  const [collectionPublishing, setCollectionPublishing] = useState(false);
   const [collectionConflictOpen, setCollectionConflictOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const resizeStart = useRef<{ pointerId: number; x: number; width: number } | null>(null);
@@ -400,25 +404,71 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
     }
   }
 
-  async function publishCollectionDraft() {
+  async function reviewCollectionDraftPublish(keepReviewOpen = false) {
     if (!collection) return;
-    setBusy(true);
+    setCollectionReviewBusy(true);
+    if (!keepReviewOpen) setCollectionPublishReview(null);
     setActionError("");
     setActionNotice("");
     setPublishOutcome(null);
     try {
-      const result = await collectionDraft.publish();
-      if (!result) return;
-      const published = await getCollection(collection.id);
+      const saved = await collectionDraft.flush();
+      if (!saved) throw new Error("没有可供审阅的 Collection Draft。");
+      const [preflight, comparison] = await Promise.all([
+        preflightDraft(saved.id),
+        compareDraft(saved.id),
+      ]);
+      const reviewItem: PublishReviewItem = {
+        label: collection.title,
+        entityType: "collection",
+        draftRevision: comparison.draft.revision,
+        preflight,
+        comparison,
+      };
+      if (preflight.conflict || comparison.canonical_changed) {
+        setCollectionPublishReview(null);
+        await collectionDraft.openComparison();
+        setCollectionConflictOpen(true);
+        return;
+      }
+      setCollectionPublishReview([reviewItem]);
+    } catch (reason) {
+      setActionError(errorMessage(reason));
+    } finally {
+      setCollectionReviewBusy(false);
+    }
+  }
+
+  async function publishCollectionDraft() {
+    const review = collectionPublishReview?.[0];
+    if (!review) {
+      setActionError("请先完成 Collection 发布审阅。");
+      return;
+    }
+    if (!review.preflight.valid || review.preflight.conflict || review.comparison.canonical_changed) {
+      setActionError("Collection 预检未通过，请处理问题后重新检查。");
+      return;
+    }
+    setCollectionPublishing(true);
+    setActionError("");
+    try {
+      const result = await publishDraftsBatch([{
+        draft_id: review.comparison.draft.id,
+        expected_revision: review.draftRevision,
+      }]);
+      const published = await getCollection(review.comparison.draft.entity_id);
       collectionDraft.reset(published);
       collectionResource.retry();
       collectionsResource.retry();
       setEditMode(false);
+      setCollectionPublishReview(null);
       setPublishOutcome(toPublishOutcome(result));
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      setActionError((reason as { status?: number })?.status === 409
+        ? "Collection Draft 在审阅后发生变化。请重新检查差异，再确认发布。"
+        : errorMessage(reason));
     } finally {
-      setBusy(false);
+      setCollectionPublishing(false);
     }
   }
 
@@ -580,6 +630,7 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
     newNoteTarget, newNoteError, setNewNoteError, newNoteBusy, createdNoteDraft,
     copyingEntity, setCopyingEntity, copyTargetId, setCopyTargetId,
     actionError, setActionError, actionNotice, publishOutcome,
+    collectionPublishReview, setCollectionPublishReview, collectionReviewBusy, collectionPublishing,
     collectionConflictOpen, setCollectionConflictOpen, busy,
     collectionsResource, collections, collectionResource, virtualResource,
     collection, collectionDraft, displayedCollection, treeEditMode, filteredNodes,
@@ -587,7 +638,7 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
     deleteSection, handleDrop, startNodeDrag, startReferenceDrag, updateProgress,
     copyEntityToCollection, startNewNoteHere, createNoteHere, enterNewNoteWorkspace,
     cancelNewNoteHere, toggleArchive, saveCollectionMetadata, moveSelectedCollection,
-    publishCollectionDraft, createCollection, discardCollectionDraft,
+    reviewCollectionDraftPublish, publishCollectionDraft, createCollection, discardCollectionDraft,
     reloadCanonicalCollection, keepDraftAndRebaseCollection, reviewCollectionConflict,
     toggleSection, openCollectionEntity, startResize, moveResize, stopResize,
     containsEntityReference, errorMessage,
