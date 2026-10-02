@@ -11,6 +11,7 @@ import {
   type BatchPublishedDrafts,
   type Collection,
   type Draft,
+  type DraftAcquireResult,
   type DraftComparison,
 } from "./api";
 import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft, updateEntityProgress, type DraftCollection } from "./collectionDraftModel";
@@ -48,12 +49,14 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
   const canonicalRef = useRef<Collection | null>(canonical);
   const serializedRef = useRef("");
   const lastSavedRef = useRef("");
-  const savePromiseRef = useRef<Promise<Draft> | null>(null);
+  const savePromiseRef = useRef<Promise<Draft | DraftAcquireResult> | null>(null);
+  const runtimeConflictRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const install = useCallback((nextCollection: DraftCollection, nextDraft: Draft | null, savedContent?: string) => {
     collectionRef.current = nextCollection;
     draftRef.current = nextDraft;
+    runtimeConflictRef.current = false;
     setCollection(nextCollection);
     setDraft(nextDraft);
     const serialized = serializeCollectionDraft(nextCollection);
@@ -74,6 +77,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     if (timerRef.current) clearTimeout(timerRef.current);
     collectionRef.current = null;
     draftRef.current = null;
+    runtimeConflictRef.current = false;
     setCollection(null);
     setDraft(null);
     setError("");
@@ -117,6 +121,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
   const saveNow = useCallback(async (): Promise<Draft | null> => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
+    if (runtimeConflictRef.current) throw Object.assign(new Error("Collection Draft 与本地修改冲突，请先检查并解决。"), { status: 409 });
     if (savePromiseRef.current) {
       await savePromiseRef.current;
       if (serializedRef.current !== lastSavedRef.current) return saveNow();
@@ -135,7 +140,17 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
       : createDraft("collection", currentCollection.id, snapshot);
     savePromiseRef.current = operation;
     try {
-      const saved = await operation;
+      const result = await operation;
+      const saved = isDraftAcquireResult(result) ? result.draft : result;
+      if (isDraftAcquireResult(result) && !result.created && saved.content !== snapshot) {
+        draftRef.current = saved;
+        setDraft(saved);
+        lastSavedRef.current = saved.content;
+        runtimeConflictRef.current = true;
+        setMergeContent(snapshot);
+        setComparison(await compareDraft(saved.id));
+        throw Object.assign(new Error("另一个标签页已为此 Collection 创建不同内容的 Draft。本地修改仍保留；请比较并手动合并。"), { status: 409 });
+      }
       draftRef.current = saved;
       setDraft(saved);
       lastSavedRef.current = snapshot;
@@ -167,12 +182,14 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     collectionRef.current = next;
     setCollection(next);
     serializedRef.current = serializeCollectionDraft(next);
-    setStatus("unsaved");
-    setError("");
+    setStatus(runtimeConflictRef.current ? "conflict" : "unsaved");
+    if (!runtimeConflictRef.current) setError("");
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      void saveNow().catch(() => undefined);
-    }, 650);
+    if (!runtimeConflictRef.current) {
+      timerRef.current = setTimeout(() => {
+        void saveNow().catch(() => undefined);
+      }, 650);
+    }
   }, [saveNow]);
 
   const setProgress = useCallback((entityId: string, progress: "reading" | "done") => {
@@ -243,6 +260,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
       currentDraft.revision,
       currentComparison.current_content_hash,
     );
+    runtimeConflictRef.current = false;
     canonicalRef.current = {
       ...currentCanonical,
       title: latestCanonical.title,
@@ -258,6 +276,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
     canonicalRef.current = nextCanonical;
+    runtimeConflictRef.current = false;
     install(collectionToDraft(nextCanonical), null);
   }, [install]);
 
@@ -267,6 +286,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     if (savePromiseRef.current) await savePromiseRef.current;
     const currentDraft = draftRef.current;
     if (currentDraft) await discardDraft(currentDraft.id, currentDraft.revision);
+    runtimeConflictRef.current = false;
     const currentCanonical = canonicalRef.current;
     if (currentCanonical) install(collectionToDraft(currentCanonical), null);
   }, [install]);
@@ -293,4 +313,8 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
 
 function errorMessage(reason: unknown) {
   return reason instanceof Error ? reason.message : "未知错误";
+}
+
+function isDraftAcquireResult(value: Draft | DraftAcquireResult): value is DraftAcquireResult {
+  return "draft" in value && "created" in value;
 }

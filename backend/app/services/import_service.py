@@ -205,13 +205,14 @@ class ImportService:
             target = Path("knowledge") / "terms" / "{}.md".format(metadata.id)
         revision = self.git.current_revision()
         content_hash = self.git.content_hash(target)
-        draft = self.draft_service.create_or_get(
+        acquisition = self.draft_service.create_or_get(
             entity_type,
             metadata.id,
             content,
             revision,
             content_hash,
         )
+        draft = acquisition.draft
 
         item_metadata = dict(item.metadata)
         if profile == "legacy":
@@ -396,13 +397,14 @@ class ImportService:
         )
         canonical_path = Path("knowledge") / "sources" / "{}.yaml".format(source_id)
         try:
-            draft = self.draft_service.create_or_get(
+            acquisition = self.draft_service.create_or_get(
                 "source",
                 source_id,
                 source_content,
                 self.git.current_revision(),
                 self.git.content_hash(canonical_path),
             )
+            draft = acquisition.draft
         except Exception:
             if copied_pdf and storage_path.exists():
                 storage_path.unlink()

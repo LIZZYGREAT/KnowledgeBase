@@ -105,9 +105,13 @@ def test_draft_create_and_autosave_keep_canonical_file_untouched(tmp_path, runti
 
 def test_create_or_get_returns_existing_draft_without_overwriting_it(runtime_connection):
     service = DraftService(DraftRepository(runtime_connection))
-    original = service.create_or_get("document", "note", "first", "rev-a", "hash-a")
-    existing = service.create_or_get("document", "note", "second", "rev-b", "hash-b")
+    original_result = service.create_or_get("document", "note", "first", "rev-a", "hash-a")
+    existing_result = service.create_or_get("document", "note", "second", "rev-b", "hash-b")
+    original = original_result.draft
+    existing = existing_result.draft
 
+    assert original_result.created is True
+    assert existing_result.created is False
     assert existing.id == original.id
     assert existing.content == "first"
     assert existing.base_git_revision == "rev-a"
@@ -135,8 +139,10 @@ def test_two_connections_racing_to_create_a_target_return_one_draft(tmp_path):
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             results = list(executor.map(create, connections, ["one", "two"]))
-        assert results[0].id == results[1].id
-        assert DraftRepository(connections[0]).list_for_target("document", "racing-note") == [results[0]]
+        assert results[0].draft.id == results[1].draft.id
+        assert sorted(result.created for result in results) == [False, True]
+        winner = next(result.draft for result in results if result.created)
+        assert DraftRepository(connections[0]).list_for_target("document", "racing-note") == [winner]
     finally:
         for connection in connections:
             connection.close()

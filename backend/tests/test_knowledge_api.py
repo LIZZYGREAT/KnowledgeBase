@@ -241,7 +241,8 @@ def test_draft_compare_rebase_list_and_discard_are_revision_guarded(api_client):
         },
     )
     assert created.status_code == 201
-    draft = created.json()
+    assert created.json()["created"] is True
+    draft = created.json()["draft"]
     repeated = api_client.post(
         "/api/drafts",
         json={
@@ -250,9 +251,10 @@ def test_draft_compare_rebase_list_and_discard_are_revision_guarded(api_client):
             "content": _document_content() + "\nDifferent request body.\n",
         },
     )
-    assert repeated.status_code == 201
-    assert repeated.json()["id"] == draft["id"]
-    assert repeated.json()["content"] == draft["content"]
+    assert repeated.status_code == 200
+    assert repeated.json()["created"] is False
+    assert repeated.json()["draft"]["id"] == draft["id"]
+    assert repeated.json()["draft"]["content"] == draft["content"]
     drafts = api_client.get(
         "/api/drafts", params={"entity_type": "document", "entity_id": "neural-indexing"}
     )
@@ -345,7 +347,8 @@ def test_collection_draft_uses_the_existing_runtime_lifecycle(api_client):
     )
 
     assert created.status_code == 201, created.json()
-    draft = created.json()
+    assert created.json()["created"] is True
+    draft = created.json()["draft"]
     assert draft["entity_type"] == "collection"
     assert api_client.get(
         "/api/drafts", params={"entity_type": "collection", "entity_id": "reading"}
@@ -519,7 +522,7 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
         },
     )
     assert draft_response.status_code == 201
-    draft = draft_response.json()
+    draft = draft_response.json()["draft"]
 
     # AI calls are disabled without a configured server key and never fall back to networkless output.
     assert api_client.post(
@@ -602,7 +605,7 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
     stale_draft = api_client.post(
         "/api/drafts",
         json={"entity_type": "document", "entity_id": "neural-indexing", "content": _document_content()},
-    ).json()
+    ).json()["draft"]
     stale_proposal = api_client.post(
         "/api/ai/document-review",
         json={"draft_id": stale_draft["id"], "confirm_deepseek_transfer": True},
@@ -621,7 +624,7 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
     term_draft = api_client.post(
         "/api/drafts",
         json={"entity_type": "term", "entity_id": "api-term", "content": _term_draft_content()},
-    ).json()
+    ).json()["draft"]
     term_proposal = api_client.post(
         "/api/ai/term-draft",
         json={"draft_id": term_draft["id"], "confirm_deepseek_transfer": True},
@@ -736,7 +739,7 @@ def test_batch_publish_api_publishes_document_and_collection_in_one_commit(api_c
 
     published = api_client.post(
         "/api/publish/batch",
-        json={"draft_ids": [document.json()["id"], collection.json()["id"]]},
+        json={"draft_ids": [document.json()["draft"]["id"], collection.json()["draft"]["id"]]},
     )
 
     assert published.status_code == 200, published.json()
@@ -750,10 +753,10 @@ def test_batch_publish_api_publishes_document_and_collection_in_one_commit(api_c
     )
     assert body["warnings"] == []
     assert api_client.get(
-        "/api/drafts/{}".format(document.json()["id"])
+        "/api/drafts/{}".format(document.json()["draft"]["id"])
     ).status_code == 404
     assert api_client.get(
-        "/api/drafts/{}".format(collection.json()["id"])
+        "/api/drafts/{}".format(collection.json()["draft"]["id"])
     ).status_code == 404
 
 

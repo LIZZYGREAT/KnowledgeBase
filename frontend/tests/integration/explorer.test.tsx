@@ -91,7 +91,7 @@ function installApiBehavior() {
   api.createDraft.mockImplementation(async (type: Draft["entity_type"], id: string, content: string) => {
     const draft = makeDraft(type, id, content);
     drafts.push(draft);
-    return draft;
+    return { draft, created: true };
   });
   api.updateDraft.mockImplementation(async (id: string, content: string, revision: number) => {
     const draft = drafts.find((item) => item.id === id);

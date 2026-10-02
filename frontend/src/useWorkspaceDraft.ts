@@ -10,6 +10,7 @@ import {
   rebaseDraft,
   updateDraft,
   type Draft,
+  type DraftAcquireResult,
   type DraftComparison,
   type BatchPublishedDrafts,
   type EntityDetail,
@@ -31,6 +32,12 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const [error, setError] = useState("");
   const [saveState, setSaveState] = useState<WorkspaceSaveState>("Ready");
   const [comparison, setComparison] = useState<DraftComparison | null>(null);
+  const [runtimeDraftConflict, setRuntimeDraftConflict] = useState<{
+    existingDraft: Draft;
+    localContent: string;
+    canonicalContent: string;
+  } | null>(null);
+  const [runtimeMergeContent, setRuntimeMergeContent] = useState("");
   const [mergeContent, setMergeContent] = useState("");
   const [publishedRevision, setPublishedRevision] = useState("");
   const [publishedOutcome, setPublishedOutcome] = useState<PublishOutcome | null>(null);
@@ -39,7 +46,8 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const contentRef = useRef("");
   const canonicalContentRef = useRef("");
   const lastSavedRef = useRef("");
-  const inFlightRef = useRef<Promise<Draft> | null>(null);
+  const inFlightRef = useRef<Promise<Draft | DraftAcquireResult> | null>(null);
+  const runtimeDraftConflictRef = useRef<typeof runtimeDraftConflict>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const installDraft = useCallback((next: Draft | null, replaceContent: boolean, nextContent?: string) => {
@@ -65,6 +73,9 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setLoadError("");
     setError("");
     setComparison(null);
+    setRuntimeDraftConflict(null);
+    runtimeDraftConflictRef.current = null;
+    setRuntimeMergeContent("");
     setPublishedRevision("");
     setPublishedOutcome(null);
     setCanonicalEntity(null);
@@ -105,6 +116,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const saveNow = useCallback(async (): Promise<Draft | null> => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
+    if (runtimeDraftConflictRef.current) throw Object.assign(new Error("Draft 与本地未保存内容冲突，请先重新载入或手动合并。"), { status: 409 });
     if (inFlightRef.current) {
       await inFlightRef.current;
       if (contentRef.current !== lastSavedRef.current) return saveNow();
@@ -120,7 +132,23 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
       : createDraft(type, id, snapshot);
     inFlightRef.current = operation;
     try {
-      const saved = await operation;
+      const result = await operation;
+      const saved = isDraftAcquireResult(result) ? result.draft : result;
+      if (isDraftAcquireResult(result) && !result.created && saved.content !== snapshot) {
+        const conflict = {
+          existingDraft: saved,
+          localContent: snapshot,
+          canonicalContent: canonicalContentRef.current,
+        };
+        draftRef.current = saved;
+        setDraft(saved);
+        lastSavedRef.current = saved.content;
+        setIsDirty(contentRef.current !== saved.content);
+        runtimeDraftConflictRef.current = conflict;
+        setRuntimeDraftConflict(conflict);
+        setRuntimeMergeContent(snapshot);
+        throw Object.assign(new Error("另一个标签页已为此内容创建 Draft。当前本地修改尚未保存，请选择载入已保存 Draft 或手动合并。"), { status: 409 });
+      }
       draftRef.current = saved;
       setDraft(saved);
       lastSavedRef.current = snapshot;
@@ -139,13 +167,13 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!loading && content !== lastSavedRef.current && !comparison) {
+    if (!loading && content !== lastSavedRef.current && !comparison && !runtimeDraftConflict) {
       setSaveState("Unsaved");
       setIsDirty(true);
       timerRef.current = setTimeout(() => { void saveNow().catch(() => undefined); }, 650);
     }
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [content, draft?.id, draft?.revision, comparison, loading, saveNow]);
+  }, [content, draft?.id, draft?.revision, comparison, loading, runtimeDraftConflict, saveNow]);
 
   const updateContent = useCallback((value: string) => {
     contentRef.current = value;
@@ -237,7 +265,25 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const ensureDraft = useCallback(async () => {
     const saved = await saveNow();
     if (saved) return saved;
-    const created = await createDraft(type, id, contentRef.current);
+    const result = await createDraft(type, id, contentRef.current);
+    const created = result.draft;
+    if (!result.created && created.content !== contentRef.current) {
+      const conflict = {
+        existingDraft: created,
+        localContent: contentRef.current,
+        canonicalContent: canonicalContentRef.current,
+      };
+      draftRef.current = created;
+      setDraft(created);
+      lastSavedRef.current = created.content;
+      setIsDirty(true);
+      runtimeDraftConflictRef.current = conflict;
+      setRuntimeDraftConflict(conflict);
+      setRuntimeMergeContent(contentRef.current);
+      setError("另一个标签页已为此内容创建 Draft。当前本地修改尚未保存，请选择载入已保存 Draft 或手动合并。");
+      setSaveState("Conflict");
+      throw Object.assign(new Error("Draft 内容冲突。"), { status: 409 });
+    }
     draftRef.current = created;
     setDraft(created);
     lastSavedRef.current = contentRef.current;
@@ -246,6 +292,58 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setError("");
     return created;
   }, [id, saveNow, type]);
+
+  const reloadExistingDraft = useCallback(async () => {
+    const conflict = runtimeDraftConflictRef.current;
+    if (!conflict) return;
+    const latest = (await listDrafts(type, id))[0] ?? conflict.existingDraft;
+    runtimeDraftConflictRef.current = null;
+    setRuntimeDraftConflict(null);
+    setRuntimeMergeContent("");
+    installDraft(latest, true);
+    setError("");
+    setComparison(null);
+  }, [id, installDraft, type]);
+
+  const applyRuntimeMerge = useCallback(async () => {
+    const conflict = runtimeDraftConflictRef.current;
+    if (!conflict) return;
+    try {
+      const updated = await updateDraft(
+        conflict.existingDraft.id,
+        runtimeMergeContent,
+        conflict.existingDraft.revision,
+      );
+      runtimeDraftConflictRef.current = null;
+      setRuntimeDraftConflict(null);
+      setRuntimeMergeContent("");
+      draftRef.current = updated;
+      setDraft(updated);
+      contentRef.current = updated.content;
+      setContent(updated.content);
+      lastSavedRef.current = updated.content;
+      setIsDirty(false);
+      setSaveState("Saved");
+      setError("");
+    } catch (reason) {
+      if ((reason as { status?: number })?.status === 409) {
+        const latest = (await listDrafts(type, id))[0];
+        if (latest) {
+          const nextConflict = { ...conflict, existingDraft: latest };
+          draftRef.current = latest;
+          setDraft(latest);
+          lastSavedRef.current = latest.content;
+          runtimeDraftConflictRef.current = nextConflict;
+          setRuntimeDraftConflict(nextConflict);
+        }
+        setError("Draft 已在另一个标签页更新；合并内容未覆盖新版本。请检查最新 Draft 后再次应用合并。");
+      } else {
+        setError(errorMessage(reason));
+      }
+      setSaveState("Conflict");
+      throw reason;
+    }
+  }, [id, runtimeMergeContent, type]);
 
   const publish = useCallback(async (additionalDraftIds: string[] = []): Promise<PublishedDraft | BatchPublishedDrafts | null> => {
     const saved = await saveNow();
@@ -284,6 +382,9 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setError,
     saveState,
     comparison,
+    runtimeDraftConflict,
+    runtimeMergeContent,
+    setRuntimeMergeContent,
     mergeContent,
     setMergeContent,
     publishedRevision,
@@ -298,7 +399,13 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     discard,
     publish,
     ensureDraft,
+    reloadExistingDraft,
+    applyRuntimeMerge,
   };
+}
+
+function isDraftAcquireResult(value: Draft | DraftAcquireResult): value is DraftAcquireResult {
+  return "draft" in value && "created" in value;
 }
 
 function errorMessage(reason: unknown) {

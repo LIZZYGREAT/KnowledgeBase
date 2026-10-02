@@ -159,6 +159,11 @@ class DraftView(APIModel):
     updated_at: str
 
 
+class DraftAcquireView(APIModel):
+    draft: DraftView
+    created: bool
+
+
 class DraftCompareView(APIModel):
     draft: DraftView
     base_content: str

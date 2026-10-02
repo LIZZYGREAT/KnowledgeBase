@@ -9,7 +9,7 @@ import shutil
 from typing import Literal, Optional
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 
 from backend.app.api.schemas import (
     BatchPublishRequest,
@@ -21,6 +21,7 @@ from backend.app.api.schemas import (
     CollectionProgressView,
     ConfirmSourceRequest,
     DraftCreateRequest,
+    DraftAcquireView,
     DraftDeleteRequest,
     DraftRebaseRequest,
     DraftPreflightView,
@@ -134,21 +135,22 @@ async def delete_annotation(annotation_id: str, request: Request):
     return {"deleted": True}
 
 
-@router.post("/drafts", response_model=DraftView, status_code=status.HTTP_201_CREATED)
-async def create_draft(body: DraftCreateRequest, request: Request):
+@router.post("/drafts", response_model=DraftAcquireView, status_code=status.HTTP_201_CREATED)
+async def create_draft(body: DraftCreateRequest, request: Request, response: Response):
     root = request.app.state.repository_root
     target = _draft_target_path(root, body.entity_type, body.entity_id, body.content,
                                 request.app.state.runtime_connection)
     git = request.app.state.git_manager
-    return asdict(
-        request.app.state.draft_service.create_or_get(
-            body.entity_type,
-            body.entity_id,
-            body.content,
-            git.current_revision(),
-            git.content_hash(target),
-        )
+    result = request.app.state.draft_service.create_or_get(
+        body.entity_type,
+        body.entity_id,
+        body.content,
+        git.current_revision(),
+        git.content_hash(target),
     )
+    if not result.created:
+        response.status_code = status.HTTP_200_OK
+    return {"draft": asdict(result.draft), "created": result.created}
 
 
 @router.get("/drafts", response_model=list[DraftView])

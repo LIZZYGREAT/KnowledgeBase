@@ -3,7 +3,7 @@
 import sqlite3
 from typing import Optional
 
-from backend.app.domain.runtime import Draft
+from backend.app.domain.runtime import Draft, DraftAcquireResult
 
 
 class DraftNotFoundError(LookupError):
@@ -46,9 +46,9 @@ class DraftRepository:
             )
         return self.get(draft.id)
 
-    def create_or_get(self, draft: Draft) -> Draft:
+    def create_or_get(self, draft: Draft) -> DraftAcquireResult:
         try:
-            return self.create(draft)
+            return DraftAcquireResult(self.create(draft), created=True)
         except sqlite3.IntegrityError as error:
             is_unique_violation = (
                 getattr(error, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE"
@@ -60,7 +60,7 @@ class DraftRepository:
             existing = self.list_for_target(draft.entity_type, draft.entity_id)
             if not existing:
                 raise
-            return existing[0]
+            return DraftAcquireResult(existing[0], created=False)
 
     def get(self, draft_id: str) -> Optional[Draft]:
         row = self.connection.execute(

@@ -37,6 +37,12 @@ class Draft:
 
 
 @dataclass(frozen=True)
+class DraftAcquireResult:
+    draft: Draft
+    created: bool
+
+
+@dataclass(frozen=True)
 class Proposal:
     id: str
     target_type: ProposalTargetType

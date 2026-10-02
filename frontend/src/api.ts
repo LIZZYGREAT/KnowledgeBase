@@ -149,6 +149,11 @@ export interface Draft {
   updated_at: string;
 }
 
+export interface DraftAcquireResult {
+  draft: Draft;
+  created: boolean;
+}
+
 export interface DraftComparison {
   draft: Draft;
   base_content: string;
@@ -361,7 +366,7 @@ export function listDrafts(entityType: DraftEntityType, entityId: string) {
 }
 
 export function createDraft(entityType: DraftEntityType, entityId: string, content: string) {
-  return request<Draft>("/api/drafts", {
+  return request<DraftAcquireResult>("/api/drafts", {
     method: "POST",
     body: JSON.stringify({ entity_type: entityType, entity_id: entityId, content }),
   });

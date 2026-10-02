@@ -106,7 +106,7 @@ function installApiBehavior() {
   api.createDraft.mockImplementation(async (type: Draft["entity_type"], id: string, content: string) => {
     const draft = makeDraft(type, id, content);
     drafts.push(draft);
-    return draft;
+    return { draft, created: true };
   });
   api.updateDraft.mockImplementation(async (id: string, content: string, revision: number) => {
     const draft = drafts.find((item) => item.id === id);
@@ -244,6 +244,36 @@ describe("Workspace React integration", () => {
 
     await waitFor(() => expect(api.createDraft).toHaveBeenCalledOnce(), { timeout: 2500 });
     expect(api.createDraft.mock.calls[0][2]).toContain("**A paragraph with a selected phrase.**");
+  });
+
+  it("keeps local content unsaved when another tab already created a different Draft, then saves an explicit merge", async () => {
+    const user = userEvent.setup();
+    const existing = makeDraft("document", "quick-start", canonicalContent + "\nOther tab content.\n");
+    api.createDraft.mockImplementationOnce(async () => {
+      drafts.push(existing);
+      return { draft: existing, created: false };
+    });
+    const { container } = renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await user.click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
+    await user.clear(editor);
+    await user.type(editor, "Local unsaved content.");
+    await user.click(screen.getByRole("button", { name: "完成区块" }));
+
+    await screen.findByRole("heading", { name: "Draft 内容冲突" });
+    expect(screen.getAllByText(/另一个标签页已为此内容创建 Draft/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Other tab content/)).toBeTruthy();
+    expect(screen.getAllByText(/当前本地修改尚未保存/).length).toBeGreaterThan(0);
+    expect(container.querySelector(".workspace-reader-save-state")?.textContent).toBe("Draft 冲突");
+
+    const merge = screen.getByRole("textbox", { name: /手动合并内容/ });
+    await user.clear(merge);
+    await user.type(merge, "Merged content from both tabs.");
+    await user.click(screen.getByRole("button", { name: "保存手动合并" }));
+
+    await waitFor(() => expect(api.updateDraft).toHaveBeenCalledWith(existing.id, "Merged content from both tabs.", 1));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Draft 内容冲突" })).toBeNull());
   });
 
   it("saves a Reader selection as a Presentation Annotation without editing Markdown", async () => {

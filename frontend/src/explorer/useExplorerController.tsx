@@ -375,7 +375,8 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
       for (const item of positionChanges) {
         const canonical = await getCollection(item.id);
         const draftContent = serializeCollectionDraft({ ...collectionToDraft(canonical), position: item.position });
-        const draft = await createDraft("collection", item.id, draftContent);
+        const acquisition = await createDraft("collection", item.id, draftContent);
+        const draft = acquisition.draft;
         if (draft.content !== draftContent) {
           throw new Error(`Collection ${item.title} 在另一标签页中已创建 Draft；请先检查 Draft，再调整顺序。`);
         }
@@ -452,9 +453,19 @@ export function useExplorerController({ onOpen, navigate, embedded = false, sele
       }, { lineWidth: 0 });
       const existingDrafts = await listDrafts("collection", normalizedId);
       const pendingDraft = existingDrafts[0];
-      const draft = pendingDraft
-        ? await updateDraft(pendingDraft.id, content, pendingDraft.revision)
-        : await createDraft("collection", normalizedId, content);
+      let draft: Draft;
+      if (pendingDraft) {
+        if (pendingDraft.content !== content) {
+          throw new Error("此 Collection 已存在不同内容的 Draft；请先检查并处理，再创建 Collection。");
+        }
+        draft = pendingDraft;
+      } else {
+        const acquisition = await createDraft("collection", normalizedId, content);
+        draft = acquisition.draft;
+        if (!acquisition.created && draft.content !== content) {
+          throw new Error("此 Collection 已在另一个标签页创建不同内容的 Draft；请先检查并处理。");
+        }
+      }
       const published = await publishDraftsBatch([draft.id]);
       setCreateCollectionOpen(false);
       setCreateCollectionError("");
@@ -585,9 +596,12 @@ async function saveReferenceDraft(targetId: string, node: Extract<CollectionNode
   const current = currentDraft ? parseCollectionDraft(currentDraft.content, canonical) : collectionToDraft(canonical);
   const updated = addEntityReference(current, node.entity_type, node.entity_id, node.title);
   const content = serializeCollectionDraft(updated);
-  return currentDraft
-    ? updateDraft(currentDraft.id, content, currentDraft.revision)
-    : createDraft("collection", targetId, content);
+  if (currentDraft) return updateDraft(currentDraft.id, content, currentDraft.revision);
+  const acquisition = await createDraft("collection", targetId, content);
+  if (!acquisition.created && acquisition.draft.content !== content) {
+    throw new Error("Collection 已在另一个标签页创建不同内容的 Draft；请先检查并处理。");
+  }
+  return acquisition.draft;
 }
 
 function readDragPayload(event: DragEvent<HTMLElement>): DragPayload | null {

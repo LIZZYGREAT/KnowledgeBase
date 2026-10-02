@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 import uuid
 
-from backend.app.domain.runtime import Draft, DraftEntityType
+from backend.app.domain.runtime import Draft, DraftAcquireResult, DraftEntityType
 from backend.app.repositories.draft_repository import DraftNotFoundError, DraftRepository
 
 
@@ -35,7 +35,7 @@ class DraftService:
         content: str,
         base_git_revision: str,
         base_content_hash: str,
-    ) -> Draft:
+    ) -> DraftAcquireResult:
         return self.repository.create_or_get(
             self._new_draft(
                 entity_type, entity_id, content, base_git_revision, base_content_hash
