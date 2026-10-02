@@ -1,27 +1,18 @@
-import { WorkspacePublishDrawer } from "./workspace/WorkspacePublishDrawer";
-import { PublishOutcomeNotice } from "./workspace/PublishOutcomeNotice";
 import { WorkspaceBodyEditor } from "./workspace/WorkspaceBodyEditor";
-import { WorkspaceAIAssistDrawer } from "./workspace/WorkspaceAIAssistDrawer";
-import { WorkspaceConflictDrawer } from "./workspace/WorkspaceConflictDrawer";
-import { WorkspaceMetadataDrawer } from "./workspace/WorkspaceMetadataDrawer";
 import { ErrorState, LoadingState, PageHeader } from "./ui";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
-import { useWorkspaceEditorController } from "./workspace/useWorkspaceEditorController";
-import type { WorkspaceEditingProps } from "./workspace/WorkspaceEditorTypes";
+import { WorkspaceEditorDrawers } from "./workspace/WorkspaceEditorDrawers";
+import type { WorkspaceEditorController } from "./workspace/useWorkspaceEditorController";
 export { NewNotePage } from "./workspace/NewNotePage";
 
-export function WorkspaceEditingSurface(props: WorkspaceEditingProps) {
+export function WorkspaceEditingSurface({ controller }: { controller: WorkspaceEditorController }) {
   const {
     type, id, navigate, batchCollectionId, returnCollectionId,
     draft, content, canonicalEntity, loading, loadError, draftError, setDraftError,
-    saveState, comparison, mergeContent, setMergeContent, publishedRevision, publishedOutcome, isDirty,
-    saveError, setSaveError, proposals, sourceEntries, sourceError, proposalError, proposalBusy,
-    consent, setConsent, selection, setSelection, selectedText, setSelectedText,
-    publishing, activeDrawer, setActiveDrawer, publishReview, setPublishReview, preflightBusy,
-    saveNow, openComparison, runPreflight, reloadCanonical, applyRebase, discardCurrentDraft,
-    publishCurrentDraft, generateProposal, actOnProposal, applyMetadataProposal,
-    setEditorContent, updateFrontmatter, updateFrontmatterList, updateSourcePdf,
-  } = useWorkspaceEditorController(props);
+    saveState, publishedRevision, isDirty, saveError, setSaveError, setSelectedText,
+    publishing, setActiveDrawer, setPublishReview, saveNow, openComparison, runPreflight,
+    discardCurrentDraft, setEditorContent,
+  } = controller;
 
   if (loading) return <LoadingState label="正在载入 Draft 编辑器…" />;
   if (loadError) return <ErrorState message={loadError} />;
@@ -50,7 +41,7 @@ export function WorkspaceEditingSurface(props: WorkspaceEditingProps) {
         </div>}
       />
 
-      {publishedOutcome && <PublishOutcomeNotice outcome={publishedOutcome} onReturn={() => navigate(entityWorkspaceUrl(type, id, { collectionId: returnCollectionId }))} />}
+      <WorkspaceEditorDrawers controller={controller} />
       {visibleSaveError && <div className="editor-notice error-notice" role="alert"><span>{visibleSaveError}</span><button className="text-button" onClick={() => { setSaveError(""); setDraftError(""); }}>关闭</button>{saveState === "Conflict" && <button className="button button-secondary" onClick={() => void openComparison()}>比较版本</button>}</div>}
 
       <WorkspaceBodyEditor
@@ -62,59 +53,6 @@ export function WorkspaceEditingSurface(props: WorkspaceEditingProps) {
         onSave={() => void saveNow().catch(() => undefined)}
         onNavigate={navigate}
       />
-      {activeDrawer === "metadata" && <WorkspaceMetadataDrawer
-        type={type}
-        id={id}
-        content={content}
-        sourceEntries={sourceEntries}
-        sourceError={sourceError}
-        canonicalEvidenceCount={canonicalEntity?.evidence.length ?? 0}
-        onFrontmatterUpdate={updateFrontmatter}
-        onFrontmatterListUpdate={updateFrontmatterList}
-        onSourcePdfChange={updateSourcePdf}
-        onSave={() => void saveNow().catch(() => undefined)}
-        onClose={() => setActiveDrawer(null)}
-        onError={setSaveError}
-      />}
-
-      {activeDrawer === "ai" && <WorkspaceAIAssistDrawer
-        type={type}
-        consent={consent}
-        onConsentChange={setConsent}
-        busy={proposalBusy}
-        selection={selection}
-        selectedText={selectedText}
-        onSelectionChange={setSelection}
-        proposalError={proposalError}
-        proposals={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status))}
-        pendingCount={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status)).length}
-        onGenerate={(task) => void generateProposal(task)}
-        onReview={(proposalId, action) => void actOnProposal(proposalId, action)}
-        onUseContent={setEditorContent}
-        onApplyMetadata={applyMetadataProposal}
-        onClose={() => setActiveDrawer(null)}
-      />}
-      {activeDrawer === "publish" && <WorkspacePublishDrawer
-        items={publishReview ?? []}
-        busy={preflightBusy}
-        publishing={publishing}
-        published={Boolean(publishedRevision)}
-        error={saveError}
-        batch={Boolean(batchCollectionId)}
-        onClose={() => setActiveDrawer(null)}
-        onRefresh={() => void runPreflight()}
-        onPublish={() => void publishCurrentDraft()}
-      />}
-
-      {activeDrawer === "conflict" && comparison && <WorkspaceConflictDrawer
-        comparison={comparison}
-        content={content}
-        mergeContent={mergeContent}
-        onMergeContentChange={setMergeContent}
-        onReloadCanonical={() => void reloadCanonical()}
-        onApplyRebase={() => void applyRebase()}
-        onClose={() => setActiveDrawer(null)}
-      />}
       <div className="editor-bottom-actions"><button className="button button-danger" disabled={!draft && !isDirty} onClick={() => void discardCurrentDraft()}>{batchCollectionId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button><span>{batchCollectionId ? `发布目标：Document + Collection ${batchCollectionId}；丢弃笔记会保留已有 Collection 修改` : draft ? "草稿与当前正式内容关联" : "基于当前正式内容"} · Publisher 会检查外部更改</span></div>
     </div>
   );

@@ -323,6 +323,8 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
   };
 }
 
+export type WorkspaceEditorController = ReturnType<typeof useWorkspaceEditorController>;
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "发生未知错误。";
 }

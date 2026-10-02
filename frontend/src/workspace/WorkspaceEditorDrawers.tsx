@@ -1,0 +1,77 @@
+import { entityWorkspaceUrl } from "../workspaceRoute.js";
+import type { WorkspaceEditorController } from "./useWorkspaceEditorController";
+import { WorkspacePublishDrawer } from "./WorkspacePublishDrawer";
+import { PublishOutcomeNotice } from "./PublishOutcomeNotice";
+import { WorkspaceAIAssistDrawer } from "./WorkspaceAIAssistDrawer";
+import { WorkspaceConflictDrawer } from "./WorkspaceConflictDrawer";
+import { WorkspaceMetadataDrawer } from "./WorkspaceMetadataDrawer";
+
+export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEditorController }) {
+  const {
+    type, id, navigate, returnCollectionId,
+    content, canonicalEntity, sourceEntries, sourceError, proposalError, proposalBusy,
+    consent, setConsent, selection, setSelection, selectedText, saveError, setSaveError,
+    proposals, publishing, activeDrawer, setActiveDrawer, publishReview, preflightBusy,
+    publishedRevision, publishedOutcome, batchCollectionId, comparison, mergeContent,
+    setMergeContent, saveNow, runPreflight, reloadCanonical, applyRebase, generateProposal,
+    actOnProposal, applyMetadataProposal, updateFrontmatter, updateFrontmatterList, updateSourcePdf,
+  } = controller;
+
+  return <>
+    {publishedOutcome && <PublishOutcomeNotice
+      outcome={publishedOutcome}
+      onReturn={() => navigate(entityWorkspaceUrl(type, id, { collectionId: returnCollectionId }))}
+    />}
+    {activeDrawer === "metadata" && <WorkspaceMetadataDrawer
+      type={type}
+      id={id}
+      content={content}
+      sourceEntries={sourceEntries}
+      sourceError={sourceError}
+      canonicalEvidenceCount={canonicalEntity?.evidence.length ?? 0}
+      onFrontmatterUpdate={updateFrontmatter}
+      onFrontmatterListUpdate={updateFrontmatterList}
+      onSourcePdfChange={updateSourcePdf}
+      onSave={() => void saveNow().catch(() => undefined)}
+      onClose={() => setActiveDrawer(null)}
+      onError={setSaveError}
+    />}
+    {activeDrawer === "ai" && <WorkspaceAIAssistDrawer
+      type={type}
+      consent={consent}
+      onConsentChange={setConsent}
+      busy={proposalBusy}
+      selection={selection}
+      selectedText={selectedText}
+      onSelectionChange={setSelection}
+      proposalError={proposalError}
+      proposals={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status))}
+      pendingCount={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status)).length}
+      onGenerate={(task) => void generateProposal(task)}
+      onReview={(proposalId, action) => void actOnProposal(proposalId, action)}
+      onUseContent={(value) => controller.setEditorContent(value)}
+      onApplyMetadata={applyMetadataProposal}
+      onClose={() => setActiveDrawer(null)}
+    />}
+    {activeDrawer === "publish" && <WorkspacePublishDrawer
+      items={publishReview ?? []}
+      busy={preflightBusy}
+      publishing={publishing}
+      published={Boolean(publishedRevision)}
+      error={saveError}
+      batch={Boolean(batchCollectionId)}
+      onClose={() => setActiveDrawer(null)}
+      onRefresh={() => void runPreflight()}
+      onPublish={() => void controller.publishCurrentDraft()}
+    />}
+    {activeDrawer === "conflict" && comparison && <WorkspaceConflictDrawer
+      comparison={comparison}
+      content={content}
+      mergeContent={mergeContent}
+      onMergeContentChange={setMergeContent}
+      onReloadCanonical={() => void reloadCanonical()}
+      onApplyRebase={() => void applyRebase()}
+      onClose={() => setActiveDrawer(null)}
+    />}
+  </>;
+}

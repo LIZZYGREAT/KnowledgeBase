@@ -6,6 +6,7 @@ import { useWorkspaceDraft } from "./useWorkspaceDraft";
 import { WorkspaceRuntimeDraftConflictDrawer } from "./workspace/WorkspaceRuntimeDraftConflictDrawer";
 import type { EntityType } from "./api";
 import { entityWorkspaceUrl } from "./workspaceRoute.js";
+import { useWorkspaceEditorController } from "./workspace/useWorkspaceEditorController";
 
 const WorkspaceExplorer = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
 
@@ -48,6 +49,15 @@ export function WorkspacePage({
     navigate(path);
   }
 
+  const workspaceEditorController = useWorkspaceEditorController({
+    type,
+    id,
+    navigate: navigateFromEditor,
+    workspaceDraft,
+    batchCollectionId,
+    returnCollectionId: collectionId ?? batchCollectionId,
+  });
+
   return (
     <>
       <WorkspaceShell
@@ -63,7 +73,7 @@ export function WorkspacePage({
         </Suspense>}
       >
         {mode === "edit"
-          ? <WorkspaceEditingSurface key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} workspaceDraft={workspaceDraft} batchCollectionId={batchCollectionId} returnCollectionId={collectionId ?? batchCollectionId} />
+          ? <WorkspaceEditingSurface controller={workspaceEditorController} />
           : <EntityPage
             key={`read:${type}:${id}:${collectionId ?? ""}`}
             type={type}
@@ -72,6 +82,7 @@ export function WorkspacePage({
             collectionId={collectionId}
             onEdit={() => setMode("edit")}
             workspaceDraft={workspaceDraft}
+            workspaceEditorController={workspaceEditorController}
           />}
       </WorkspaceShell>
       <WorkspaceRuntimeDraftConflictDrawer workspaceDraft={workspaceDraft} />

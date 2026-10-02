@@ -310,7 +310,7 @@ describe("Workspace React integration", () => {
     await user.click(screen.getByRole("button", { name: "完成区块" }));
     await waitFor(() => expect(drafts[0]?.content).toContain("Revised paragraph."), { timeout: 2500 });
 
-    await user.click(screen.getByRole("button", { name: "完整编辑器" }));
+    await user.click(screen.getByRole("button", { name: "Source" }));
     expect(container.querySelector(".workspace-shell")).not.toBeNull();
     await user.click(await screen.findByRole("button", { name: "发布" }));
     await screen.findByRole("heading", { name: "变更摘要" });
@@ -319,6 +319,44 @@ describe("Workspace React integration", () => {
     await user.click(publishButton);
     await waitFor(() => expect(api.publishDraft).toHaveBeenCalledOnce());
     expect(api.publishDraft).toHaveBeenCalledWith("draft-1", 1);
+  });
+
+  it("opens Metadata directly over the Reader", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+
+    await user.click(screen.getByRole("button", { name: "元数据" }));
+
+    await screen.findByRole("heading", { name: "元数据" });
+    expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
+  });
+
+  it("opens the AI review drawer directly over the Reader", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+
+    await user.click(screen.getByRole("button", { name: "AI 审阅" }));
+
+    await screen.findByRole("heading", { name: "AI 辅助审阅" });
+    expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
+  });
+
+  it("opens and confirms Publish Review directly from the Reader", async () => {
+    const user = userEvent.setup();
+    seedDraft(canonicalContent.replace("selected phrase", "reviewed from reader"));
+    renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+
+    await user.click(screen.getByRole("button", { name: "发布" }));
+    await screen.findByRole("heading", { name: "变更摘要" });
+    const publishButton = await screen.findByRole("button", { name: "确认发布" });
+    await waitFor(() => expect((publishButton as HTMLButtonElement).disabled).toBe(false));
+    await user.click(publishButton);
+
+    await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith("draft-1", 1));
+    expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
   });
 
   it("publishes only the Draft revision captured by Publish Review", async () => {

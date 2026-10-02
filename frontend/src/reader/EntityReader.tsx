@@ -13,6 +13,8 @@ import { WorkspaceSelectionToolbar } from "../workspace/WorkspaceSelectionToolba
 import { WorkspaceSelectionAIDrawer } from "../workspace/WorkspaceSelectionAIDrawer";
 import { applyMarkdownFormatting, type MarkdownFormattingAction } from "../markdownFormatting.js";
 import type { WorkspaceDraftController } from "../useWorkspaceDraft";
+import type { WorkspaceEditorController } from "../workspace/useWorkspaceEditorController";
+import { WorkspaceEditorDrawers } from "../workspace/WorkspaceEditorDrawers";
 import { CollectionReaderContext, ContextCard, ContextExportPanel, MetaChipList } from "./ReaderContext";
 import { maintenanceStatus, readList, readString, reviewStatus, typeLabel, entityPath, useResource, type Navigate } from "../pages/PageShared";
 import { errorMessage, hashText, loadEntity, markdownHeadings, readArtifacts, recordDocumentOpenSafely, resolveReaderSelectionSourceRange, type ReaderSelection, type ReaderSourceBlock } from "./readerModel";
@@ -23,6 +25,7 @@ export function EntityPage({
   collectionId,
   onEdit,
   workspaceDraft,
+  workspaceEditorController,
 }: {
   type: EntityType;
   id: string;
@@ -30,6 +33,7 @@ export function EntityPage({
   collectionId?: string;
   onEdit?: (type: EntityType, id: string) => void;
   workspaceDraft: WorkspaceDraftController;
+  workspaceEditorController: WorkspaceEditorController;
 }) {
   const resource = useResource(`entity:${type}:${id}`, () => loadEntity(type, id));
   const collectionNavigation = useResource(
@@ -264,9 +268,20 @@ export function EntityPage({
         <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{entity.title}</h1><div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
       </div>
       <div className="reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作">
-        {onEdit && <button className="button button-secondary" onClick={() => onEdit(type, id)}>完整编辑器</button>}
+        {onEdit && <button className="button button-secondary" onClick={() => onEdit(type, id)}>Source</button>}
+        <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("metadata")}>元数据</button>
+        <button className="button button-secondary" disabled={type === "source"} onClick={() => workspaceEditorController.setActiveDrawer("ai")}>AI 审阅</button>
+        <button
+          className="button button-secondary"
+          disabled={workspaceEditorController.publishing || workspaceDraft.saveState === "Conflict" || Boolean(workspaceEditorController.publishedRevision) || (!workspaceEditorController.draft && !workspaceEditorController.isDirty)}
+          onClick={() => {
+            workspaceEditorController.setPublishReview(null);
+            workspaceEditorController.setActiveDrawer("publish");
+            void workspaceEditorController.runPreflight();
+          }}
+        >发布</button>
         <span className={`workspace-reader-save-state ${workspaceDraft.saveState.toLowerCase()}`} role="status">{workspaceDraft.saveState === "Ready" ? "正式版" : workspaceDraft.saveState === "Unsaved" ? "有未保存修改" : workspaceDraft.saveState === "Saving" ? "正在保存 Draft…" : workspaceDraft.saveState === "Saved" ? workspaceDraft.draft ? "Draft 已保存 · 尚未发布" : "已发布" : "Draft 冲突"}</span>
-        {workspaceDraft.saveState === "Conflict" && onEdit && <button className="button button-secondary" onClick={() => { void workspaceDraft.openComparison().finally(() => onEdit(type, id)); }}>处理冲突</button>}
+        {workspaceDraft.saveState === "Conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}
         <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
         {type === "document" && sourceIds.length > 0 && <button className="button button-secondary" onClick={openSources}>Sources</button>}
         <button className="button button-secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to top</button>
@@ -344,6 +359,7 @@ export function EntityPage({
         workspaceDraft={workspaceDraft}
         onClose={() => setAIDrawerOpen(false)}
       />}
+      <WorkspaceEditorDrawers controller={workspaceEditorController} />
     </div>
   );
 }
