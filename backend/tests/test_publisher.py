@@ -671,7 +671,7 @@ def test_publisher_refreshes_incremental_index_after_publish_and_restore(publish
         "SELECT 1 FROM document_index WHERE entity_id = ?", ("indexed-note",)
     ).fetchone() is None
     _git(repository, "cat-file", "-e", published.commit_revision)
-
+    
 @pytest.mark.skipif(
     os.name != "posix",
     reason="POSIX filesystem permission semantics required",
@@ -683,6 +683,13 @@ def test_publish_new_file_uses_canonical_file_permissions(
     git = GitManager(repository)
 
     target = "knowledge/documents/learning/permission-note.md"
+    path = repository / target
+    parent = path.parent
+
+    # Production canonical directories are group-writable.
+    parent.chmod(0o775)
+    parent_stat = parent.stat()
+
     content = _document("permission-note")
 
     draft = _create_draft(
@@ -696,8 +703,11 @@ def test_publish_new_file_uses_canonical_file_permissions(
 
     publisher.publish(draft.id)
 
-    path = repository / target
-    assert path.stat().st_mode & 0o777 == 0o664
+    file_stat = path.stat()
+
+    assert file_stat.st_mode & 0o777 == 0o664
+    assert file_stat.st_uid == parent_stat.st_uid
+    assert file_stat.st_gid == parent_stat.st_gid
 
 
 @pytest.mark.skipif(
