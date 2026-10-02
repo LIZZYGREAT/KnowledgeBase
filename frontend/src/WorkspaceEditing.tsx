@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { parseDocument } from "yaml";
 import {
   createBlankDocument,
@@ -20,6 +20,7 @@ import { MarkdownBlockEditor } from "./MarkdownBlockEditor";
 import { WorkspaceDrawer } from "./WorkspaceDrawer";
 import { Chip, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "./ui";
 import { useWorkspaceDraft } from "./useWorkspaceDraft";
+import { entityWorkspaceUrl } from "./workspaceRoute.js";
 
 export function NewNotePage({ navigate }: { navigate: (path: string) => void }) {
   const [title, setTitle] = useState("");
@@ -33,7 +34,7 @@ export function NewNotePage({ navigate }: { navigate: (path: string) => void }) 
     setError("");
     try {
       const draft = await createBlankDocument(title.trim(), documentType);
-      navigate(`/edit/document/${encodeURIComponent(draft.entity_id)}`);
+      navigate(entityWorkspaceUrl("document", draft.entity_id, { edit: true }));
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -52,7 +53,7 @@ export function NewNotePage({ navigate }: { navigate: (path: string) => void }) 
   </div>;
 }
 
-export function EditorPage({ type, id, navigate, batchCollectionId }: { type: EntityType; id: string; navigate: (path: string) => void; batchCollectionId?: string }) {
+export function WorkspaceEditingSurface({ type, id, navigate, batchCollectionId, returnCollectionId }: { type: EntityType; id: string; navigate: (path: string) => void; batchCollectionId?: string; returnCollectionId?: string }) {
   const workspaceDraft = useWorkspaceDraft(type, id);
   const {
     draft,
@@ -84,9 +85,6 @@ export function EditorPage({ type, id, navigate, batchCollectionId }: { type: En
   const [activeDrawer, setActiveDrawer] = useState<"metadata" | "ai" | "publish" | "conflict" | null>(null);
   const [preflight, setPreflight] = useState<DraftPreflight | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
-  const contentRef = useRef("");
-
-  useEffect(() => { contentRef.current = content; }, [content]);
   useEffect(() => { if (comparison) setActiveDrawer("conflict"); }, [comparison]);
   useEffect(() => { setPreflight(null); }, [draft?.revision, isDirty]);
 
@@ -188,7 +186,7 @@ export function EditorPage({ type, id, navigate, batchCollectionId }: { type: En
       await workspaceDraft.discard();
       navigate(batchCollectionId
         ? `/explorer?collection=${encodeURIComponent(batchCollectionId)}`
-        : canonicalEntity ? `/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}` : "/");
+        : canonicalEntity ? entityWorkspaceUrl(type, id, { collectionId: returnCollectionId }) : returnCollectionId ? `/explorer?collection=${encodeURIComponent(returnCollectionId)}` : "/");
     } catch (error) {
       setSaveError(errorMessage(error));
     }
@@ -252,7 +250,7 @@ export function EditorPage({ type, id, navigate, batchCollectionId }: { type: En
       setProposalError("此 Metadata Proposal 没有可应用的字段。");
       return;
     }
-    let next = contentRef.current;
+    let next = workspaceDraft.getCurrentContent();
     let skippedDocumentType = false;
     try {
       for (const [key, value] of Object.entries(changes as Record<string, unknown>)) {
@@ -271,13 +269,12 @@ export function EditorPage({ type, id, navigate, batchCollectionId }: { type: En
   }
 
   function setEditorContent(value: string) {
-    contentRef.current = value;
     workspaceDraft.updateContent(value);
   }
 
   function updateFrontmatter(key: string, value: unknown) {
     try {
-      setEditorContent(patchYamlField(contentRef.current, type, key, value));
+      setEditorContent(patchYamlField(workspaceDraft.getCurrentContent(), type, key, value));
       setSaveError("");
     } catch (error) {
       setSaveError(errorMessage(error));
@@ -290,7 +287,7 @@ export function EditorPage({ type, id, navigate, batchCollectionId }: { type: En
 
   function updateSourcePdf(value: string) {
     try {
-      const document = parseDocument(contentRef.current);
+      const document = parseDocument(workspaceDraft.getCurrentContent());
       if (document.errors.length) throw new Error("Source YAML 无法解析，请先修复语法。");
       const attachments = document.get("attachments") as Record<string, unknown> | undefined;
       document.set("attachments", { ...(attachments ?? {}), local_pdf: value.trim() || null });
@@ -306,7 +303,7 @@ export function EditorPage({ type, id, navigate, batchCollectionId }: { type: En
     let url: URL;
     try { url = new URL(paperSkillUrl); } catch { setSaveError("请填写有效的 PaperSkill URL。"); return; }
     if (!["http:", "https:"].includes(url.protocol)) { setSaveError("PaperSkill URL 必须使用 HTTP 或 HTTPS。"); return; }
-    const current = readPaperSkillArtifacts(readFrontmatterField(contentRef.current, type, "external_artifacts"));
+    const current = readPaperSkillArtifacts(readFrontmatterField(workspaceDraft.getCurrentContent(), type, "external_artifacts"));
     updateFrontmatter("external_artifacts", [
       ...current,
       { type: "paperskill", variant: paperSkillVariant, url: url.toString() },
@@ -333,7 +330,7 @@ export function EditorPage({ type, id, navigate, batchCollectionId }: { type: En
   return (
     <div className="page-stack editor-page">
       <div className="editor-topline">
-        <button className="back-link" onClick={() => navigate(batchCollectionId ? `/explorer?collection=${encodeURIComponent(batchCollectionId)}` : canonicalEntity ? `/${type === "term" ? "terms" : "library"}` : "/")}>← 返回阅读</button>
+        <button className="back-link" onClick={() => navigate(canonicalEntity ? entityWorkspaceUrl(type, id, { collectionId: returnCollectionId }) : returnCollectionId ? `/explorer?collection=${encodeURIComponent(returnCollectionId)}` : "/")}>← 返回阅读</button>
         <div className="editor-save-state"><span className={`save-indicator ${saveState.toLowerCase()}`} />{saveStateLabel}</div>
       </div>
       <PageHeader
@@ -349,7 +346,7 @@ export function EditorPage({ type, id, navigate, batchCollectionId }: { type: En
         </div>}
       />
 
-      {publishedRevision && <div className="editor-notice success-notice" role="status"><strong>{batchCollectionId ? "已合并发布" : "已发布"}</strong><span>Git revision {publishedRevision.slice(0, 12)}</span><button className="button button-secondary" onClick={() => navigate(`/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}${batchCollectionId ? `?collection=${encodeURIComponent(batchCollectionId)}` : ""}`)}>返回阅读</button></div>}
+      {publishedRevision && <div className="editor-notice success-notice" role="status"><strong>{batchCollectionId ? "已合并发布" : "已发布"}</strong><span>Git revision {publishedRevision.slice(0, 12)}</span><button className="button button-secondary" onClick={() => navigate(entityWorkspaceUrl(type, id, { collectionId: returnCollectionId }))}>返回阅读</button></div>}
       {visibleSaveError && <div className="editor-notice error-notice" role="alert"><span>{visibleSaveError}</span><button className="text-button" onClick={() => { setSaveError(""); setDraftError(""); }}>关闭</button>{saveState === "Conflict" && <button className="button button-secondary" onClick={() => void openComparison()}>比较版本</button>}</div>}
 
       {type === "source" ? <div className="editor-grid">

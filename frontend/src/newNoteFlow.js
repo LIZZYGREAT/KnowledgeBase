@@ -1,3 +1,5 @@
+import { entityWorkspaceUrl } from "./workspaceRoute.js";
+
 export function makeDocumentId(title, suffix) {
   const normalizedSuffix = String(suffix ?? "").toLocaleLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12);
   if (!normalizedSuffix) throw new Error("A unique suffix is required to create a Document ID.");
@@ -12,5 +14,5 @@ export function makeDocumentId(title, suffix) {
 }
 
 export function newNoteEditorPath(documentId, collectionId) {
-  return `/edit/document/${encodeURIComponent(documentId)}?collection=${encodeURIComponent(collectionId)}&publishAll=1`;
+  return entityWorkspaceUrl("document", documentId, { collectionId, edit: true, publishAll: true });
 }

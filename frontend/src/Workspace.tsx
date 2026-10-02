@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { EditorPage } from "./Editor";
+import { WorkspaceEditingSurface } from "./WorkspaceEditing";
 import { EntityPage } from "./Pages";
 import type { EntityType } from "./api";
+import { entityWorkspaceUrl } from "./workspaceRoute.js";
 
 type WorkspaceMode = "read" | "edit";
 
@@ -21,18 +22,24 @@ export function WorkspacePage({
   initialMode?: WorkspaceMode;
 }) {
   const [mode, setMode] = useState<WorkspaceMode>(initialMode);
-  const entityPath = `/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}`;
 
   function navigateFromEditor(path: string) {
-    if (path === entityPath || path === "/library" || path === "/terms") {
-      setMode("read");
+    const currentEntityPath = entityWorkspaceUrl(type, id).split("?")[0];
+    const target = new URL(path, window.location.origin);
+    if (target.pathname === currentEntityPath) {
+      const currentQuery = new URLSearchParams(window.location.search);
+      if (currentQuery.has("edit") || currentQuery.has("publishAll") || target.search !== window.location.search) {
+        navigate(path);
+      } else {
+        setMode("read");
+      }
       return;
     }
     navigate(path);
   }
 
   if (mode === "edit") {
-    return <EditorPage key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} batchCollectionId={batchCollectionId} />;
+    return <WorkspaceEditingSurface key={`edit:${type}:${id}`} type={type} id={id} navigate={navigateFromEditor} batchCollectionId={batchCollectionId} returnCollectionId={collectionId ?? batchCollectionId} />;
   }
   return <EntityPage
     key={`read:${type}:${id}:${collectionId ?? ""}`}

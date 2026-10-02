@@ -5,8 +5,8 @@ import test from "node:test";
 const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
-test("reader and editor workspaces remember the desktop sidebar pin preference", () => {
-  assert.match(app, /route\.kind === "reader" \|\| route\.kind === "editor" \|\| route\.kind === "new-note"/);
+test("content workspaces remember the desktop sidebar pin preference", () => {
+  assert.match(app, /route\.kind === "reader" \|\| route\.kind === "new-note"/);
   assert.match(app, /localStorage\.getItem\("knowledgebase\.sidebar-pinned"\)/);
   assert.match(app, /localStorage\.setItem\("knowledgebase\.sidebar-pinned"/);
   assert.match(app, /matchMedia\("\(hover: hover\) and \(pointer: fine\)"\)/);

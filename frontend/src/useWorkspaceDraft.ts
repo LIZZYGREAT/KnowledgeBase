@@ -16,7 +16,6 @@ import {
   type EntityType,
   type PublishedDraft,
 } from "./api";
-import { loadEditorDraft } from "./editorDraftInitialization.js";
 
 export type WorkspaceSaveState = "Ready" | "Unsaved" | "Saving" | "Saved" | "Conflict";
 
@@ -64,7 +63,19 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setComparison(null);
     setPublishedRevision("");
     setCanonicalEntity(null);
-    void loadEditorDraft(type, id, { listDrafts, getEntity })
+    void listDrafts(type, id)
+      .then(async (drafts) => {
+        let nextCanonicalEntity: EntityDetail | null = null;
+        try {
+          nextCanonicalEntity = await getEntity(type, id);
+        } catch (reason) {
+          if (!drafts.length || (reason as { status?: number })?.status !== 404) throw reason;
+        }
+        const nextDraft = drafts[0] ?? null;
+        const initialContent = nextDraft?.content ?? nextCanonicalEntity?.canonical_content;
+        if (typeof initialContent !== "string") throw new Error("Canonical 内容不可读取。");
+        return { draft: nextDraft, canonicalEntity: nextCanonicalEntity, content: initialContent };
+      })
       .then((initialized) => {
         if (!active) return;
         const canonicalContent = initialized.canonicalEntity?.canonical_content ?? initialized.content;
@@ -137,6 +148,8 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setIsDirty(value !== lastSavedRef.current);
     if (value !== lastSavedRef.current) setSaveState("Unsaved");
   }, []);
+
+  const getCurrentContent = useCallback(() => contentRef.current, []);
 
   const openComparison = useCallback(async () => {
     let currentDraft = draftRef.current;
@@ -262,6 +275,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     publishedRevision,
     isDirty,
     updateContent,
+    getCurrentContent,
     saveNow,
     openComparison,
     reloadCanonical,

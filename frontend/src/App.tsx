@@ -13,7 +13,7 @@ const TopicsPage = lazy(() => import("./Pages").then((module) => ({ default: mod
 const ReviewPage = lazy(() => import("./Pages").then((module) => ({ default: module.ReviewPage })));
 const ExplorerPage = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
 const WorkspacePage = lazy(() => import("./Workspace").then((module) => ({ default: module.WorkspacePage })));
-const NewNotePage = lazy(() => import("./Editor").then((module) => ({ default: module.NewNotePage })));
+const NewNotePage = lazy(() => import("./WorkspaceEditing").then((module) => ({ default: module.NewNotePage })));
 
 interface LocationState {
   pathname: string;
@@ -85,7 +85,7 @@ export default function App() {
   }, []);
 
   const route = useMemo(() => resolveRoute(location.pathname), [location.pathname]);
-  const contentWorkspace = route.kind === "reader" || route.kind === "editor" || route.kind === "new-note";
+  const contentWorkspace = route.kind === "reader" || route.kind === "new-note";
   useEffect(() => {
     setSidebarPeek(false);
     if (sidebarHoverTimerRef.current !== null) {
@@ -120,10 +120,10 @@ export default function App() {
     setSidebarPinned(nextPinned);
     setSidebarPeek(!nextPinned);
   }
-  const activeNav = route.kind === "reader" || route.kind === "editor"
+  const activeNav = route.kind === "reader"
     ? route.entityType === "term" ? "/terms" : "/library"
     : navigation.find((item) => item.route === route.path)?.route ?? "/";
-  const pageTitle = route.kind === "reader" || route.kind === "editor"
+  const pageTitle = route.kind === "reader"
     ? route.entityType === "document" ? "Document" : route.entityType === "term" ? "Term" : "Source"
     : route.kind === "new-note" ? "New Note" : navigation.find((item) => item.route === activeNav)?.title ?? "Home";
 
@@ -146,15 +146,14 @@ export default function App() {
   };
 
   let page: ReactNode;
-  if (route.kind === "editor") {
-    const query = new URLSearchParams(location.search);
-    const batchCollectionId = query.get("publishAll") === "1" ? query.get("collection") ?? undefined : undefined;
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`edit:${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} batchCollectionId={batchCollectionId} initialMode="edit" /></Suspense>;
-  } else if (route.kind === "new-note") {
+  if (route.kind === "new-note") {
     page = <Suspense fallback={<LoadingState />}><NewNotePage navigate={navigate} /></Suspense>;
   } else if (route.kind === "reader") {
-    const collectionId = new URLSearchParams(location.search).get("collection") ?? undefined;
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`read:${route.entityType}:${route.id}:${collectionId ?? ""}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} /></Suspense>;
+    const query = new URLSearchParams(location.search);
+    const collectionId = query.get("collection") ?? undefined;
+    const batchCollectionId = query.get("publishAll") === "1" ? collectionId : undefined;
+    const initialMode = query.get("edit") === "1" ? "edit" : "read";
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`workspace:${route.entityType}:${route.id}:${collectionId ?? ""}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} batchCollectionId={batchCollectionId} initialMode={initialMode} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;
@@ -237,14 +236,10 @@ export default function App() {
 function resolveRoute(pathname: string):
   | { kind: "page"; path: string }
   | { kind: "reader"; entityType: EntityType; id: string; path: string }
-  | { kind: "editor"; entityType: EntityType; id: string; path: string }
   | { kind: "new-note"; path: string } {
   const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
   if (!parts.length) return { kind: "page", path: "/" };
   if (parts[0] === "new-note") return { kind: "new-note", path: "/" };
-  if (parts[0] === "edit" && parts[1] && parts[2] && ["document", "term", "source"].includes(parts[1])) {
-    return { kind: "editor", entityType: parts[1] as EntityType, id: parts[2], path: parts[1] === "term" ? "/terms" : "/library" };
-  }
   if (parts[0] === "documents" && parts[1]) return { kind: "reader", entityType: "document", id: parts[1], path: "/library" };
   if (parts[0] === "terms" && parts[1]) return { kind: "reader", entityType: "term", id: parts[1], path: "/terms" };
   if (parts[0] === "sources" && parts[1]) return { kind: "reader", entityType: "source", id: parts[1], path: "/library" };

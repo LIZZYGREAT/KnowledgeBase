@@ -12,6 +12,6 @@ test("new note IDs use a canonical title prefix and unique lowercase suffix", ()
 test("new note editor route retains its Collection batch-publish context", () => {
   assert.equal(
     newNoteEditorPath("graph-note", "learning/path"),
-    "/edit/document/graph-note?collection=learning%2Fpath&publishAll=1",
+    "/documents/graph-note?collection=learning%2Fpath&edit=1&publishAll=1",
   );
 });
