@@ -106,6 +106,89 @@ def test_directory_import_stages_markdown_and_pdf_as_manual_bundle(import_contex
     assert imports.get_item(markdown.id).status == "drafted"
 
 
+def test_import_rejects_conflicting_active_draft_without_marking_item_drafted(
+    import_context, tmp_path
+):
+    repository, _, drafts, imports, service = import_context
+    incoming = tmp_path / "conflicting-note.md"
+    candidate = _document("conflicting-note", "Imported Candidate")
+    incoming.write_text(candidate, encoding="utf-8")
+    job = service.stage_paths([incoming])
+    item = service.get_items(job.id)[0]
+    target = Path("knowledge/documents/learning/conflicting-note.md")
+    git = GitManager(repository)
+    existing = drafts.create(
+        "document",
+        "conflicting-note",
+        "Existing active Draft content",
+        git.current_revision(),
+        git.content_hash(target),
+    )
+
+    with pytest.raises(ImportValidationError, match="different active Draft"):
+        service.create_draft(item.id)
+
+    unchanged = imports.get_item(item.id)
+    assert unchanged.status == item.status
+    assert "draft_id" not in unchanged.metadata
+    assert drafts.list_for_target("document", "conflicting-note") == [existing]
+
+
+def test_import_reuses_an_identical_active_draft_idempotently(import_context, tmp_path):
+    _, _, drafts, imports, service = import_context
+    incoming = tmp_path / "idempotent-note.md"
+    incoming.write_text(_document("idempotent-note", "Idempotent Candidate"), encoding="utf-8")
+    first_job = service.stage_paths([incoming])
+    first_item = service.get_items(first_job.id)[0]
+    original = service.create_draft(first_item.id)
+
+    second_job = service.stage_paths([incoming])
+    second_item = service.get_items(second_job.id)[0]
+    reused = service.create_draft(second_item.id)
+
+    assert reused.id == original.id
+    assert reused.content == original.content
+    assert imports.get_item(second_item.id).status == "drafted"
+    assert imports.get_item(second_item.id).metadata["draft_id"] == original.id
+    assert drafts.list_for_target("document", "idempotent-note") == [original]
+
+
+@pytest.mark.parametrize("preexisting_pdf", [False, True])
+def test_pdf_import_rolls_back_only_its_copy_on_active_draft_conflict(
+    import_context, tmp_path, preexisting_pdf
+):
+    repository, _, drafts, imports, service = import_context
+    incoming = tmp_path / "rollback-source.pdf"
+    pdf_content = b"%PDF-1.7\nsource attachment"
+    incoming.write_bytes(pdf_content)
+    job = service.stage_paths([incoming])
+    item = service.get_items(job.id)[0]
+    source_id = "rollback-source"
+    canonical_path = Path("knowledge/sources/{}.yaml".format(source_id))
+    stored_pdf = repository / "storage" / "papers" / "rollback-source.pdf"
+    if preexisting_pdf:
+        stored_pdf.write_bytes(pdf_content)
+    git = GitManager(repository)
+    existing = drafts.create(
+        "source",
+        source_id,
+        "Existing Source Draft content",
+        git.current_revision(),
+        git.content_hash(canonical_path),
+    )
+
+    with pytest.raises(ImportValidationError, match="different active Source Draft"):
+        service.confirm_pdf_source(item.id, title="Rollback Source")
+
+    assert stored_pdf.exists() is preexisting_pdf
+    if preexisting_pdf:
+        assert stored_pdf.read_bytes() == pdf_content
+    unchanged = imports.get_item(item.id)
+    assert unchanged.status == "ready"
+    assert "draft_id" not in unchanged.metadata
+    assert drafts.list_for_target("source", source_id) == [existing]
+
+
 def test_pdf_only_creates_source_draft_and_never_creates_a_note(import_context, tmp_path):
     repository, _, _, _, service = import_context
     pdf = tmp_path / "only-source.pdf"

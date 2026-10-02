@@ -212,6 +212,12 @@ class ImportService:
             revision,
             content_hash,
         )
+        if not acquisition.created and acquisition.draft.content != content:
+            raise ImportValidationError(
+                "A different active Draft already exists for '{}'; the imported candidate was not applied".format(
+                    metadata.id
+                )
+            )
         draft = acquisition.draft
 
         item_metadata = dict(item.metadata)
@@ -404,6 +410,12 @@ class ImportService:
                 self.git.current_revision(),
                 self.git.content_hash(canonical_path),
             )
+            if not acquisition.created and acquisition.draft.content != source_content:
+                raise ImportValidationError(
+                    "A different active Source Draft already exists for '{}'; the imported candidate was not applied".format(
+                        source_id
+                    )
+                )
             draft = acquisition.draft
         except Exception:
             if copied_pdf and storage_path.exists():
