@@ -3,6 +3,10 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
     restart: unless-stopped
     expose:
       - "8000"
@@ -32,6 +36,8 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile.production
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     restart: unless-stopped
     ports:
       - "${KB_HTTP_BIND:-127.0.0.1}:${KB_HTTP_PORT:-8080}:80"
