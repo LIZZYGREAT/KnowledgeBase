@@ -2,7 +2,9 @@
 
 KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
 
-This repository implements Phases 0–12: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; staged Markdown/PDF imports; the server-side DeepSeek Gateway; the Knowledge API; the Reference Hub reader and editor; Source, Evidence, PaperSkill, and Context Export integrations; non-canonical reader annotations and Markdown formatting tools; legacy migration workflows; and private production deployment and backup support.
+This repository implements Phases 0–13: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; staged Markdown/PDF imports; the server-side DeepSeek Gateway; the Knowledge API; the Reference Hub reader and editor; Source, Evidence, PaperSkill, and Context Export integrations; non-canonical reader annotations and Markdown formatting tools; legacy migration workflows; private production deployment and backup support; and the Collection Explorer + Unified Workspace.
+
+**Phase 13 COMPLETE. Phase 14 NEXT: Research Agent.** Phase 13 is frozen. Phase 14 begins by explicitly extending GitManager's canonical tracked roots from `knowledge/` to `knowledge/` and `config/research/profiles/`; it must not allowlist the whole repository. See [Architecture](docs/ARCHITECTURE.md) for the current Proposal, Draft, resolver, import, API, and frontend rules.
 
 ## Local setup
 
