@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errorMessage } from "../errors";
 import { createBlankDocument, discardDraft, type Draft } from "../api";
 import { addEntityReference, removeCollectionNode } from "../collectionEditing";
 import { findEntityNodeId } from "./explorerModel";
@@ -106,8 +107,4 @@ export function useExplorerNewNote({
     continueNewNoteWorkspace,
     cancelNewNoteHere,
   };
-}
-
-function errorMessage(reason: unknown) {
-  return reason instanceof Error ? reason.message : "未知错误";
 }

@@ -10,6 +10,7 @@ import {
   type DraftAcquireResult,
   type DraftEntityType,
 } from "../api";
+import { errorMessage } from "../errors";
 
 export type RuntimeDraftState =
   | "loading"
@@ -19,6 +20,8 @@ export type RuntimeDraftState =
   | "saved"
   | "runtime-conflict"
   | "error";
+
+export type DraftSessionStatus = RuntimeDraftState | "canonical-conflict";
 
 export interface RuntimeDraftConflict {
   existingDraft: Draft;
@@ -449,9 +452,6 @@ function isDraftAcquireResult(value: Draft | DraftAcquireResult): value is Draft
   return "draft" in value && "created" in value;
 }
 
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "发生未知错误。";
-}
 
 async function saveOnSessionClose({
   entityType,

@@ -7,7 +7,8 @@ import {
   type PresentationAnnotation, type Proposal,
 } from "../api";
 import { Chip, EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading, formatDate, titleCase } from "../ui";
-import { EntityList, errorMessage, maintenanceStatus, reviewStatus, statusTone, useResource, type Navigate, type SelectEntity } from "./PageShared";
+import { errorMessage } from "../errors";
+import { EntityList, maintenanceStatus, reviewStatus, statusTone, useResource, type Navigate, type SelectEntity } from "./PageShared";
 import { entityWorkspaceUrl } from "../workspaceRoute";
 interface ReviewData {
   entities: EntitySummary[];

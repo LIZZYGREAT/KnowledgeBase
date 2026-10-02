@@ -7,6 +7,7 @@ import {
   type EntityDetail, type EntityType, type PresentationAnnotation,
 } from "../api";
 import { ErrorState, LoadingState, titleCase } from "../ui";
+import { errorMessage } from "../errors";
 import { latestIntersectingHeading } from "../readerNavigation";
 import { splitMarkdownFrontmatter } from "../markdownBlocks";
 import { WorkspaceInlineEditor } from "../workspace/WorkspaceInlineEditor";
@@ -18,7 +19,7 @@ import type { WorkspaceEditorController } from "../workspace/useWorkspaceEditorC
 import { WorkspaceEditorDrawers } from "../workspace/WorkspaceEditorDrawers";
 import { CollectionReaderContext, ContextCard, ContextExportPanel, MetaChipList } from "./ReaderContext";
 import { maintenanceStatus, readList, readString, reviewStatus, typeLabel, entityPath, useResource, type Navigate } from "../pages/PageShared";
-import { errorMessage, hashText, loadEntity, markdownHeadings, readArtifacts, recordDocumentOpenSafely, resolveReaderSelectionSourceRange, type ReaderSelection, type ReaderSourceBlock } from "./readerModel";
+import { hashText, loadEntity, markdownHeadings, readArtifacts, recordDocumentOpenSafely, resolveReaderSelectionSourceRange, type ReaderSelection, type ReaderSourceBlock } from "./readerModel";
 export function EntityPage({
   type,
   id,

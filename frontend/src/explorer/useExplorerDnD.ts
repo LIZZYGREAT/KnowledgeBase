@@ -1,4 +1,5 @@
 import { useEffect, useState, type DragEvent } from "react";
+import { errorMessage } from "../errors";
 import {
   createDraft,
   getCollection,
@@ -222,8 +223,4 @@ function readDragPayload(event: DragEvent<HTMLElement>): DragPayload | null {
   } catch {
     return null;
   }
-}
-
-function errorMessage(reason: unknown) {
-  return reason instanceof Error ? reason.message : "未知错误";
 }

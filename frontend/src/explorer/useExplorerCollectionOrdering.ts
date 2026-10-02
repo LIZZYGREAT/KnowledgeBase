@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { parse as parseYaml } from "yaml";
+import { errorMessage } from "../errors";
 import {
   createDraft,
   discardDraft,
@@ -250,8 +251,4 @@ function stableYamlValue(value: unknown): string {
     return `{${fields.map(([key, item]) => `${JSON.stringify(key)}:${stableYamlValue(item)}`).join(",")}}`;
   }
   return JSON.stringify(value) ?? "undefined";
-}
-
-function errorMessage(reason: unknown) {
-  return reason instanceof Error ? reason.message : "未知错误";
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../errors";
 import type { EntitySummary, EntityType, UsageDocument } from "../api";
 import { Chip, EmptyState, EntityRow, formatDate, titleCase } from "../ui";
 export type Navigate = (path: string) => void;
@@ -23,7 +24,7 @@ export function useResource<T>(key: string, load: () => Promise<T>): Resource<T>
     setLoading(true);
     load()
       .then((value) => { if (active) setData(value); })
-      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "未知错误"); })
+      .catch((reason: unknown) => { if (active) setError(errorMessage(reason)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [key, version]);
@@ -118,8 +119,4 @@ export function ViewList({
       ))}
     </div>
   );
-}
-
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "发生未知错误。";
 }

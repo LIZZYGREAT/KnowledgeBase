@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage } from "./errors";
 import {
   compareDraft,
   getCollection,
@@ -16,9 +17,9 @@ import {
   updateEntityProgress,
   type DraftCollection,
 } from "./collectionDraftModel";
-import { useRuntimeDraftSession, type RuntimeDraftState } from "./draft/useRuntimeDraftSession";
+import { useRuntimeDraftSession, type DraftSessionStatus } from "./draft/useRuntimeDraftSession";
 
-export type CollectionDraftStatus = RuntimeDraftState | "canonical-conflict";
+export type CollectionDraftStatus = DraftSessionStatus;
 
 export interface CollectionDraftController {
   collection: DraftCollection | null;
@@ -311,8 +312,4 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     applyRebase,
     reset,
   };
-}
-
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "未知错误";
 }

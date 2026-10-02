@@ -8,9 +8,8 @@ import { useExplorerDnD } from "./useExplorerDnD";
 import { useExplorerEditing } from "./useExplorerEditing";
 import { useExplorerNewNote } from "./useExplorerNewNote";
 import { useExplorerPreferences, useExplorerResources } from "./useExplorerResources";
+import { EXPLORER_PREFERENCES_KEY } from "./constants";
 import type { ExplorerView, ExplorerPageProps } from "./ExplorerTypes";
-
-const PREFERENCES_KEY = "knowledgebase.explorer-preferences";
 
 export function useExplorerController({
   onOpen,
@@ -65,7 +64,7 @@ export function useExplorerController({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify({
+      window.localStorage.setItem(EXPLORER_PREFERENCES_KEY, JSON.stringify({
         collectionId: selectedCollectionId,
         expandedSections,
         width: panelWidth,

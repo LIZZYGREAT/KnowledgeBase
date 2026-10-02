@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { errorMessage } from "./errors";
 import {
   applyProposalToDraft as applyProposalToDraftRequest,
   compareDraft,
@@ -15,9 +16,9 @@ import {
   type PublishOutcome,
 } from "./api";
 import { toPublishOutcome } from "./publishOutcome";
-import { useRuntimeDraftSession, type RuntimeDraftState } from "./draft/useRuntimeDraftSession";
+import { useRuntimeDraftSession, type DraftSessionStatus } from "./draft/useRuntimeDraftSession";
 
-export type WorkspaceSaveState = RuntimeDraftState | "canonical-conflict";
+export type WorkspaceSaveState = DraftSessionStatus;
 export type WorkspaceDraftController = ReturnType<typeof useWorkspaceDraft>;
 
 type RuntimeDraftConflict = {
@@ -304,8 +305,4 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     reloadExistingDraft,
     applyRuntimeMerge,
   };
-}
-
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "发生未知错误。";
 }

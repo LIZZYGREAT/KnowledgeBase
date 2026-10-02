@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { errorMessage } from "../errors";
 import { createBlankDocument } from "../api";
 import { PageHeader } from "../ui";
 import { entityWorkspaceUrl } from "../workspaceRoute";
@@ -17,7 +18,7 @@ export function NewNotePage({ navigate }: { navigate: (path: string) => void }) 
       const draft = await createBlankDocument(title.trim(), documentType);
       navigate(entityWorkspaceUrl("document", draft.entity_id));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "发生未知错误。");
+      setError(errorMessage(reason));
     } finally {
       setCreating(false);
     }

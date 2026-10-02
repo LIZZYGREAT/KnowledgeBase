@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { stringify } from "yaml";
+import { errorMessage } from "../errors";
 import {
   compareDraft,
   createDraft,
@@ -393,8 +394,4 @@ export function useExplorerEditing({
     keepDraftAndRebaseCollection,
     reviewCollectionConflict,
   };
-}
-
-function errorMessage(reason: unknown) {
-  return reason instanceof Error ? reason.message : "未知错误";
 }

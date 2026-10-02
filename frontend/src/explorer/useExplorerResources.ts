@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../errors";
 import {
   getCollection,
   listAllEntities,
@@ -9,9 +10,8 @@ import {
   type EntitySummary,
 } from "../api";
 import { restoreExplorerPreferences } from "../explorerTree";
+import { EXPLORER_PREFERENCES_KEY } from "./constants";
 import type { ExplorerView, Resource } from "./ExplorerTypes";
-
-const PREFERENCES_KEY = "knowledgebase.explorer-preferences";
 
 export function useExplorerPreferences() {
   const [preferences] = useState(readPreferences);
@@ -58,7 +58,7 @@ function useResource<T>(key: string, load: () => Promise<T>): Resource<T> {
     setLoading(true);
     load()
       .then((value) => { if (active) setData(value); })
-      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "未知错误"); })
+      .catch((reason: unknown) => { if (active) setError(errorMessage(reason)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [key, version]);
@@ -67,7 +67,7 @@ function useResource<T>(key: string, load: () => Promise<T>): Resource<T> {
 
 function readPreferences() {
   try {
-    return restoreExplorerPreferences(window.localStorage.getItem(PREFERENCES_KEY));
+    return restoreExplorerPreferences(window.localStorage.getItem(EXPLORER_PREFERENCES_KEY));
   } catch {
     return restoreExplorerPreferences(null);
   }

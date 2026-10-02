@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../errors";
 import { listAllEntities, type Collection as CollectionData, type Draft, type EntitySummary } from "../api";
 import { Chip, EmptyState, ErrorState, LoadingState } from "../ui";
 import type { DraftCollection } from "../collectionDraftModel";
@@ -199,7 +200,4 @@ export function NewNoteHereDialog({
       </form>
     </section>
   </div>;
-}
-function errorMessage(reason: unknown) {
-  return reason instanceof Error ? reason.message : "未知错误";
 }

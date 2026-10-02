@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorMessage } from "../errors";
 import { parseDocument } from "yaml";
 import {
   compareDraft, discardDraft, getCollection, listAllEntities, listDrafts, listProposals,
@@ -315,7 +316,3 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
 }
 
 export type WorkspaceEditorController = ReturnType<typeof useWorkspaceEditorController>;
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "发生未知错误。";
-}
