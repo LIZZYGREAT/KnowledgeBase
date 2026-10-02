@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import ValidationError
 import yaml
 
-from backend.app.domain.collection import EntityNode, SectionNode
+from backend.app.domain.collection import Collection, EntityNode, SectionNode
 from backend.app.domain.document import DocumentMetadata
 from backend.app.domain.term import TermMetadata
 from backend.app.services.markdown_parser import MarkdownDocument, parse_markdown
@@ -112,18 +112,9 @@ def validate_repository_references(repository_root: Path) -> list[CanonicalRefer
         "term": {term.id for term in terms.terms},
         "source": {source.id for source in sources.sources},
     }
-    for collection in collections.collections:
-        for node in _collection_entity_nodes(collection.nodes):
-            if node.entity_id not in entity_ids[node.entity_type]:
-                issues.append(
-                    CanonicalReferenceIssue(
-                        "knowledge/collections/{}.yaml".format(collection.id),
-                        "reference.collection.entity",
-                        "Unknown {} entity '{}' in Collection '{}'".format(
-                            node.entity_type, node.entity_id, collection.id
-                        ),
-                    )
-                )
+    issues.extend(
+        _collection_reference_issues(collections.collections, entity_ids)
+    )
 
     for entity_type, root, model in (
         ("document", knowledge_root / "documents", DocumentMetadata),
@@ -147,6 +138,48 @@ def validate_repository_references(repository_root: Path) -> list[CanonicalRefer
                     path, repository_root, metadata, parsed, taxonomy, sources, term_resolver
                 )
             )
+    return issues
+
+
+def validate_collection_references(
+    repository_root: Path, collections: list[Collection]
+) -> list[CanonicalReferenceIssue]:
+    """Validate proposed Collection references against the current canonical entities."""
+    repository_root = Path(repository_root).resolve()
+    knowledge_root = repository_root / "knowledge"
+    try:
+        sources = SourceRegistry.load(knowledge_root / "sources")
+        terms = TermRegistry.load(knowledge_root / "terms")
+    except (OSError, ValueError, ValidationError, yaml.YAMLError) as error:
+        return [
+            CanonicalReferenceIssue(
+                "knowledge",
+                "reference.registry",
+                "Cannot load canonical registries: {}".format(error),
+            )
+        ]
+    entity_ids = {
+        "document": _canonical_document_ids(knowledge_root / "documents"),
+        "term": {term.id for term in terms.terms},
+        "source": {source.id for source in sources.sources},
+    }
+    return _collection_reference_issues(collections, entity_ids)
+
+
+def _collection_reference_issues(collections, entity_ids) -> list[CanonicalReferenceIssue]:
+    issues = []
+    for collection in collections:
+        for node in _collection_entity_nodes(collection.nodes):
+            if node.entity_id not in entity_ids[node.entity_type]:
+                issues.append(
+                    CanonicalReferenceIssue(
+                        "knowledge/collections/{}.yaml".format(collection.id),
+                        "reference.collection.entity",
+                        "Unknown {} entity '{}' in Collection '{}'".format(
+                            node.entity_type, node.entity_id, collection.id
+                        ),
+                    )
+                )
     return issues
 
 

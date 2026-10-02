@@ -102,6 +102,7 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/drafts/{draft_id}/compare",
         "/api/drafts/{draft_id}/rebase",
         "/api/publish",
+        "/api/publish/batch",
         "/api/annotations",
         "/api/annotations/stale",
         "/api/annotations/{annotation_id}",
@@ -553,10 +554,7 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
     assert "path" not in published.json()
     published_path = api_client.app.state.repository_root / "knowledge/documents/learning/api-draft.md"
     assert published_path.is_file()
-    refreshed_draft = api_client.get("/api/drafts/{}".format(draft["id"])).json()
-    assert refreshed_draft["base_git_revision"] == published.json()["commit_revision"]
-    assert refreshed_draft["base_content_hash"] == hashlib.sha256(published_path.read_bytes()).hexdigest()
-    assert refreshed_draft["content"] == published_path.read_text(encoding="utf-8")
+    assert api_client.get("/api/drafts/{}".format(draft["id"])).status_code == 404
 
     uploads = api_client.app.state.repository_root / "storage" / "uploads"
     uploads.mkdir(parents=True, exist_ok=True)
@@ -594,6 +592,55 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
     assert (api_client.app.state.repository_root / "storage/papers/imported-pdf.pdf").is_file()
     blocked = api_client.post("/api/imports", json={"paths": ["../../knowledge/private.md"]})
     assert blocked.status_code == 422
+
+
+def test_batch_publish_api_publishes_document_and_collection_in_one_commit(api_client):
+    document = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "document",
+            "entity_id": "batch-api-note",
+            "content": _document_content("batch-api-note", "Batch API Note"),
+        },
+    )
+    assert document.status_code == 201, document.json()
+    collection_content = (
+        "schema_version: 1\nid: api-reading\ntitle: API Reading\n"
+        "status: active\nposition: 0\nnodes:\n"
+        "  - id: batch-api-note\n    kind: entity\n"
+        "    entity_type: document\n    entity_id: batch-api-note\n"
+    )
+    collection = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "collection",
+            "entity_id": "api-reading",
+            "content": collection_content,
+        },
+    )
+    assert collection.status_code == 201, collection.json()
+
+    published = api_client.post(
+        "/api/publish/batch",
+        json={"draft_ids": [document.json()["id"], collection.json()["id"]]},
+    )
+
+    assert published.status_code == 200, published.json()
+    body = published.json()
+    assert [item["entity_id"] for item in body["results"]] == [
+        "batch-api-note",
+        "api-reading",
+    ]
+    assert all(
+        item["commit_revision"] == body["commit_revision"] for item in body["results"]
+    )
+    assert body["warnings"] == []
+    assert api_client.get(
+        "/api/drafts/{}".format(document.json()["id"])
+    ).status_code == 404
+    assert api_client.get(
+        "/api/drafts/{}".format(collection.json()["id"])
+    ).status_code == 404
 
 
 def test_browser_upload_stages_multiple_markdown_and_pdf_files(api_client):

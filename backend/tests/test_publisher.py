@@ -59,6 +59,150 @@ def test_publish_writes_one_canonical_file_and_commit_only_includes_target(
     assert "README.md" in git.status()
 
 
+def test_publish_collection_and_remove_successful_draft(publish_context):
+    repository, connection, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/collections/reading.yaml"
+    content = _collection("reading", "Reading")
+    draft = _create_draft(drafts, git, "collection", "reading", content, target)
+
+    result = publisher.publish(draft.id)
+
+    assert result.entity_type == "collection"
+    assert (repository / target).read_text(encoding="utf-8") == content
+    assert result.commit_revision == git.current_revision()
+    assert drafts.list_for_target("collection", "reading") == []
+    assert connection.execute(
+        "SELECT title FROM collection_index WHERE collection_id = ?", ("reading",)
+    ).fetchone()["title"] == "Reading"
+
+
+def test_publish_batch_commits_document_and_collection_together(publish_context):
+    repository, connection, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    document_path = "knowledge/documents/learning/batch-note.md"
+    collection_path = "knowledge/collections/batch-reading.yaml"
+    document_content = _document("batch-note", title="Batch Note")
+    collection_content = _collection(
+        "batch-reading",
+        "Batch Reading",
+        "  - id: batch-note\n    kind: entity\n    entity_type: document\n    entity_id: batch-note\n",
+    )
+    document_draft = _create_draft(
+        drafts, git, "document", "batch-note", document_content, document_path
+    )
+    collection_draft = _create_draft(
+        drafts, git, "collection", "batch-reading", collection_content, collection_path
+    )
+    base_revision = git.current_revision()
+
+    result = publisher.publish_batch(
+        [document_draft.id, collection_draft.id], "kb: publish reading workspace"
+    )
+
+    assert result.commit_revision == git.current_revision()
+    assert [item.draft_id for item in result.results] == [
+        document_draft.id,
+        collection_draft.id,
+    ]
+    assert all(item.commit_revision == result.commit_revision for item in result.results)
+    changed_paths = _git(
+        repository, "show", "--pretty=format:", "--name-only", result.commit_revision
+    ).splitlines()
+    assert set(changed_paths) == {document_path, collection_path}
+    assert (repository / document_path).read_text(encoding="utf-8") == document_content
+    assert (repository / collection_path).read_text(encoding="utf-8") == collection_content
+    assert git.current_revision() != base_revision
+    assert drafts.list_for_target("document", "batch-note") == []
+    assert drafts.list_for_target("collection", "batch-reading") == []
+    assert connection.execute(
+        "SELECT entity_id FROM collection_node_index WHERE collection_id = ?",
+        ("batch-reading",),
+    ).fetchone()["entity_id"] == "batch-note"
+
+
+def test_publish_batch_validation_failure_restores_all_files_and_keeps_drafts(
+    publish_context,
+):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    document_path = "knowledge/documents/learning/batch-invalid-note.md"
+    collection_path = "knowledge/collections/batch-invalid.yaml"
+    document_draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "batch-invalid-note",
+        _document("batch-invalid-note"),
+        document_path,
+    )
+    collection_draft = _create_draft(
+        drafts,
+        git,
+        "collection",
+        "batch-invalid",
+        _collection(
+            "batch-invalid",
+            "Invalid Batch",
+            "  - id: missing-note\n    kind: entity\n    entity_type: document\n    entity_id: missing-note\n",
+        ),
+        collection_path,
+    )
+    head = git.current_revision()
+
+    with pytest.raises(PublishValidationError, match="Unknown document entity 'missing-note'"):
+        publisher.publish_batch([document_draft.id, collection_draft.id])
+
+    assert not (repository / document_path).exists()
+    assert not (repository / collection_path).exists()
+    assert git.current_revision() == head
+    assert git.status() == ""
+    assert drafts.get(document_draft.id) == document_draft
+    assert drafts.get(collection_draft.id) == collection_draft
+
+
+def test_publish_batch_commit_failure_restores_all_files_and_keeps_drafts(
+    publish_context, monkeypatch
+):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    document_path = "knowledge/documents/learning/commit-failure-note.md"
+    collection_path = "knowledge/collections/commit-failure.yaml"
+    document_draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "commit-failure-note",
+        _document("commit-failure-note"),
+        document_path,
+    )
+    collection_draft = _create_draft(
+        drafts,
+        git,
+        "collection",
+        "commit-failure",
+        _collection(
+            "commit-failure",
+            "Commit Failure",
+            "  - id: commit-note\n    kind: entity\n    entity_type: document\n    entity_id: commit-failure-note\n",
+        ),
+        collection_path,
+    )
+
+    def fail_commit(paths, message):
+        raise GitOperationError("forced commit failure")
+
+    monkeypatch.setattr(publisher.git, "commit_many", fail_commit)
+    with pytest.raises(GitOperationError, match="forced commit failure"):
+        publisher.publish_batch([document_draft.id, collection_draft.id])
+
+    assert not (repository / document_path).exists()
+    assert not (repository / collection_path).exists()
+    assert git.status() == ""
+    assert drafts.get(document_draft.id) == document_draft
+    assert drafts.get(collection_draft.id) == collection_draft
+
+
 def test_unrelated_commit_does_not_conflict_with_new_file_draft(publish_context):
     repository, _, drafts, _, publisher = publish_context
     git = GitManager(repository)
@@ -806,6 +950,14 @@ def _document(entity_id, title="Test Note", topics=("continual-learning",), body
         "domains:\n  - artificial-intelligence\ntopics:\n{}tags:\n"
         "  - regularization\nsources:\n  - ewc-2017\n---\n# {}\n\n{}"
     ).format(entity_id, title, topic_lines, title, body)
+
+
+def _collection(entity_id, title, nodes=""):
+    nodes_text = nodes or "  []\n"
+    return (
+        "schema_version: 1\nid: {}\ntitle: {}\nstatus: active\n"
+        "position: 0\nnodes:\n{}"
+    ).format(entity_id, title, nodes_text)
 
 
 def _term(entity_id, title, aliases=()):

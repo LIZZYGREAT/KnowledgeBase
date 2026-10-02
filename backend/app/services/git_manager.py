@@ -86,33 +86,46 @@ class GitManager:
             )
 
     def commit(self, path: Union[str, Path], message: str) -> str:
-        relative_path = self._relative_knowledge_path(path)
+        return self.commit_many([path], message)
+
+    def commit_many(self, paths, message: str) -> str:
+        """Commit only the supplied canonical paths, preserving unrelated staged files."""
+        relative_paths = [self._relative_knowledge_path(path) for path in paths]
+        if not relative_paths:
+            raise ValueError("At least one canonical file path is required")
+        if len(relative_paths) != len(set(relative_paths)):
+            raise ValueError("Canonical commit paths must be unique")
         if not isinstance(message, str) or not message.strip():
             raise ValueError("Commit message must be non-empty text")
-        tracked = self._run(
-            ["ls-files", "--error-unmatch", "--", relative_path], check=False
-        )
-        staged_new_file = tracked.returncode != 0 and Path(
-            self.repository_root / relative_path
-        ).is_file()
-        if staged_new_file:
-            self._run(["add", "--", relative_path])
-        result = self._run(
-            ["commit", "--only", "-m", message.strip(), "--", relative_path],
-            check=False,
-        )
-        if result.returncode != 0:
-            if staged_new_file:
+        new_paths = []
+        for relative_path in relative_paths:
+            tracked = self._run(
+                ["ls-files", "--error-unmatch", "--", relative_path], check=False
+            )
+            if tracked.returncode != 0 and (self.repository_root / relative_path).is_file():
+                new_paths.append(relative_path)
+
+        try:
+            if new_paths:
+                self._run(["add", "--"] + new_paths)
+            result = self._run(
+                ["commit", "--only", "-m", message.strip(), "--"] + relative_paths,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise GitOperationError(
+                    "Git commit failed: {}".format(
+                        result.stderr.decode("utf-8", errors="replace").strip()
+                    )
+                )
+            return self.current_revision()
+        except Exception:
+            if new_paths:
                 self._run(
-                    ["rm", "--cached", "--ignore-unmatch", "--", relative_path],
+                    ["rm", "--cached", "--ignore-unmatch", "--"] + new_paths,
                     check=False,
                 )
-            raise GitOperationError(
-                "Git commit failed: {}".format(
-                    result.stderr.decode("utf-8", errors="replace").strip()
-                )
-            )
-        return self.current_revision()
+            raise
 
     def restore(
         self,

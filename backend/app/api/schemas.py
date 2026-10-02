@@ -136,6 +136,17 @@ class PublishedView(APIModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class BatchPublishRequest(APIModel):
+    draft_ids: list[NonEmptyText] = Field(min_length=1, max_length=100)
+    commit_message: Optional[str] = None
+
+
+class BatchPublishedView(APIModel):
+    results: list[PublishedView]
+    commit_revision: str
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ProposalMergeRequest(APIModel):
     commit_message: Optional[str] = None
 

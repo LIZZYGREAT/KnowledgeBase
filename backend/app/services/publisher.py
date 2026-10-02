@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Union
 import yaml
 from pydantic import ValidationError
 
+from backend.app.domain.collection import Collection
 from backend.app.domain.document import DocumentMetadata
 from backend.app.domain.runtime import Draft
 from backend.app.domain.source import SourceMetadata
@@ -27,6 +28,8 @@ from backend.app.services.canonical_validator import (
     find_taxonomy_references,
     find_source_references,
     validate_markdown_references,
+    validate_collection_references,
+    validate_repository_references,
 )
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import lint_markdown, load_writing_standard
@@ -58,6 +61,13 @@ class PublishedResult:
     path: str
     commit_revision: str
     proposal_id: Optional[str] = None
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class BatchPublishedResult:
+    results: tuple[PublishedResult, ...]
+    commit_revision: str
     warnings: tuple[str, ...] = ()
 
 
@@ -96,98 +106,163 @@ class Publisher:
         proposal_id: Optional[str] = None,
         commit_message: Optional[str] = None,
     ) -> PublishedResult:
-        draft = self.draft_service.get(draft_id)
-        content = draft.content
-        proposal = None
+        proposal_ids = {draft_id: proposal_id} if proposal_id is not None else None
+        result = self.publish_batch([draft_id], commit_message, proposal_ids)
+        return result.results[0]
 
-        if proposal_id is not None:
-            if self.proposal_service is None:
-                raise PublishError("ProposalService is required to apply a Proposal")
-            proposal = self.proposal_service.get(proposal_id)
-            if proposal.target_type != draft.entity_type or proposal.target_id != draft.entity_id:
-                raise PublishValidationError("Proposal target does not match the Draft")
-            proposed_content = proposal.payload.get("content")
-            if not isinstance(proposed_content, str):
-                raise PublishValidationError(
-                    "Publishable Proposal payload must include full Markdown/YAML 'content'"
+    def publish_batch(
+        self,
+        draft_ids,
+        commit_message: Optional[str] = None,
+        proposal_ids: Optional[dict[str, str]] = None,
+    ) -> BatchPublishedResult:
+        """Validate and publish multiple Drafts in one canonical Git commit."""
+        if isinstance(draft_ids, (str, bytes)) or not draft_ids:
+            raise ValueError("At least one Draft id is required")
+        draft_ids = list(draft_ids)
+        if len(draft_ids) != len(set(draft_ids)):
+            raise PublishValidationError("Draft ids in a batch must be unique")
+        proposal_ids = proposal_ids or {}
+        if set(proposal_ids) - set(draft_ids):
+            raise PublishValidationError("A Proposal may only be applied to a Draft in the batch")
+
+        prepared = []
+        target_paths = set()
+        for draft_id in draft_ids:
+            draft = self.draft_service.get(draft_id)
+            content = draft.content
+            proposal = None
+            proposal_id = proposal_ids.get(draft.id)
+            if proposal_id is not None:
+                if self.proposal_service is None:
+                    raise PublishError("ProposalService is required to apply a Proposal")
+                proposal = self.proposal_service.get(proposal_id)
+                if proposal.target_type != draft.entity_type or proposal.target_id != draft.entity_id:
+                    raise PublishValidationError("Proposal target does not match the Draft")
+                proposed_content = proposal.payload.get("content")
+                if not isinstance(proposed_content, str):
+                    raise PublishValidationError(
+                        "Publishable Proposal payload must include full Markdown/YAML 'content'"
+                    )
+                content = proposed_content
+
+            try:
+                path, metadata = self._target_path(draft, content)
+            except (ValueError, ValidationError, yaml.YAMLError, TypeError) as error:
+                raise PublishValidationError(str(error)) from error
+
+            try:
+                self.git.assert_base(draft.base_git_revision, draft.base_content_hash, path)
+            except (GitConflictError, ValueError) as error:
+                raise PublishConflictError(str(error)) from error
+
+            if path.resolve() in target_paths:
+                raise PublishValidationError("A batch cannot publish the same canonical path twice")
+            target_paths.add(path.resolve())
+
+            draft_content_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
+            if proposal is not None:
+                proposal = self.proposal_service.assert_applicable(
+                    proposal.id, draft_content_hash
                 )
-            content = proposed_content
+
+            previous = path.read_bytes() if path.is_file() else None
+            new_content = content.encode("utf-8")
+            if previous == new_content:
+                raise PublishError(
+                    "Draft '{}' has no canonical changes to publish".format(draft.id)
+                )
+            prepared.append(
+                {
+                    "draft": draft,
+                    "proposal": proposal,
+                    "content": content,
+                    "content_hash": draft_content_hash,
+                    "path": path,
+                    "metadata": metadata,
+                    "previous": previous,
+                    "new_content": new_content,
+                    "warnings": [],
+                }
+            )
+
+        for item in prepared:
+            item["warnings"] = self._validate_candidate(
+                item["draft"],
+                item["content"],
+                item["path"],
+                item["metadata"],
+                validate_references=False,
+            )
 
         try:
-            path, metadata = self._target_path(draft, content)
-        except (ValueError, ValidationError, yaml.YAMLError, TypeError) as error:
-            raise PublishValidationError(str(error)) from error
+            for item in prepared:
+                _atomic_write(item["path"], item["new_content"])
 
-        try:
-            self.git.assert_base(
-                draft.base_git_revision, draft.base_content_hash, path
+            reference_issues = validate_repository_references(self.repository_root)
+            if reference_issues:
+                raise PublishValidationError(
+                    "; ".join(
+                        "{}: {}".format(issue.path, issue.message)
+                        for issue in reference_issues
+                    )
+                )
+
+            message = commit_message or self._default_batch_commit_message(prepared)
+            commit_revision = self.git.commit_many(
+                [item["path"] for item in prepared], message
             )
-        except (GitConflictError, ValueError) as error:
-            raise PublishConflictError(str(error)) from error
-
-        draft_content_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
-        if proposal is not None:
-            proposal = self.proposal_service.assert_applicable(
-                proposal.id, draft_content_hash
-            )
-
-        warnings = self._validate_candidate(draft, content, path, metadata)
-        previous = path.read_bytes() if path.is_file() else None
-        new_content = content.encode("utf-8")
-        if previous == new_content:
-            raise PublishError("Draft has no canonical changes to publish")
-
-        _atomic_write(path, new_content)
-        try:
-            message = commit_message or self._default_commit_message(
-                draft, was_existing=previous is not None
-            )
-            commit_revision = self.git.commit(path, message)
-        except Exception:
-            if previous is None:
-                if path.exists() and path.is_file():
-                    path.unlink()
-            else:
-                _atomic_write(path, previous)
+        except Exception as error:
+            rollback_errors = self._restore_prepared_files(prepared)
+            if rollback_errors:
+                raise PublishError(
+                    "Batch publish failed and canonical rollback was incomplete: {}".format(
+                        "; ".join(rollback_errors)
+                    )
+                ) from error
             raise
 
-        post_publish_warnings = list(warnings)
-        try:
-            self.draft_service.rebase(
-                draft.id,
-                content,
-                draft.revision,
-                commit_revision,
-                hashlib.sha256(new_content).hexdigest(),
-            )
-        except Exception as error:
-            post_publish_warnings.append(
-                "Draft refresh failed after commit: {}; compare the Draft before the next Publish".format(
-                    error
-                )
-            )
-        if proposal is not None:
+        post_publish_warnings = []
+        for item in prepared:
+            draft = item["draft"]
             try:
-                self.proposal_service.merge(proposal.id, draft_content_hash)
+                self.draft_service.discard(draft.id, draft.revision)
             except Exception as error:
                 post_publish_warnings.append(
-                    "Proposal status update failed after commit: {}".format(error)
+                    "Draft cleanup failed after commit for '{}': {}".format(draft.id, error)
+                )
+            proposal = item["proposal"]
+            if proposal is not None:
+                try:
+                    self.proposal_service.merge(proposal.id, item["content_hash"])
+                except Exception as error:
+                    post_publish_warnings.append(
+                        "Proposal status update failed after commit: {}".format(error)
+                    )
+
+        for item in prepared:
+            try:
+                self.indexer.update_path(item["path"])
+            except Exception as error:
+                post_publish_warnings.append(
+                    "Index update failed; run `python tools/kb.py rebuild`: {}".format(error)
                 )
 
-        try:
-            self.indexer.update_path(path)
-        except Exception as error:
-            post_publish_warnings.append(
-                "Index update failed; run `python tools/kb.py rebuild`: {}".format(error)
+        results = tuple(
+            PublishedResult(
+                draft_id=item["draft"].id,
+                entity_type=item["draft"].entity_type,
+                entity_id=item["draft"].entity_id,
+                path=item["path"].relative_to(self.repository_root).as_posix(),
+                commit_revision=commit_revision,
+                proposal_id=item["proposal"].id if item["proposal"] else None,
+                warnings=tuple(item["warnings"] + post_publish_warnings),
             )
-
-        return PublishedResult(
-            draft_id=draft.id,
-            entity_type=draft.entity_type,
-            entity_id=draft.entity_id,
-            path=path.relative_to(self.repository_root).as_posix(),
+            for item in prepared
+        )
+        return BatchPublishedResult(
+            results=results,
             commit_revision=commit_revision,
-            proposal_id=proposal.id if proposal else None,
             warnings=tuple(post_publish_warnings),
         )
 
@@ -239,13 +314,19 @@ class Publisher:
             and parts[2] in {"domains.yaml", "topics.yaml", "tags.yaml"}
         ):
             entity_type = "taxonomy"
+        elif (
+            len(parts) == 3
+            and parts[:2] == ("knowledge", "collections")
+            and parts[2].endswith(".yaml")
+        ):
+            entity_type = "collection"
         else:
             raise PublishValidationError(
                 "Restore target is not a supported canonical entity path"
             )
 
         if historical_content is None:
-            if entity_type in {"document", "term"}:
+            if entity_type in {"document", "term", "collection"}:
                 return []
             if entity_type == "source":
                 references = find_source_references(
@@ -273,13 +354,22 @@ class Publisher:
                 raise PublishValidationError(
                     "Restore content does not match its canonical path"
                 )
-            return self._validate_candidate(
+            warnings = self._validate_candidate(
                 candidate,
                 content,
                 candidate_path,
                 metadata,
                 allow_style_warnings=True,
             )
+            if entity_type == "collection":
+                issues = validate_collection_references(self.repository_root, [metadata])
+                if issues:
+                    raise PublishValidationError(
+                        "; ".join(
+                            "{}: {}".format(issue.path, issue.message) for issue in issues
+                        )
+                    )
+            return warnings
         except PublishValidationError:
             raise
         except (
@@ -342,6 +432,13 @@ class Publisher:
             relative = Path("knowledge") / "taxonomy" / "{}.yaml".format(entity_id)
             return self.repository_root / relative, metadata
 
+        if draft.entity_type == "collection":
+            metadata = Collection.model_validate(parse_yaml(content))
+            if metadata.id != entity_id:
+                raise ValueError("Draft entity_id must match Collection id")
+            relative = Path("knowledge") / "collections" / "{}.yaml".format(entity_id)
+            return self.repository_root / relative, metadata
+
         raise ValueError("Unsupported Draft entity type: {}".format(draft.entity_type))
 
     def _validate_candidate(
@@ -351,10 +448,14 @@ class Publisher:
         path: Path,
         metadata,
         allow_style_warnings: bool = False,
+        validate_references: bool = True,
     ) -> list[str]:
         self._ensure_entity_path(draft, path)
         if draft.entity_type == "source":
             self._validate_source_attachment(metadata)
+            return []
+
+        if draft.entity_type == "collection":
             return []
 
         if draft.entity_type == "taxonomy":
@@ -395,6 +496,18 @@ class Publisher:
                 + "; ".join("{}: {}".format(issue.code, issue.message) for issue in errors)
             )
 
+        warnings = [
+            "{}:{}: {}".format(issue.code, issue.line, issue.message)
+            for issue in issues
+            if issue.severity == "WARN"
+            or (
+                allow_style_warnings
+                and issue.code.startswith(("heading.", "mermaid."))
+            )
+        ]
+        if not validate_references:
+            return warnings
+
         terms = self._load_terms_override(draft, content, path, metadata)
         sources = self._load_sources_override(draft, content, path, metadata)
         taxonomy = self._load_taxonomy_override(draft, content, metadata)
@@ -412,15 +525,7 @@ class Publisher:
             raise PublishValidationError(
                 "; ".join("{}: {}".format(issue.path, issue.message) for issue in references)
             )
-        return [
-            "{}:{}: {}".format(issue.code, issue.line, issue.message)
-            for issue in issues
-            if issue.severity == "WARN"
-            or (
-                allow_style_warnings
-                and issue.code.startswith(("heading.", "mermaid."))
-            )
-        ]
+        return warnings
 
     def _ensure_entity_path(self, draft: Draft, target_path: Path) -> None:
         if draft.entity_type == "document":
@@ -551,7 +656,34 @@ class Publisher:
             return "kb({}): {}".format(draft.entity_id, verb)
         if draft.entity_type == "source":
             return "kb({}): publish source update".format(draft.entity_id)
+        if draft.entity_type == "collection":
+            return "kb(collection): update {}".format(draft.entity_id)
         return "kb(taxonomy): update {}".format(draft.entity_id)
+
+    def _default_batch_commit_message(self, prepared) -> str:
+        if len(prepared) == 1:
+            item = prepared[0]
+            return self._default_commit_message(
+                item["draft"], was_existing=item["previous"] is not None
+            )
+        return "kb: publish {} canonical updates".format(len(prepared))
+
+    def _restore_prepared_files(self, prepared) -> list[str]:
+        errors = []
+        for item in reversed(prepared):
+            path = item["path"]
+            previous = item["previous"]
+            try:
+                if previous is None:
+                    if path.exists():
+                        if not path.is_file():
+                            raise PublishError("Canonical target became a non-file")
+                        path.unlink()
+                else:
+                    _atomic_write(path, previous)
+            except Exception as error:
+                errors.append("{}: {}".format(path, error))
+        return errors
 
 
 def _require_slug(value: str, field: str) -> str:

@@ -12,6 +12,8 @@ import uuid
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 
 from backend.app.api.schemas import (
+    BatchPublishRequest,
+    BatchPublishedView,
     BlankDocumentRequest,
     BundleAssociationRequest,
     BundleAssociationView,
@@ -290,6 +292,18 @@ async def publish(body: PublishRequest, request: Request):
         body.draft_id, body.proposal_id, body.commit_message
     )
     return _published_view(result)
+
+
+@router.post("/publish/batch", response_model=BatchPublishedView)
+async def publish_batch(body: BatchPublishRequest, request: Request):
+    result = request.app.state.publisher.publish_batch(
+        body.draft_ids, body.commit_message
+    )
+    return {
+        "results": [_published_view(item) for item in result.results],
+        "commit_revision": result.commit_revision,
+        "warnings": list(result.warnings),
+    }
 
 
 @router.post("/imports", response_model=ImportJobView, status_code=status.HTTP_201_CREATED)
