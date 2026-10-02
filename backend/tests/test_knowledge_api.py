@@ -625,8 +625,8 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
 
     proposal_id = result["proposal"]["id"]
     assert not any(
-        route.path.endswith(("/approve", "/merge"))
-        for route in api_client.app.routes
+        path.endswith(("/approve", "/merge"))
+        for path in api_client.app.openapi()["paths"]
     )
 
     stale_draft = api_client.post(
