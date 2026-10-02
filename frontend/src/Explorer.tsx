@@ -34,6 +34,7 @@ import {
 import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft, type DraftCollection } from "./collectionDraftModel";
 import { collectionEntityUrl, filterCollectionNodes, restoreExplorerPreferences } from "./explorerTree.js";
 import { makeDocumentId, newNoteEditorPath } from "./newNoteFlow.js";
+import { changedCollectionPositions, moveCollectionInOrder } from "./collectionOrdering.js";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, PageHeader } from "./ui";
 import { CollectionConflictDrawer } from "./explorer/CollectionConflictDrawer";
 import { useCollectionDraft } from "./useCollectionDraft";
@@ -97,6 +98,7 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
   const [addDialogParent, setAddDialogParent] = useState<string | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
+  const [editCollectionMetadataOpen, setEditCollectionMetadataOpen] = useState(false);
   const [createCollectionError, setCreateCollectionError] = useState("");
   const [newNoteTarget, setNewNoteTarget] = useState<{ sectionId: string; title: string } | null>(null);
   const [newNoteError, setNewNoteError] = useState("");
@@ -372,6 +374,64 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
     setEditMode(true);
   }
 
+  function saveCollectionMetadata(title: string, description: string) {
+    if (!collectionDraft.collection) return;
+    collectionDraft.change((current) => ({
+      ...current,
+      title: title.trim(),
+      description: description.trim() || null,
+    }));
+    setEditCollectionMetadataOpen(false);
+    setActionNotice("名称和描述已写入 Collection Draft；发布后生效。");
+  }
+
+  async function moveSelectedCollection(direction: "up" | "down") {
+    const reordered = moveCollectionInOrder(collections, selectedCollectionId, direction);
+    const positionChanges = changedCollectionPositions(collections, reordered);
+    if (!positionChanges.length) return;
+
+    setBusy(true);
+    setActionError("");
+    setActionNotice("");
+    setPublishOutcome(null);
+    try {
+      if (collectionDraft.status !== "clean") {
+        throw new Error("请先发布或丢弃当前 Collection Draft，再调整 Collection 顺序。");
+      }
+      const pendingDrafts = (await Promise.all(collections.map(async (item) => ({
+        item,
+        drafts: await listDrafts("collection", item.id),
+      })))).filter(({ drafts }) => drafts.length > 0);
+      if (pendingDrafts.length) {
+        const names = pendingDrafts.map(({ item }) => item.title).join("、");
+        throw new Error(`请先处理这些 Collection Draft，再调整顺序：${names}。`);
+      }
+
+      const reorderDrafts: Draft[] = [];
+      for (const item of positionChanges) {
+        const canonical = await getCollection(item.id);
+        const draftContent = serializeCollectionDraft({ ...collectionToDraft(canonical), position: item.position });
+        const draft = await createDraft("collection", item.id, draftContent);
+        if (draft.content !== draftContent) {
+          throw new Error(`Collection ${item.title} 在另一标签页中已创建 Draft；请先检查 Draft，再调整顺序。`);
+        }
+        reorderDrafts.push(draft);
+      }
+
+      const outcome = await publishDraftsBatch(reorderDrafts.map((draft) => draft.id));
+      const refreshed = await getCollection(selectedCollectionId);
+      collectionDraft.reset(refreshed);
+      collectionResource.retry();
+      collectionsResource.retry();
+      setPublishOutcome(toPublishOutcome(outcome));
+    } catch (reason) {
+      setActionError(errorMessage(reason));
+      if ((reason as { status?: number })?.status === 409) collectionResource.retry();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function publishCollectionDraft() {
     if (!collection) return;
     setBusy(true);
@@ -575,6 +635,11 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
               {collections.map((item) => <option key={item.id} value={item.id}>{item.title}{item.status === "archived" ? " · Archived" : ""}</option>)}
             </select>
           </label>}
+          {!collectionsResource.loading && !collectionsResource.error && <div className="explorer-collection-order-actions" aria-label="调整 Collection 顺序">
+            <button className="button button-quiet" type="button" aria-label="上移此 Collection 并发布排序" title="上移并通过 Publisher 发布顺序" disabled={busy || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) <= 0} onClick={() => void moveSelectedCollection("up")}>↑ 上移</button>
+            <button className="button button-quiet" type="button" aria-label="下移此 Collection 并发布排序" title="下移并通过 Publisher 发布顺序" disabled={busy || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) < 0 || collections.findIndex((item) => item.id === selectedCollectionId) >= collections.length - 1} onClick={() => void moveSelectedCollection("down")}>↓ 下移</button>
+            {collectionDraft.collection && <button className="button button-quiet" type="button" disabled={busy || collectionDraft.status === "loading" || collectionDraft.status === "conflict"} onClick={() => setEditCollectionMetadataOpen(true)}>编辑详情</button>}
+          </div>}
 
           <label className="explorer-filter">
             <span aria-hidden="true">⌕</span>
@@ -647,6 +712,7 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
             editMode={editMode}
             busy={busy}
             onToggleEdit={() => setEditMode((current) => !current)}
+            onEditMetadata={() => setEditCollectionMetadataOpen(true)}
             onAddExisting={() => openAddExisting()}
             onNewSection={() => createSection()}
             onArchive={() => void toggleArchive()}
@@ -683,6 +749,12 @@ export function ExplorerPage({ onOpen, navigate, embedded = false, selectedEntit
         busy={busy}
         onClose={() => setCreateCollectionOpen(false)}
         onCreate={(id, title, description) => void createCollection(id, title, description)}
+      />}
+      {editCollectionMetadataOpen && collectionDraft.collection && <EditCollectionMetadataDialog
+        collection={collectionDraft.collection}
+        busy={busy || collectionDraft.status === "loading" || collectionDraft.status === "conflict"}
+        onClose={() => setEditCollectionMetadataOpen(false)}
+        onSave={saveCollectionMetadata}
       />}
       {newNoteTarget && <NewNoteHereDialog
         sectionTitle={newNoteTarget.title}
@@ -854,6 +926,7 @@ function CollectionDraftToolbar({
   editMode,
   busy,
   onToggleEdit,
+  onEditMetadata,
   onAddExisting,
   onNewSection,
   onArchive,
@@ -869,6 +942,7 @@ function CollectionDraftToolbar({
   editMode: boolean;
   busy: boolean;
   onToggleEdit: () => void;
+  onEditMetadata: () => void;
   onAddExisting: () => void;
   onNewSection: () => void;
   onArchive: () => void;
@@ -891,6 +965,7 @@ function CollectionDraftToolbar({
     <div className="explorer-edit-toolbar-main">
       <Chip tone={status === "conflict" ? "orange" : hasChanges ? "blue" : "neutral"}>{statusLabel}</Chip>
       <div className="explorer-edit-toolbar-actions">
+        <button className="button button-secondary" onClick={onEditMetadata} disabled={busy || status === "loading" || status === "load-error" || status === "conflict"}>编辑名称与描述</button>
         {archived
           ? <button className="button button-secondary" onClick={onArchive} disabled={busy || status === "loading" || status === "load-error"}>Restore Collection</button>
           : <>
@@ -970,6 +1045,31 @@ function CreateCollectionDialog({
         <label className="field-label">描述（可选）<textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="这条知识路径的目标" /></label>
         {error && <p className="error-copy" role="alert">{error}</p>}
         <div className="editor-main-actions"><button className="button button-secondary" type="button" onClick={onClose} disabled={busy}>取消</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? "正在发布…" : "创建并发布"}</button></div>
+      </form>
+    </section>
+  </div>;
+}
+
+function EditCollectionMetadataDialog({
+  collection,
+  busy,
+  onClose,
+  onSave,
+}: {
+  collection: DraftCollection;
+  busy: boolean;
+  onClose: () => void;
+  onSave: (title: string, description: string) => void;
+}) {
+  const [title, setTitle] = useState(collection.title);
+  const [description, setDescription] = useState(collection.description ?? "");
+  return <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="explorer-modal surface" role="dialog" aria-modal="true" aria-labelledby="edit-collection-title">
+      <div className="section-heading"><div><h2 id="edit-collection-title">编辑 Collection 详情</h2><p>名称和描述先保存到运行时 Draft，发布后更新 Canonical。</p></div><button className="text-button" onClick={onClose} disabled={busy}>关闭</button></div>
+      <form className="explorer-create-form" onSubmit={(event) => { event.preventDefault(); onSave(title, description); }}>
+        <label className="field-label">名称<input autoFocus required maxLength={240} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <label className="field-label">描述（可选）<textarea rows={4} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+        <div className="editor-main-actions"><button className="button button-secondary" type="button" onClick={onClose} disabled={busy}>取消</button><button className="button button-primary" type="submit" disabled={busy || !title.trim()}>保存到 Draft</button></div>
       </form>
     </section>
   </div>;
