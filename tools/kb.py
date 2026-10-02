@@ -21,6 +21,7 @@ from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
 from backend.app.services.import_service import ImportService
 from backend.app.domain.source import SourceMetadata
+from backend.app.domain.collection import Collection
 from backend.app.domain.taxonomy import TaxonomyRegistry
 from backend.app.services.indexer import IndexBuildError, Indexer
 from backend.app.services.canonical_validator import validate_repository_references
@@ -217,8 +218,10 @@ def check_file(path: Path, standard) -> list[LintIssue]:
             entity = SourceMetadata.model_validate(value)
         elif kind == "taxonomy":
             entity = TaxonomyRegistry.model_validate(value)
+        elif kind == "collection":
+            entity = Collection.model_validate(value)
         else:
-            return [LintIssue("schema.entity_type", "Cannot identify this YAML as a Source or Taxonomy registry.", 1)]
+            return [LintIssue("schema.entity_type", "Cannot identify this YAML as a Source, Taxonomy, or Collection registry.", 1)]
     except ValidationError as error:
         return [
             LintIssue(
@@ -265,8 +268,12 @@ def _yaml_entity_type(path: Path, value: dict) -> Optional[str]:
             return "source"
         if relative.parts[0] == "taxonomy":
             return "taxonomy"
+        if relative.parts[0] == "collections":
+            return "collection"
     if "entries" in value:
         return "taxonomy"
+    if "nodes" in value:
+        return "collection"
     if value.get("type") in {"paper", "book", "course", "web", "personal"}:
         return "source"
     return None
@@ -324,6 +331,20 @@ def _check_yaml_layout(path: Path, relative: Path, entity, kind: str) -> list[Li
             or len(relative.parts) != 2
         ):
             issues.append(LintIssue("path.taxonomy", "Taxonomy registries must be stored as knowledge/taxonomy/{domains,topics,tags}.yaml.", 1))
+    if kind == "collection":
+        if (
+            len(relative.parts) != 2
+            or relative.parts[0] != "collections"
+            or path.stem != entity.id
+            or path.suffix.lower() != ".yaml"
+        ):
+            issues.append(
+                LintIssue(
+                    "path.collection",
+                    "Collections must be stored as knowledge/collections/<id>.yaml.",
+                    1,
+                )
+            )
     return issues
 
 

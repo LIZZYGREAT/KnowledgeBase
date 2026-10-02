@@ -6,9 +6,11 @@ from pathlib import Path
 from pydantic import ValidationError
 import yaml
 
+from backend.app.domain.collection import EntityNode, SectionNode
 from backend.app.domain.document import DocumentMetadata
 from backend.app.domain.term import TermMetadata
 from backend.app.services.markdown_parser import MarkdownDocument, parse_markdown
+from backend.app.services.collection_registry import CollectionRegistry
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.taxonomy_registry import TaxonomyKind, TaxonomyRegistry
 from backend.app.services.term_registry import TermRegistry
@@ -94,6 +96,7 @@ def validate_repository_references(repository_root: Path) -> list[CanonicalRefer
         taxonomy = TaxonomyRegistry.load(knowledge_root / "taxonomy")
         sources = SourceRegistry.load(knowledge_root / "sources")
         terms = TermRegistry.load(knowledge_root / "terms")
+        collections = CollectionRegistry.load(knowledge_root / "collections")
     except (OSError, ValueError, ValidationError, yaml.YAMLError) as error:
         return [
             CanonicalReferenceIssue(
@@ -103,6 +106,25 @@ def validate_repository_references(repository_root: Path) -> list[CanonicalRefer
 
     term_resolver = TermResolver(terms)
     issues = []
+    document_ids = _canonical_document_ids(knowledge_root / "documents")
+    entity_ids = {
+        "document": document_ids,
+        "term": {term.id for term in terms.terms},
+        "source": {source.id for source in sources.sources},
+    }
+    for collection in collections.collections:
+        for node in _collection_entity_nodes(collection.nodes):
+            if node.entity_id not in entity_ids[node.entity_type]:
+                issues.append(
+                    CanonicalReferenceIssue(
+                        "knowledge/collections/{}.yaml".format(collection.id),
+                        "reference.collection.entity",
+                        "Unknown {} entity '{}' in Collection '{}'".format(
+                            node.entity_type, node.entity_id, collection.id
+                        ),
+                    )
+                )
+
     for entity_type, root, model in (
         ("document", knowledge_root / "documents", DocumentMetadata),
         ("term", knowledge_root / "terms", TermMetadata),
@@ -126,6 +148,31 @@ def validate_repository_references(repository_root: Path) -> list[CanonicalRefer
                 )
             )
     return issues
+
+
+def _canonical_document_ids(directory: Path) -> set[str]:
+    identifiers = set()
+    if not directory.exists():
+        return identifiers
+    for path in sorted(directory.rglob("*.md")):
+        try:
+            parsed = parse_markdown(path.read_text(encoding="utf-8"))
+            if parsed.frontmatter is None:
+                continue
+            metadata = DocumentMetadata.model_validate(parsed.frontmatter)
+        except (OSError, UnicodeError, ValidationError):
+            continue
+        if path.stem == metadata.id:
+            identifiers.add(metadata.id)
+    return identifiers
+
+
+def _collection_entity_nodes(nodes):
+    for node in nodes:
+        if isinstance(node, EntityNode):
+            yield node
+        elif isinstance(node, SectionNode):
+            yield from _collection_entity_nodes(node.children)
 
 
 def find_taxonomy_references(
