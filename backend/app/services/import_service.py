@@ -23,6 +23,11 @@ from backend.app.repositories.import_repository import (
 )
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
+from backend.app.services.legacy_import import (
+    LegacyImportAdapter,
+    LegacyImportError,
+    MarkdownNormalization,
+)
 from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.resolution import normalize_key
 from backend.app.services.source_registry import SourceRegistry
@@ -53,12 +58,23 @@ class ImportService:
         self.standard = load_writing_standard(
             self.repository_root / "config" / "writing-standard.yaml"
         )
+        self.legacy_import = LegacyImportAdapter(
+            self.repository_root, self._document_candidates, _slugify
+        )
+        self._markdown_normalizers = {
+            "standard": self._normalize_standard_markdown,
+            "legacy": self._normalize_legacy_markdown,
+        }
+        self._profile_maintenance_status = {
+            "standard": None,
+            "legacy": self.legacy_import.MAINTENANCE_STATUS,
+        }
         self._ensure_storage_roots()
 
     def stage_paths(
         self, paths: Sequence[Union[str, Path]], profile: str = "standard"
     ) -> ImportJob:
-        if profile not in {"standard", "legacy"}:
+        if profile not in self._markdown_normalizers:
             raise ValueError("profile must be 'standard' or 'legacy'")
         job_id = uuid.uuid4().hex
         now = _utc_now()
@@ -150,25 +166,11 @@ class ImportService:
         stage_path = self._staged_path(item)
         content = stage_path.read_bytes().decode("utf-8")
         profile = item.metadata.get("profile", "standard")
-        legacy_frontmatter_generated = False
-        generated_metadata = None
-        if profile == "legacy":
-            original_parse = parse_markdown(content)
-            if original_parse.frontmatter is None:
-                generated_metadata = self._legacy_document_metadata(
-                    item, content, original_parse
-                )
-                frontmatter = yaml.safe_dump(
-                    generated_metadata, allow_unicode=True, sort_keys=False
-                ).rstrip()
-                newline = "\r\n" if "\r\n" in content else "\n"
-                frontmatter = frontmatter.replace("\n", newline)
-                content = "{}{}{}{}{}{}{}".format(
-                    "---", newline, frontmatter, newline, "---", newline * 2, content
-                )
-                legacy_frontmatter_generated = True
-            else:
-                content = _apply_legacy_defaults(content)
+        try:
+            normalization = self._markdown_normalizers[profile](item, content)
+        except LegacyImportError as error:
+            raise ImportValidationError(str(error)) from error
+        content = normalization.content
         parsed = parse_markdown(content)
         if parsed.frontmatter is None:
             raise ImportValidationError("Markdown frontmatter must be completed before creating a Draft")
@@ -221,11 +223,7 @@ class ImportService:
         draft = acquisition.draft
 
         item_metadata = dict(item.metadata)
-        if profile == "legacy":
-            item_metadata["legacy_frontmatter_generated"] = legacy_frontmatter_generated
-            if generated_metadata is not None:
-                item_metadata["generated_title"] = generated_metadata["title"]
-                item_metadata["generated_entity_id"] = generated_metadata["id"]
+        item_metadata.update(normalization.item_metadata)
         item_metadata.update(
             {
                 "draft_id": draft.id,
@@ -255,55 +253,6 @@ class ImportService:
             )
         )
         return draft
-
-    def _legacy_document_metadata(self, item, content, parsed) -> dict:
-        title = next(
-            (
-                heading.text.strip()
-                for heading in parsed.headings
-                if heading.level == 1 and heading.text.strip()
-            ),
-            None,
-        )
-        if not title:
-            display_name = item.metadata.get("display_name") or Path(item.path).name
-            title = Path(str(display_name)).stem.strip() or "Imported Note"
-
-        content_hash = item.sha256
-        entity_id = _slugify(title, fallback="")
-        if not entity_id:
-            entity_id = "document-{}".format(content_hash[:12])
-
-        existing = self._document_candidates(entity_id, title)
-        learning_root = self.knowledge_root / "documents" / "learning"
-        if existing or (learning_root / "{}.md".format(entity_id)).exists():
-            for hash_length in range(8, 65, 4):
-                candidate_id = "{}-{}".format(entity_id, content_hash[:hash_length])
-                id_matches = self._document_candidates(candidate_id, title)
-                target_exists = (learning_root / "{}.md".format(candidate_id)).exists()
-                if not any(
-                    match.get("entity_id") == candidate_id for match in id_matches
-                ) and not target_exists:
-                    entity_id = candidate_id
-                    break
-            else:
-                raise ImportValidationError(
-                    "Could not generate a unique Legacy Document ID"
-                )
-
-        return {
-            "schema_version": 1,
-            "id": entity_id,
-            "title": title,
-            "type": "learning-note",
-            "domains": [],
-            "topics": [],
-            "tags": [],
-            "sources": [],
-            "review": {"human": {"status": "unreviewed"}},
-            "maintenance": {"status": "legacy"},
-            "provenance": {"origin": "imported", "ai_assisted": False},
-        }
 
     def confirm_pdf_source(
         self,
@@ -619,7 +568,7 @@ class ImportService:
             content,
             entity_type=detected_type,
             standard=self.standard,
-            maintenance_status="legacy" if profile == "legacy" else None,
+            maintenance_status=self._profile_maintenance_status[profile],
         )
         entity_id = None
         title = None
@@ -658,6 +607,13 @@ class ImportService:
                 else "needs_review"
             ),
         }
+
+    @staticmethod
+    def _normalize_standard_markdown(item, content: str) -> MarkdownNormalization:
+        return MarkdownNormalization(content, {})
+
+    def _normalize_legacy_markdown(self, item, content: str) -> MarkdownNormalization:
+        return self.legacy_import.normalize_markdown(item, content)
 
     def _document_candidates(self, entity_id: str, title: str) -> list[dict]:
         matches = []
@@ -836,23 +792,6 @@ def _expand_inputs(paths: Sequence[Union[str, Path]]):
                     supported.append(resolved)
                     seen.add(resolved)
     return supported, errors
-
-
-def _apply_legacy_defaults(content: str) -> str:
-    parsed = parse_markdown(content)
-    if parsed.frontmatter is None:
-        return content
-    value = dict(parsed.frontmatter)
-    review = dict(value.get("review") or {})
-    human = dict(review.get("human") or {})
-    human["status"] = "unreviewed"
-    review["human"] = human
-    value["review"] = review
-    value["maintenance"] = {"status": "legacy"}
-    frontmatter = yaml.safe_dump(value, allow_unicode=True, sort_keys=False).rstrip()
-    lines = content.lstrip("\ufeff").splitlines()
-    body = "\n".join(lines[parsed.frontmatter_end_line :]).lstrip("\n")
-    return "---\n{}\n---\n{}".format(frontmatter, body)
 
 
 def _blank_document_content(entity_id: str, title: str, document_type: str) -> str:

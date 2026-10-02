@@ -399,6 +399,24 @@ def test_standard_markdown_without_frontmatter_still_cannot_create_draft(
         service.create_draft(item.id)
 
 
+def test_standard_import_does_not_use_legacy_adapter(import_context, tmp_path, monkeypatch):
+    _, _, _, _, service = import_context
+    source = tmp_path / "standard-note.md"
+    content = _document("standard-note", "Standard Note")
+    source.write_text(content, encoding="utf-8")
+    job = service.stage_paths([source], profile="standard")
+    item = service.get_items(job.id)[0]
+
+    def reject_legacy_normalization(*_args, **_kwargs):
+        raise AssertionError("Standard imports must not invoke legacy normalization")
+
+    monkeypatch.setattr(service.legacy_import, "normalize_markdown", reject_legacy_normalization)
+    draft = service.create_draft(item.id)
+
+    assert draft.content.replace("\r\n", "\n") == content
+    assert "legacy_frontmatter_generated" not in service.get_items(job.id)[0].metadata
+
+
 def test_kb_import_command_stages_legacy_markdown_and_pdf(import_context, tmp_path, capsys):
     repository, _, _, _, _ = import_context
     batch = tmp_path / "legacy-batch"
