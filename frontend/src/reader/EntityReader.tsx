@@ -15,7 +15,7 @@ import { applyMarkdownFormatting, type MarkdownFormattingAction } from "../markd
 import type { WorkspaceDraftController } from "../useWorkspaceDraft";
 import { CollectionReaderContext, ContextCard, ContextExportPanel, MetaChipList } from "./ReaderContext";
 import { maintenanceStatus, readList, readString, reviewStatus, typeLabel, entityPath, useResource, type Navigate } from "../pages/PageShared";
-import { countTextOccurrences, errorMessage, hashText, loadEntity, markdownHeadings, readArtifacts, recordDocumentOpenSafely, textOccurrences, type ReaderSelection } from "./readerModel";
+import { errorMessage, hashText, loadEntity, markdownHeadings, readArtifacts, recordDocumentOpenSafely, resolveReaderSelectionSourceRange, type ReaderSelection, type ReaderSourceBlock } from "./readerModel";
 export function EntityPage({
   type,
   id,
@@ -142,32 +142,35 @@ export function EntityPage({
       setReaderSelection(null);
       return;
     }
-    const prefixRange = document.createRange();
-    prefixRange.selectNodeContents(root);
-    prefixRange.setEnd(range.startContainer, range.startOffset);
-    const visiblePrefix = prefixRange.toString();
-    const sourceBody = documentBody;
-    const visibleOccurrence = countTextOccurrences(visiblePrefix, selectedText);
-    const sourceOccurrences = textOccurrences(sourceBody, selectedText);
-    const sourceStart = sourceOccurrences[visibleOccurrence];
-    if (sourceStart === undefined) {
-      setAnnotationError("这段显示文字无法对应到 Markdown 源文，暂不能添加阅读标注。");
-      setReaderSelection(null);
-      return;
-    }
+    const sourceBlockForNode = (node: Node): ReaderSourceBlock | null => {
+      const element = node instanceof Element ? node : node.parentElement;
+      const block = element?.closest<HTMLElement>("[data-block-index][data-source-start][data-source-end]");
+      if (!block || !root.contains(block)) return null;
+      const index = Number(block.dataset.blockIndex);
+      const start = Number(block.dataset.sourceStart);
+      const end = Number(block.dataset.sourceEnd);
+      return Number.isInteger(index) && Number.isInteger(start) && Number.isInteger(end)
+        ? { index, start, end }
+        : null;
+    };
+    const sourceRange = resolveReaderSelectionSourceRange(
+      selectedText,
+      documentBody,
+      sourceBlockForNode(range.startContainer),
+      sourceBlockForNode(range.endContainer),
+    );
     const rect = range.getBoundingClientRect();
     setAnnotationError("");
     setReaderSelection({
       selected_text: selectedText,
-      start_offset: sourceStart,
-      end_offset: sourceStart + selectedText.length,
+      ...sourceRange,
       top: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 150)),
       left: Math.max(8, Math.min(rect.left, window.innerWidth - 576)),
     });
   }
 
   async function saveReaderAnnotation(styleType: AnnotationStyleType, styleValue: string | null) {
-    if (!readerSelection || (type !== "document" && type !== "term")) return;
+    if (!readerSelection || readerSelection.start_offset === null || readerSelection.end_offset === null || (type !== "document" && type !== "term")) return;
     setAnnotationBusy(true);
     setAnnotationError("");
     try {
@@ -195,11 +198,13 @@ export function EntityPage({
   }
 
   async function clearReaderAnnotations() {
-    if (!readerSelection) return;
+    if (!readerSelection || readerSelection.start_offset === null || readerSelection.end_offset === null) return;
+    const startOffset = readerSelection.start_offset;
+    const endOffset = readerSelection.end_offset;
     const matching = annotations.filter((annotation) =>
       annotation.status === "active" &&
-      annotation.start_offset < readerSelection.end_offset &&
-      annotation.end_offset > readerSelection.start_offset,
+      annotation.start_offset < endOffset &&
+      annotation.end_offset > startOffset,
     );
     if (!matching.length) {
       setAnnotationError("当前选区没有可清除的阅读标注。");
@@ -220,7 +225,7 @@ export function EntityPage({
   }
 
   function formatReaderSelection(action: MarkdownFormattingAction) {
-    if (!readerSelection || workspaceDraft.saveState === "Conflict") return;
+    if (!readerSelection || readerSelection.start_offset === null || readerSelection.end_offset === null || workspaceDraft.saveState === "Conflict") return;
     try {
       const formatted = applyMarkdownFormatting(documentBody, readerSelection.start_offset, readerSelection.end_offset, action);
       workspaceDraft.updateContent(`${workspaceEnvelope.frontmatter}${formatted.value}`);
@@ -320,8 +325,9 @@ export function EntityPage({
               selectedText={readerSelection.selected_text}
               top={readerSelection.top}
               left={readerSelection.left}
-              formatDisabled={workspaceDraft.saveState === "Conflict"}
-              canAnnotate={annotationsMatchCanonical && (type === "document" || type === "term")}
+              formatDisabled={workspaceDraft.saveState === "Conflict" || readerSelection.start_offset === null}
+              formatDisabledReason={workspaceDraft.saveState === "Conflict" ? "请先解决 Draft 冲突。" : readerSelection.format_disabled_reason ?? undefined}
+              canAnnotate={readerSelection.start_offset !== null && annotationsMatchCanonical && (type === "document" || type === "term")}
               annotationBusy={annotationBusy}
               aiDisabled={workspaceDraft.saveState === "Conflict"}
               onFormat={formatReaderSelection}

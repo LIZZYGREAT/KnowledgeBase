@@ -89,7 +89,14 @@ export function WorkspaceInlineEditor({
       disabled={state.disabled}
     />;
 
-    return <div className="workspace-inline-block" key={block.id} onDoubleClick={() => state.startEditing(index, block.raw, state.source, state.blocks)}>
+    return <div
+      className="workspace-inline-block"
+      key={block.id}
+      data-block-index={index}
+      data-source-start={block.start}
+      data-source-end={block.end}
+      onDoubleClick={() => state.startEditing(index, block.raw, state.source, state.blocks)}
+    >
       {rendered}
       <button
         className="workspace-inline-edit-button"

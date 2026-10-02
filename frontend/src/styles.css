@@ -515,6 +515,7 @@ a { color: #2e7357; }
 .workspace-selection-toolbar { width: min(560px, calc(100vw - 16px)); align-items: flex-start; gap: 7px; }
 .workspace-selection-group { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .workspace-selection-format, .workspace-selection-ai { min-width: 27px; height: 27px; border: 1px solid #e4eae4; border-radius: 6px; padding: 0 6px; color: #41584a; background: #fff; font-size: var(--text-xs); font-weight: 650; cursor: pointer; }
+.workspace-selection-format-note { flex-basis: 100%; max-width: 430px; color: #637367; font-size: var(--text-xs); }
 .workspace-selection-format:hover, .workspace-selection-ai:hover:not(:disabled) { border-color: #b7cbb9; background: #f3f8f3; }
 .workspace-selection-ai { color: #fff; background: #33765a; }
 .workspace-selection-ai:hover:not(:disabled) { color: #fff; background: #28674d; }

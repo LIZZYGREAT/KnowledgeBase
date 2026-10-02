@@ -20,6 +20,7 @@ export function WorkspaceSelectionToolbar({
   top,
   left,
   formatDisabled,
+  formatDisabledReason,
   canAnnotate,
   annotationBusy,
   aiDisabled = false,
@@ -32,6 +33,7 @@ export function WorkspaceSelectionToolbar({
   top: number;
   left: number;
   formatDisabled: boolean;
+  formatDisabledReason?: string;
   canAnnotate: boolean;
   annotationBusy: boolean;
   aiDisabled?: boolean;
@@ -44,6 +46,7 @@ export function WorkspaceSelectionToolbar({
     <div className="workspace-selection-group" role="group" aria-label="格式">
       <span className="annotation-toolbar-label">格式</span>
       {formats.map(({ action, label, icon }) => <button key={action} type="button" className="workspace-selection-format" aria-label={label} title={label} disabled={formatDisabled} onClick={() => onFormat(action)}>{icon}</button>)}
+      {formatDisabledReason && <small className="workspace-selection-format-note" role="status">{formatDisabledReason}</small>}
     </div>
     <span className="toolbar-divider" />
     <div className="workspace-selection-group" role="group" aria-label="标注">

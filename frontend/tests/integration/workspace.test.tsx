@@ -55,8 +55,20 @@ let draftSequence: number;
 let conflictOnPreflight: boolean;
 
 function makeEntity(id = "quick-start"): EntityDetail {
-  const title = id === "second-note" ? "Second Note" : "Quick Start";
-  const body = id === "second-note" ? "# Second heading\n\nSecond entity content." : canonicalBody;
+  const titles: Record<string, string> = {
+    "second-note": "Second Note",
+    "formatted-note": "Formatted Note",
+    "linked-note": "Linked Note",
+    "repeated-note": "Repeated Note",
+  };
+  const bodies: Record<string, string> = {
+    "second-note": "# Second heading\n\nSecond entity content.",
+    "formatted-note": "# Main heading\n\nA **very important** result.",
+    "linked-note": "# Main heading\n\nRead [the linked page](https://example.com) carefully.",
+    "repeated-note": "# Main heading\n\nsame text and same text.",
+  };
+  const title = titles[id] ?? "Quick Start";
+  const body = bodies[id] ?? canonicalBody;
   const canonical = canonicalContent
     .replace("title: Quick Start", `title: ${title}`)
     .replace(canonicalBody, body);
@@ -104,7 +116,7 @@ function seedDraft(content = canonicalContent) {
 
 function installApiBehavior() {
   api.getEntity.mockImplementation(async (type: string, id: string) => {
-    if (type === "document" && ["quick-start", "second-note"].includes(id)) return makeEntity(id);
+    if (type === "document" && ["quick-start", "second-note", "formatted-note", "linked-note", "repeated-note"].includes(id)) return makeEntity(id);
     throw Object.assign(new Error("Not found"), { status: 404 });
   });
   api.getCollectionNavigation.mockResolvedValue(null);
@@ -188,8 +200,8 @@ function installApiBehavior() {
   api.reviewProposal.mockResolvedValue(undefined);
 }
 
-function renderWorkspace(initialMode: "read" | "edit" = "read") {
-  return render(<WorkspacePage type="document" id="quick-start" navigate={vi.fn()} initialMode={initialMode} />);
+function renderWorkspace(initialMode: "read" | "edit" = "read", id = "quick-start") {
+  return render(<WorkspacePage type="document" id={id} navigate={vi.fn()} initialMode={initialMode} />);
 }
 
 function EntitySwitchHarness() {
@@ -215,6 +227,64 @@ function selectParagraph(container: HTMLElement) {
   selection?.removeAllRanges();
   selection?.addRange(range);
   fireEvent.mouseUp(container.querySelector(".reader-markdown-wrap")!);
+}
+
+function selectWholeParagraph(container: HTMLElement) {
+  const paragraph = container.querySelector(".reader-markdown-wrap p");
+  if (!paragraph) throw new Error("Reader paragraph was not rendered.");
+  const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+  if (!textNodes.length) throw new Error("Reader paragraph text was not rendered.");
+  const range = document.createRange();
+  range.setStart(textNodes[0], 0);
+  range.setEnd(textNodes.at(-1)!, textNodes.at(-1)!.length);
+  Object.defineProperty(range, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ top: 20, right: 320, bottom: 40, left: 30, width: 290, height: 20, x: 30, y: 20, toJSON: () => ({}) }),
+  });
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  fireEvent.mouseUp(container.querySelector(".reader-markdown-wrap")!);
+}
+
+function selectParagraphSubstring(container: HTMLElement, selectedText: string) {
+  const paragraph = container.querySelector(".reader-markdown-wrap p");
+  if (!(paragraph?.firstChild instanceof Text)) throw new Error("Reader paragraph text was not rendered.");
+  const text = paragraph.firstChild;
+  const start = text.data.indexOf(selectedText);
+  if (start < 0) throw new Error("Selected text was not found in the paragraph.");
+  const range = document.createRange();
+  range.setStart(text, start);
+  range.setEnd(text, start + selectedText.length);
+  Object.defineProperty(range, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ top: 20, right: 320, bottom: 40, left: 30, width: 290, height: 20, x: 30, y: 20, toJSON: () => ({}) }),
+  });
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  fireEvent.mouseUp(container.querySelector(".reader-markdown-wrap")!);
+}
+
+function selectAcrossReaderBlocks(container: HTMLElement) {
+  const root = container.querySelector(".reader-markdown-wrap");
+  const heading = root?.querySelector("h1");
+  const paragraph = root?.querySelector("p");
+  if (!root || !heading?.firstChild || !paragraph?.firstChild) throw new Error("Reader blocks were not rendered.");
+  const endText = paragraph.firstChild as Text;
+  const range = document.createRange();
+  range.setStart(heading.firstChild, 0);
+  range.setEnd(endText, endText.length);
+  Object.defineProperty(range, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ top: 20, right: 320, bottom: 40, left: 30, width: 290, height: 20, x: 30, y: 20, toJSON: () => ({}) }),
+  });
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  fireEvent.mouseUp(root);
 }
 
 describe("Workspace React integration", () => {
@@ -288,6 +358,40 @@ describe("Workspace React integration", () => {
 
     await waitFor(() => expect(api.createDraft).toHaveBeenCalledOnce(), { timeout: 2500 });
     expect(api.createDraft.mock.calls[0][2]).toContain("**A paragraph with a selected phrase.**");
+  });
+
+  it("disables source formatting for selections that cross Markdown blocks", async () => {
+    const { container } = renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    selectAcrossReaderBlocks(container);
+
+    expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
+    expect(container.querySelector(".workspace-selection-format-note")?.textContent).toBe("格式修改仅支持单个 Markdown 区块内的选区。");
+    expect(screen.getByRole("button", { name: "yellow 高亮" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("does not guess source offsets for formatted Markdown or links", async () => {
+    const formatted = renderWorkspace("read", "formatted-note");
+    await screen.findByRole("heading", { name: "Formatted Note" });
+    selectWholeParagraph(formatted.container);
+    expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/无法无歧义地对应 Markdown 源文/)).toBeTruthy();
+    formatted.unmount();
+
+    const linked = renderWorkspace("read", "linked-note");
+    await screen.findByRole("heading", { name: "Linked Note" });
+    selectWholeParagraph(linked.container);
+    expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/无法无歧义地对应 Markdown 源文/)).toBeTruthy();
+  });
+
+  it("disables source formatting when selected text occurs more than once in a block", async () => {
+    const { container } = renderWorkspace("read", "repeated-note");
+    await screen.findByRole("heading", { name: "Repeated Note" });
+    selectParagraphSubstring(container, "same text");
+
+    expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/无法无歧义地对应 Markdown 源文/)).toBeTruthy();
   });
 
   it("keeps local content unsaved when another tab already created a different Draft, then saves an explicit merge", async () => {
