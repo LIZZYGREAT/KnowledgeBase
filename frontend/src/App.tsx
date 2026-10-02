@@ -12,8 +12,7 @@ const TermsPage = lazy(() => import("./Pages").then((module) => ({ default: modu
 const TopicsPage = lazy(() => import("./Pages").then((module) => ({ default: module.TopicsPage })));
 const ReviewPage = lazy(() => import("./Pages").then((module) => ({ default: module.ReviewPage })));
 const ExplorerPage = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
-const EntityPage = lazy(() => import("./Pages").then((module) => ({ default: module.EntityPage })));
-const EditorPage = lazy(() => import("./Editor").then((module) => ({ default: module.EditorPage })));
+const WorkspacePage = lazy(() => import("./Workspace").then((module) => ({ default: module.WorkspacePage })));
 const NewNotePage = lazy(() => import("./Editor").then((module) => ({ default: module.NewNotePage })));
 
 interface LocationState {
@@ -148,12 +147,12 @@ export default function App() {
 
   let page: ReactNode;
   if (route.kind === "editor") {
-    page = <Suspense fallback={<LoadingState />}><EditorPage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`edit:${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} initialMode="edit" /></Suspense>;
   } else if (route.kind === "new-note") {
     page = <Suspense fallback={<LoadingState />}><NewNotePage navigate={navigate} /></Suspense>;
   } else if (route.kind === "reader") {
     const collectionId = new URLSearchParams(location.search).get("collection") ?? undefined;
-    page = <Suspense fallback={<LoadingState />}><EntityPage key={`${route.entityType}:${route.id}:${collectionId ?? ""}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} onEdit={(type, id) => navigate(`/edit/${type}/${encodeURIComponent(id)}`)} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`read:${route.entityType}:${route.id}:${collectionId ?? ""}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;

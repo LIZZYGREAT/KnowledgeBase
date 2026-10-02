@@ -6,6 +6,5 @@ export function loadEditorDraft(
   api: {
     listDrafts: (entityType: EntityType, entityId: string) => Promise<Draft[]>;
     getEntity: (entityType: EntityType, entityId: string) => Promise<EntityDetail>;
-    createDraft: (entityType: EntityType, entityId: string, content: string) => Promise<Draft>;
   },
-): Promise<{ draft: Draft; canonicalEntity: EntityDetail | null }>;
+): Promise<{ draft: Draft | null; canonicalEntity: EntityDetail | null; content: string }>;

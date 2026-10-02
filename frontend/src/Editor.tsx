@@ -1,32 +1,22 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { parseDocument } from "yaml";
 import { applyMarkdownFormatting, type MarkdownFormattingAction } from "./markdownFormatting.js";
-import { loadEditorDraft } from "./editorDraftInitialization.js";
 import {
-  compareDraft,
   createBlankDocument,
-  createDraft,
-  discardDraft,
-  getEntity,
   listAllEntities,
-  listDrafts,
   listProposals,
-  publishDraft,
-  rebaseDraft,
   requestAIProposal,
   reviewProposal,
-  updateDraft,
   type Draft,
-  type DraftComparison,
   type EntitySummary,
   type EntityType,
   type Proposal,
 } from "./api";
+import { patchYamlField, readFrontmatterField } from "./metadataDraft.js";
 import { Chip, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "./ui";
+import { useWorkspaceDraft } from "./useWorkspaceDraft";
 
 const MarkdownContent = lazy(() => import("./Markdown").then((module) => ({ default: module.MarkdownContent })));
-
-type SaveState = "Ready" | "Unsaved" | "Saving" | "Saved" | "Conflict";
 
 export function NewNotePage({ navigate }: { navigate: (path: string) => void }) {
   const [title, setTitle] = useState("");
@@ -60,16 +50,24 @@ export function NewNotePage({ navigate }: { navigate: (path: string) => void }) 
 }
 
 export function EditorPage({ type, id, navigate }: { type: EntityType; id: string; navigate: (path: string) => void }) {
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const workspaceDraft = useWorkspaceDraft(type, id);
+  const {
+    draft,
+    content,
+    canonicalEntity,
+    loading,
+    loadError,
+    error: draftError,
+    setError: setDraftError,
+    saveState,
+    comparison,
+    mergeContent,
+    setMergeContent,
+    publishedRevision,
+    isDirty,
+  } = workspaceDraft;
   const [saveError, setSaveError] = useState("");
-  const [saveState, setSaveState] = useState<SaveState>("Ready");
-  const [comparison, setComparison] = useState<DraftComparison | null>(null);
-  const [mergeContent, setMergeContent] = useState("");
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [canonicalEntity, setCanonicalEntity] = useState<Awaited<ReturnType<typeof getEntity>> | null>(null);
   const [sourceEntries, setSourceEntries] = useState<EntitySummary[]>([]);
   const [sourceError, setSourceError] = useState("");
   const [paperSkillVariant, setPaperSkillVariant] = useState<"canonical" | "enhanced">("canonical");
@@ -80,26 +78,12 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   const [selection, setSelection] = useState("");
   const [selectedText, setSelectedText] = useState("");
   const [publishing, setPublishing] = useState(false);
-  const [publishedRevision, setPublishedRevision] = useState("");
-  const draftRef = useRef<Draft | null>(null);
   const contentRef = useRef("");
-  const lastSavedRef = useRef("");
-  const inFlightRef = useRef<Promise<Draft> | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
-  function installDraft(next: Draft, replaceContent: boolean) {
-    draftRef.current = next;
-    setDraft(next);
-    lastSavedRef.current = next.content;
-    if (replaceContent) {
-      contentRef.current = next.content;
-      setContent(next.content);
-    }
-  }
+  useEffect(() => { contentRef.current = content; }, [content]);
 
-  async function refreshProposals(target = draftRef.current) {
-    if (!target) return;
+  async function refreshProposals() {
     try {
       const values = await listProposals(undefined, type, id);
       setProposals(values);
@@ -109,23 +93,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     }
   }
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setLoadError("");
-    setCanonicalEntity(null);
-    void (async () => {
-      const initialized = await loadEditorDraft(type, id, { listDrafts, getEntity, createDraft });
-      if (active) {
-        setCanonicalEntity(initialized.canonicalEntity);
-        installDraft(initialized.draft, true);
-        void refreshProposals(initialized.draft);
-      }
-    })()
-      .catch((error: unknown) => { if (active) setLoadError(errorMessage(error)); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [type, id]);
+  useEffect(() => { void refreshProposals(); }, [type, id]);
 
   useEffect(() => {
     let active = true;
@@ -145,66 +113,24 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   }, [type, id]);
 
   async function saveNow(): Promise<Draft> {
-    if (inFlightRef.current) await inFlightRef.current;
-    const currentDraft = draftRef.current;
-    if (!currentDraft) throw new Error("Draft 尚未载入。");
-    const snapshot = contentRef.current;
-    if (snapshot === lastSavedRef.current) return currentDraft;
-    setSaveState("Saving");
+    const saved = await workspaceDraft.saveNow();
+    if (!saved) throw new Error("还没有需要保存的内容变化。");
     setSaveError("");
-    const pending = updateDraft(currentDraft.id, snapshot, currentDraft.revision);
-    inFlightRef.current = pending;
-    try {
-      const saved = await pending;
-      installDraft(saved, false);
-      if (inFlightRef.current === pending) inFlightRef.current = null;
-      if (contentRef.current !== snapshot) return saveNow();
-      setSaveState("Saved");
-      return saved;
-    } catch (error) {
-      if (inFlightRef.current === pending) inFlightRef.current = null;
-      setSaveState((error as { status?: number })?.status === 409 ? "Conflict" : "Unsaved");
-      setSaveError(errorMessage(error));
-      throw error;
-    }
+    return saved;
   }
 
-  useEffect(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (!draft || content === lastSavedRef.current || comparison) return;
-    setSaveState("Unsaved");
-    timerRef.current = setTimeout(() => {
-      void saveNow().catch(() => undefined);
-    }, 650);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [content, draft?.id, draft?.revision, comparison]);
-
   async function openComparison() {
-    const currentDraft = draftRef.current;
-    if (!currentDraft) return;
     setSaveError("");
     try {
-      const result = await compareDraft(currentDraft.id);
-      setComparison(result);
-      if (result.canonical_changed) setSaveState("Conflict");
-      setMergeContent(contentRef.current);
+      await workspaceDraft.openComparison();
     } catch (error) {
       setSaveError(errorMessage(error));
     }
   }
 
   async function reloadCanonical() {
-    if (!comparison || !draftRef.current) return;
     try {
-      const next = await rebaseDraft(
-        draftRef.current.id,
-        comparison.current_content,
-        draftRef.current.revision,
-        comparison.current_content_hash,
-      );
-      installDraft(next, true);
-      setComparison(null);
-      setSaveState("Saved");
+      await workspaceDraft.reloadCanonical();
       setSaveError("");
     } catch (error) {
       setSaveError(errorMessage(error));
@@ -213,17 +139,8 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   }
 
   async function applyRebase() {
-    if (!comparison || !draftRef.current) return;
     try {
-      const next = await rebaseDraft(
-        draftRef.current.id,
-        mergeContent,
-        draftRef.current.revision,
-        comparison.current_content_hash,
-      );
-      installDraft(next, true);
-      setComparison(null);
-      setSaveState("Saved");
+      await workspaceDraft.applyRebase(mergeContent);
       setSaveError("");
     } catch (error) {
       setSaveError(errorMessage(error));
@@ -232,11 +149,10 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   }
 
   async function discardCurrentDraft() {
-    const currentDraft = draftRef.current;
-    if (!currentDraft || !window.confirm("丢弃这个运行时 Draft？尚未发布的修改会被删除。")) return;
+    if (!window.confirm("丢弃尚未发布的修改？运行时 Draft 会被删除。")) return;
     try {
-      await discardDraft(currentDraft.id, currentDraft.revision);
-      navigate(`/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}`);
+      await workspaceDraft.discard();
+      navigate(canonicalEntity ? `/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}` : "/");
     } catch (error) {
       setSaveError(errorMessage(error));
     }
@@ -246,11 +162,9 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     setPublishing(true);
     setSaveError("");
     try {
-      const saved = await saveNow();
-      const result = await publishDraft(saved.id);
-      setPublishedRevision(result.commit_revision);
-      setComparison(null);
-      setSaveState("Saved");
+      const result = await workspaceDraft.publish();
+      if (!result) throw new Error("还没有可发布的 Draft 变化。");
+      await refreshProposals();
     } catch (error) {
       setSaveError(errorMessage(error));
       if ((error as { status?: number })?.status === 409) await openComparison();
@@ -264,10 +178,10 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     setProposalBusy(true);
     setProposalError("");
     try {
-      const saved = await saveNow();
+      const saved = await workspaceDraft.ensureDraft();
       const result = await requestAIProposal(task, saved.id, task === "selection-review" ? selection : undefined);
       setProposalError(result.external_provider_notice);
-      await refreshProposals(saved);
+      await refreshProposals();
     } catch (error) {
       setProposalError(errorMessage(error));
     } finally {
@@ -313,7 +227,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
 
   function setEditorContent(value: string) {
     contentRef.current = value;
-    setContent(value);
+    workspaceDraft.updateContent(value);
   }
 
   function formatMarkdown(action: MarkdownFormattingAction) {
@@ -370,30 +284,34 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
 
   if (loading) return <LoadingState label="正在载入 Draft 编辑器…" />;
   if (loadError) return <ErrorState message={loadError} />;
-  if (!draft) return <ErrorState message="Draft 初始化失败。" />;
-
   const body = type === "source" ? "" : content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
   const pendingProposals = proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status));
   const associatedSourceIds = readStringArray(readFrontmatterField(content, type, "sources"));
   const paperSkills = readPaperSkillArtifacts(readFrontmatterField(content, type, "external_artifacts"));
   const pdfAttachment = readSourcePdf(content);
   const draftCitations = readDraftCitations(body);
+  const saveStateLabel = saveState === "Ready" ? "✓ 已发布"
+    : saveState === "Unsaved" ? "● 尚未发布"
+      : saveState === "Saving" ? "● 正在保存…"
+        : saveState === "Saved" ? draft ? "● 已保存草稿 · 尚未发布" : "✓ 已发布"
+          : "● 需要解决冲突";
+  const visibleSaveError = saveError || draftError;
 
   return (
     <div className="page-stack editor-page">
       <div className="editor-topline">
-        <button className="back-link" onClick={() => navigate(`/${type === "term" ? "terms" : "library"}`)}>← 返回阅读</button>
-        <div className="editor-save-state"><span className={`save-indicator ${saveState.toLowerCase()}`} />{saveState}{draft && <small>Draft r{draft.revision}</small>}</div>
+        <button className="back-link" onClick={() => navigate(canonicalEntity ? `/${type === "term" ? "terms" : "library"}` : "/")}>← 返回阅读</button>
+        <div className="editor-save-state"><span className={`save-indicator ${saveState.toLowerCase()}`} />{saveStateLabel}</div>
       </div>
       <PageHeader
         eyebrow={`${type.toUpperCase()} · DRAFT EDITOR`}
         title={`编辑 ${id}`}
-        description="编辑器只保存运行时 Draft；检查预览后，通过 Publisher 发布为正式知识。"
-        action={<div className="editor-main-actions"><button className="button button-secondary" onClick={() => void saveNow().catch(() => undefined)}>保存 Draft</button><button className="button button-primary" disabled={publishing || saveState === "Conflict" || Boolean(comparison) || Boolean(publishedRevision)} onClick={() => void publishCurrentDraft()}>{publishing ? "发布中…" : "Publish"}</button></div>}
+        description="打开时读取正式内容；第一次修改后自动保存为运行时 Draft，再通过 Publisher 发布。"
+        action={<div className="editor-main-actions"><button className="button button-secondary" disabled={!isDirty || publishing || saveState === "Conflict"} onClick={() => void saveNow().catch(() => undefined)}>保存草稿</button><button className="button button-primary" disabled={publishing || saveState === "Conflict" || Boolean(comparison) || Boolean(publishedRevision) || (!draft && !isDirty)} onClick={() => void publishCurrentDraft()}>{publishing ? "发布中…" : "Publish"}</button></div>}
       />
 
       {publishedRevision && <div className="editor-notice success-notice" role="status"><strong>已发布</strong><span>Git revision {publishedRevision.slice(0, 12)}</span><button className="button button-secondary" onClick={() => navigate(`/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}`)}>返回阅读</button></div>}
-      {saveError && <div className="editor-notice error-notice" role="alert"><span>{saveError}</span><button className="text-button" onClick={() => setSaveError("")}>关闭</button>{saveState === "Conflict" && <button className="button button-secondary" onClick={() => void openComparison()}>比较版本</button>}</div>}
+      {visibleSaveError && <div className="editor-notice error-notice" role="alert"><span>{visibleSaveError}</span><button className="text-button" onClick={() => { setSaveError(""); setDraftError(""); }}>关闭</button>{saveState === "Conflict" && <button className="button button-secondary" onClick={() => void openComparison()}>比较版本</button>}</div>}
 
       {comparison && <section className="surface conflict-panel">
         <div className="conflict-heading"><div><p className="eyebrow">CANONICAL CHANGED</p><h2>正式内容在 Draft 创建后发生了变化</h2><p>请对比基线、当前正式版和 Draft，再选择重新载入或整理合并内容。此操作不会自动发布。</p></div><Chip tone="amber">需要处理</Chip></div>
@@ -439,7 +357,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
 
       <div className="editor-grid">
         <section className="surface editor-writing-panel">
-          <SectionHeading title={type === "source" ? "Source YAML" : "Markdown"} detail="Draft 自动保存 · 约 1 秒后生效" />
+          <SectionHeading title={type === "source" ? "Source YAML" : "Markdown"} detail="第一次修改后自动创建 Draft · 650ms 后保存" />
           {type !== "source" && <div className="markdown-toolbar" role="toolbar" aria-label="Markdown 格式工具" onMouseDown={(event) => event.preventDefault()}>
             <button type="button" aria-label="加粗" title="加粗" onClick={() => formatMarkdown("bold")}><strong>B</strong></button>
             <button type="button" aria-label="斜体" title="斜体" onClick={() => formatMarkdown("italic")}><em>I</em></button>
@@ -458,7 +376,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
             onSelect={(event) => {
               setSelectedText(event.currentTarget.value.slice(event.currentTarget.selectionStart, event.currentTarget.selectionEnd));
             }}
-            onBlur={() => { if (contentRef.current !== lastSavedRef.current) void saveNow().catch(() => undefined); }}
+            onBlur={() => { if (isDirty) void saveNow().catch(() => undefined); }}
             spellCheck={false}
             aria-label={type === "source" ? "Source YAML Draft" : "Markdown Draft"}
           />
@@ -484,7 +402,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
           {pendingProposals.length ? pendingProposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} onReview={actOnProposal} onUseContent={(value) => setEditorContent(value)} onApplyMetadata={applyMetadataProposal} />) : <p className="subtle-copy">目前没有等待处理的 Proposal。</p>}
         </div>
       </section>
-      <div className="editor-bottom-actions"><button className="button button-danger" onClick={() => void discardCurrentDraft()}>丢弃 Draft</button><span>基线 revision {draft.base_git_revision.slice(0, 12)} · 内容变更由 Publisher 冲突检查保护</span></div>
+      <div className="editor-bottom-actions"><button className="button button-danger" disabled={!draft && !isDirty} onClick={() => void discardCurrentDraft()}>丢弃 Draft</button><span>{draft ? "草稿与当前正式内容关联" : "基于当前正式内容"} · Publisher 会检查外部更改</span></div>
     </div>
   );
 }
@@ -533,39 +451,6 @@ interface DraftCitation {
   locator: string | null;
   line: number;
   claim: string;
-}
-
-function readFrontmatterField(content: string, type: EntityType, key: string): unknown {
-  try {
-    let yamlText = content;
-    if (type !== "source") {
-      const match = /^(---\r?\n)([\s\S]*?)(\r?\n---)([\s\S]*)$/.exec(content);
-      if (!match) return undefined;
-      yamlText = match[2];
-    }
-    const document = parseDocument(yamlText);
-    if (document.errors.length) return undefined;
-    return document.get(key);
-  } catch {
-    return undefined;
-  }
-}
-
-function patchYamlField(content: string, type: EntityType, key: string, value: unknown): string {
-  let yamlText = content;
-  let open = "";
-  let separator = "";
-  let suffix = "";
-  if (type !== "source") {
-    const match = /^(---\r?\n)([\s\S]*?)(\r?\n---)([\s\S]*)$/.exec(content);
-    if (!match) throw new Error("缺少有效 frontmatter；请先修复 Markdown 元数据。");
-    [open, yamlText, separator, suffix] = [match[1], match[2], match[3], match[4]];
-  }
-  const document = parseDocument(yamlText);
-  if (document.errors.length) throw new Error("YAML frontmatter 无法解析，请先修复语法。");
-  document.set(key, value);
-  const serialized = document.toString().trimEnd();
-  return type === "source" ? `${serialized}\n` : `${open}${serialized}${separator}${suffix}`;
 }
 
 function readStringArray(value: unknown): string[] {
