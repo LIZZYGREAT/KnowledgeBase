@@ -178,20 +178,26 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   }, [saveNow]);
 
   const reloadCanonical = useCallback(async () => {
-    const currentComparison = comparison;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    if (inFlightRef.current) await inFlightRef.current.catch(() => undefined);
     const currentDraft = draftRef.current;
-    if (!currentComparison || !currentDraft) return;
-    const next = await rebaseDraft(
-      currentDraft.id,
-      currentComparison.current_content,
-      currentDraft.revision,
-      currentComparison.current_content_hash,
-    );
-    canonicalContentRef.current = currentComparison.current_content;
-    installDraft(next, true);
+    if (currentDraft) await discardDraft(currentDraft.id, currentDraft.revision);
+
+    let nextCanonicalEntity: EntityDetail | null = null;
+    try {
+      nextCanonicalEntity = await getEntity(type, id);
+    } catch (reason) {
+      if ((reason as { status?: number })?.status !== 404) throw reason;
+    }
+    const canonicalContent = nextCanonicalEntity?.canonical_content ?? "";
+    canonicalContentRef.current = canonicalContent;
+    setCanonicalEntity(nextCanonicalEntity);
+    installDraft(null, true, canonicalContent);
     setComparison(null);
     setError("");
-  }, [comparison, installDraft]);
+    setPublishedRevision("");
+  }, [id, installDraft, type]);
 
   const applyRebase = useCallback(async (contentValue: string) => {
     const currentComparison = comparison;

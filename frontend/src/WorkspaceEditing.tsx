@@ -456,7 +456,7 @@ export function WorkspaceEditingSurface({ type, id, navigate, batchCollectionId,
         <label className="field-label merge-label">合并内容 <span>初始为当前 Draft；请参考上方版本对比，手动合入需要保留的修改。</span>
           <textarea className="merge-textarea" value={mergeContent} onChange={(event) => setMergeContent(event.target.value)} spellCheck={false} />
         </label>
-        <div className="editor-main-actions drawer-footer"><button className="button button-secondary" onClick={() => void reloadCanonical()}>放弃 Draft 并载入当前正式版</button><button className="button button-primary" onClick={() => void applyRebase()}>保存合并内容并更新基线</button></div>
+        <div className="editor-main-actions drawer-footer"><button className="button button-secondary" onClick={() => void reloadCanonical()}>放弃 Draft 并载入当前正式版</button><button className="button button-primary" onClick={() => void applyRebase()}>保留 Draft 并重设基线</button></div>
       </WorkspaceDrawer>}
 
       <div className="editor-bottom-actions"><button className="button button-danger" disabled={!draft && !isDirty} onClick={() => void discardCurrentDraft()}>{batchCollectionId ? "丢弃两个 Draft" : "丢弃 Draft"}</button><span>{batchCollectionId ? `发布目标：Document + Collection ${batchCollectionId}` : draft ? "草稿与当前正式内容关联" : "基于当前正式内容"} · Publisher 会检查外部更改</span></div>
