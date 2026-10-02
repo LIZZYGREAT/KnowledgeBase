@@ -67,6 +67,15 @@ export function useExplorerNewNote({
     navigate(newNoteWorkspacePath(draft.entity_id, selectedCollectionId));
   }
 
+  async function continueNewNoteWorkspace() {
+    if (!createdNoteDraft) return;
+    try {
+      await enterNewNoteWorkspace(createdNoteDraft);
+    } catch (reason) {
+      setNewNoteError(errorMessage(reason));
+    }
+  }
+
   async function cancelNewNoteHere() {
     if (newNoteBusy) return;
     try {
@@ -89,12 +98,12 @@ export function useExplorerNewNote({
   return {
     newNoteTarget,
     newNoteError,
-    setNewNoteError,
     newNoteBusy,
     createdNoteDraft,
     startNewNoteHere,
     createNoteHere,
     enterNewNoteWorkspace,
+    continueNewNoteWorkspace,
     cancelNewNoteHere,
   };
 }

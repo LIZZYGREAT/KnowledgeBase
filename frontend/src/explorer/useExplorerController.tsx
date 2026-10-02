@@ -1,10 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import {
-  type CollectionNode,
-  type CollectionSummary,
-  type EntityType,
-  type PublishOutcome,
-} from "../api";
+import { type CollectionSummary, type EntityType } from "../api";
 import { collectionEntityUrl, filterCollectionNodes } from "../explorerTree";
 import { useCollectionDraft } from "../useCollectionDraft";
 import { allSectionKeys, containsEntityReference, sectionKey } from "./explorerModel";
@@ -14,7 +9,6 @@ import { useExplorerEditing } from "./useExplorerEditing";
 import { useExplorerNewNote } from "./useExplorerNewNote";
 import { useExplorerPreferences, useExplorerResources } from "./useExplorerResources";
 import type { ExplorerView, ExplorerPageProps } from "./ExplorerTypes";
-import type { PublishReviewItem } from "../publishReview";
 
 const PREFERENCES_KEY = "knowledgebase.explorer-preferences";
 
@@ -34,24 +28,7 @@ export function useExplorerController({
   const [view, setView] = useState<ExplorerView>("collection");
   const [treeFilter, setTreeFilter] = useState("");
   const [editMode, setEditMode] = useState(false);
-  const [addDialogParent, setAddDialogParent] = useState<string | null>(null);
-  const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
-  const [editCollectionMetadataOpen, setEditCollectionMetadataOpen] = useState(false);
-  const [createCollectionError, setCreateCollectionError] = useState("");
-  const [copyingEntity, setCopyingEntity] = useState<Extract<CollectionNode, { kind: "entity" }> | null>(null);
-  const [copyTargetId, setCopyTargetId] = useState("");
-  const [actionError, setActionError] = useState("");
-  const [actionNotice, setActionNotice] = useState("");
-  const [publishOutcome, setPublishOutcome] = useState<PublishOutcome | null>(null);
-  const [collectionPublishReview, setCollectionPublishReview] = useState<PublishReviewItem[] | null>(null);
-  const [collectionReviewBusy, setCollectionReviewBusy] = useState(false);
-  const [collectionPublishing, setCollectionPublishing] = useState(false);
-  const [collectionConflictOpen, setCollectionConflictOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
   const resizeStart = useRef<{ pointerId: number; x: number; width: number } | null>(null);
-
-  useEffect(() => { if (actionNotice) setPublishOutcome(null); }, [actionNotice]);
 
   const {
     collectionsResource,
@@ -61,29 +38,20 @@ export function useExplorerController({
   const collectionSummaries: CollectionSummary[] = collectionsResource.data ?? [];
   const collection = collectionResource.data;
   const collectionDraft = useCollectionDraft(collection);
-  const {
-    organizationOrderDrafts,
-    organizationDraftsLoading,
-    moveSelectedCollection,
-    publishOrganizationChanges,
-  } = useExplorerCollectionOrdering({
+  const ordering = useExplorerCollectionOrdering({
     collectionSummaries,
     collectionsResource,
     selectedCollectionId,
     collectionDraft,
-    setBusy,
-    setActionError,
-    setActionNotice,
-    setPublishOutcome,
   });
   const collections = useMemo(() => {
     const positions = new Map(
-      organizationOrderDrafts.map((draft) => [draft.entity_id, readDraftPosition(draft)]),
+      ordering.organizationOrderDrafts.map((draft) => [draft.entity_id, readDraftPosition(draft)]),
     );
     return collectionSummaries
       .map((summary) => ({ ...summary, position: positions.get(summary.id) ?? summary.position }))
       .sort((left, right) => left.position - right.position || left.title.localeCompare(right.title));
-  }, [collectionSummaries, organizationOrderDrafts]);
+  }, [collectionSummaries, ordering.organizationOrderDrafts]);
 
   useEffect(() => {
     if (embedded) setSelectedCollectionId(routeCollectionId || initialPreferences.collectionId);
@@ -107,22 +75,7 @@ export function useExplorerController({
     }
   }, [selectedCollectionId, expandedSections, panelWidth]);
 
-  useEffect(() => {
-    if (collectionDraft.status !== "runtime-conflict" && collectionDraft.status !== "canonical-conflict") return;
-    setCollectionConflictOpen(true);
-    if (collectionDraft.status === "canonical-conflict" && !collectionDraft.comparison) {
-      void collectionDraft.openComparison().catch((reason: unknown) => setActionError(errorMessage(reason)));
-    }
-  }, [collectionDraft.status, collectionDraft.comparison, collectionDraft.openComparison]);
-
   const displayedCollection = collectionDraft.collection ?? collection;
-  const treeEditMode = editMode
-    && displayedCollection?.status === "active"
-    && !busy
-    && collectionDraft.status !== "loading"
-    && collectionDraft.status !== "error"
-    && collectionDraft.status !== "runtime-conflict"
-    && collectionDraft.status !== "canonical-conflict";
   const filteredNodes = useMemo(
     () => displayedCollection ? filterCollectionNodes(displayedCollection.nodes, treeFilter) : [],
     [displayedCollection, treeFilter],
@@ -130,10 +83,6 @@ export function useExplorerController({
 
   useEffect(() => {
     setEditMode(false);
-    setAddDialogOpen(false);
-    setCopyingEntity(null);
-    setActionError("");
-    setActionNotice("");
   }, [selectedCollectionId]);
 
   const editing = useExplorerEditing({
@@ -142,39 +91,32 @@ export function useExplorerController({
     collectionDraft,
     collectionResource,
     collectionsResource,
-    addDialogParent,
-    setAddDialogParent,
-    setAddDialogOpen,
-    setEditCollectionMetadataOpen,
     setEditMode,
-    setCreateCollectionOpen,
-    setCreateCollectionError,
-    setCollectionPublishReview,
-    collectionPublishReview,
-    setCollectionReviewBusy,
-    setCollectionPublishing,
-    setCollectionConflictOpen,
-    setBusy,
+    selectedCollectionId,
     setSelectedCollectionId,
     setView,
-    setActionError,
-    setActionNotice,
-    setPublishOutcome,
   });
 
   const dnd = useExplorerDnD({
     collections,
     displayedCollection,
+    selectedCollectionId,
     editMode,
     collectionDraft,
     changeDraft: editing.changeDraft,
-    setActionError,
-    setActionNotice,
-    setBusy,
-    setCopyingEntity,
-    setCopyTargetId,
   });
   const newNote = useExplorerNewNote({ collectionDraft, selectedCollectionId, navigate });
+  const busy = editing.busy || ordering.orderingBusy || dnd.copyBusy || newNote.newNoteBusy;
+  const actionError = editing.editingError || dnd.dndError;
+  const actionNotice = editing.editingNotice;
+  const publishOutcome = editing.publishOutcome ?? ordering.publishOutcome;
+  const treeEditMode = editMode
+    && displayedCollection?.status === "active"
+    && !busy
+    && collectionDraft.status !== "loading"
+    && collectionDraft.status !== "error"
+    && collectionDraft.status !== "runtime-conflict"
+    && collectionDraft.status !== "canonical-conflict";
 
   function toggleSection(sectionId: string) {
     if (!collection) return;
@@ -206,6 +148,10 @@ export function useExplorerController({
   }
 
   return {
+    ...editing,
+    ...ordering,
+    ...dnd,
+    ...newNote,
     onOpen,
     navigate,
     embedded,
@@ -221,30 +167,9 @@ export function useExplorerController({
     setTreeFilter,
     editMode,
     setEditMode,
-    addDialogParent,
-    addDialogOpen,
-    setAddDialogOpen,
-    createCollectionOpen,
-    setCreateCollectionOpen,
-    editCollectionMetadataOpen,
-    setEditCollectionMetadataOpen,
-    createCollectionError,
-    setCreateCollectionError,
-    ...newNote,
-    copyingEntity,
-    setCopyingEntity,
-    copyTargetId,
-    setCopyTargetId,
     actionError,
-    setActionError,
     actionNotice,
     publishOutcome,
-    collectionPublishReview,
-    setCollectionPublishReview,
-    collectionReviewBusy,
-    collectionPublishing,
-    collectionConflictOpen,
-    setCollectionConflictOpen,
     busy,
     collectionsResource,
     collections,
@@ -255,24 +180,13 @@ export function useExplorerController({
     displayedCollection,
     treeEditMode,
     filteredNodes,
-    organizationOrderDrafts,
-    organizationDraftsLoading,
-    publishOrganizationChanges,
-    ...editing,
-    ...dnd,
-    moveSelectedCollection,
     toggleSection,
     openCollectionEntity,
     startResize,
     moveResize,
     stopResize,
     containsEntityReference,
-    errorMessage,
   };
 }
 
 export type ExplorerController = ReturnType<typeof useExplorerController>;
-
-function errorMessage(reason: unknown) {
-  return reason instanceof Error ? reason.message : "未知错误";
-}

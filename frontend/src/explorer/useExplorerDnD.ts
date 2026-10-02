@@ -1,4 +1,4 @@
-import type { Dispatch, DragEvent, SetStateAction } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import {
   createDraft,
   getCollection,
@@ -20,33 +20,51 @@ import type { DraftCollection } from "../collectionDraftModel";
 import type { CollectionDraftController } from "../useCollectionDraft";
 import type { DragPayload } from "./ExplorerTypes";
 
-type Setter<T> = Dispatch<SetStateAction<T>>;
-
 interface UseExplorerDnDOptions {
   collections: CollectionSummary[];
   displayedCollection: DraftCollection | Collection | null;
+  selectedCollectionId: string;
   editMode: boolean;
   collectionDraft: CollectionDraftController;
   changeDraft: (transform: (current: DraftCollection) => DraftCollection) => void;
-  setActionError: Setter<string>;
-  setActionNotice: Setter<string>;
-  setBusy: Setter<boolean>;
-  setCopyingEntity: Setter<Extract<CollectionNode, { kind: "entity" }> | null>;
-  setCopyTargetId: Setter<string>;
 }
 
 export function useExplorerDnD({
   collections,
   displayedCollection,
+  selectedCollectionId,
   editMode,
   collectionDraft,
   changeDraft,
-  setActionError,
-  setActionNotice,
-  setBusy,
-  setCopyingEntity,
-  setCopyTargetId,
 }: UseExplorerDnDOptions) {
+  const [copyingEntity, setCopyingEntity] = useState<Extract<CollectionNode, { kind: "entity" }> | null>(null);
+  const [copyTargetId, setCopyTargetId] = useState("");
+  const [copyError, setCopyError] = useState("");
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [dndError, setDndError] = useState("");
+  const [dndNotice, setDndNotice] = useState("");
+
+  useEffect(() => {
+    setCopyingEntity(null);
+    setCopyTargetId("");
+    setCopyError("");
+    setDndError("");
+    setDndNotice("");
+  }, [selectedCollectionId]);
+
+  function openCopyEntity(node: Extract<CollectionNode, { kind: "entity" }>) {
+    setCopyingEntity(node);
+    setCopyTargetId("");
+    setCopyError("");
+  }
+
+  function closeCopyEntity() {
+    setCopyingEntity(null);
+    setCopyError("");
+  }
+
+  function selectCopyTarget(targetId: string) { setCopyTargetId(targetId); }
+
   function handleDrop(
     event: DragEvent<HTMLElement>,
     parentSectionId: string | null,
@@ -56,8 +74,8 @@ export function useExplorerDnD({
     event.stopPropagation();
     const payload = readDragPayload(event);
     if (!payload || !displayedCollection) return;
-    setActionError("");
-    setActionNotice("");
+    setDndError("");
+    setDndNotice("");
     try {
       if (payload.kind === "reference") {
         changeDraft((current) => addEntityReference(
@@ -84,7 +102,7 @@ export function useExplorerDnD({
         beforeNodeId,
       ));
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      setDndError(errorMessage(reason));
     }
   }
 
@@ -119,12 +137,13 @@ export function useExplorerDnD({
   async function updateProgress(node: Extract<CollectionNode, { kind: "entity" }>) {
     if (!displayedCollection || node.entity_type !== "document") return;
     const next = node.progress === null ? "reading" : node.progress === "reading" ? "done" : "reading";
-    setActionError("");
+    setDndError("");
+    setDndNotice("");
     try {
       await updateCollectionProgress(displayedCollection.id, node.entity_id, next);
       collectionDraft.setProgress(node.entity_id, next);
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      setDndError(errorMessage(reason));
     }
   }
 
@@ -133,24 +152,37 @@ export function useExplorerDnD({
     node: Extract<CollectionNode, { kind: "entity" }>,
   ) {
     if (!targetId || targetId === displayedCollection?.id) return;
-    setBusy(true);
-    setActionError("");
-    setActionNotice("");
+    setCopyBusy(true);
+    setCopyError("");
     try {
       const target = collections.find((item) => item.id === targetId);
       if (!target || target.status !== "active") throw new Error("请选择一个 Active Collection。");
       await saveReferenceDraft(targetId, node);
-      setActionNotice(`已将“${node.title}”复制到 ${target.title} 的 Collection Draft。`);
-      setCopyingEntity(null);
-      setCopyTargetId("");
+      setDndNotice(`已将“${node.title}”复制到 ${target.title} 的 Collection Draft。`);
+      closeCopyEntity();
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      setCopyError(errorMessage(reason));
     } finally {
-      setBusy(false);
+      setCopyBusy(false);
     }
   }
 
-  return { handleDrop, startNodeDrag, startReferenceDrag, updateProgress, copyEntityToCollection };
+  return {
+    copyingEntity,
+    copyTargetId,
+    selectCopyTarget,
+    copyError,
+    copyBusy,
+    dndError,
+    dndNotice,
+    openCopyEntity,
+    closeCopyEntity,
+    handleDrop,
+    startNodeDrag,
+    startReferenceDrag,
+    updateProgress,
+    copyEntityToCollection,
+  };
 }
 
 async function saveReferenceDraft(

@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState } from "react";
 import { parse as parseYaml } from "yaml";
 import {
   createDraft,
@@ -18,17 +18,11 @@ import { toPublishOutcome } from "../publishOutcome";
 import type { CollectionDraftController } from "../useCollectionDraft";
 import type { Resource } from "./ExplorerTypes";
 
-type Setter<T> = Dispatch<SetStateAction<T>>;
-
 interface UseExplorerCollectionOrderingOptions {
   collectionSummaries: CollectionSummary[];
   collectionsResource: Resource<CollectionSummary[]>;
   selectedCollectionId: string;
   collectionDraft: CollectionDraftController;
-  setBusy: Setter<boolean>;
-  setActionError: Setter<string>;
-  setActionNotice: Setter<string>;
-  setPublishOutcome: Setter<PublishOutcome | null>;
 }
 
 export function useExplorerCollectionOrdering({
@@ -36,13 +30,21 @@ export function useExplorerCollectionOrdering({
   collectionsResource,
   selectedCollectionId,
   collectionDraft,
-  setBusy,
-  setActionError,
-  setActionNotice,
-  setPublishOutcome,
 }: UseExplorerCollectionOrderingOptions) {
   const [organizationOrderDrafts, setOrganizationOrderDrafts] = useState<Draft[]>([]);
   const [organizationDraftsLoading, setOrganizationDraftsLoading] = useState(true);
+  const [orderingError, setOrderingError] = useState("");
+  const [orderingNotice, setOrderingNotice] = useState("");
+  const [orderingBusy, setOrderingBusy] = useState(false);
+  const [publishOutcome, setPublishOutcome] = useState<PublishOutcome | null>(null);
+
+  useEffect(() => { if (orderingNotice) setPublishOutcome(null); }, [orderingNotice]);
+
+  useEffect(() => {
+    setOrderingError("");
+    setOrderingNotice("");
+    setPublishOutcome(null);
+  }, [selectedCollectionId]);
 
   useEffect(() => {
     let active = true;
@@ -61,16 +63,16 @@ export function useExplorerCollectionOrdering({
           .map((entry) => entry.draft!));
       })
       .catch((reason: unknown) => {
-        if (active) setActionError(errorMessage(reason));
+        if (active) setOrderingError(errorMessage(reason));
       })
       .finally(() => { if (active) setOrganizationDraftsLoading(false); });
     return () => { active = false; };
-  }, [collectionsResource.data, setActionError]);
+  }, [collectionsResource.data]);
 
   async function moveSelectedCollection(direction: "up" | "down") {
-    setBusy(true);
-    setActionError("");
-    setActionNotice("");
+    setOrderingBusy(true);
+    setOrderingError("");
+    setOrderingNotice("");
     try {
       if (collectionDraft.status === "unsaved" || collectionDraft.status === "saving") {
         await collectionDraft.flush();
@@ -117,11 +119,11 @@ export function useExplorerCollectionOrdering({
       setOrganizationOrderDrafts(refreshedEntries
         .filter((entry) => entry.draft && entry.position !== entry.summary.position)
         .map((entry) => entry.draft!));
-      setActionNotice(refreshedEntries.some((entry) => entry.draft && entry.position !== entry.summary.position)
+      setOrderingNotice(refreshedEntries.some((entry) => entry.draft && entry.position !== entry.summary.position)
         ? "排序 Draft 已保存；可以继续调整，再统一发布。"
         : "排序已恢复为当前正式顺序。");
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      setOrderingError(errorMessage(reason));
       try {
         const refreshedEntries = await readCollectionOrderEntries(collectionSummaries);
         setOrganizationOrderDrafts(refreshedEntries
@@ -131,20 +133,20 @@ export function useExplorerCollectionOrdering({
         // Keep the operation error visible; the next resource refresh can recover pending state.
       }
     } finally {
-      setBusy(false);
+      setOrderingBusy(false);
     }
   }
 
   async function publishOrganizationChanges() {
-    setBusy(true);
-    setActionError("");
-    setActionNotice("");
+    setOrderingBusy(true);
+    setOrderingError("");
+    setOrderingNotice("");
     try {
       const entries = await readCollectionOrderEntries(collectionSummaries, true);
       const pending = entries.filter((entry) => entry.draft && entry.position !== entry.summary.position);
       if (!pending.length) {
         setOrganizationOrderDrafts([]);
-        setActionNotice("没有未发布的 Collection 排序修改。");
+        setOrderingNotice("没有未发布的 Collection 排序修改。");
         return;
       }
       const result = await publishDraftsBatch(pending.map((entry) => ({
@@ -157,18 +159,22 @@ export function useExplorerCollectionOrdering({
       collectionsResource.retry();
       setPublishOutcome(toPublishOutcome(result));
     } catch (reason) {
-      setActionError((reason as { status?: number })?.status === 409
+      setOrderingError((reason as { status?: number })?.status === 409
         ? "Collection 排序 Draft 在发布前发生变化；请重新载入并检查。"
         : errorMessage(reason));
       if ((reason as { status?: number })?.status === 409) collectionsResource.retry();
     } finally {
-      setBusy(false);
+      setOrderingBusy(false);
     }
   }
 
   return {
     organizationOrderDrafts,
     organizationDraftsLoading,
+    orderingError,
+    orderingNotice,
+    orderingBusy,
+    publishOutcome,
     moveSelectedCollection,
     publishOrganizationChanges,
   };

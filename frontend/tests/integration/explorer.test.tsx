@@ -209,6 +209,48 @@ describe("Explorer React integration", () => {
     ]);
   });
 
+  it("keeps copy errors in the copy flow and closes with a success notice after retry", async () => {
+    const user = userEvent.setup();
+    const targetId = "target-path";
+    canonical = makeCollection([{
+      id: "section-notes",
+      kind: "section",
+      title: "Notes",
+      children: [{
+        id: "entity-orphan-note",
+        kind: "entity",
+        entity_type: "document",
+        entity_id: document.id,
+        title: document.title,
+        progress: null,
+      }],
+    }]);
+    api.listCollections.mockImplementation(async (status: "active" | "archived") => status === "active"
+      ? [makeSummary(), makeSummary(targetId, "Target Path", 1)]
+      : []);
+    api.getCollection.mockImplementation(async (id: string) => id === targetId
+      ? makeCollection([], targetId, "Target Path", 1)
+      : ({ ...canonical, nodes: structuredClone(canonical.nodes) }));
+    api.createDraft.mockRejectedValueOnce(new Error("Target Collection is unavailable"));
+
+    renderExplorer();
+    await screen.findByRole("heading", { name: "Study Path" });
+    const editStructure = await screen.findByRole("button", { name: "编辑结构" });
+    await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
+    await user.click(editStructure);
+    await user.click(await screen.findByRole("button", { name: "复制 Orphan note 到其他 Collection" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "目标 Collection" }), targetId);
+    await user.click(screen.getByRole("button", { name: "复制引用" }));
+    await within(screen.getByRole("dialog", { name: "Copy to Collection" })).findByRole("alert");
+    expect(screen.getByRole("alert").textContent).toContain("Target Collection is unavailable");
+    expect(screen.queryByText("Target Collection is unavailable")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "复制引用" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Copy to Collection" })).toBeNull());
+    expect((await screen.findByRole("status")).textContent).toContain("已将“Orphan note”复制到 Target Path 的 Collection Draft。");
+    expect(api.createDraft).toHaveBeenCalledTimes(2);
+  });
+
   it("recovers a conflicted Collection Draft by discarding it and reloading Canonical", async () => {
     const staleDraft = makeDraft("collection", collectionId, `id: ${collectionId}\ntitle: Stale\nnodes: []\n`);
     drafts.push(staleDraft);

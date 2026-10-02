@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { stringify } from "yaml";
 import {
@@ -34,24 +35,10 @@ interface UseExplorerEditingOptions {
   collectionDraft: CollectionDraftController;
   collectionResource: Resource<Collection | null>;
   collectionsResource: Resource<CollectionSummary[]>;
-  addDialogParent: string | null;
-  setAddDialogParent: Setter<string | null>;
-  setAddDialogOpen: Setter<boolean>;
-  setEditCollectionMetadataOpen: Setter<boolean>;
   setEditMode: Setter<boolean>;
-  setCreateCollectionOpen: Setter<boolean>;
-  setCreateCollectionError: Setter<string>;
-  setCollectionPublishReview: Setter<PublishReviewItem[] | null>;
-  collectionPublishReview: PublishReviewItem[] | null;
-  setCollectionReviewBusy: Setter<boolean>;
-  setCollectionPublishing: Setter<boolean>;
-  setCollectionConflictOpen: Setter<boolean>;
-  setBusy: Setter<boolean>;
+  selectedCollectionId: string;
   setSelectedCollectionId: Setter<string>;
   setView: Setter<ExplorerView>;
-  setActionError: Setter<string>;
-  setActionNotice: Setter<string>;
-  setPublishOutcome: Setter<PublishOutcome | null>;
 }
 
 export function useExplorerEditing({
@@ -60,32 +47,70 @@ export function useExplorerEditing({
   collectionDraft,
   collectionResource,
   collectionsResource,
-  addDialogParent,
-  setAddDialogParent,
-  setAddDialogOpen,
-  setEditCollectionMetadataOpen,
   setEditMode,
-  setCreateCollectionOpen,
-  setCreateCollectionError,
-  setCollectionPublishReview,
-  collectionPublishReview,
-  setCollectionReviewBusy,
-  setCollectionPublishing,
-  setCollectionConflictOpen,
-  setBusy,
+  selectedCollectionId,
   setSelectedCollectionId,
   setView,
-  setActionError,
-  setActionNotice,
-  setPublishOutcome,
 }: UseExplorerEditingOptions) {
+  const [addDialogParent, setAddDialogParent] = useState<string | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
+  const [createCollectionError, setCreateCollectionError] = useState("");
+  const [metadataDialog, setMetadataDialog] = useState(false);
+  const [publishReview, setPublishReview] = useState<PublishReviewItem[] | null>(null);
+  const [publishReviewBusy, setPublishReviewBusy] = useState(false);
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [collectionConflictOpen, setCollectionConflictOpen] = useState(false);
+  const [operationBusy, setOperationBusy] = useState(false);
+  const [editingError, setEditingError] = useState("");
+  const [editingNotice, setEditingNotice] = useState("");
+  const [publishOutcome, setPublishOutcome] = useState<PublishOutcome | null>(null);
+
+  useEffect(() => {
+    setEditingError("");
+    setEditingNotice("");
+    setPublishOutcome(null);
+    setPublishReview(null);
+    setMetadataDialog(false);
+    setCollectionConflictOpen(false);
+    setAddDialogOpen(false);
+    setAddDialogParent(null);
+  }, [selectedCollectionId]);
+
+  useEffect(() => {
+    if (collectionDraft.status !== "runtime-conflict" && collectionDraft.status !== "canonical-conflict") return;
+    setCollectionConflictOpen(true);
+    if (collectionDraft.status === "canonical-conflict" && !collectionDraft.comparison) {
+      void collectionDraft.openComparison().catch((reason: unknown) => setEditingError(errorMessage(reason)));
+    }
+  }, [collectionDraft.status, collectionDraft.comparison, collectionDraft.openComparison]);
+
+  useEffect(() => { if (editingNotice) setPublishOutcome(null); }, [editingNotice]);
+
+  const busy = operationBusy || publishReviewBusy || publishBusy;
+
+  function reportError(reason: unknown) {
+    setEditingError(errorMessage(reason));
+  }
+
+  function openMetadataDialog() { setMetadataDialog(true); }
+  function closeMetadataDialog() { setMetadataDialog(false); }
+  function closeCollectionConflict() { setCollectionConflictOpen(false); }
+  function closePublishReview() { setPublishReview(null); }
+  function closeAddExisting() { setAddDialogOpen(false); }
+  function openCreateCollection() {
+    setCreateCollectionError("");
+    setCreateCollectionOpen(true);
+  }
+  function closeCreateCollection() { setCreateCollectionOpen(false); }
+
   function changeDraft(transform: (current: DraftCollection) => DraftCollection) {
-    setActionError("");
-    setActionNotice("");
+    setEditingError("");
+    setEditingNotice("");
     try {
       collectionDraft.change(transform);
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      reportError(reason);
     }
   }
 
@@ -139,16 +164,16 @@ export function useExplorerEditing({
       title: title.trim(),
       description: description.trim() || null,
     }));
-    setEditCollectionMetadataOpen(false);
-    setActionNotice("名称和描述已写入 Collection Draft；发布后生效。");
+    closeMetadataDialog();
+    setEditingNotice("名称和描述已写入 Collection Draft；发布后生效。");
   }
 
   async function reviewCollectionDraftPublish(keepReviewOpen = false) {
     if (!collection) return;
-    setCollectionReviewBusy(true);
-    if (!keepReviewOpen) setCollectionPublishReview(null);
-    setActionError("");
-    setActionNotice("");
+    setPublishReviewBusy(true);
+    if (!keepReviewOpen) setPublishReview(null);
+    setEditingError("");
+    setEditingNotice("");
     setPublishOutcome(null);
     try {
       const saved = await collectionDraft.flush();
@@ -165,31 +190,31 @@ export function useExplorerEditing({
         comparison,
       };
       if (preflight.conflict || comparison.canonical_changed) {
-        setCollectionPublishReview(null);
+        setPublishReview(null);
         await collectionDraft.openComparison();
         setCollectionConflictOpen(true);
         return;
       }
-      setCollectionPublishReview([reviewItem]);
+      setPublishReview([reviewItem]);
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      reportError(reason);
     } finally {
-      setCollectionReviewBusy(false);
+      setPublishReviewBusy(false);
     }
   }
 
   async function publishCollectionDraft() {
-    const review = collectionPublishReview?.[0];
+    const review = publishReview?.[0];
     if (!review) {
-      setActionError("请先完成 Collection 发布审阅。");
+      setEditingError("请先完成 Collection 发布审阅。");
       return;
     }
     if (!review.preflight.valid || review.preflight.conflict || review.comparison.canonical_changed) {
-      setActionError("Collection 预检未通过，请处理问题后重新检查。");
+      setEditingError("Collection 预检未通过，请处理问题后重新检查。");
       return;
     }
-    setCollectionPublishing(true);
-    setActionError("");
+    setPublishBusy(true);
+    setEditingError("");
     try {
       const result = await publishDraftsBatch([{
         draft_id: review.comparison.draft.id,
@@ -200,14 +225,14 @@ export function useExplorerEditing({
       collectionResource.retry();
       collectionsResource.retry();
       setEditMode(false);
-      setCollectionPublishReview(null);
+      setPublishReview(null);
       setPublishOutcome(toPublishOutcome(result));
     } catch (reason) {
-      setActionError((reason as { status?: number })?.status === 409
+      setEditingError((reason as { status?: number })?.status === 409
         ? "Collection Draft 在审阅后发生变化。请重新检查差异，再确认发布。"
         : errorMessage(reason));
     } finally {
-      setCollectionPublishing(false);
+      setPublishBusy(false);
     }
   }
 
@@ -227,9 +252,9 @@ export function useExplorerEditing({
       setCreateCollectionError("请输入 Collection 名称。");
       return;
     }
-    setBusy(true);
+    setOperationBusy(true);
     setCreateCollectionError("");
-    setActionNotice("");
+    setEditingNotice("");
     setPublishOutcome(null);
     try {
       await collectionDraft.flush();
@@ -270,67 +295,88 @@ export function useExplorerEditing({
     } catch (reason) {
       setCreateCollectionError(errorMessage(reason));
     } finally {
-      setBusy(false);
+      setOperationBusy(false);
     }
   }
 
   async function discardCollectionDraft() {
-    setBusy(true);
-    setActionError("");
+    setOperationBusy(true);
+    setEditingError("");
     try {
       await collectionDraft.discard();
       setEditMode(false);
-      setActionNotice("Collection Draft 已丢弃。");
+      setEditingNotice("Collection Draft 已丢弃。");
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      reportError(reason);
     } finally {
-      setBusy(false);
+      setOperationBusy(false);
     }
   }
 
   async function reloadCanonicalCollection() {
-    setBusy(true);
-    setActionError("");
+    setOperationBusy(true);
+    setEditingError("");
     try {
       await collectionDraft.reloadCanonical();
       setCollectionConflictOpen(false);
       setEditMode(false);
-      setActionNotice("Draft 已丢弃，已载入当前 Canonical Collection。");
+      setEditingNotice("Draft 已丢弃，已载入当前 Canonical Collection。");
       collectionResource.retry();
       collectionsResource.retry();
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      reportError(reason);
     } finally {
-      setBusy(false);
+      setOperationBusy(false);
     }
   }
 
   async function keepDraftAndRebaseCollection() {
-    setBusy(true);
-    setActionError("");
+    setOperationBusy(true);
+    setEditingError("");
     try {
       await collectionDraft.applyRebase(collectionDraft.mergeContent);
       setCollectionConflictOpen(false);
       setEditMode(true);
-      setActionNotice("Draft 已保留并更新基线；检查合并结果后再发布。");
+      setEditingNotice("Draft 已保留并更新基线；检查合并结果后再发布。");
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      reportError(reason);
     } finally {
-      setBusy(false);
+      setOperationBusy(false);
     }
   }
 
   async function reviewCollectionConflict() {
-    setActionError("");
+    setEditingError("");
     try {
       const result = await collectionDraft.openComparison();
       if (result) setCollectionConflictOpen(true);
     } catch (reason) {
-      setActionError(errorMessage(reason));
+      reportError(reason);
     }
   }
 
   return {
+    addDialogParent,
+    addDialogOpen,
+    closeAddExisting,
+    createCollectionOpen,
+    createCollectionError,
+    openCreateCollection,
+    closeCreateCollection,
+    metadataDialog,
+    openMetadataDialog,
+    closeMetadataDialog,
+    publishReview,
+    publishReviewBusy,
+    publishBusy,
+    closePublishReview,
+    collectionConflictOpen,
+    closeCollectionConflict,
+    editingError,
+    editingNotice,
+    reportError,
+    publishOutcome,
+    busy,
     changeDraft,
     openAddExisting,
     addExistingEntity,

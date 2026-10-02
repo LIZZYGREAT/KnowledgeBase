@@ -15,21 +15,21 @@ export function ExplorerPage(props: ExplorerPageProps) {
   const {
     onOpen, navigate, embedded, selectedEntity, selectedCollectionId, setSelectedCollectionId,
     expandedSections, panelWidth, setPanelWidth, view, setView, treeFilter, setTreeFilter, editMode, setEditMode,
-    addDialogParent, addDialogOpen, setAddDialogOpen, createCollectionOpen, setCreateCollectionOpen,
-    editCollectionMetadataOpen, setEditCollectionMetadataOpen, createCollectionError, setCreateCollectionError,
-    newNoteTarget, newNoteError, setNewNoteError, newNoteBusy, createdNoteDraft,
-    copyingEntity, setCopyingEntity, copyTargetId, setCopyTargetId, actionError, setActionError,
-    actionNotice, publishOutcome, collectionPublishReview, setCollectionPublishReview,
-    collectionReviewBusy, collectionPublishing, collectionConflictOpen, setCollectionConflictOpen, busy,
+    addDialogParent, addDialogOpen, closeAddExisting, createCollectionOpen, openCreateCollection, closeCreateCollection,
+    metadataDialog, openMetadataDialog, closeMetadataDialog, createCollectionError,
+    newNoteTarget, newNoteError, newNoteBusy, createdNoteDraft,
+    copyingEntity, openCopyEntity, closeCopyEntity, copyTargetId, selectCopyTarget, copyError, copyBusy, dndNotice,
+    actionError, reportError: reportEditingError, actionNotice, publishOutcome, publishReview, closePublishReview,
+    publishReviewBusy, publishBusy, collectionConflictOpen, closeCollectionConflict, busy,
     collectionsResource, collections, collectionResource, virtualResource, collection, collectionDraft,
     displayedCollection, treeEditMode, filteredNodes, organizationOrderDrafts, organizationDraftsLoading,
-    publishOrganizationChanges, changeDraft, openAddExisting, addExistingEntity,
+    orderingError, orderingNotice, publishOrganizationChanges, changeDraft, openAddExisting, addExistingEntity,
     createSection, renameSection, deleteSection, handleDrop, startNodeDrag, startReferenceDrag,
-    updateProgress, copyEntityToCollection, startNewNoteHere, createNoteHere, enterNewNoteWorkspace,
+    updateProgress, copyEntityToCollection, startNewNoteHere, createNoteHere, continueNewNoteWorkspace,
     cancelNewNoteHere, toggleArchive, saveCollectionMetadata, moveSelectedCollection,
     reviewCollectionDraftPublish, publishCollectionDraft, createCollection, discardCollectionDraft, reloadCanonicalCollection,
     keepDraftAndRebaseCollection, reviewCollectionConflict, toggleSection, openCollectionEntity,
-    startResize, moveResize, stopResize, containsEntityReference, errorMessage,
+    startResize, moveResize, stopResize, containsEntityReference,
   } = useExplorerController(props);
   const layoutStyle = { "--explorer-width": `${panelWidth}px` } as CSSProperties;  return (
     <div className={embedded ? "explorer-embedded" : "page-stack"}>
@@ -44,7 +44,7 @@ export function ExplorerPage(props: ExplorerPageProps) {
             <span className="eyebrow">COLLECTION</span>
             <div className="explorer-sidebar-header-actions">
               {collectionsResource.error ? <button className="text-button" onClick={collectionsResource.retry}>重试</button> : null}
-              <button className="text-button" onClick={() => { setCreateCollectionError(""); setCreateCollectionOpen(true); }}>New Collection</button>
+              <button className="text-button" onClick={openCreateCollection}>New Collection</button>
             </div>
           </div>
           {collectionsResource.loading ? <LoadingState label="正在读取 Collections…" /> : collectionsResource.error ? (
@@ -66,7 +66,7 @@ export function ExplorerPage(props: ExplorerPageProps) {
                       navigate(`${window.location.pathname}${search.size ? `?${search}` : ""}${window.location.hash}`);
                     }
                   })
-                  .catch((reason: unknown) => setActionError(errorMessage(reason)));
+                  .catch(reportEditingError);
                 setView("collection");
               }}
             >
@@ -77,8 +77,10 @@ export function ExplorerPage(props: ExplorerPageProps) {
           {!collectionsResource.loading && !collectionsResource.error && <div className="explorer-collection-order-actions" aria-label="调整 Collection 顺序">
             <button className="button button-quiet" type="button" aria-label="上移此 Collection 并暂存排序" title="上移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "error" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) <= 0} onClick={() => void moveSelectedCollection("up")}>↑ 上移</button>
             <button className="button button-quiet" type="button" aria-label="下移此 Collection 并暂存排序" title="下移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "error" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) < 0 || collections.findIndex((item) => item.id === selectedCollectionId) >= collections.length - 1} onClick={() => void moveSelectedCollection("down")}>↓ 下移</button>
-            {collectionDraft.collection && <button className="button button-quiet" type="button" disabled={busy || collectionDraft.status === "loading" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict"} onClick={() => setEditCollectionMetadataOpen(true)}>编辑详情</button>}
+            {collectionDraft.collection && <button className="button button-quiet" type="button" disabled={busy || collectionDraft.status === "loading" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict"} onClick={openMetadataDialog}>编辑详情</button>}
           </div>}
+          {orderingError && <p className="error-copy" role="alert">{orderingError}</p>}
+          {orderingNotice && <p role="status">{orderingNotice}</p>}
           {organizationOrderDrafts.length > 0 && <div className="explorer-organization-order-pending" role="status">
             <span>{organizationOrderDrafts.length} 个未发布的 Collection 排序修改</span>
             <button className="button button-primary" type="button" disabled={busy || organizationDraftsLoading} onClick={() => void publishOrganizationChanges()}>{busy ? "正在发布…" : "Publish Organization Changes"}</button>
@@ -106,7 +108,7 @@ export function ExplorerPage(props: ExplorerPageProps) {
               onRemove={(node) => changeDraft((current) => removeCollectionNode(current, node.id))}
               onProgress={(node) => void updateProgress(node)}
               canUpdateProgress={(node) => Boolean(collection && containsEntityReference(collection.nodes, node.entity_type, node.entity_id))}
-              onCopy={(node) => { setCopyingEntity(node); setCopyTargetId(""); }}
+              onCopy={openCopyEntity}
               onAddExisting={openAddExisting}
               onNewSection={createSection}
               onRenameSection={renameSection}
@@ -154,9 +156,9 @@ export function ExplorerPage(props: ExplorerPageProps) {
             error={collectionDraft.error || actionError}
             notice={actionNotice}
             editMode={editMode}
-            busy={busy || collectionReviewBusy}
+            busy={busy}
             onToggleEdit={() => setEditMode((current) => !current)}
-            onEditMetadata={() => setEditCollectionMetadataOpen(true)}
+            onEditMetadata={openMetadataDialog}
             onAddExisting={() => openAddExisting()}
             onNewSection={() => createSection()}
             onArchive={() => void toggleArchive()}
@@ -181,23 +183,24 @@ export function ExplorerPage(props: ExplorerPageProps) {
             onStartDrag={startReferenceDrag}
             onAdd={(entity) => changeDraft((current) => addEntityReference(current, entity.entity_type, entity.id, entity.title))}
           />}
+          {dndNotice && <p role="status">{dndNotice}</p>}
         </main>
       </div>
       {addDialogOpen && <AddExistingEntityDialog
         parentSectionId={addDialogParent}
-        onClose={() => setAddDialogOpen(false)}
+        onClose={closeAddExisting}
         onChoose={addExistingEntity}
       />}
       {createCollectionOpen && <CreateCollectionDialog
         error={createCollectionError}
         busy={busy}
-        onClose={() => setCreateCollectionOpen(false)}
+        onClose={closeCreateCollection}
         onCreate={(id, title, description) => void createCollection(id, title, description)}
       />}
-      {editCollectionMetadataOpen && collectionDraft.collection && <EditCollectionMetadataDialog
+      {metadataDialog && collectionDraft.collection && <EditCollectionMetadataDialog
         collection={collectionDraft.collection}
         busy={busy || collectionDraft.status === "loading" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict"}
-        onClose={() => setEditCollectionMetadataOpen(false)}
+        onClose={closeMetadataDialog}
         onSave={saveCollectionMetadata}
       />}
       {newNoteTarget && <NewNoteHereDialog
@@ -207,17 +210,17 @@ export function ExplorerPage(props: ExplorerPageProps) {
         createdDraft={createdNoteDraft}
         onClose={() => void cancelNewNoteHere()}
         onCreate={(title, type) => void createNoteHere(title, type)}
-        onContinue={() => createdNoteDraft && void enterNewNoteWorkspace(createdNoteDraft).catch((reason: unknown) => setNewNoteError(errorMessage(reason)))}
+        onContinue={() => void continueNewNoteWorkspace()}
       />}
-      {copyingEntity && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCopyingEntity(null); }}>
+      {copyingEntity && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCopyEntity(); }}>
         <section className="explorer-modal surface" role="dialog" aria-modal="true" aria-labelledby="copy-reference-title">
-          <div className="section-heading"><div><h2 id="copy-reference-title">Copy to Collection</h2><p>{copyingEntity.title}</p></div><button className="text-button" onClick={() => setCopyingEntity(null)}>关闭</button></div>
-          <label className="field-label">目标 Collection<select value={copyTargetId} onChange={(event) => setCopyTargetId(event.target.value)}>
+          <div className="section-heading"><div><h2 id="copy-reference-title">Copy to Collection</h2><p>{copyingEntity.title}</p></div><button className="text-button" onClick={closeCopyEntity}>关闭</button></div>
+          <label className="field-label">目标 Collection<select value={copyTargetId} onChange={(event) => selectCopyTarget(event.target.value)}>
             <option value="">选择 Active Collection</option>
             {collections.filter((item) => item.status === "active" && item.id !== displayedCollection?.id).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
           </select></label>
-          {actionError && <p className="error-copy" role="alert">{actionError}</p>}
-          <div className="editor-main-actions"><button className="button button-secondary" onClick={() => setCopyingEntity(null)}>取消</button><button className="button button-primary" disabled={!copyTargetId || busy} onClick={() => void copyEntityToCollection(copyTargetId, copyingEntity)}>{busy ? "正在复制…" : "复制引用"}</button></div>
+          {copyError && <p className="error-copy" role="alert">{copyError}</p>}
+          <div className="editor-main-actions"><button className="button button-secondary" onClick={closeCopyEntity}>取消</button><button className="button button-primary" disabled={!copyTargetId || copyBusy} onClick={() => void copyEntityToCollection(copyTargetId, copyingEntity)}>{copyBusy ? "正在复制…" : "复制引用"}</button></div>
         </section>
       </div>}
       {collectionConflictOpen && collectionDraft.comparison && <CollectionConflictDrawer
@@ -227,7 +230,7 @@ export function ExplorerPage(props: ExplorerPageProps) {
         onMergeContentChange={collectionDraft.setMergeContent}
         onReloadCanonical={() => void reloadCanonicalCollection()}
         onApplyRebase={() => void keepDraftAndRebaseCollection()}
-        onClose={() => setCollectionConflictOpen(false)}
+        onClose={closeCollectionConflict}
       />}
       {collectionDraft.runtimeDraftConflict && <CollectionRuntimeDraftConflictDrawer
         conflict={collectionDraft.runtimeDraftConflict}
@@ -236,17 +239,17 @@ export function ExplorerPage(props: ExplorerPageProps) {
         busy={busy}
         onMergeContentChange={collectionDraft.setMergeContent}
         onReloadLatest={() => void collectionDraft.reloadLatestRuntimeDraft()}
-        onKeepLocal={() => void collectionDraft.applyRuntimeMerge(collectionDraft.runtimeDraftConflict?.localContent).catch((reason: unknown) => setActionError(errorMessage(reason)))}
-        onSaveMerge={() => void collectionDraft.applyRuntimeMerge().catch((reason: unknown) => setActionError(errorMessage(reason)))}
+        onKeepLocal={() => void collectionDraft.applyRuntimeMerge(collectionDraft.runtimeDraftConflict?.localContent).catch(reportEditingError)}
+        onSaveMerge={() => void collectionDraft.applyRuntimeMerge().catch(reportEditingError)}
       />}
-      {collectionPublishReview && <WorkspacePublishDrawer
-        items={collectionPublishReview}
-        busy={collectionReviewBusy}
-        publishing={collectionPublishing}
+      {publishReview && <WorkspacePublishDrawer
+        items={publishReview}
+        busy={publishReviewBusy}
+        publishing={publishBusy}
         published={false}
         error={actionError}
         batch={false}
-        onClose={() => setCollectionPublishReview(null)}
+        onClose={closePublishReview}
         onRefresh={() => void reviewCollectionDraftPublish(true)}
         onPublish={() => void publishCollectionDraft()}
       />}
