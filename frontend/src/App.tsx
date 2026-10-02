@@ -153,7 +153,7 @@ export default function App() {
     const collectionId = query.get("collection") ?? undefined;
     const batchCollectionId = query.get("publishAll") === "1" ? collectionId : undefined;
     const initialMode = query.get("edit") === "1" ? "edit" : "read";
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} batchCollectionId={batchCollectionId} initialMode={initialMode} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} batchCollectionId={batchCollectionId} initialMode={initialMode} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;

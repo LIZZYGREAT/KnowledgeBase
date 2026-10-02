@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspacePage } from "../../src/Workspace";
 import type { Draft, EntityDetail, PresentationAnnotation } from "../../src/api";
@@ -53,10 +54,15 @@ let annotations: PresentationAnnotation[];
 let draftSequence: number;
 let conflictOnPreflight: boolean;
 
-function makeEntity(): EntityDetail {
+function makeEntity(id = "quick-start"): EntityDetail {
+  const title = id === "second-note" ? "Second Note" : "Quick Start";
+  const body = id === "second-note" ? "# Second heading\n\nSecond entity content." : canonicalBody;
+  const canonical = canonicalContent
+    .replace("title: Quick Start", `title: ${title}`)
+    .replace(canonicalBody, body);
   return {
-    id: "quick-start",
-    title: "Quick Start",
+    id,
+    title,
     entity_type: "document",
     metadata: {
       type: "learning-note",
@@ -65,8 +71,8 @@ function makeEntity(): EntityDetail {
       sources: [],
       external_artifacts: [],
     },
-    content: canonicalBody,
-    canonical_content: canonicalContent,
+    content: body,
+    canonical_content: canonical,
     related_terms: [],
     backlinks: [],
     detected_mentions: [],
@@ -98,7 +104,7 @@ function seedDraft(content = canonicalContent) {
 
 function installApiBehavior() {
   api.getEntity.mockImplementation(async (type: string, id: string) => {
-    if (type === "document" && id === "quick-start") return makeEntity();
+    if (type === "document" && ["quick-start", "second-note"].includes(id)) return makeEntity(id);
     throw Object.assign(new Error("Not found"), { status: 404 });
   });
   api.getCollectionNavigation.mockResolvedValue(null);
@@ -184,6 +190,14 @@ function installApiBehavior() {
 
 function renderWorkspace(initialMode: "read" | "edit" = "read") {
   return render(<WorkspacePage type="document" id="quick-start" navigate={vi.fn()} initialMode={initialMode} />);
+}
+
+function EntitySwitchHarness() {
+  const [id, setId] = useState("quick-start");
+  return <>
+    <button type="button" onClick={() => setId("second-note")}>切换实体</button>
+    <WorkspacePage type="document" id={id} navigate={vi.fn()} initialMode="edit" />
+  </>;
 }
 
 function selectParagraph(container: HTMLElement) {
@@ -274,6 +288,39 @@ describe("Workspace React integration", () => {
 
     await waitFor(() => expect(api.updateDraft).toHaveBeenCalledWith(existing.id, "Merged content from both tabs.", 1));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Draft 内容冲突" })).toBeNull());
+  });
+
+  it("does not let a pending autosave from the previous entity write into the next entity", async () => {
+    const user = userEvent.setup();
+    const original = seedDraft();
+    let resolvePending!: (draft: Draft) => void;
+    const pendingSave = new Promise<Draft>((resolve) => { resolvePending = resolve; });
+    api.updateDraft.mockImplementationOnce(() => pendingSave);
+    render(<EntitySwitchHarness />);
+
+    await screen.findByRole("heading", { name: "编辑 quick-start" });
+    await user.click(screen.getAllByRole("button", { name: "编辑区块" })[1]);
+    const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
+    await user.clear(editor);
+    await user.type(editor, "A pending content.");
+    await user.click(screen.getByRole("button", { name: "完成区块" }));
+    await user.click(screen.getByRole("button", { name: "保存草稿" }));
+    await waitFor(() => expect(api.updateDraft).toHaveBeenCalledOnce());
+
+    await user.click(screen.getByRole("button", { name: "切换实体" }));
+    await screen.findByRole("heading", { name: "编辑 second-note" });
+    expect(await screen.findByText("Second entity content.")).toBeTruthy();
+
+    await act(async () => {
+      resolvePending({ ...original, content: canonicalContent.replace(canonicalBody, "# Main heading\n\nA pending content."), revision: 2 });
+      await pendingSave;
+    });
+
+    expect(api.updateDraft).toHaveBeenCalledTimes(1);
+    expect(api.updateDraft.mock.calls[0][0]).toBe(original.id);
+    expect(api.updateDraft.mock.calls[0][1]).toContain("A pending content.");
+    expect(screen.getByText("Second entity content.")).toBeTruthy();
+    expect(api.createDraft).not.toHaveBeenCalled();
   });
 
   it("saves a Reader selection as a Presentation Annotation without editing Markdown", async () => {

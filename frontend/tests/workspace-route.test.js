@@ -33,7 +33,7 @@ test("Workspace keeps its Explorer pane mounted while the selected entity follow
   assert.match(workspace, /selectedEntity=\{\{ type, id \}\}/);
   assert.match(workspaceShell, /workspace-explorer-pane/);
   assert.match(workspaceShell, /workspace-explorer-toggle/);
-  assert.doesNotMatch(app, /WorkspacePage key=/);
+  assert.match(app, /<WorkspacePage key=\{`\$\{route\.entityType\}:\$\{route\.id\}`\}/);
   assert.match(app, /key=\{route\.kind === "reader" \? "reader-workspace"/);
 });
 
