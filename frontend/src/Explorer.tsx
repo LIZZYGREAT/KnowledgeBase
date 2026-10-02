@@ -75,9 +75,9 @@ export function ExplorerPage(props: ExplorerPageProps) {
             </select>
           </label>}
           {!collectionsResource.loading && !collectionsResource.error && <div className="explorer-collection-order-actions" aria-label="调整 Collection 顺序">
-            <button className="button button-quiet" type="button" aria-label="上移此 Collection 并暂存排序" title="上移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "load-error" || collectionDraft.status === "conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) <= 0} onClick={() => void moveSelectedCollection("up")}>↑ 上移</button>
-            <button className="button button-quiet" type="button" aria-label="下移此 Collection 并暂存排序" title="下移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "load-error" || collectionDraft.status === "conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) < 0 || collections.findIndex((item) => item.id === selectedCollectionId) >= collections.length - 1} onClick={() => void moveSelectedCollection("down")}>↓ 下移</button>
-            {collectionDraft.collection && <button className="button button-quiet" type="button" disabled={busy || collectionDraft.status === "loading" || collectionDraft.status === "conflict"} onClick={() => setEditCollectionMetadataOpen(true)}>编辑详情</button>}
+            <button className="button button-quiet" type="button" aria-label="上移此 Collection 并暂存排序" title="上移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "error" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) <= 0} onClick={() => void moveSelectedCollection("up")}>↑ 上移</button>
+            <button className="button button-quiet" type="button" aria-label="下移此 Collection 并暂存排序" title="下移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "error" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) < 0 || collections.findIndex((item) => item.id === selectedCollectionId) >= collections.length - 1} onClick={() => void moveSelectedCollection("down")}>↓ 下移</button>
+            {collectionDraft.collection && <button className="button button-quiet" type="button" disabled={busy || collectionDraft.status === "loading" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict"} onClick={() => setEditCollectionMetadataOpen(true)}>编辑详情</button>}
           </div>}
           {organizationOrderDrafts.length > 0 && <div className="explorer-organization-order-pending" role="status">
             <span>{organizationOrderDrafts.length} 个未发布的 Collection 排序修改</span>
@@ -196,7 +196,7 @@ export function ExplorerPage(props: ExplorerPageProps) {
       />}
       {editCollectionMetadataOpen && collectionDraft.collection && <EditCollectionMetadataDialog
         collection={collectionDraft.collection}
-        busy={busy || collectionDraft.status === "loading" || collectionDraft.status === "conflict"}
+        busy={busy || collectionDraft.status === "loading" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict"}
         onClose={() => setEditCollectionMetadataOpen(false)}
         onSave={saveCollectionMetadata}
       />}

@@ -9,7 +9,7 @@ export function WorkspaceRuntimeDraftConflictDrawer({ workspaceDraft }: {
 
   return <WorkspaceDrawer
     title="Draft 内容冲突"
-    description="另一个标签页已为此内容创建 Draft。本地缓冲仍保留且尚未保存；请载入已保存版本，或检查三份内容后手动合并。"
+    description="另一个编辑会话保存了更新的 Runtime Draft revision。本地缓冲仍保留且尚未保存；请载入最新版本，或检查三份内容后手动合并。"
     wide
     closeable={false}
     onClose={() => undefined}

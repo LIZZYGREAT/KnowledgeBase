@@ -42,7 +42,7 @@ export function WorkspaceSourceDrawer({
       />
       <div className="drawer-footer">
         <button className="button button-secondary" type="button" onClick={onClose}>关闭</button>
-        <button className="button button-primary" type="button" disabled={!isDirty || saveState === "Conflict"} onClick={onSave}>保存 Draft</button>
+        <button className="button button-primary" type="button" disabled={!isDirty || saveState === "runtime-conflict" || saveState === "canonical-conflict"} onClick={onSave}>保存 Draft</button>
       </div>
     </section>
   </WorkspaceDrawer>;

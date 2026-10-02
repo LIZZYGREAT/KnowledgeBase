@@ -75,7 +75,7 @@ export function useExplorerCollectionOrdering({
       if (collectionDraft.status === "unsaved" || collectionDraft.status === "saving") {
         await collectionDraft.flush();
       }
-      if (["loading", "load-error", "conflict"].includes(collectionDraft.status)) {
+      if (["loading", "error", "runtime-conflict", "canonical-conflict"].includes(collectionDraft.status)) {
         throw new Error("请先载入并处理当前 Collection Draft，再调整排序。");
       }
       const entries = await readCollectionOrderEntries(collectionSummaries, true);

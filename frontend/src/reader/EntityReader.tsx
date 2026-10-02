@@ -55,6 +55,15 @@ export function EntityPage({
     return makeDraftReaderEntity(type, id, workspaceDraft.content);
   }, [id, resource.data, type, workspaceDraft.canonicalEntity, workspaceDraft.content, workspaceDraft.draft]);
   const currentEntity = resource.data ?? draftOnlyEntity;
+  const hasDraftConflict = workspaceDraft.saveState === "runtime-conflict"
+    || workspaceDraft.saveState === "canonical-conflict";
+  const saveStateLabel = workspaceDraft.saveState === "clean" ? "正式版"
+    : workspaceDraft.saveState === "unsaved" ? "有未保存修改"
+      : workspaceDraft.saveState === "saving" ? "正在保存 Draft…"
+        : workspaceDraft.saveState === "saved" ? workspaceDraft.draft ? "Draft 已保存 · 尚未发布" : "已发布"
+          : workspaceDraft.saveState === "loading" ? "正在载入 Draft…"
+            : workspaceDraft.saveState === "error" ? "Draft 状态出错"
+              : "Draft 冲突";
   const documentBody = type === "source" ? "" : workspaceEnvelope.body;
   const annotationsMatchCanonical = Boolean(resource.data) && documentBody === (resource.data?.content ?? "");
   const headings = markdownHeadings(documentBody);
@@ -233,7 +242,7 @@ export function EntityPage({
   }
 
   function formatReaderSelection(action: MarkdownFormattingAction) {
-    if (!readerSelection || readerSelection.start_offset === null || readerSelection.end_offset === null || workspaceDraft.saveState === "Conflict") return;
+    if (!readerSelection || readerSelection.start_offset === null || readerSelection.end_offset === null || hasDraftConflict) return;
     try {
       const formatted = applyMarkdownFormatting(documentBody, readerSelection.start_offset, readerSelection.end_offset, action);
       workspaceDraft.updateContent(`${workspaceEnvelope.frontmatter}${formatted.value}`);
@@ -246,7 +255,7 @@ export function EntityPage({
   }
 
   function openSelectionAI() {
-    if (!readerSelection || type !== "document" || workspaceDraft.saveState === "Conflict") return;
+    if (!readerSelection || type !== "document" || hasDraftConflict) return;
     setAISelection(readerSelection.selected_text);
     setAIDrawerOpen(true);
     setReaderSelection(null);
@@ -277,7 +286,7 @@ export function EntityPage({
         <button className="button button-secondary" disabled={type === "source"} onClick={() => workspaceEditorController.setActiveDrawer("ai")}>AI 审阅</button>
         <button
           className="button button-secondary"
-          disabled={workspaceEditorController.publishing || workspaceDraft.saveState === "Conflict" || Boolean(workspaceEditorController.publishedRevision) || (!workspaceEditorController.draft && !workspaceEditorController.isDirty)}
+          disabled={workspaceEditorController.publishing || hasDraftConflict || Boolean(workspaceEditorController.publishedRevision) || (!workspaceEditorController.draft && !workspaceEditorController.isDirty)}
           onClick={() => {
             workspaceEditorController.setPublishReview(null);
             workspaceEditorController.setActiveDrawer("publish");
@@ -289,8 +298,8 @@ export function EntityPage({
           disabled={workspaceEditorController.publishing}
           onClick={() => void workspaceEditorController.discardCurrentDraft()}
         >{workspaceEditorController.batchCollectionId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button>}
-        <span className={`workspace-reader-save-state ${workspaceDraft.saveState.toLowerCase()}`} role="status">{workspaceDraft.saveState === "Ready" ? "正式版" : workspaceDraft.saveState === "Unsaved" ? "有未保存修改" : workspaceDraft.saveState === "Saving" ? "正在保存 Draft…" : workspaceDraft.saveState === "Saved" ? workspaceDraft.draft ? "Draft 已保存 · 尚未发布" : "已发布" : "Draft 冲突"}</span>
-        {workspaceDraft.saveState === "Conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}
+        <span className={`workspace-reader-save-state ${hasDraftConflict ? "conflict" : workspaceDraft.saveState}`} role="status">{saveStateLabel}</span>
+        {workspaceDraft.saveState === "canonical-conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}
         <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
         {type === "document" && sourceIds.length > 0 && <button className="button button-secondary" onClick={openSources}>Sources</button>}
         <button className="button button-secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to top</button>
@@ -339,7 +348,7 @@ export function EntityPage({
             <WorkspaceInlineEditor
               body={documentBody}
               annotations={annotationsMatchCanonical ? annotations : []}
-              disabled={workspaceDraft.saveState === "Conflict"}
+              disabled={hasDraftConflict}
               onBodyChange={(body) => workspaceDraft.updateContent(`${workspaceEnvelope.frontmatter}${body}`)}
               onBeginEdit={() => setReaderSelection(null)}
               onNavigate={navigate}
@@ -349,11 +358,11 @@ export function EntityPage({
               selectedText={readerSelection.selected_text}
               top={readerSelection.top}
               left={readerSelection.left}
-              formatDisabled={workspaceDraft.saveState === "Conflict" || readerSelection.start_offset === null}
-              formatDisabledReason={workspaceDraft.saveState === "Conflict" ? "请先解决 Draft 冲突。" : readerSelection.format_disabled_reason ?? undefined}
+              formatDisabled={hasDraftConflict || readerSelection.start_offset === null}
+              formatDisabledReason={hasDraftConflict ? "请先解决 Draft 冲突。" : readerSelection.format_disabled_reason ?? undefined}
               canAnnotate={readerSelection.start_offset !== null && annotationsMatchCanonical && (type === "document" || type === "term")}
               annotationBusy={annotationBusy}
-              aiDisabled={workspaceDraft.saveState === "Conflict"}
+              aiDisabled={hasDraftConflict}
               onFormat={formatReaderSelection}
               onAnnotate={(styleType, styleValue) => void saveReaderAnnotation(styleType, styleValue)}
               onClear={() => void clearReaderAnnotations()}

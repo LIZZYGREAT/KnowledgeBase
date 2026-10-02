@@ -108,9 +108,9 @@ export function useExplorerController({
   }, [selectedCollectionId, expandedSections, panelWidth]);
 
   useEffect(() => {
-    if (collectionDraft.status !== "conflict") return;
+    if (collectionDraft.status !== "runtime-conflict" && collectionDraft.status !== "canonical-conflict") return;
     setCollectionConflictOpen(true);
-    if (!collectionDraft.comparison) {
+    if (collectionDraft.status === "canonical-conflict" && !collectionDraft.comparison) {
       void collectionDraft.openComparison().catch((reason: unknown) => setActionError(errorMessage(reason)));
     }
   }, [collectionDraft.status, collectionDraft.comparison, collectionDraft.openComparison]);
@@ -120,8 +120,9 @@ export function useExplorerController({
     && displayedCollection?.status === "active"
     && !busy
     && collectionDraft.status !== "loading"
-    && collectionDraft.status !== "load-error"
-    && collectionDraft.status !== "conflict";
+    && collectionDraft.status !== "error"
+    && collectionDraft.status !== "runtime-conflict"
+    && collectionDraft.status !== "canonical-conflict";
   const filteredNodes = useMemo(
     () => displayedCollection ? filterCollectionNodes(displayedCollection.nodes, treeFilter) : [],
     [displayedCollection, treeFilter],

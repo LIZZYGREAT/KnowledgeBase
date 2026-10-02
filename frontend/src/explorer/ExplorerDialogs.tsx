@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listAllEntities, type Collection as CollectionData, type Draft, type EntitySummary } from "../api";
 import { Chip, EmptyState, ErrorState, LoadingState } from "../ui";
 import type { DraftCollection } from "../collectionDraftModel";
+import type { CollectionDraftStatus } from "../useCollectionDraft";
 export function CollectionDraftToolbar({
   collection,
   status,
@@ -21,7 +22,7 @@ export function CollectionDraftToolbar({
   onReviewConflict,
 }: {
   collection: CollectionData | DraftCollection | null;
-  status: string;
+  status: CollectionDraftStatus;
   draft: Draft | null;
   organizationOrderDraft: boolean;
   error: string;
@@ -39,34 +40,35 @@ export function CollectionDraftToolbar({
 }) {
   if (!collection) return null;
   const archived = collection.status === "archived";
-  const canEdit = editMode && !archived && !organizationOrderDraft && !busy && status !== "loading" && status !== "load-error" && status !== "conflict";
+  const isConflict = status === "runtime-conflict" || status === "canonical-conflict";
+  const canEdit = editMode && !archived && !organizationOrderDraft && !busy && status !== "loading" && status !== "error" && !isConflict;
   const statusLabel = organizationOrderDraft ? "Collection order Draft saved"
     : status === "loading" ? "Loading Draft…"
-    : status === "load-error" ? "Draft could not be loaded"
+    : status === "error" ? "Draft needs attention"
     : status === "unsaved" ? "Unsaved changes"
       : status === "saving" ? "Saving Draft…"
         : status === "saved" ? "Draft saved"
-          : status === "conflict" ? "Draft needs attention"
+          : isConflict ? "Draft needs attention"
             : "Canonical";
-  const hasChanges = organizationOrderDraft || Boolean(draft) || status === "unsaved" || status === "saving" || status === "conflict";
+  const hasChanges = organizationOrderDraft || Boolean(draft) || status === "unsaved" || status === "saving" || isConflict;
   return <section className="explorer-edit-toolbar surface" aria-label="Collection editing">
     <div className="explorer-edit-toolbar-main">
-      <Chip tone={status === "conflict" ? "orange" : hasChanges ? "blue" : "neutral"}>{statusLabel}</Chip>
+      <Chip tone={isConflict ? "orange" : hasChanges ? "blue" : "neutral"}>{statusLabel}</Chip>
       <div className="explorer-edit-toolbar-actions">
-        <button className="button button-secondary" onClick={onEditMetadata} disabled={busy || organizationOrderDraft || status === "loading" || status === "load-error" || status === "conflict"}>编辑名称与描述</button>
+        <button className="button button-secondary" onClick={onEditMetadata} disabled={busy || organizationOrderDraft || status === "loading" || status === "error" || isConflict}>编辑名称与描述</button>
         {archived
-          ? <button className="button button-secondary" onClick={onArchive} disabled={busy || organizationOrderDraft || status === "loading" || status === "load-error"}>Restore Collection</button>
+          ? <button className="button button-secondary" onClick={onArchive} disabled={busy || organizationOrderDraft || status === "loading" || status === "error"}>Restore Collection</button>
           : <>
-            <button className={`button ${editMode ? "button-secondary" : "button-primary"}`} onClick={onToggleEdit} disabled={organizationOrderDraft || status === "loading" || status === "load-error" || status === "conflict" || busy}>{editMode ? "完成编辑" : "编辑结构"}</button>
+            <button className={`button ${editMode ? "button-secondary" : "button-primary"}`} onClick={onToggleEdit} disabled={organizationOrderDraft || status === "loading" || status === "error" || isConflict || busy}>{editMode ? "完成编辑" : "编辑结构"}</button>
             <button className="button button-secondary" onClick={onAddExisting} disabled={!canEdit}>Add Existing</button>
             <button className="button button-secondary" onClick={onNewSection} disabled={!canEdit}>New Section</button>
-            <button className="button button-quiet" onClick={onArchive} disabled={organizationOrderDraft || busy || status === "loading" || status === "load-error" || status === "conflict"}>Archive</button>
+            <button className="button button-quiet" onClick={onArchive} disabled={organizationOrderDraft || busy || status === "loading" || status === "error" || isConflict}>Archive</button>
           </>}
-        {status === "conflict" && <button className="button button-secondary" onClick={onReviewConflict} disabled={busy}>Review Conflict</button>}
+        {isConflict && <button className="button button-secondary" onClick={onReviewConflict} disabled={busy}>Review Conflict</button>}
         {organizationOrderDraft && <span className="explorer-action-notice">请使用侧栏的 Publish Organization Changes 统一发布排序。</span>}
         {hasChanges && !organizationOrderDraft && <>
           <button className="button button-secondary" onClick={onDiscard} disabled={busy || status === "loading"}>Discard Draft</button>
-          <button className="button button-primary" onClick={onPublish} disabled={busy || status === "loading" || status === "conflict"}>Publish</button>
+          <button className="button button-primary" onClick={onPublish} disabled={busy || status === "loading" || isConflict || status === "error"}>Publish</button>
         </>}
       </div>
     </div>

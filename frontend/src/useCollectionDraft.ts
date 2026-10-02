@@ -1,24 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createDraft,
   compareDraft,
-  discardDraft,
   getCollection,
-  getDraft,
-  listDrafts,
   publishDraftsBatch,
   rebaseDraft,
-  updateDraft,
   type BatchPublishedDrafts,
-  type ApiError,
   type Collection,
   type Draft,
-  type DraftAcquireResult,
   type DraftComparison,
 } from "./api";
-import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft, updateEntityProgress, type DraftCollection } from "./collectionDraftModel";
+import {
+  collectionToDraft,
+  parseCollectionDraft,
+  serializeCollectionDraft,
+  updateEntityProgress,
+  type DraftCollection,
+} from "./collectionDraftModel";
+import { useRuntimeDraftSession, type RuntimeDraftState } from "./draft/useRuntimeDraftSession";
 
-export type CollectionDraftStatus = "loading" | "load-error" | "clean" | "unsaved" | "saving" | "saved" | "conflict";
+export type CollectionDraftStatus = RuntimeDraftState | "canonical-conflict";
 
 export interface CollectionDraftController {
   collection: DraftCollection | null;
@@ -45,191 +45,242 @@ export interface CollectionDraftController {
 type RuntimeDraftConflict = { existingDraft: Draft; localContent: string; canonicalContent: string };
 
 export function useCollectionDraft(canonical: Collection | null): CollectionDraftController {
-  const [collection, setCollection] = useState<DraftCollection | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [status, setStatus] = useState<CollectionDraftStatus>(canonical ? "loading" : "clean");
-  const [error, setError] = useState("");
-  const [comparison, setComparison] = useState<DraftComparison | null>(null);
-  const [runtimeDraftConflict, setRuntimeDraftConflict] = useState<RuntimeDraftConflict | null>(null);
-  const [mergeContent, setMergeContent] = useState("");
-  const collectionRef = useRef<DraftCollection | null>(null);
-  const draftRef = useRef<Draft | null>(null);
+  const [canonicalValue, setCanonicalValue] = useState(canonical);
   const canonicalRef = useRef<Collection | null>(canonical);
-  const serializedRef = useRef("");
-  const lastSavedRef = useRef("");
-  const savePromiseRef = useRef<Promise<Draft | DraftAcquireResult> | null>(null);
-  const runtimeConflictRef = useRef<RuntimeDraftConflict | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const install = useCallback((nextCollection: DraftCollection, nextDraft: Draft | null, savedContent?: string) => {
-    collectionRef.current = nextCollection;
-    draftRef.current = nextDraft;
-    runtimeConflictRef.current = null;
-    setRuntimeDraftConflict(null);
-    setCollection(nextCollection);
-    setDraft(nextDraft);
-    const serialized = serializeCollectionDraft(nextCollection);
-    serializedRef.current = nextDraft ? nextDraft.content : serialized;
-    lastSavedRef.current = savedContent ?? (nextDraft ? nextDraft.content : serialized);
-    setError("");
-    setComparison(null);
-    setMergeContent("");
-    setStatus(nextDraft ? "saved" : "clean");
-  }, []);
-
-  const captureRuntimeConflict = useCallback(async (draftId: string, attemptedContent: string) => {
-    const latest = await getDraft(draftId);
-    const currentCanonical = await getCollection(latest.entity_id);
-    const canonicalContent = serializeCollectionDraft(collectionToDraft(currentCanonical));
-    const localContent = serializedRef.current || attemptedContent;
-    const conflict = { existingDraft: latest, localContent, canonicalContent };
-    canonicalRef.current = currentCanonical;
-    draftRef.current = latest;
-    setDraft(latest);
-    lastSavedRef.current = latest.content;
-    runtimeConflictRef.current = conflict;
-    setRuntimeDraftConflict(conflict);
-    setMergeContent(localContent);
-    setComparison(null);
-    setStatus("conflict");
-    setError("Runtime Collection Draft 已在另一个会话中更新。本地修改已保留；请载入最新 Draft、保留本地内容或手动合并。");
-  }, []);
+  const [collection, setCollection] = useState<DraftCollection | null>(null);
+  const [comparison, setComparison] = useState<DraftComparison | null>(null);
+  const [mergeContent, setMergeContent] = useState("");
+  const [domainError, setDomainError] = useState("");
+  const collectionRef = useRef<DraftCollection | null>(null);
+  const lastComparedKeyRef = useRef("");
+  const activeCollectionIdRef = useRef(canonical?.id ?? "");
+  activeCollectionIdRef.current = canonical?.id ?? "";
+  const currentCanonical = canonicalValue?.id === canonical?.id ? canonicalValue : canonical;
 
   useEffect(() => {
     canonicalRef.current = canonical;
+    setCanonicalValue(canonical);
   }, [canonical]);
 
+  const sessionContent = currentCanonical
+    ? serializeCollectionDraft(collectionToDraft(currentCanonical))
+    : null;
+  const runtimeSession = useRuntimeDraftSession({
+    entityType: "collection",
+    entityId: currentCanonical?.id ?? "",
+    enabled: Boolean(currentCanonical),
+    initialContent: sessionContent,
+    initialContentReady: Boolean(currentCanonical),
+  });
+  const {
+    draft,
+    content,
+    state: runtimeState,
+    loading,
+    error: runtimeError,
+    setError: setRuntimeError,
+    runtimeConflict,
+    updateContent,
+    saveNow,
+    discard: discardRuntimeDraft,
+    reloadLatestDraft,
+    updateLatestDraft,
+    acceptDraft,
+    reset: resetRuntimeDraft,
+  } = runtimeSession;
+
+  const installCollection = useCallback((next: DraftCollection) => {
+    collectionRef.current = next;
+    setCollection(next);
+  }, []);
+
   useEffect(() => {
-    let active = true;
-    if (timerRef.current) clearTimeout(timerRef.current);
     collectionRef.current = null;
-    draftRef.current = null;
-    runtimeConflictRef.current = null;
-    setRuntimeDraftConflict(null);
     setCollection(null);
-    setDraft(null);
-    setError("");
-    if (!canonical) {
-      setStatus("clean");
-      return () => { active = false; };
+    setComparison(null);
+    setDomainError("");
+    lastComparedKeyRef.current = "";
+  }, [currentCanonical?.id]);
+
+  useEffect(() => {
+    if (!currentCanonical || loading || runtimeState === "error" || !content) return;
+    try {
+      installCollection(parseCollectionDraft(content, currentCanonical));
+      setDomainError("");
+    } catch (reason) {
+      setDomainError(errorMessage(reason));
     }
-    canonicalRef.current = canonical;
-    setStatus("loading");
-    void listDrafts("collection", canonical.id)
-      .then(async (drafts) => {
-        if (!active) return;
-        const currentDraft = drafts[0] ?? null;
-        const currentCollection = currentDraft
-          ? parseCollectionDraft(currentDraft.content, canonical)
-          : collectionToDraft(canonical);
-        install(currentCollection, currentDraft);
-        if (currentDraft) {
-          const result = await compareDraft(currentDraft.id);
-          if (!active) return;
-          draftRef.current = result.draft;
-          setDraft(result.draft);
-          setComparison(result);
-          setMergeContent(currentDraft.content);
-          if (result.canonical_changed) {
-            setStatus("conflict");
-            setError("Canonical Collection 已变化。请先检查并恢复 Draft 冲突。");
-          }
+  }, [content, currentCanonical, installCollection, loading, runtimeState]);
+
+  useEffect(() => {
+    if (!currentCanonical || loading || !draft || runtimeState === "error") return;
+    const comparisonKey = `${currentCanonical.id}:${draft.id}`;
+    if (lastComparedKeyRef.current === comparisonKey) return;
+    lastComparedKeyRef.current = comparisonKey;
+    let active = true;
+    void compareDraft(draft.id)
+      .then((result) => {
+        if (!active || activeCollectionIdRef.current !== currentCanonical.id) return;
+        setComparison(result);
+        if (result.canonical_changed) {
+          setRuntimeError("Canonical Collection 已变化。请先检查并恢复 Draft 冲突。");
         }
       })
       .catch((reason: unknown) => {
-        if (!active) return;
-        setError(errorMessage(reason));
-        setStatus("load-error");
+        if (!active || activeCollectionIdRef.current !== currentCanonical.id) return;
+        setDomainError(errorMessage(reason));
       });
-    return () => {
-      active = false;
-    };
-  }, [canonical?.id, install]);
+    return () => { active = false; };
+  }, [currentCanonical, draft, loading, runtimeState, setRuntimeError]);
 
-  const saveNow = useCallback(async (): Promise<Draft | null> => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-    if (runtimeConflictRef.current) throw Object.assign(new Error("Collection Draft 与本地修改冲突，请先检查并解决。"), { status: 409 });
-    if (savePromiseRef.current) {
-      await savePromiseRef.current;
-      if (serializedRef.current !== lastSavedRef.current) return saveNow();
-      return draftRef.current;
-    }
-    const snapshot = serializedRef.current;
-    if (snapshot === lastSavedRef.current) return draftRef.current;
-    const currentCollection = collectionRef.current;
-    if (!currentCollection) throw new Error("Collection Draft 尚未载入。");
+  useEffect(() => {
+    if (runtimeConflict) setMergeContent(runtimeConflict.localContent);
+    else setMergeContent("");
+  }, [runtimeConflict?.existingDraft.id, runtimeConflict?.existingDraft.revision, runtimeConflict?.localContent]);
 
-    setStatus("saving");
-    setError("");
-    const currentDraft = draftRef.current;
-    const operation = currentDraft
-      ? updateDraft(currentDraft.id, snapshot, currentDraft.revision)
-      : createDraft("collection", currentCollection.id, snapshot);
-    savePromiseRef.current = operation;
-    try {
-      const result = await operation;
-      const saved = isDraftAcquireResult(result) ? result.draft : result;
-      if (isDraftAcquireResult(result) && !result.created && saved.content !== snapshot) {
-        await captureRuntimeConflict(saved.id, snapshot);
-        throw Object.assign(new Error("另一个标签页已为此 Collection 创建不同内容的 Draft。本地修改仍保留；请比较并手动合并。"), { status: 409 });
-      }
-      draftRef.current = saved;
-      setDraft(saved);
-      lastSavedRef.current = snapshot;
-      savePromiseRef.current = null;
-      if (serializedRef.current !== snapshot) return saveNow();
-      setStatus("saved");
-      return saved;
-    } catch (reason) {
-      savePromiseRef.current = null;
-      if ((reason as ApiError)?.code === "draft_revision_conflict" && currentDraft) {
-        await captureRuntimeConflict(currentDraft.id, serializedRef.current);
-      } else if (runtimeConflictRef.current) {
-        setStatus("conflict");
-      } else {
-        setStatus((reason as { status?: number })?.status === 409 ? "conflict" : "unsaved");
-        setError(errorMessage(reason));
-      }
-      throw reason;
+  const runtimeDraftConflict: RuntimeDraftConflict | null = runtimeConflict
+    ? {
+      ...runtimeConflict,
+      canonicalContent: canonicalRef.current
+        ? serializeCollectionDraft(collectionToDraft(canonicalRef.current))
+        : "",
     }
-  }, [captureRuntimeConflict]);
-
-  useEffect(() => () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    if (serializedRef.current !== lastSavedRef.current) void saveNow().catch(() => undefined);
-  }, [saveNow]);
+    : null;
+  const activeComparison = comparison?.draft.entity_id === currentCanonical?.id ? comparison : null;
+  const status: CollectionDraftStatus = runtimeConflict
+    ? "runtime-conflict"
+    : domainError
+      ? "error"
+      : activeComparison?.canonical_changed
+        ? "canonical-conflict"
+        : runtimeState;
+  const error = domainError || runtimeError;
 
   const change = useCallback((transform: (current: DraftCollection) => DraftCollection) => {
     const current = collectionRef.current;
     if (!current) return;
     const next = transform(current);
     if (next === current) return;
-    collectionRef.current = next;
-    setCollection(next);
-    serializedRef.current = serializeCollectionDraft(next);
-    setStatus(runtimeConflictRef.current ? "conflict" : "unsaved");
-    if (!runtimeConflictRef.current) setError("");
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (!runtimeConflictRef.current) {
-      timerRef.current = setTimeout(() => {
-        void saveNow().catch(() => undefined);
-      }, 650);
-    }
-  }, [saveNow]);
+    installCollection(next);
+    setDomainError("");
+    updateContent(serializeCollectionDraft(next));
+  }, [installCollection, updateContent]);
 
   const setProgress = useCallback((entityId: string, progress: "reading" | "done") => {
     const current = collectionRef.current;
     if (!current) return;
-    const next = updateEntityProgress(current, "document", entityId, progress);
-    collectionRef.current = next;
-    setCollection(next);
-  }, []);
+    installCollection(updateEntityProgress(current, "document", entityId, progress));
+  }, [installCollection]);
 
-  const flush = useCallback(() => saveNow(), [saveNow]);
+  const openComparison = useCallback(async () => {
+    if (runtimeConflict) return null;
+    let currentDraft = draft;
+    if (runtimeSession.isDirty) {
+      try {
+        currentDraft = await saveNow();
+      } catch (reason) {
+        if ((reason as { status?: number })?.status !== 409) throw reason;
+        currentDraft = runtimeSession.draft;
+      }
+    }
+    if (!currentDraft) return null;
+    setRuntimeError("");
+    try {
+      const result = await compareDraft(currentDraft.id);
+      if (activeCollectionIdRef.current !== currentDraft.entity_id) return null;
+      setComparison(result);
+      setMergeContent(result.draft.content);
+      return result;
+    } catch (reason) {
+      setDomainError(errorMessage(reason));
+      throw reason;
+    }
+  }, [draft, runtimeConflict, runtimeSession.draft, runtimeSession.isDirty, saveNow, setRuntimeError]);
+
+  const reloadCanonical = useCallback(async () => {
+    const currentCanonical = canonicalRef.current;
+    if (!currentCanonical) throw new Error("当前没有可载入的 Canonical Collection。");
+    await discardRuntimeDraft();
+    const latestCanonical = await getCollection(currentCanonical.id);
+    if (activeCollectionIdRef.current !== currentCanonical.id) return;
+    canonicalRef.current = latestCanonical;
+    setCanonicalValue(latestCanonical);
+    const nextCollection = collectionToDraft(latestCanonical);
+    installCollection(nextCollection);
+    resetRuntimeDraft(serializeCollectionDraft(nextCollection));
+    setComparison(null);
+    setDomainError("");
+  }, [discardRuntimeDraft, installCollection, resetRuntimeDraft]);
+
+  const applyRebase = useCallback(async (contentValue: string) => {
+    const currentComparison = activeComparison;
+    const currentDraft = runtimeSession.draft;
+    const currentCanonical = canonicalRef.current;
+    if (!currentComparison || !currentDraft || !currentCanonical) return;
+    const latestCanonical = parseCollectionDraft(currentComparison.current_content, currentCanonical);
+    const mergedCollection = parseCollectionDraft(contentValue, latestCanonical);
+    const next = await rebaseDraft(
+      currentDraft.id,
+      contentValue,
+      currentDraft.revision,
+      currentComparison.current_content_hash,
+    );
+    if (activeCollectionIdRef.current !== currentCanonical.id) return;
+    const nextCanonical: Collection = {
+      ...currentCanonical,
+      title: latestCanonical.title,
+      description: latestCanonical.description,
+      status: latestCanonical.status,
+      position: latestCanonical.position,
+      nodes: latestCanonical.nodes,
+    };
+    canonicalRef.current = nextCanonical;
+    setCanonicalValue(nextCanonical);
+    installCollection(mergedCollection);
+    acceptDraft(next, serializeCollectionDraft(latestCanonical));
+    setComparison(null);
+    setDomainError("");
+  }, [acceptDraft, activeComparison, installCollection, runtimeSession.draft]);
+
+  const reset = useCallback((nextCanonical: Collection) => {
+    canonicalRef.current = nextCanonical;
+    setCanonicalValue(nextCanonical);
+    const nextCollection = collectionToDraft(nextCanonical);
+    installCollection(nextCollection);
+    resetRuntimeDraft(serializeCollectionDraft(nextCollection));
+    setComparison(null);
+    setDomainError("");
+  }, [installCollection, resetRuntimeDraft]);
+
+  const discard = useCallback(async () => {
+    await discardRuntimeDraft();
+    const currentCanonical = canonicalRef.current;
+    if (!currentCanonical) return;
+    const nextCollection = collectionToDraft(currentCanonical);
+    installCollection(nextCollection);
+    resetRuntimeDraft(serializeCollectionDraft(nextCollection));
+    setComparison(null);
+    setDomainError("");
+  }, [discardRuntimeDraft, installCollection, resetRuntimeDraft]);
+
+  const reloadLatestRuntimeDraft = useCallback(async () => {
+    const latest = await reloadLatestDraft();
+    if (!latest) return;
+    const latestCanonical = await getCollection(latest.entity_id);
+    if (activeCollectionIdRef.current !== latest.entity_id) return;
+    canonicalRef.current = latestCanonical;
+    setCanonicalValue(latestCanonical);
+    installCollection(parseCollectionDraft(latest.content, latestCanonical));
+    setDomainError("");
+  }, [installCollection, reloadLatestDraft]);
+
+  const applyRuntimeMerge = useCallback(async (contentValue?: string) => {
+    const updated = await updateLatestDraft(contentValue ?? mergeContent);
+    const currentCanonical = canonicalRef.current;
+    if (currentCanonical) installCollection(parseCollectionDraft(updated.content, currentCanonical));
+    setComparison(null);
+    setDomainError("");
+  }, [installCollection, mergeContent, updateLatestDraft]);
 
   const publish = useCallback(async () => {
     const saved = await saveNow();
@@ -239,133 +290,12 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     ]);
   }, [saveNow]);
 
-  const openComparison = useCallback(async () => {
-    if (runtimeConflictRef.current) return null;
-    let currentDraft = draftRef.current;
-    if (serializedRef.current !== lastSavedRef.current) {
-      try {
-        currentDraft = await saveNow();
-      } catch (reason) {
-        if ((reason as { status?: number })?.status !== 409) throw reason;
-        currentDraft = draftRef.current;
-      }
-    }
-    if (!currentDraft) return null;
-    setError("");
-    try {
-      const result = await compareDraft(currentDraft.id);
-      draftRef.current = result.draft;
-      setDraft(result.draft);
-      setComparison(result);
-      setMergeContent(currentDraft.content);
-      if (result.canonical_changed) setStatus("conflict");
-      return result;
-    } catch (reason) {
-      setError(errorMessage(reason));
-      throw reason;
-    }
-  }, [saveNow]);
-
-  const reloadCanonical = useCallback(async () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-    if (savePromiseRef.current) await savePromiseRef.current.catch(() => undefined);
-    const currentDraft = draftRef.current;
-    if (currentDraft) await discardDraft(currentDraft.id, currentDraft.revision);
-    const currentCanonical = canonicalRef.current;
-    if (!currentCanonical) throw new Error("当前没有可载入的 Canonical Collection。");
-    const latestCanonical = await getCollection(currentCanonical.id);
-    canonicalRef.current = latestCanonical;
-    install(collectionToDraft(latestCanonical), null);
-  }, [install]);
-
-  const reloadLatestRuntimeDraft = useCallback(async () => {
-    const conflict = runtimeConflictRef.current;
-    if (!conflict) return;
-    const latest = await getDraft(conflict.existingDraft.id);
-    const currentCanonical = await getCollection(latest.entity_id);
-    canonicalRef.current = currentCanonical;
-    install(parseCollectionDraft(latest.content, currentCanonical), latest, latest.content);
-  }, [install]);
-
-  const applyRuntimeMerge = useCallback(async (content?: string) => {
-    const conflict = runtimeConflictRef.current;
-    if (!conflict) return;
-    const nextContent = content ?? mergeContent;
-    try {
-      const updated = await updateDraft(
-        conflict.existingDraft.id,
-        nextContent,
-        conflict.existingDraft.revision,
-      );
-      const currentCanonical = canonicalRef.current;
-      if (!currentCanonical) throw new Error("当前没有可用的 Canonical Collection。");
-      install(parseCollectionDraft(updated.content, currentCanonical), updated, updated.content);
-    } catch (reason) {
-      if ((reason as ApiError)?.code === "draft_revision_conflict") {
-        await captureRuntimeConflict(conflict.existingDraft.id, serializedRef.current);
-        setError("Collection Draft 已在另一个会话中更新；本次内容没有覆盖新版本。请检查最新 Draft 后再次保存。");
-      } else {
-        setError(errorMessage(reason));
-      }
-      setStatus("conflict");
-      throw reason;
-    }
-  }, [captureRuntimeConflict, install, mergeContent]);
-
-  const applyRebase = useCallback(async (content: string) => {
-    const currentComparison = comparison;
-    const currentDraft = draftRef.current;
-    const currentCanonical = canonicalRef.current;
-    if (!currentComparison || !currentDraft || !currentCanonical) return;
-    const latestCanonical = parseCollectionDraft(currentComparison.current_content, currentCanonical);
-    const mergedCollection = parseCollectionDraft(content, latestCanonical);
-    const next = await rebaseDraft(
-      currentDraft.id,
-      content,
-      currentDraft.revision,
-      currentComparison.current_content_hash,
-    );
-    runtimeConflictRef.current = null;
-    setRuntimeDraftConflict(null);
-    canonicalRef.current = {
-      ...currentCanonical,
-      title: latestCanonical.title,
-      description: latestCanonical.description,
-      status: latestCanonical.status,
-      position: latestCanonical.position,
-      nodes: latestCanonical.nodes,
-    };
-    install(mergedCollection, next, next.content);
-  }, [comparison, install]);
-
-  const reset = useCallback((nextCanonical: Collection) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-    canonicalRef.current = nextCanonical;
-    runtimeConflictRef.current = null;
-    setRuntimeDraftConflict(null);
-    install(collectionToDraft(nextCanonical), null);
-  }, [install]);
-
-  const discard = useCallback(async () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-    if (savePromiseRef.current) await savePromiseRef.current;
-    const currentDraft = draftRef.current;
-    if (currentDraft) await discardDraft(currentDraft.id, currentDraft.revision);
-    runtimeConflictRef.current = null;
-    setRuntimeDraftConflict(null);
-    const currentCanonical = canonicalRef.current;
-    if (currentCanonical) install(collectionToDraft(currentCanonical), null);
-  }, [install]);
-
   return {
-    collection,
+    collection: collection?.id === currentCanonical?.id ? collection : null,
     draft,
     status,
     error,
-    comparison,
+    comparison: activeComparison,
     runtimeDraftConflict,
     mergeContent,
     setMergeContent,
@@ -373,7 +303,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     applyRuntimeMerge,
     change,
     setProgress,
-    flush,
+    flush: saveNow,
     publish,
     discard,
     openComparison,
@@ -383,10 +313,6 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
   };
 }
 
-function errorMessage(reason: unknown) {
+function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : "未知错误";
-}
-
-function isDraftAcquireResult(value: Draft | DraftAcquireResult): value is DraftAcquireResult {
-  return "draft" in value && "created" in value;
 }
