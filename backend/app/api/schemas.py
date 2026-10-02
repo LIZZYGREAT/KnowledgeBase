@@ -168,6 +168,14 @@ class DraftCompareView(APIModel):
     canonical_changed: bool
 
 
+class DraftPreflightView(APIModel):
+    draft_id: str
+    valid: bool
+    conflict: bool = False
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ProposalView(APIModel):
     id: str
     target_type: Literal["document", "term", "source", "taxonomy"]

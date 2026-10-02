@@ -31,6 +31,7 @@ from backend.app.services.canonical_validator import (
     validate_collection_references,
     validate_repository_references,
 )
+from backend.app.services.collection_registry import CollectionRegistry
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import lint_markdown, load_writing_standard
 from backend.app.services.taxonomy_registry import (
@@ -61,6 +62,15 @@ class PublishedResult:
     path: str
     commit_revision: str
     proposal_id: Optional[str] = None
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DraftPreflightResult:
+    draft_id: str
+    valid: bool
+    conflict: bool = False
+    errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
 
@@ -109,6 +119,48 @@ class Publisher:
         proposal_ids = {draft_id: proposal_id} if proposal_id is not None else None
         result = self.publish_batch([draft_id], commit_message, proposal_ids)
         return result.results[0]
+
+    def preflight(self, draft_id: str) -> DraftPreflightResult:
+        """Validate a Draft without writing canonical files or creating a Git commit."""
+        draft = self.draft_service.get(draft_id)
+        try:
+            path, metadata = self._target_path(draft, draft.content)
+        except (ValueError, ValidationError, yaml.YAMLError, TypeError) as error:
+            return DraftPreflightResult(draft_id, False, errors=(str(error),))
+
+        try:
+            self.git.assert_base(draft.base_git_revision, draft.base_content_hash, path)
+        except (GitConflictError, ValueError) as error:
+            return DraftPreflightResult(draft_id, False, conflict=True, errors=(str(error),))
+
+        previous = path.read_bytes() if path.is_file() else None
+        if previous == draft.content.encode("utf-8"):
+            return DraftPreflightResult(
+                draft_id, False, errors=("Draft has no canonical changes to publish",)
+            )
+
+        try:
+            warnings = self._validate_candidate(
+                draft, draft.content, path, metadata, validate_references=True
+            )
+            if draft.entity_type == "collection":
+                current = CollectionRegistry.load(self.knowledge_root / "collections")
+                proposed = [
+                    collection
+                    for collection in current.collections
+                    if collection.id != metadata.id
+                ] + [metadata]
+                issues = validate_collection_references(self.repository_root, proposed)
+                if issues:
+                    raise PublishValidationError(
+                        "; ".join(
+                            "{}: {}".format(issue.path, issue.message) for issue in issues
+                        )
+                    )
+        except (PublishValidationError, ValueError, OSError, yaml.YAMLError, TypeError) as error:
+            return DraftPreflightResult(draft_id, False, errors=(str(error),))
+
+        return DraftPreflightResult(draft_id, True, warnings=tuple(warnings))
 
     def publish_batch(
         self,

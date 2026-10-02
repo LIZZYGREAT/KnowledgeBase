@@ -158,6 +158,14 @@ export interface DraftComparison {
   canonical_changed: boolean;
 }
 
+export interface DraftPreflight {
+  draft_id: string;
+  valid: boolean;
+  conflict: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
 export interface PublishedDraft {
   draft_id: string;
   entity_type: string;
@@ -369,6 +377,10 @@ export function updateDraft(draftId: string, content: string, expectedRevision: 
 
 export function compareDraft(draftId: string) {
   return request<DraftComparison>(`/api/drafts/${encodeURIComponent(draftId)}/compare`);
+}
+
+export function preflightDraft(draftId: string) {
+  return request<DraftPreflight>(`/api/drafts/${encodeURIComponent(draftId)}/preflight`);
 }
 
 export function rebaseDraft(

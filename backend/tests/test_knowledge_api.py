@@ -620,6 +620,13 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
     )
     assert blank.status_code == 201
     draft = blank.json()
+    preflight = api_client.get("/api/drafts/{}/preflight".format(draft["id"]))
+    assert preflight.status_code == 200
+    assert preflight.json()["valid"] is True
+    assert not (
+        api_client.app.state.repository_root
+        / "knowledge/documents/learning/api-draft.md"
+    ).exists()
     published = api_client.post("/api/publish", json={"draft_id": draft["id"]})
     assert published.status_code == 200
     assert published.json()["entity_id"] == "api-draft"

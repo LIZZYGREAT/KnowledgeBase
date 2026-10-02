@@ -4,15 +4,18 @@ import {
   createBlankDocument,
   listAllEntities,
   listProposals,
+  preflightDraft,
   requestAIProposal,
   reviewProposal,
   type Draft,
+  type DraftPreflight,
   type EntitySummary,
   type EntityType,
   type Proposal,
 } from "./api";
 import { patchYamlField, readFrontmatterField } from "./metadataDraft.js";
 import { MarkdownBlockEditor } from "./MarkdownBlockEditor";
+import { WorkspaceDrawer } from "./WorkspaceDrawer";
 import { Chip, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "./ui";
 import { useWorkspaceDraft } from "./useWorkspaceDraft";
 
@@ -76,9 +79,14 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
   const [selection, setSelection] = useState("");
   const [selectedText, setSelectedText] = useState("");
   const [publishing, setPublishing] = useState(false);
+  const [activeDrawer, setActiveDrawer] = useState<"metadata" | "ai" | "publish" | "conflict" | null>(null);
+  const [preflight, setPreflight] = useState<DraftPreflight | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
   const contentRef = useRef("");
 
   useEffect(() => { contentRef.current = content; }, [content]);
+  useEffect(() => { if (comparison) setActiveDrawer("conflict"); }, [comparison]);
+  useEffect(() => { setPreflight(null); }, [draft?.revision, isDirty]);
 
   async function refreshProposals() {
     try {
@@ -125,10 +133,30 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     }
   }
 
+  async function runPreflight(): Promise<DraftPreflight | null> {
+    setPreflightBusy(true);
+    setPreflight(null);
+    setSaveError("");
+    try {
+      const currentDraft = await saveNow();
+      const result = await preflightDraft(currentDraft.id);
+      setPreflight(result);
+      if (result.conflict) await openComparison();
+      else if (!result.valid) setSaveError(result.errors.join("；"));
+      return result;
+    } catch (error) {
+      setSaveError(errorMessage(error));
+      return null;
+    } finally {
+      setPreflightBusy(false);
+    }
+  }
+
   async function reloadCanonical() {
     try {
       await workspaceDraft.reloadCanonical();
       setSaveError("");
+      setActiveDrawer(null);
     } catch (error) {
       setSaveError(errorMessage(error));
       if ((error as { status?: number })?.status === 422) await openComparison();
@@ -139,6 +167,7 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     try {
       await workspaceDraft.applyRebase(mergeContent);
       setSaveError("");
+      setActiveDrawer(null);
     } catch (error) {
       setSaveError(errorMessage(error));
       if ((error as { status?: number })?.status === 422) await openComparison();
@@ -159,8 +188,11 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     setPublishing(true);
     setSaveError("");
     try {
+      const check = await runPreflight();
+      if (!check?.valid) return;
       const result = await workspaceDraft.publish();
       if (!result) throw new Error("还没有可发布的 Draft 变化。");
+      setActiveDrawer(null);
       await refreshProposals();
     } catch (error) {
       setSaveError(errorMessage(error));
@@ -236,6 +268,10 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
     }
   }
 
+  function updateFrontmatterList(key: string, value: string) {
+    updateFrontmatter(key, value.split(",").map((item) => item.trim()).filter(Boolean));
+  }
+
   function updateSourcePdf(value: string) {
     try {
       const document = parseDocument(contentRef.current);
@@ -287,54 +323,18 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
       <PageHeader
         eyebrow={`${type.toUpperCase()} · DRAFT EDITOR`}
         title={`编辑 ${id}`}
-        description="打开时读取正式内容；第一次修改后自动保存为运行时 Draft，再通过 Publisher 发布。"
-        action={<div className="editor-main-actions"><button className="button button-secondary" disabled={!isDirty || publishing || saveState === "Conflict"} onClick={() => void saveNow().catch(() => undefined)}>保存草稿</button><button className="button button-primary" disabled={publishing || saveState === "Conflict" || Boolean(comparison) || Boolean(publishedRevision) || (!draft && !isDirty)} onClick={() => void publishCurrentDraft()}>{publishing ? "发布中…" : "Publish"}</button></div>}
+        description="区块编辑、元数据管理、AI 审阅、冲突处理与发布都在此工作区完成。"
+        action={<div className="editor-main-actions workspace-tools">
+          <button className="button button-secondary" onClick={() => setActiveDrawer("metadata")}>元数据</button>
+          <button className="button button-secondary" disabled={type === "source"} onClick={() => setActiveDrawer("ai")}>AI 审阅</button>
+          <button className="button button-secondary" disabled={!draft} onClick={() => void openComparison()}>比较版本</button>
+          <button className="button button-secondary" disabled={!isDirty || publishing || saveState === "Conflict"} onClick={() => void saveNow().catch(() => undefined)}>保存草稿</button>
+          <button className="button button-primary" disabled={publishing || saveState === "Conflict" || Boolean(comparison?.canonical_changed) || Boolean(publishedRevision) || (!draft && !isDirty)} onClick={() => { setActiveDrawer("publish"); void runPreflight(); }}>{publishing ? "发布中…" : "发布"}</button>
+        </div>}
       />
 
       {publishedRevision && <div className="editor-notice success-notice" role="status"><strong>已发布</strong><span>Git revision {publishedRevision.slice(0, 12)}</span><button className="button button-secondary" onClick={() => navigate(`/${type === "document" ? "documents" : `${type}s`}/${encodeURIComponent(id)}`)}>返回阅读</button></div>}
       {visibleSaveError && <div className="editor-notice error-notice" role="alert"><span>{visibleSaveError}</span><button className="text-button" onClick={() => { setSaveError(""); setDraftError(""); }}>关闭</button>{saveState === "Conflict" && <button className="button button-secondary" onClick={() => void openComparison()}>比较版本</button>}</div>}
-
-      {comparison && <section className="surface conflict-panel">
-        <div className="conflict-heading"><div><p className="eyebrow">CANONICAL CHANGED</p><h2>正式内容在 Draft 创建后发生了变化</h2><p>请对比基线、当前正式版和 Draft，再选择重新载入或整理合并内容。此操作不会自动发布。</p></div><Chip tone="amber">需要处理</Chip></div>
-        <div className="conflict-columns">
-          <ConflictColumn title="基线" content={comparison.base_content} />
-          <ConflictColumn title="当前正式版" content={comparison.current_content} />
-          <ConflictColumn title="Draft" content={content} />
-        </div>
-        <label className="field-label merge-label">合并内容 <span>初始为当前 Draft；请参考上方版本对比，手动合入需要保留的修改。</span>
-          <textarea className="merge-textarea" value={mergeContent} onChange={(event) => setMergeContent(event.target.value)} spellCheck={false} />
-        </label>
-        <div className="editor-main-actions"><button className="button button-secondary" onClick={() => void reloadCanonical()}>放弃 Draft 并载入当前正式版</button><button className="button button-primary" onClick={() => void applyRebase()}>保存合并内容并更新基线</button></div>
-      </section>}
-
-      {type === "document" && <section className="surface editor-metadata-panel">
-        <SectionHeading title="Sources & Evidence" detail="Source 关系来自 frontmatter；引用行会在发布后生成可追溯的 Evidence 索引。" />
-        <div className="source-association-list">
-          {sourceEntries.map((source) => <label className="source-association-option" key={source.id}><input type="checkbox" checked={associatedSourceIds.includes(source.id)} onChange={(event) => updateFrontmatter("sources", event.target.checked ? [...new Set([...associatedSourceIds, source.id])] : associatedSourceIds.filter((idValue) => idValue !== source.id))} /><span><strong>{source.title}</strong><small>{source.id}</small></span></label>)}
-          {!sourceEntries.length && <p className="subtle-copy">暂无已索引 Source。请先通过 Import Pipeline 创建 Source Draft 并发布。</p>}
-        </div>
-        {sourceError && <p className="error-copy" role="alert">{sourceError}</p>}
-        <div className="draft-evidence-box"><div className="context-card-heading"><strong>Draft citations</strong><small>{draftCitations.length} 条</small></div>
-          {draftCitations.length ? draftCitations.map((citation, index) => <div className="draft-citation-row" key={`${citation.source_id}:${citation.line}:${index}`}><strong>[@{citation.source_id}{citation.locator ? `, ${citation.locator}` : ""}]</strong><span>{citation.claim || "此引用行尚无 claim 文本"}</span><small>第 {citation.line} 行 · 发布后索引为 Evidence；不代表人工已核验</small></div>) : <p className="subtle-copy">使用 [@source-id, locator] 在 Markdown 正文中标记引用位置。</p>}
-          {canonicalEntity?.evidence.length ? <p className="trust-note">当前正式版有 {canonicalEntity.evidence.length} 条已索引引用，来源和 Locator 会在发布后重新索引。</p> : null}
-        </div>
-      </section>}
-
-      {type === "document" && <section className="surface editor-metadata-panel paperskill-editor">
-        <SectionHeading title="PaperSkill 链接" detail="只记录外部成品链接；不会复制或管理 PaperSkill 内容。" />
-        <form className="paperskill-form" onSubmit={addPaperSkill}>
-          <label className="field-label">变体<select value={paperSkillVariant} onChange={(event) => setPaperSkillVariant(event.target.value as typeof paperSkillVariant)}><option value="canonical">Canonical</option><option value="enhanced">Enhanced</option></select></label>
-          <label className="field-label">URL<input type="url" required value={paperSkillUrl} onChange={(event) => setPaperSkillUrl(event.target.value)} placeholder="https://…" /></label>
-          <button className="button button-secondary" type="submit">添加链接</button>
-        </form>
-        {paperSkills.length ? <div className="paperskill-list">{paperSkills.map((item, index) => <div className="paperskill-row" key={`${item.url}:${index}`}><span><strong>{titleCase(item.variant)}</strong><small>{item.url}{item.owner ? ` · ${item.owner}` : ""}</small></span><button className="text-button" onClick={() => updateFrontmatter("external_artifacts", paperSkills.filter((_, itemIndex) => itemIndex !== index))}>移除</button></div>)}</div> : <p className="subtle-copy">还没有 PaperSkill 链接。</p>}
-      </section>}
-
-      {type === "source" && <section className="surface editor-metadata-panel source-pdf-editor">
-        <SectionHeading title="本地 PDF 关联" detail="文件需要先通过 Import Pipeline 放入 storage/papers；发布会检查关联文件。" />
-        <label className="field-label">附件 URI<input value={pdfAttachment} onChange={(event) => updateSourcePdf(event.target.value)} placeholder="storage://papers/source-id.pdf" /></label>
-        <p className="trust-note">此处只设置 Source 元数据引用，不会上传或复制文件。PDF 保存在本机忽略目录中。</p>
-      </section>}
 
       {type === "source" ? <div className="editor-grid">
         <section className="surface editor-writing-panel">
@@ -362,21 +362,90 @@ export function EditorPage({ type, id, navigate }: { type: EntityType; id: strin
         />
       </section>}
 
-      <section className="surface ai-panel">
-        <div className="ai-panel-heading"><div><p className="eyebrow">PROPOSAL WORKFLOW</p><h2>AI 辅助审阅</h2><p>AI 结果会保存为 Proposal；它不会自动修改 Draft 或正式内容。</p></div><Chip>需人工审阅</Chip></div>
-        <label className="ai-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意将此 Draft 和完成任务所需的注册表上下文发送给 DeepSeek。</span></label>
-        <div className="ai-actions">
-          {type === "document" && <><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("metadata-suggest")}>元数据建议</button><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("document-review")}>文档审阅</button><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("evidence-suggest")}>Evidence 候选</button></>}
-          {type === "term" && <button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("term-draft")}>Term Draft 建议</button>}
-          {type === "document" && <><input className="selection-input" value={selection} onChange={(event) => setSelection(event.target.value)} placeholder={selectedText ? `选中文本：${selectedText.slice(0, 45)}` : "粘贴或选择一段要审阅的文字"} /><button className="button button-secondary" disabled={!consent || proposalBusy || !selection.trim()} onClick={() => void generateProposal("selection-review")}>审阅选区</button></>}
-          {proposalBusy && <span className="subtle-copy">正在生成 Proposal…</span>}
+      {activeDrawer === "metadata" && <WorkspaceDrawer title="元数据" description="结构化字段会写入 Draft frontmatter，发布仍由 Publisher 完成。" onClose={() => setActiveDrawer(null)}>
+        <section className="drawer-section">
+          <SectionHeading title="基本信息" detail="实体类型决定 Canonical 路径，不能在这里更改。" />
+          <label className="field-label">标题<input value={stringValue(readFrontmatterField(content, type, "title"))} onChange={(event) => updateFrontmatter("title", event.target.value)} /></label>
+          <div className="drawer-readonly-row"><span>实体 ID</span><strong>{id}</strong></div>
+          <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
+          {type !== "source" && <>
+            <label className="field-label">Domains<input value={readStringArray(readFrontmatterField(content, type, "domains")).join(", ")} onChange={(event) => updateFrontmatterList("domains", event.target.value)} placeholder="用逗号分隔 ID" /></label>
+            <label className="field-label">Topics<input value={readStringArray(readFrontmatterField(content, type, "topics")).join(", ")} onChange={(event) => updateFrontmatterList("topics", event.target.value)} placeholder="用逗号分隔 ID" /></label>
+            <label className="field-label">Tags<input value={readStringArray(readFrontmatterField(content, type, "tags")).join(", ")} onChange={(event) => updateFrontmatterList("tags", event.target.value)} placeholder="用逗号分隔 ID" /></label>
+          </>}
+        </section>
+
+        {type === "document" && <section className="drawer-section">
+          <SectionHeading title="Sources & Evidence" detail="Source 关系来自 frontmatter；引用行会在发布后生成 Evidence 索引。" />
+          <div className="source-association-list">
+            {sourceEntries.map((source) => <label className="source-association-option" key={source.id}><input type="checkbox" checked={associatedSourceIds.includes(source.id)} onChange={(event) => updateFrontmatter("sources", event.target.checked ? [...new Set([...associatedSourceIds, source.id])] : associatedSourceIds.filter((idValue) => idValue !== source.id))} /><span><strong>{source.title}</strong><small>{source.id}</small></span></label>)}
+            {!sourceEntries.length && <p className="subtle-copy">暂无已索引 Source。请先通过 Import Pipeline 创建并发布 Source。</p>}
+          </div>
+          {sourceError && <p className="error-copy" role="alert">{sourceError}</p>}
+          <div className="draft-evidence-box"><div className="context-card-heading"><strong>Draft citations</strong><small>{draftCitations.length} 条</small></div>
+            {draftCitations.length ? draftCitations.map((citation, index) => <div className="draft-citation-row" key={`${citation.source_id}:${citation.line}:${index}`}><strong>[@{citation.source_id}{citation.locator ? `, ${citation.locator}` : ""}]</strong><span>{citation.claim || "此引用行尚无 claim 文本"}</span><small>第 {citation.line} 行 · 发布后索引为 Evidence；不代表人工已核验</small></div>) : <p className="subtle-copy">使用 [@source-id, locator] 在 Markdown 正文中标记引用位置。</p>}
+            {canonicalEntity?.evidence.length ? <p className="trust-note">当前正式版有 {canonicalEntity.evidence.length} 条已索引引用，来源和 Locator 会在发布后重新索引。</p> : null}
+          </div>
+        </section>}
+
+        {type === "document" && <section className="drawer-section">
+          <SectionHeading title="PaperSkill 链接" detail="只记录外部成品链接；不会复制或管理 PaperSkill 内容。" />
+          <form className="paperskill-form" onSubmit={addPaperSkill}>
+            <label className="field-label">变体<select value={paperSkillVariant} onChange={(event) => setPaperSkillVariant(event.target.value as typeof paperSkillVariant)}><option value="canonical">Canonical</option><option value="enhanced">Enhanced</option></select></label>
+            <label className="field-label">URL<input type="url" required value={paperSkillUrl} onChange={(event) => setPaperSkillUrl(event.target.value)} placeholder="https://…" /></label>
+            <button className="button button-secondary" type="submit">添加链接</button>
+          </form>
+          {paperSkills.length ? <div className="paperskill-list">{paperSkills.map((item, index) => <div className="paperskill-row" key={`${item.url}:${index}`}><span><strong>{titleCase(item.variant)}</strong><small>{item.url}{item.owner ? ` · ${item.owner}` : ""}</small></span><button className="text-button" onClick={() => updateFrontmatter("external_artifacts", paperSkills.filter((_, itemIndex) => itemIndex !== index))}>移除</button></div>)}</div> : <p className="subtle-copy">还没有 PaperSkill 链接。</p>}
+        </section>}
+
+        {type === "source" && <section className="drawer-section">
+          <SectionHeading title="本地 PDF 关联" detail="文件需先通过 Import Pipeline 放入 storage/papers；发布会检查关联文件。" />
+          <label className="field-label">附件 URI<input value={pdfAttachment} onChange={(event) => updateSourcePdf(event.target.value)} placeholder="storage://papers/source-id.pdf" /></label>
+          <p className="trust-note">此处只设置 Source 元数据引用，不会上传或复制文件。</p>
+        </section>}
+        <div className="drawer-footer"><span>自动保存到运行时 Draft</span><button className="button button-primary" onClick={() => void saveNow().catch(() => undefined)}>保存草稿</button></div>
+      </WorkspaceDrawer>}
+
+      {activeDrawer === "ai" && <WorkspaceDrawer title="AI 辅助审阅" description="AI 输出保存为 Proposal；它不会自动修改 Draft 或正式内容。" onClose={() => setActiveDrawer(null)}>
+        <div className="drawer-section"><Chip>需人工审阅</Chip>
+          <label className="ai-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意将此 Draft 和完成任务所需的注册表上下文发送给 DeepSeek。</span></label>
+          <div className="ai-actions">
+            {type === "document" && <><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("metadata-suggest")}>元数据建议</button><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("document-review")}>文档审阅</button><button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("evidence-suggest")}>Evidence 候选</button></>}
+            {type === "term" && <button className="button button-secondary" disabled={!consent || proposalBusy} onClick={() => void generateProposal("term-draft")}>Term Draft 建议</button>}
+            {type === "document" && <><input className="selection-input" value={selection} onChange={(event) => setSelection(event.target.value)} placeholder={selectedText ? `选中文本：${selectedText.slice(0, 45)}` : "粘贴或选择一段要审阅的文字"} /><button className="button button-secondary" disabled={!consent || proposalBusy || !selection.trim()} onClick={() => void generateProposal("selection-review")}>审阅选区</button></>}
+            {proposalBusy && <span className="subtle-copy">正在生成 Proposal…</span>}
+          </div>
+          {proposalError && <p className="proposal-message" role="status">{proposalError}</p>}
+          <div className="proposal-list">
+            <div className="context-card-heading"><strong>此内容的 Proposals</strong><small>{pendingProposals.length} 条等待处理</small></div>
+            {pendingProposals.length ? pendingProposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} onReview={actOnProposal} onUseContent={(value) => setEditorContent(value)} onApplyMetadata={applyMetadataProposal} />) : <p className="subtle-copy">目前没有等待处理的 Proposal。</p>}
+          </div>
         </div>
-        {proposalError && <p className="proposal-message" role="status">{proposalError}</p>}
-        <div className="proposal-list">
-          <div className="context-card-heading"><strong>此内容的 Proposals</strong><small>{pendingProposals.length} 条等待处理</small></div>
-          {pendingProposals.length ? pendingProposals.map((proposal) => <ProposalCard key={proposal.id} proposal={proposal} onReview={actOnProposal} onUseContent={(value) => setEditorContent(value)} onApplyMetadata={applyMetadataProposal} />) : <p className="subtle-copy">目前没有等待处理的 Proposal。</p>}
+      </WorkspaceDrawer>}
+
+      {activeDrawer === "publish" && <WorkspaceDrawer title="发布检查" description="先检查 Draft，再由 Publisher 写入 Canonical 并创建 Git 提交。" onClose={() => setActiveDrawer(null)}>
+        <section className="drawer-section">
+          <div className="preflight-summary"><strong>{preflightBusy ? "正在检查…" : preflight?.valid ? "检查通过" : preflight ? "需要处理" : "尚未检查"}</strong><span>{draft ? `Draft revision ${draft.revision}` : isDirty ? "正在保存 Draft" : "当前没有 Draft"}</span></div>
+          {preflight?.errors.length ? <ul className="preflight-errors">{preflight.errors.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ul> : null}
+          {preflight?.warnings.length ? <div className="preflight-warnings"><strong>发布警告</strong><ul>{preflight.warnings.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ul></div> : null}
+          {saveError && <p className="error-copy" role="alert">{saveError}</p>}
+          <p className="trust-note">检查不会写入 Canonical。发布时 Publisher 会再次校验引用和冲突；成功后正文、索引和 Draft 状态由服务端更新。</p>
+          <div className="drawer-footer"><button className="button button-secondary" disabled={preflightBusy} onClick={() => void runPreflight()}>重新检查</button><button className="button button-primary" disabled={preflightBusy || publishing || !preflight?.valid || Boolean(comparison?.canonical_changed) || Boolean(publishedRevision)} onClick={() => void publishCurrentDraft()}>{publishing ? "发布中…" : "确认发布"}</button></div>
+        </section>
+      </WorkspaceDrawer>}
+
+      {activeDrawer === "conflict" && comparison && <WorkspaceDrawer title={comparison.canonical_changed ? "解决版本冲突" : "版本比较"} description={comparison.canonical_changed ? "请对比基线、当前正式版和 Draft，再选择重新载入或手动合并。此操作不会自动发布。" : "当前正式版与 Draft 基线一致；可以检查内容，也可以关闭此面板继续编辑。"} wide onClose={() => setActiveDrawer(null)}>
+        <div className="conflict-columns">
+          <ConflictColumn title="基线" content={comparison.base_content} />
+          <ConflictColumn title="当前正式版" content={comparison.current_content} />
+          <ConflictColumn title="Draft" content={content} />
         </div>
-      </section>
+        <label className="field-label merge-label">合并内容 <span>初始为当前 Draft；请参考上方版本对比，手动合入需要保留的修改。</span>
+          <textarea className="merge-textarea" value={mergeContent} onChange={(event) => setMergeContent(event.target.value)} spellCheck={false} />
+        </label>
+        <div className="editor-main-actions drawer-footer"><button className="button button-secondary" onClick={() => void reloadCanonical()}>放弃 Draft 并载入当前正式版</button><button className="button button-primary" onClick={() => void applyRebase()}>保存合并内容并更新基线</button></div>
+      </WorkspaceDrawer>}
+
       <div className="editor-bottom-actions"><button className="button button-danger" disabled={!draft && !isDirty} onClick={() => void discardCurrentDraft()}>丢弃 Draft</button><span>{draft ? "草稿与当前正式内容关联" : "基于当前正式内容"} · Publisher 会检查外部更改</span></div>
     </div>
   );
@@ -430,6 +499,10 @@ interface DraftCitation {
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function readPaperSkillArtifacts(value: unknown): PaperSkillArtifact[] {

@@ -59,6 +59,41 @@ def test_publish_writes_one_canonical_file_and_commit_only_includes_target(
     assert "README.md" in git.status()
 
 
+def test_preflight_validates_draft_without_writing_canonical_content(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/preflight-note.md"
+    draft = _create_draft(
+        drafts, git, "document", "preflight-note", _document("preflight-note"), target
+    )
+
+    result = publisher.preflight(draft.id)
+
+    assert result.valid is True
+    assert result.conflict is False
+    assert result.errors == ()
+    assert not (repository / target).exists()
+    assert git.status() == ""
+
+
+def test_preflight_reports_validation_errors_and_canonical_conflicts(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/preflight-invalid.md"
+    content = _document("preflight-invalid").replace("continual-learning", "missing-topic")
+    draft = _create_draft(drafts, git, "document", "preflight-invalid", content, target)
+    invalid = publisher.preflight(draft.id)
+    assert invalid.valid is False
+    assert invalid.conflict is False
+    assert invalid.errors
+
+    (repository / target).write_text(_document("preflight-invalid"), encoding="utf-8")
+    conflict = publisher.preflight(draft.id)
+    assert conflict.valid is False
+    assert conflict.conflict is True
+    assert conflict.errors
+
+
 def test_publish_collection_and_remove_successful_draft(publish_context):
     repository, connection, drafts, _, publisher = publish_context
     git = GitManager(repository)

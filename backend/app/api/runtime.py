@@ -23,6 +23,7 @@ from backend.app.api.schemas import (
     DraftCreateRequest,
     DraftDeleteRequest,
     DraftRebaseRequest,
+    DraftPreflightView,
     DraftUpdateRequest,
     DraftView,
     DraftCompareView,
@@ -196,6 +197,11 @@ async def compare_draft(draft_id: str, request: Request):
         "current_content_hash": current_hash,
         "canonical_changed": current_hash != draft.base_content_hash,
     }
+
+
+@router.get("/drafts/{draft_id}/preflight", response_model=DraftPreflightView)
+async def preflight_draft(draft_id: str, request: Request):
+    return asdict(request.app.state.publisher.preflight(draft_id))
 
 
 @router.put("/drafts/{draft_id}/rebase", response_model=DraftView)

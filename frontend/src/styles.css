@@ -425,6 +425,32 @@ a { color: #2e7357; }
 .markdown-source-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 12px; }
 .markdown-source-layout .knowledge-editor, .markdown-source-layout .markdown-live-preview { min-height: 620px; }
 .markdown-source-layout .markdown-content { padding: 2px 4px; }
+.workspace-tools { flex-wrap: wrap; }
+.workspace-drawer-overlay { position: fixed; z-index: 70; inset: 0; display: flex; justify-content: flex-end; background: #17231c66; }
+.workspace-drawer { display: flex; width: min(620px, 94vw); height: 100%; flex-direction: column; background: #fff; box-shadow: -12px 0 36px #17231c20; animation: drawer-enter .18s ease-out; }
+.workspace-drawer.wide { width: min(920px, 96vw); }
+@keyframes drawer-enter { from { transform: translateX(18px); opacity: .7; } to { transform: translateX(0); opacity: 1; } }
+.workspace-drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; border-bottom: 1px solid #e7ece7; padding: 19px 22px 15px; }
+.workspace-drawer-header h2 { margin: 2px 0 0; color: #2f4237; font-size: var(--text-lg); font-weight: 650; }
+.workspace-drawer-header p:last-child { margin: 6px 0 0; color: #78867d; font-size: var(--text-xs); line-height: 1.6; }
+.workspace-drawer-close { width: 32px; height: 32px; border: 1px solid #e2e9e2; border-radius: 7px; color: #52655a; background: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+.workspace-drawer-body { overflow: auto; padding: 16px 22px 24px; }
+.drawer-section { display: grid; gap: 14px; }
+.drawer-section + .drawer-section { margin-top: 23px; border-top: 1px solid #e9eee9; padding-top: 20px; }
+.drawer-section .section-heading { margin-bottom: 0; }
+.drawer-readonly-row { display: flex; justify-content: space-between; gap: 14px; border-radius: 7px; padding: 9px 10px; color: #758379; background: #f7faf7; font-size: var(--text-xs); }
+.drawer-readonly-row strong { max-width: 65%; overflow-wrap: anywhere; color: #40594a; font-weight: 600; text-align: right; }
+.drawer-footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 9px; border-top: 1px solid #e8ede8; padding-top: 13px; }
+.drawer-footer > span { margin-right: auto; color: #7d8a80; font-size: var(--text-xs); }
+.preflight-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #e4ebe4; border-radius: 8px; padding: 12px; background: #f8fbf8; }
+.preflight-summary strong { color: #42694b; font-size: var(--text-sm); }
+.preflight-summary span { color: #7b8a80; font-size: var(--text-xs); }
+.preflight-errors, .preflight-warnings ul { display: grid; gap: 7px; margin: 0; padding-left: 21px; color: #a24e43; font-size: var(--text-xs); line-height: 1.6; }
+.preflight-warnings { border: 1px solid #f0e1bd; border-radius: 8px; padding: 11px; color: #8c703c; background: #fffaf0; }
+.preflight-warnings strong { display: block; margin-bottom: 7px; font-size: var(--text-xs); }
+.preflight-warnings ul { color: #846b3f; }
+.workspace-drawer .conflict-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.workspace-drawer .conflict-panel { padding: 0; }
 .toolbar-divider { width: 1px; height: 21px; margin: 0 3px; background: #e4e9e4; }
 .reader-markdown-wrap { position: relative; }
 .annotation-toolbar { position: fixed; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; width: min(420px, calc(100vw - 16px)); border: 1px solid #dce5dd; border-radius: 10px; padding: 9px; background: #fff; box-shadow: 0 10px 28px #1c30201f; }
@@ -616,6 +642,10 @@ a { color: #2e7357; }
   .editor-writing-panel, .editor-preview-panel, .markdown-block-editor-panel, .conflict-panel, .ai-panel { padding: 13px; }
   .markdown-block-actions { grid-column: auto; }
   .markdown-source-layout .knowledge-editor, .markdown-source-layout .markdown-live-preview { min-height: 390px; }
+  .workspace-drawer, .workspace-drawer.wide { width: 100%; }
+  .workspace-drawer-header { padding: 16px 15px 13px; }
+  .workspace-drawer-body { padding: 14px 15px 21px; }
+  .workspace-drawer .conflict-columns { grid-template-columns: 1fr; }
   .legacy-import-form, .import-source-fields { grid-template-columns: 1fr; }
   .browser-import-dropzone { align-items: flex-start; flex-wrap: wrap; }
   .browser-import-dropzone > div { min-width: calc(100% - 55px); }
