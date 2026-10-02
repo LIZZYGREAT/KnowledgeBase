@@ -362,6 +362,29 @@ def test_collection_draft_uses_the_existing_runtime_lifecycle(api_client):
     assert updated.json()["revision"] == 2
     assert updated.json()["entity_type"] == "collection"
 
+    current_content = content.replace("title: Reading", "title: Current Reading")
+    collection_path.write_text(current_content, encoding="utf-8")
+    changed = api_client.get("/api/drafts/{}/compare".format(draft["id"]))
+    assert changed.status_code == 200
+    assert changed.json()["canonical_changed"] is True
+    assert "Current Reading" in changed.json()["current_content"]
+
+    rebased_content = content.replace("title: Reading", "title: Kept Draft")
+    rebased = api_client.put(
+        "/api/drafts/{}/rebase".format(draft["id"]),
+        json={
+            "content": rebased_content,
+            "expected_revision": updated.json()["revision"],
+            "expected_current_hash": changed.json()["current_content_hash"],
+        },
+    )
+    assert rebased.status_code == 200, rebased.json()
+    assert rebased.json()["entity_type"] == "collection"
+    assert rebased.json()["content"] == rebased_content
+    comparison = api_client.get("/api/drafts/{}/compare".format(draft["id"]))
+    assert comparison.status_code == 200
+    assert comparison.json()["canonical_changed"] is False
+
 
 def test_collection_api_resolves_tree_navigation_unfiled_and_progress(api_client):
     repository = api_client.app.state.repository_root

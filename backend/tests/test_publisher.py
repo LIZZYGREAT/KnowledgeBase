@@ -112,6 +112,52 @@ def test_publish_collection_and_remove_successful_draft(publish_context):
     ).fetchone()["title"] == "Reading"
 
 
+def test_publish_collection_metadata_and_reorder_updates_the_derived_order(publish_context):
+    repository, connection, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    alpha_path = "knowledge/collections/alpha.yaml"
+    beta_path = "knowledge/collections/beta.yaml"
+    alpha_initial = _collection("alpha", "Alpha")
+    beta_initial = _collection("beta", "Beta").replace("position: 0", "position: 1")
+
+    alpha_draft = _create_draft(
+        drafts, git, "collection", "alpha", alpha_initial, alpha_path
+    )
+    publisher.publish(alpha_draft.id)
+    beta_draft = _create_draft(
+        drafts, git, "collection", "beta", beta_initial, beta_path
+    )
+    publisher.publish(beta_draft.id)
+
+    alpha_updated = _collection("alpha", "Alpha Updated").replace(
+        "status: active\nposition: 0",
+        "description: Refined learning path\nstatus: active\nposition: 1",
+    )
+    beta_reordered = _collection("beta", "Beta")
+    alpha_update_draft = _create_draft(
+        drafts, git, "collection", "alpha", alpha_updated, alpha_path
+    )
+    beta_reorder_draft = _create_draft(
+        drafts, git, "collection", "beta", beta_reordered, beta_path
+    )
+
+    result = publisher.publish_batch(
+        [alpha_update_draft.id, beta_reorder_draft.id],
+        "kb: update and reorder collections",
+    )
+
+    assert (repository / alpha_path).read_text(encoding="utf-8") == alpha_updated
+    assert (repository / beta_path).read_text(encoding="utf-8") == beta_reordered
+    assert result.commit_revision == git.current_revision()
+    ordered = connection.execute(
+        "SELECT collection_id, title, position FROM collection_index ORDER BY position, collection_id"
+    ).fetchall()
+    assert [(row["collection_id"], row["title"], row["position"]) for row in ordered] == [
+        ("beta", "Beta", 0),
+        ("alpha", "Alpha Updated", 1),
+    ]
+
+
 def test_publish_batch_commits_document_and_collection_together(publish_context):
     repository, connection, drafts, _, publisher = publish_context
     git = GitManager(repository)
