@@ -4,6 +4,7 @@ import {
   createDraft,
   discardDraft,
   applyProposalToDraft as applyProposalToDraftRequest,
+  getDraft,
   getEntity,
   listDrafts,
   publishDraft,
@@ -11,6 +12,7 @@ import {
   rebaseDraft,
   updateDraft,
   type Draft,
+  type ApiError,
   type DraftPublishExpectation,
   type DraftAcquireResult,
   type DraftComparison,
@@ -24,6 +26,7 @@ import { toPublishOutcome } from "./publishOutcome";
 
 export type WorkspaceSaveState = "Ready" | "Unsaved" | "Saving" | "Saved" | "Conflict";
 export type WorkspaceDraftController = ReturnType<typeof useWorkspaceDraft>;
+type RuntimeDraftConflict = { existingDraft: Draft; localContent: string; canonicalContent: string };
 
 export function useWorkspaceDraft(type: EntityType, id: string) {
   const [session, setSession] = useState(0);
@@ -36,11 +39,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const [error, setError] = useState("");
   const [saveState, setSaveState] = useState<WorkspaceSaveState>("Ready");
   const [comparison, setComparison] = useState<DraftComparison | null>(null);
-  const [runtimeDraftConflict, setRuntimeDraftConflict] = useState<{
-    existingDraft: Draft;
-    localContent: string;
-    canonicalContent: string;
-  } | null>(null);
+  const [runtimeDraftConflict, setRuntimeDraftConflict] = useState<RuntimeDraftConflict | null>(null);
   const [runtimeMergeContent, setRuntimeMergeContent] = useState("");
   const [mergeContent, setMergeContent] = useState("");
   const [publishedRevision, setPublishedRevision] = useState("");
@@ -51,10 +50,13 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const canonicalContentRef = useRef("");
   const lastSavedRef = useRef("");
   const inFlightRef = useRef<Promise<Draft | DraftAcquireResult> | null>(null);
-  const runtimeDraftConflictRef = useRef<typeof runtimeDraftConflict>(null);
+  const runtimeDraftConflictRef = useRef<RuntimeDraftConflict | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const installDraft = useCallback((next: Draft | null, replaceContent: boolean, nextContent?: string) => {
+    runtimeDraftConflictRef.current = null;
+    setRuntimeDraftConflict(null);
+    setRuntimeMergeContent("");
     draftRef.current = next;
     setDraft(next);
     lastSavedRef.current = next?.content ?? canonicalContentRef.current;
@@ -67,6 +69,30 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setIsDirty(dirty);
     setSaveState(dirty ? "Unsaved" : next ? "Saved" : "Ready");
   }, []);
+
+  const captureRuntimeDraftConflict = useCallback(async (draftId: string, localContent: string) => {
+    const latest = await getDraft(draftId);
+    let currentCanonical = canonicalContentRef.current;
+    try {
+      const entity = await getEntity(type, id);
+      currentCanonical = entity.canonical_content ?? currentCanonical;
+      canonicalContentRef.current = currentCanonical;
+      setCanonicalEntity(entity);
+    } catch (reason) {
+      if ((reason as { status?: number })?.status !== 404) throw reason;
+    }
+    const conflict = { existingDraft: latest, localContent, canonicalContent: currentCanonical };
+    draftRef.current = latest;
+    setDraft(latest);
+    lastSavedRef.current = latest.content;
+    setIsDirty(localContent !== latest.content);
+    runtimeDraftConflictRef.current = conflict;
+    setRuntimeDraftConflict(conflict);
+    setRuntimeMergeContent(localContent);
+    setComparison(null);
+    setSaveState("Conflict");
+    setError("Runtime Draft 已在另一个会话中更新。本地修改已保留；请载入最新 Draft、保留本地内容或手动合并。");
+  }, [id, type]);
 
   useEffect(() => {
     const activeSession = sessionRef.current + 1;
@@ -177,11 +203,21 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     } catch (reason) {
       if (session !== sessionRef.current) return null;
       if (inFlightRef.current === operation) inFlightRef.current = null;
-      setSaveState((reason as { status?: number })?.status === 409 ? "Conflict" : "Unsaved");
-      setError(errorMessage(reason));
+      if ((reason as ApiError)?.code === "draft_revision_conflict" && currentDraft) {
+        try {
+          await captureRuntimeDraftConflict(currentDraft.id, contentRef.current);
+        } catch (refreshError) {
+          if (session !== sessionRef.current) return null;
+          setSaveState("Conflict");
+          setError(`Runtime Draft 已发生版本冲突，载入最新内容失败：${errorMessage(refreshError)}`);
+        }
+      } else {
+        setSaveState((reason as { status?: number })?.status === 409 ? "Conflict" : "Unsaved");
+        setError(errorMessage(reason));
+      }
       throw reason;
     }
-  }, [type, id, session]);
+  }, [captureRuntimeDraftConflict, type, id, session]);
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -205,6 +241,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const openComparison = useCallback(async () => {
     const activeSession = session;
     if (activeSession !== sessionRef.current) return null;
+    if (runtimeDraftConflictRef.current) return null;
     let currentDraft = draftRef.current;
     if (contentRef.current !== lastSavedRef.current) {
       try {
@@ -358,7 +395,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     if (activeSession !== sessionRef.current) return;
     const conflict = runtimeDraftConflictRef.current;
     if (!conflict) return;
-    const latest = (await listDrafts(type, id))[0] ?? conflict.existingDraft;
+    const latest = await getDraft(conflict.existingDraft.id);
     if (activeSession !== sessionRef.current) return;
     runtimeDraftConflictRef.current = null;
     setRuntimeDraftConflict(null);
@@ -366,9 +403,9 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     installDraft(latest, true);
     setError("");
     setComparison(null);
-  }, [id, installDraft, session, type]);
+  }, [installDraft, session]);
 
-  const applyRuntimeMerge = useCallback(async () => {
+  const applyRuntimeMerge = useCallback(async (contentOverride?: string) => {
     const activeSession = session;
     if (activeSession !== sessionRef.current) return;
     const conflict = runtimeDraftConflictRef.current;
@@ -376,7 +413,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     try {
       const updated = await updateDraft(
         conflict.existingDraft.id,
-        runtimeMergeContent,
+        contentOverride ?? runtimeMergeContent,
         conflict.existingDraft.revision,
       );
       if (activeSession !== sessionRef.current) return;
@@ -393,25 +430,16 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
       setError("");
     } catch (reason) {
       if (activeSession !== sessionRef.current) return;
-      if ((reason as { status?: number })?.status === 409) {
-        const latest = (await listDrafts(type, id))[0];
-        if (activeSession !== sessionRef.current) return;
-        if (latest) {
-          const nextConflict = { ...conflict, existingDraft: latest };
-          draftRef.current = latest;
-          setDraft(latest);
-          lastSavedRef.current = latest.content;
-          runtimeDraftConflictRef.current = nextConflict;
-          setRuntimeDraftConflict(nextConflict);
-        }
-        setError("Draft 已在另一个标签页更新；合并内容未覆盖新版本。请检查最新 Draft 后再次应用合并。");
+      if ((reason as ApiError)?.code === "draft_revision_conflict") {
+        await captureRuntimeDraftConflict(conflict.existingDraft.id, contentRef.current);
+        setError("Draft 已在另一个会话中更新；合并内容没有覆盖新版本。请检查最新 Draft 后再次保存。");
       } else {
         setError(errorMessage(reason));
       }
       setSaveState("Conflict");
       throw reason;
     }
-  }, [id, runtimeMergeContent, session, type]);
+  }, [captureRuntimeDraftConflict, runtimeMergeContent, session]);
 
   const publish = useCallback(async (
     expectedRevision: number,

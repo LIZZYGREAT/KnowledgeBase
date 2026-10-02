@@ -133,7 +133,15 @@ async def lookup_error_handler(request: Request, error: LookupError):
 
 @app.exception_handler(DraftRevisionConflict)
 async def draft_conflict_handler(request: Request, error: DraftRevisionConflict):
-    return _error_response(409, error)
+    return JSONResponse(
+        status_code=409,
+        content={
+            "detail": str(error),
+            "code": "draft_revision_conflict",
+            "expected_revision": error.expected_revision,
+            "current_revision": error.actual_revision,
+        },
+    )
 
 
 @app.exception_handler(AnnotationConflictError)

@@ -154,6 +154,13 @@ export interface Draft {
   updated_at: string;
 }
 
+export interface ApiError extends Error {
+  status: number;
+  code?: string;
+  expected_revision?: number;
+  current_revision?: number;
+}
+
 export interface DraftAcquireResult {
   draft: Draft;
   created: boolean;
@@ -256,13 +263,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let body: { detail?: string; code?: string; expected_revision?: number; current_revision?: number } = {};
     try {
-      const body = (await response.json()) as { detail?: string };
+      body = (await response.json()) as typeof body;
       if (body.detail) message = body.detail;
     } catch {
       // Keep the HTTP status when the server does not return JSON.
     }
-    throw Object.assign(new Error(message), { status: response.status });
+    throw Object.assign(new Error(message), {
+      status: response.status,
+      code: body.code,
+      expected_revision: body.expected_revision,
+      current_revision: body.current_revision,
+    }) satisfies ApiError;
   }
   return (await response.json()) as T;
 }
@@ -394,6 +407,10 @@ export function updateDraft(draftId: string, content: string, expectedRevision: 
     method: "PUT",
     body: JSON.stringify({ content, expected_revision: expectedRevision }),
   });
+}
+
+export function getDraft(draftId: string) {
+  return request<Draft>(`/api/drafts/${encodeURIComponent(draftId)}`);
 }
 
 export function compareDraft(draftId: string) {

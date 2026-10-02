@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   listCollections: vi.fn(),
   getCollection: vi.fn(),
   listDrafts: vi.fn(),
+  getDraft: vi.fn(),
   createDraft: vi.fn(),
   updateDraft: vi.fn(),
   discardDraft: vi.fn(),
@@ -89,6 +90,11 @@ function installApiBehavior() {
   api.listCollections.mockImplementation(async (status: "active" | "archived") => status === "active" ? [makeSummary()] : []);
   api.getCollection.mockImplementation(async () => ({ ...canonical, nodes: structuredClone(canonical.nodes) }));
   api.listDrafts.mockImplementation(async (type: string, id: string) => drafts.filter((draft) => draft.entity_type === type && draft.entity_id === id));
+  api.getDraft.mockImplementation(async (id: string) => {
+    const draft = drafts.find((item) => item.id === id);
+    if (!draft) throw Object.assign(new Error("Draft not found"), { status: 404 });
+    return { ...draft };
+  });
   api.createDraft.mockImplementation(async (type: Draft["entity_type"], id: string, content: string) => {
     const draft = makeDraft(type, id, content);
     drafts.push(draft);
@@ -213,6 +219,49 @@ describe("Explorer React integration", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "放弃 Draft 并载入 Canonical" }));
     await waitFor(() => expect(api.discardDraft).toHaveBeenCalledWith(staleDraft.id, staleDraft.revision));
     expect(await screen.findByRole("heading", { name: "Study Path" })).toBeTruthy();
+  });
+
+  it("separates Collection Runtime Draft conflicts and keeps local YAML using the latest revision", async () => {
+    const user = userEvent.setup();
+    const existing = makeDraft("collection", collectionId, serializeCollectionDraft(collectionToDraft(canonical)));
+    drafts.push(existing);
+    const otherTabContent = `id: ${collectionId}\ntitle: Other tab\nnodes: []\n`;
+    api.updateDraft.mockImplementationOnce(async () => {
+      Object.assign(existing, { content: otherTabContent, revision: 2 });
+      throw Object.assign(new Error("Draft revision changed"), {
+        status: 409,
+        code: "draft_revision_conflict",
+        expected_revision: 1,
+        current_revision: 2,
+      });
+    });
+    renderExplorer();
+    await screen.findByRole("heading", { name: "Study Path" });
+    const editStructure = await screen.findByRole("button", { name: "编辑结构" });
+    await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
+    await user.click(editStructure);
+    await user.click(screen.getByRole("button", { name: /All Documents/ }));
+    const row = (await screen.findByText("Orphan note")).closest(".explorer-virtual-row");
+    const values = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: "",
+      setData: (key: string, value: string) => values.set(key, value),
+      getData: (key: string) => values.get(key) ?? "",
+    };
+    fireEvent.dragStart(row!, { dataTransfer });
+    fireEvent.drop(screen.getByRole("tree"), { dataTransfer });
+
+    await screen.findByRole("heading", { name: "Collection Draft 内容冲突" });
+    expect(screen.getByText(/Other tab/)).toBeTruthy();
+    expect(api.compareDraft).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "保留本地并保存" }));
+
+    await waitFor(() => expect(api.updateDraft).toHaveBeenLastCalledWith(
+      existing.id,
+      expect.stringContaining("orphan-note"),
+      2,
+    ));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Collection Draft 内容冲突" })).toBeNull());
   });
 
   it("reviews Collection YAML before publishing and binds confirmation to the reviewed revision", async () => {

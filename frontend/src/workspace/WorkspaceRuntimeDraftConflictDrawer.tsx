@@ -34,6 +34,9 @@ export function WorkspaceRuntimeDraftConflictDrawer({ workspaceDraft }: {
       <button className="button button-secondary" type="button" onClick={() => void workspaceDraft.reloadExistingDraft()}>
         载入已保存 Draft
       </button>
+      <button className="button button-secondary" type="button" onClick={() => void workspaceDraft.applyRuntimeMerge(conflict.localContent).catch(() => undefined)}>
+        保留本地并保存
+      </button>
       <button className="button button-primary" type="button" onClick={() => void workspaceDraft.applyRuntimeMerge().catch(() => undefined)}>
         保存手动合并
       </button>

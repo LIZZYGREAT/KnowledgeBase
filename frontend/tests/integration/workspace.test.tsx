@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   getEntity: vi.fn(),
   getCollectionNavigation: vi.fn(),
   listDrafts: vi.fn(),
+  getDraft: vi.fn(),
   createDraft: vi.fn(),
   updateDraft: vi.fn(),
   discardDraft: vi.fn(),
@@ -123,6 +124,11 @@ function installApiBehavior() {
   });
   api.getCollectionNavigation.mockResolvedValue(null);
   api.listDrafts.mockImplementation(async (type: string, id: string) => drafts.filter((draft) => draft.entity_type === type && draft.entity_id === id));
+  api.getDraft.mockImplementation(async (id: string) => {
+    const draft = drafts.find((item) => item.id === id);
+    if (!draft) throw Object.assign(new Error("Draft not found"), { status: 404 });
+    return { ...draft };
+  });
   api.createDraft.mockImplementation(async (type: Draft["entity_type"], id: string, content: string) => {
     const draft = makeDraft(type, id, content);
     drafts.push(draft);
@@ -530,6 +536,41 @@ describe("Workspace React integration", () => {
     await user.click(screen.getByRole("button", { name: "保存手动合并" }));
 
     await waitFor(() => expect(api.updateDraft).toHaveBeenCalledWith(existing.id, "Merged content from both tabs.", 1));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Draft 内容冲突" })).toBeNull());
+  });
+
+  it("separates a Runtime Draft revision conflict and keeps local content with a latest-revision CAS", async () => {
+    const user = userEvent.setup();
+    const existing = seedDraft();
+    const otherTabContent = canonicalContent + "\nOther tab revision.\n";
+    api.updateDraft.mockImplementationOnce(async () => {
+      Object.assign(existing, { content: otherTabContent, revision: 2 });
+      throw Object.assign(new Error("Draft revision changed"), {
+        status: 409,
+        code: "draft_revision_conflict",
+        expected_revision: 1,
+        current_revision: 2,
+      });
+    });
+    renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await user.click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
+    await user.clear(editor);
+    await user.type(editor, "Local revision.");
+    await user.click(screen.getByRole("button", { name: "完成区块" }));
+
+    await screen.findByRole("heading", { name: "Draft 内容冲突" });
+    expect(screen.getAllByText(/Runtime Draft 已在另一个会话中更新/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Other tab revision/)).toBeTruthy();
+    expect(api.compareDraft).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "保留本地并保存" }));
+
+    await waitFor(() => expect(api.updateDraft).toHaveBeenLastCalledWith(
+      existing.id,
+      expect.stringContaining("Local revision."),
+      2,
+    ));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Draft 内容冲突" })).toBeNull());
   });
 

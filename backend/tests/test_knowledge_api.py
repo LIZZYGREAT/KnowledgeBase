@@ -330,6 +330,32 @@ def test_draft_compare_rebase_list_and_discard_are_revision_guarded(api_client):
     assert api_client.get("/api/drafts/{}".format(draft["id"])).status_code == 404
 
 
+def test_runtime_draft_revision_conflict_returns_structured_error(api_client):
+    created = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "document",
+            "entity_id": "neural-indexing",
+            "content": _document_content(),
+        },
+    )
+    draft = created.json()["draft"]
+    first_update = api_client.put(
+        "/api/drafts/{}".format(draft["id"]),
+        json={"content": "first update", "expected_revision": draft["revision"]},
+    )
+    assert first_update.status_code == 200
+
+    stale_update = api_client.put(
+        "/api/drafts/{}".format(draft["id"]),
+        json={"content": "stale update", "expected_revision": draft["revision"]},
+    )
+    assert stale_update.status_code == 409
+    assert stale_update.json()["code"] == "draft_revision_conflict"
+    assert stale_update.json()["expected_revision"] == draft["revision"]
+    assert stale_update.json()["current_revision"] == first_update.json()["revision"]
+
+
 def test_collection_draft_uses_the_existing_runtime_lifecycle(api_client):
     repository = api_client.app.state.repository_root
     collection_path = repository / "knowledge" / "collections" / "reading.yaml"

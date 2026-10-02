@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { addEntityReference, moveCollectionSibling, removeCollectionNode } from "./collectionEditing.js";
 import { EmptyState, ErrorState, LoadingState, PageHeader } from "./ui";
 import { CollectionConflictDrawer } from "./explorer/CollectionConflictDrawer";
+import { CollectionRuntimeDraftConflictDrawer } from "./explorer/CollectionRuntimeDraftConflictDrawer";
 import { AddExistingEntityDialog, CollectionDraftToolbar, CreateCollectionDialog, EditCollectionMetadataDialog, NewNoteHereDialog } from "./explorer/ExplorerDialogs";
 import { CollectionOverview, VirtualViewButton, VirtualViewContent } from "./explorer/ExplorerViews";
 import { CollectionTree } from "./explorer/ExplorerTree";
@@ -227,6 +228,16 @@ export function ExplorerPage(props: ExplorerPageProps) {
         onReloadCanonical={() => void reloadCanonicalCollection()}
         onApplyRebase={() => void keepDraftAndRebaseCollection()}
         onClose={() => setCollectionConflictOpen(false)}
+      />}
+      {collectionDraft.runtimeDraftConflict && <CollectionRuntimeDraftConflictDrawer
+        conflict={collectionDraft.runtimeDraftConflict}
+        mergeContent={collectionDraft.mergeContent}
+        error={collectionDraft.error}
+        busy={busy}
+        onMergeContentChange={collectionDraft.setMergeContent}
+        onReloadLatest={() => void collectionDraft.reloadLatestRuntimeDraft()}
+        onKeepLocal={() => void collectionDraft.applyRuntimeMerge(collectionDraft.runtimeDraftConflict?.localContent).catch((reason: unknown) => setActionError(errorMessage(reason)))}
+        onSaveMerge={() => void collectionDraft.applyRuntimeMerge().catch((reason: unknown) => setActionError(errorMessage(reason)))}
       />}
       {collectionPublishReview && <WorkspacePublishDrawer
         items={collectionPublishReview}
