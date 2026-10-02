@@ -44,7 +44,7 @@ export function MarkdownBlockEditor({
   const [editing, setEditing] = useState<EditingBlock | null>(null);
   const blocksForView = editing ? parseMarkdownBlocks(editing.baseBody).blocks : parsed.blocks;
   const viewBlocks = editing && editing.index >= blocksForView.length
-    ? [...blocksForView, { content: "", separator: "" }]
+    ? [...blocksForView, { id: "new-block", type: "other" as const, start: envelope.body.length, end: envelope.body.length, raw: "", separator: "" }]
     : blocksForView;
   const blockEditorRef = useRef<HTMLTextAreaElement>(null);
   const sourceEditorRef = useRef<HTMLTextAreaElement>(null);
@@ -141,7 +141,7 @@ export function MarkdownBlockEditor({
       </section>
     </div> : <>
       <div className="markdown-block-list">
-        {viewBlocks.map((block, index) => editing?.index === index ? <div className="markdown-block-edit" key={`edit:${index}`}>
+        {viewBlocks.map((block, index) => editing?.index === index ? <div className="markdown-block-edit" key={`edit:${block.id}`}>
           <textarea
             ref={blockEditorRef}
             className="knowledge-editor markdown-block-textarea"
@@ -157,9 +157,9 @@ export function MarkdownBlockEditor({
             <Suspense fallback={<p className="subtle-copy">正在生成预览…</p>}><MarkdownContent content={editing.value} onNavigate={onNavigate} /></Suspense>
           </div>
           <div className="markdown-block-actions"><button className="button button-secondary" type="button" onClick={() => setEditing(null)}>完成区块</button></div>
-        </div> : <article className="markdown-block" key={`block:${index}`} onDoubleClick={() => startEditing(index, block.content)}>
-          <div className="markdown-block-content"><Suspense fallback={<p className="subtle-copy">正在生成预览…</p>}><MarkdownContent content={block.content} onNavigate={onNavigate} /></Suspense></div>
-          <button className="text-button markdown-block-edit-button" type="button" onClick={() => startEditing(index, block.content)}>编辑区块</button>
+        </div> : <article className="markdown-block" key={block.id} onDoubleClick={() => startEditing(index, block.raw)}>
+          <div className="markdown-block-content"><Suspense fallback={<p className="subtle-copy">正在生成预览…</p>}><MarkdownContent content={block.raw} onNavigate={onNavigate} /></Suspense></div>
+          <button className="text-button markdown-block-edit-button" type="button" onClick={() => startEditing(index, block.raw)}>编辑区块</button>
         </article>)}
         {!viewBlocks.length && <p className="markdown-empty-state">正文为空。添加一个 Markdown 区块开始写作。</p>}
       </div>

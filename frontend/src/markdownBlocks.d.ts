@@ -1,11 +1,27 @@
-export interface MarkdownBlock {
-  content: string;
+export type MarkdownBlockType =
+  | "heading"
+  | "paragraph"
+  | "list"
+  | "blockquote"
+  | "code"
+  | "math"
+  | "table"
+  | "html"
+  | "other";
+
+export interface MarkdownBlockRange {
+  id: string;
+  type: MarkdownBlockType;
+  start: number;
+  end: number;
+  raw: string;
   separator: string;
 }
 
 export interface ParsedMarkdownBlocks {
+  source: string;
   preamble: string;
-  blocks: MarkdownBlock[];
+  blocks: MarkdownBlockRange[];
 }
 
 export function splitMarkdownFrontmatter(content: string): { frontmatter: string; body: string };

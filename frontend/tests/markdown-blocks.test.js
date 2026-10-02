@@ -23,14 +23,14 @@ test("Markdown blocks preserve blank lines and line endings when serialized", ()
 test("blank lines inside a fenced code block remain in the same block", () => {
   const parsed = parseMarkdownBlocks("```text\nfirst\n\nsecond\n```\n\nAfter.\n");
   assert.equal(parsed.blocks.length, 2);
-  assert.equal(parsed.blocks[0].content, "```text\nfirst\n\nsecond\n```\n");
+  assert.equal(parsed.blocks[0].raw, "```text\nfirst\n\nsecond\n```");
 });
 
 test("replacing one block retains surrounding separators and frontmatter", () => {
   const content = "---\nid: note-1\ntitle: Note\n---\n\n# First\n\nSecond paragraph.\n";
   const envelope = splitMarkdownFrontmatter(content);
   const parsed = parseMarkdownBlocks(envelope.body);
-  const updatedBody = replaceMarkdownBlock(envelope.body, 1, "Updated paragraph.\n");
+  const updatedBody = replaceMarkdownBlock(envelope.body, 1, "Updated paragraph.");
   const updated = joinMarkdownFrontmatter(envelope.frontmatter, updatedBody);
   assert.equal(updated, "---\nid: note-1\ntitle: Note\n---\n\n# First\n\nUpdated paragraph.\n");
 });

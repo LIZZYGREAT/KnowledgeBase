@@ -1,3 +1,10 @@
+import { unified } from "unified";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import remarkParse from "remark-parse";
+
+const markdownParser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
+
 export function splitMarkdownFrontmatter(content) {
   const match = /^(---\r?\n[\s\S]*?\r?\n---)(?:\r?\n)?/.exec(content);
   if (!match) return { frontmatter: "", body: content };
@@ -9,55 +16,50 @@ export function joinMarkdownFrontmatter(frontmatter, body) {
 }
 
 export function parseMarkdownBlocks(value) {
-  const lines = value.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g)?.filter(Boolean) ?? [];
-  const blocks = [];
-  let preamble = "";
-  let current = "";
-  let fence = null;
+  const tree = markdownParser.parse(value);
+  const ranges = tree.children
+    .map((node, index) => {
+      const start = node.position?.start?.offset;
+      const end = node.position?.end?.offset;
+      if (!Number.isInteger(start) || !Number.isInteger(end) || end < start) return null;
+      return {
+        id: `${node.type}:${start}:${end}:${index}`,
+        type: markdownBlockType(node.type),
+        start,
+        end,
+        raw: value.slice(start, end),
+      };
+    })
+    .filter(Boolean);
 
-  for (const line of lines) {
-    const blank = /^[\t ]*(?:\r\n|\r|\n)?$/.test(line);
-    if (blank && !fence) {
-      if (current) {
-        blocks.push({ content: current, separator: line });
-        current = "";
-      } else if (blocks.length) {
-        blocks[blocks.length - 1].separator += line;
-      } else {
-        preamble += line;
-      }
-      continue;
-    }
-
-    current += line;
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (!fence && marker) {
-      fence = { character: marker[0], length: marker.length };
-    } else if (fence) {
-      const close = new RegExp(`^ {0,3}${fence.character === "`" ? "`" : "~"}{${fence.length},}[\\t ]*(?:\\r?\\n|\\r)?$`);
-      if (close.test(line)) fence = null;
-    }
-  }
-
-  if (current) blocks.push({ content: current, separator: "" });
-  return { preamble, blocks };
+  return {
+    source: value,
+    preamble: ranges.length ? value.slice(0, ranges[0].start) : value,
+    blocks: ranges.map((block, index) => ({
+      ...block,
+      separator: value.slice(block.end, ranges[index + 1]?.start ?? value.length),
+    })),
+  };
 }
 
 export function serializeMarkdownBlocks(parsed) {
-  return parsed.preamble + parsed.blocks.map((block) => block.content + block.separator).join("");
+  return parsed.preamble + parsed.blocks.map((block) => block.raw + block.separator).join("");
 }
 
 export function replaceMarkdownBlock(value, index, replacement) {
-  const parsed = parseMarkdownBlocks(value);
-  if (index < parsed.blocks.length) {
-    parsed.blocks[index] = { ...parsed.blocks[index], content: replacement };
-    return serializeMarkdownBlocks(parsed);
-  }
+  const { blocks } = parseMarkdownBlocks(value);
+  const block = blocks[index];
+  if (block) return value.slice(0, block.start) + replacement + value.slice(block.end);
 
-  const serialized = serializeMarkdownBlocks(parsed);
-  if (!serialized) return replacement;
-  const lineEnding = serialized.match(/\r\n|\r|\n/)?.[0] ?? "\n";
-  const trailingBreaks = serialized.match(/(?:\r\n|\r|\n)+$/)?.[0] ?? "";
+  if (!value) return replacement;
+  const lineEnding = value.match(/\r\n|\r|\n/)?.[0] ?? "\n";
+  const trailingBreaks = value.match(/(?:\r\n|\r|\n)+$/)?.[0] ?? "";
   const count = (trailingBreaks.match(/\r\n|\r|\n/g) ?? []).length;
-  return `${serialized}${lineEnding.repeat(Math.max(0, 2 - count))}${replacement}`;
+  return `${value}${lineEnding.repeat(Math.max(0, 2 - count))}${replacement}`;
+}
+
+function markdownBlockType(type) {
+  return ["heading", "paragraph", "list", "blockquote", "code", "math", "table", "html"].includes(type)
+    ? type
+    : "other";
 }
