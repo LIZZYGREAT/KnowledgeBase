@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { parseDocument } from "yaml";
 import {
-  discardDraft, listAllEntities, listDrafts, listProposals, compareDraft, preflightDraft,
-  requestAIProposal, reviewProposal, type Draft, type EntitySummary, type Proposal,
+  compareDraft, discardDraft, getCollection, listAllEntities, listDrafts, listProposals,
+  preflightDraft, requestAIProposal, reviewProposal, updateDraft,
+  type Draft, type EntitySummary, type Proposal,
 } from "../api";
+import { removeCollectionNode } from "../collectionEditing.js";
+import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel.js";
+import { findEntityNodeId } from "../explorer/explorerModel.js";
 import { patchYamlField, readFrontmatterField } from "../metadataDraft.js";
 import type { PublishReviewItem } from "../publishReview.js";
 import type { WorkspaceEditingProps } from "./WorkspaceEditorTypes";
@@ -162,13 +166,32 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
 
   async function discardCurrentDraft() {
     if (!window.confirm(batchCollectionId
-      ? "同时丢弃这篇笔记和所在 Collection 的运行时 Draft？"
+      ? "丢弃这篇笔记 Draft 并从 Collection Draft 移除它的引用？此前的 Collection 修改会保留。"
       : "丢弃尚未发布的修改？运行时 Draft 会被删除。")) return;
     try {
       const relatedCollectionDraft = batchCollectionId
         ? (await listDrafts("collection", batchCollectionId))[0]
         : null;
-      if (relatedCollectionDraft) await discardDraft(relatedCollectionDraft.id, relatedCollectionDraft.revision);
+      if (relatedCollectionDraft) {
+        const comparison = await compareDraft(relatedCollectionDraft.id);
+        if (comparison.canonical_changed) {
+          throw new Error("Collection Canonical 已变化。请先检查 Collection Draft 冲突，再丢弃新笔记。");
+        }
+        const canonicalCollection = await getCollection(batchCollectionId!);
+        const currentCollection = parseCollectionDraft(comparison.draft.content, canonicalCollection);
+        const referenceId = findEntityNodeId(currentCollection.nodes, "document", id);
+        if (referenceId) {
+          const cleanedContent = serializeCollectionDraft(
+            removeCollectionNode(currentCollection, referenceId),
+          );
+          const canonicalContent = serializeCollectionDraft(collectionToDraft(canonicalCollection));
+          if (cleanedContent === canonicalContent) {
+            await discardDraft(comparison.draft.id, comparison.draft.revision);
+          } else {
+            await updateDraft(comparison.draft.id, cleanedContent, comparison.draft.revision);
+          }
+        }
+      }
       await workspaceDraft.discard();
       navigate(batchCollectionId
         ? `/explorer?collection=${encodeURIComponent(batchCollectionId)}`

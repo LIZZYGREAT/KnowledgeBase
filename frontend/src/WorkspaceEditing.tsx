@@ -115,7 +115,7 @@ export function WorkspaceEditingSurface(props: WorkspaceEditingProps) {
         onApplyRebase={() => void applyRebase()}
         onClose={() => setActiveDrawer(null)}
       />}
-      <div className="editor-bottom-actions"><button className="button button-danger" disabled={!draft && !isDirty} onClick={() => void discardCurrentDraft()}>{batchCollectionId ? "丢弃两个 Draft" : "丢弃 Draft"}</button><span>{batchCollectionId ? `发布目标：Document + Collection ${batchCollectionId}` : draft ? "草稿与当前正式内容关联" : "基于当前正式内容"} · Publisher 会检查外部更改</span></div>
+      <div className="editor-bottom-actions"><button className="button button-danger" disabled={!draft && !isDirty} onClick={() => void discardCurrentDraft()}>{batchCollectionId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button><span>{batchCollectionId ? `发布目标：Document + Collection ${batchCollectionId}；丢弃笔记会保留已有 Collection 修改` : draft ? "草稿与当前正式内容关联" : "基于当前正式内容"} · Publisher 会检查外部更改</span></div>
     </div>
   );
 }

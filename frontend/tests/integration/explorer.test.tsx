@@ -234,4 +234,46 @@ describe("Explorer React integration", () => {
     expect(api.publishDraftsBatch.mock.calls[0][0].map((item) => item.draft_id)).toContain("draft-1");
     expect(api.publishDraftsBatch.mock.calls[0][0].map((item) => item.draft_id)).toContain("draft-2");
   });
+
+  it("discards a new note while preserving earlier Collection Draft changes", async () => {
+    const user = userEvent.setup();
+    const previousCollectionDraft = makeDraft(
+      "collection",
+      collectionId,
+      "schema_version: 1\nid: study-path\ntitle: Study Path\n"
+        + "description: Previously edited description\nstatus: active\nposition: 0\n"
+        + "nodes:\n  - id: section-notes\n    kind: section\n"
+        + "    title: Renamed Notes\n    children: []\n",
+    );
+    drafts.push(previousCollectionDraft);
+    const confirmation = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<RouteHarness />);
+
+    await screen.findByRole("heading", { name: "Study Path" });
+    const editStructure = await screen.findByRole("button", { name: "编辑结构" });
+    await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
+    await user.click(editStructure);
+    await user.click(screen.getByRole("button", { name: "在 Renamed Notes 中新建笔记" }));
+    await user.type(screen.getByRole("textbox", { name: "笔记标题" }), "Temporary note");
+    await user.click(screen.getByRole("button", { name: "创建 Draft 并编辑" }));
+    await screen.findByRole("heading", { name: `编辑 ${createdNoteId}` });
+    const createdDocumentDraft = drafts.find((draft) => draft.entity_type === "document" && draft.entity_id === createdNoteId);
+    expect(createdDocumentDraft).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "丢弃笔记并撤销引用" }));
+
+    await waitFor(() => expect(drafts.some((draft) => draft.entity_type === "document" && draft.entity_id === createdNoteId)).toBe(false));
+    const preservedCollectionDraft = drafts.find((draft) => draft.id === previousCollectionDraft.id);
+    expect(preservedCollectionDraft).toBeTruthy();
+    expect(preservedCollectionDraft?.revision).toBe(3);
+    expect(parse(preservedCollectionDraft!.content)).toMatchObject({
+      description: "Previously edited description",
+      nodes: [{ id: "section-notes", title: "Renamed Notes", children: [] }],
+    });
+    expect(preservedCollectionDraft?.content).not.toContain(createdNoteId);
+    expect(api.discardDraft).toHaveBeenCalledWith(createdDocumentDraft!.id, createdDocumentDraft!.revision);
+    expect(api.discardDraft).not.toHaveBeenCalledWith(previousCollectionDraft.id, expect.any(Number));
+    expect(confirmation).toHaveBeenCalledWith(expect.stringContaining("此前的 Collection 修改会保留"));
+    confirmation.mockRestore();
+  });
 });
