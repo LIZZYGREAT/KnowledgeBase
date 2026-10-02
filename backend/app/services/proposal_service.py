@@ -39,7 +39,7 @@ _PROPOSAL_KINDS = {
     "evidence",
     "format",
 }
-_ACTIVE_STATUSES = ("proposed", "drafted", "approved")
+_ACTIVE_STATUSES = ("proposed", "drafted")
 _CANDIDATE_TYPES = {"term", "taxonomy"}
 
 
@@ -122,7 +122,7 @@ class ProposalService:
         if kind is not None and kind not in _PROPOSAL_KINDS:
             raise ValueError("Unsupported Proposal kind: {}".format(kind))
         if status is not None and status not in {
-            "proposed", "drafted", "approved", "merged", "rejected", "stale"
+            "proposed", "drafted", "merged", "rejected", "stale"
         }:
             raise ValueError("Unsupported Proposal status: {}".format(status))
         if target_id is not None:
@@ -133,16 +133,6 @@ class ProposalService:
             raise ValueError("offset must be zero or greater")
         return self.repository.list(target_type, target_id, kind, status, limit, offset)
 
-    def draft(
-        self,
-        proposal_id: str,
-        payload: Dict[str, Any],
-        diff_text: Optional[str] = None,
-    ) -> Proposal:
-        if not isinstance(payload, dict):
-            raise ValueError("Proposal payload must be a JSON object")
-        return self.repository.update_draft(proposal_id, payload, diff_text)
-
     def apply_to_draft(
         self, proposal_id: str, draft: Draft, expected_revision: int
     ) -> tuple[Proposal, Draft]:
@@ -150,7 +140,7 @@ class ProposalService:
             raise DraftRevisionConflict(expected_revision, draft.revision)
         current_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
         proposal = self._require_current_base(proposal_id, current_hash)
-        if proposal.status not in {"proposed", "drafted", "approved"}:
+        if proposal.status not in {"proposed", "drafted"}:
             raise ProposalTransitionError(
                 "Cannot apply a Proposal in '{}' status".format(proposal.status)
             )
@@ -184,25 +174,6 @@ class ProposalService:
             _utc_now(),
         )
 
-    def approve(
-        self,
-        proposal_id: str,
-        current_content_hash: str,
-        review_note: Optional[str] = None,
-    ) -> Proposal:
-        proposal = self._require_current_base(proposal_id, current_content_hash)
-        if proposal.status not in {"proposed", "drafted"}:
-            raise ProposalTransitionError(
-                "Cannot approve a Proposal in '{}' status".format(proposal.status)
-            )
-        return self.repository.transition(
-            proposal_id,
-            (proposal.status,),
-            "approved",
-            _utc_now(),
-            _optional_text(review_note),
-        )
-
     def reject(
         self,
         proposal_id: str,
@@ -224,7 +195,7 @@ class ProposalService:
             candidate = (candidate_type, normalized_value, scope.strip())
 
         proposal = self.get(proposal_id)
-        if proposal.status not in {"proposed", "drafted", "approved", "stale"}:
+        if proposal.status not in {"proposed", "drafted", "stale"}:
             raise ProposalTransitionError(
                 "Cannot reject a Proposal in '{}' status".format(proposal.status)
             )
@@ -235,22 +206,6 @@ class ProposalService:
             _utc_now(),
             review_note.strip(),
             rejected_candidate=candidate,
-        )
-
-    def merge(self, proposal_id: str, current_content_hash: str) -> Proposal:
-        proposal = self._require_current_base(proposal_id, current_content_hash)
-        if proposal.status != "approved":
-            raise ProposalTransitionError(
-                "Only an approved Proposal can be merged; current status is '{}'".format(
-                    proposal.status
-                )
-            )
-        return self.repository.transition(
-            proposal_id,
-            ("approved",),
-            "merged",
-            _utc_now(),
-            proposal.review_note,
         )
 
     def detect_stale(self, proposal_id: str, current_content_hash: str) -> Proposal:
@@ -269,16 +224,6 @@ class ProposalService:
                 "stale",
                 _utc_now(),
                 note,
-            )
-        return proposal
-
-    def assert_applicable(self, proposal_id: str, current_content_hash: str) -> Proposal:
-        proposal = self._require_current_base(proposal_id, current_content_hash)
-        if proposal.status != "approved":
-            raise ProposalTransitionError(
-                "Only an approved Proposal can be applied; current status is '{}'".format(
-                    proposal.status
-                )
             )
         return proposal
 

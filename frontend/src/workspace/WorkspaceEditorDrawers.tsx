@@ -58,8 +58,8 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       selectedText={selectedText}
       onSelectionChange={setSelection}
       proposalError={proposalError}
-      proposals={proposals.filter((proposal) => ["proposed", "drafted", "approved"].includes(proposal.status))}
-      pendingCount={proposals.filter((proposal) => ["proposed", "drafted", "approved"].includes(proposal.status)).length}
+      proposals={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status))}
+      pendingCount={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status)).length}
       onGenerate={(task) => void generateProposal(task)}
       onReview={(proposalId) => void actOnProposal(proposalId)}
       onApplyToDraft={(proposalId) => void applyProposalToDraft(proposalId)}

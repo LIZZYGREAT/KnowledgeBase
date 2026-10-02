@@ -60,7 +60,7 @@ def test_runtime_schema_contains_runtime_and_derived_index_tables(runtime_connec
         "source_fts",
         "evidence_fts",
     } <= tables
-    assert runtime_connection.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert runtime_connection.execute("PRAGMA user_version").fetchone()[0] == 3
     assert runtime_connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
     ).fetchone() is not None
@@ -159,33 +159,28 @@ def test_draft_rejects_stale_autosave_and_unknown_ids(runtime_connection):
         service.save("missing", "content", expected_revision=1)
 
 
-def test_proposal_draft_approve_assert_and_merge_follow_state_machine(runtime_connection):
+def test_proposal_uses_single_apply_to_draft_publish_lifecycle(runtime_connection):
+    drafts = DraftService(DraftRepository(runtime_connection))
     service = ProposalService(ProposalRepository(runtime_connection))
+    base = "# Before\n"
+    candidate = "# After\n"
+    draft = drafts.create(
+        "document", "note", base, "revision", hashlib.sha256(b"canonical").hexdigest()
+    )
     proposal = service.create(
         "document",
         "note",
         "document_revision",
-        hashlib.sha256(b"# Before\n").hexdigest(),
-        {"title": "新标题"},
-        "human",
-        base_content="# Before\n",
-        proposed_content="# After\n",
+        hashlib.sha256(base.encode("utf-8")).hexdigest(),
+        {"draft_id": draft.id, "content": candidate},
+        "ai",
     )
     assert proposal.status == "proposed"
-    assert "-# Before" in proposal.diff_text
-    assert "+# After" in proposal.diff_text
-
-    drafted = service.draft(proposal.id, {"title": "更新标题"}, "metadata diff")
-    current_hash = hashlib.sha256(b"# Before\n").hexdigest()
-    approved = service.approve(proposal.id, current_hash, "reviewed")
-    applicable = service.assert_applicable(proposal.id, current_hash)
-    merged = service.merge(proposal.id, current_hash)
-
-    assert drafted.status == "drafted"
-    assert approved.status == "approved"
-    assert applicable.payload == {"title": "更新标题"}
-    assert merged.status == "merged"
-    assert merged.review_note == "reviewed"
+    applied_proposal, applied_draft = service.apply_to_draft(proposal.id, draft, 1)
+    assert applied_proposal.status == "drafted"
+    assert applied_draft.content == candidate
+    finalized = service.finalize_draft_publish(applied_draft, candidate)
+    assert finalized[0].status == "merged"
 
 
 def test_apply_proposal_updates_draft_and_proposal_in_one_lifecycle(runtime_connection):
@@ -246,33 +241,49 @@ def test_metadata_proposal_applies_changes_without_replacing_markdown_body(runti
     assert applied_draft.content.endswith("# Body\n\nKeep this text.\n")
 
 
-def test_approved_proposal_cannot_be_rejected_after_merge(runtime_connection):
+def test_merged_proposal_cannot_be_rejected(runtime_connection):
     service = ProposalService(ProposalRepository(runtime_connection))
-    proposal = service.create(
-        "term", "sgd", "term_revision", hashlib.sha256(b"before").hexdigest(), {}, "human"
+    drafts = DraftService(DraftRepository(runtime_connection))
+    base = "# Before\n"
+    candidate = "# Candidate\n"
+    draft = drafts.create(
+        "term", "sgd", base, "revision", hashlib.sha256(b"canonical").hexdigest()
     )
-    current_hash = hashlib.sha256(b"before").hexdigest()
-    service.approve(proposal.id, current_hash)
-    service.merge(proposal.id, current_hash)
+    proposal = service.create(
+        "term",
+        "sgd",
+        "term_revision",
+        hashlib.sha256(base.encode("utf-8")).hexdigest(),
+        {"draft_id": draft.id, "content": candidate},
+        "ai",
+    )
+    _, applied_draft = service.apply_to_draft(proposal.id, draft, 1)
+    service.finalize_draft_publish(applied_draft, candidate)
 
     with pytest.raises(ProposalTransitionError, match="Cannot reject"):
         service.reject(proposal.id, "too late")
 
 
-def test_stale_proposal_is_marked_and_cannot_be_approved_or_applied(runtime_connection):
+def test_stale_proposal_is_marked_and_cannot_be_applied(runtime_connection):
     service = ProposalService(ProposalRepository(runtime_connection))
-    proposal = service.create(
-        "document", "note", "metadata", hashlib.sha256(b"before").hexdigest(), {"tags": ["ai"]}, "ai"
+    drafts = DraftService(DraftRepository(runtime_connection))
+    base = "before"
+    draft = drafts.create(
+        "document", "note", base, "revision", hashlib.sha256(b"canonical").hexdigest()
     )
-    changed_hash = hashlib.sha256(b"after").hexdigest()
+    proposal = service.create(
+        "document",
+        "note",
+        "metadata",
+        hashlib.sha256(base.encode("utf-8")).hexdigest(),
+        {"draft_id": draft.id, "content": "candidate"},
+        "ai",
+    )
+    changed_draft = drafts.save(draft.id, "after", expected_revision=1)
 
     with pytest.raises(StaleProposalError):
-        service.approve(proposal.id, changed_hash)
+        service.apply_to_draft(proposal.id, changed_draft, changed_draft.revision)
     assert service.get(proposal.id).status == "stale"
-    with pytest.raises(StaleProposalError):
-        service.assert_applicable(proposal.id, changed_hash)
-    with pytest.raises(StaleProposalError):
-        service.merge(proposal.id, changed_hash)
 
 
 def test_reject_records_candidate_atomically_and_normalizes_lookup(runtime_connection):

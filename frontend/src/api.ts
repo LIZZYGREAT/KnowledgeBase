@@ -188,7 +188,6 @@ export interface PublishedDraft {
   entity_type: string;
   entity_id: string;
   commit_revision: string;
-  proposal_id: string | null;
   warnings: string[];
 }
 
@@ -490,10 +489,10 @@ export function requestAIProposal(
   });
 }
 
-export function reviewProposal(proposalId: string, action: "approve" | "reject") {
-  return request<Proposal>(`/api/proposals/${encodeURIComponent(proposalId)}/${action}`, {
+export function rejectProposal(proposalId: string) {
+  return request<Proposal>(`/api/proposals/${encodeURIComponent(proposalId)}/reject`, {
     method: "POST",
-    body: JSON.stringify(action === "reject" ? { review_note: "用户拒绝此 Proposal" } : {}),
+    body: JSON.stringify({ review_note: "用户拒绝此 Proposal" }),
   });
 }
 

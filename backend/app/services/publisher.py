@@ -1,6 +1,5 @@
 """Validate Drafts and publish canonical files through Git."""
 
-import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,7 +60,6 @@ class PublishedResult:
     entity_id: str
     path: str
     commit_revision: str
-    proposal_id: Optional[str] = None
     warnings: tuple[str, ...] = ()
 
 
@@ -113,15 +111,13 @@ class Publisher:
     def publish(
         self,
         draft_id: str,
-        proposal_id: Optional[str] = None,
-        commit_message: Optional[str] = None,
         expected_revision: Optional[int] = None,
+        commit_message: Optional[str] = None,
     ) -> PublishedResult:
         if expected_revision is None:
             expected_revision = self.draft_service.get(draft_id).revision
-        proposal_ids = {draft_id: proposal_id} if proposal_id is not None else None
         result = self.publish_batch(
-            [draft_id], commit_message, proposal_ids, {draft_id: expected_revision}
+            [draft_id], commit_message, {draft_id: expected_revision}
         )
         return result.results[0]
 
@@ -171,7 +167,6 @@ class Publisher:
         self,
         draft_ids,
         commit_message: Optional[str] = None,
-        proposal_ids: Optional[dict[str, str]] = None,
         expected_revisions: Optional[dict[str, int]] = None,
     ) -> BatchPublishedResult:
         """Validate and publish multiple Drafts in one canonical Git commit."""
@@ -180,9 +175,6 @@ class Publisher:
         draft_ids = list(draft_ids)
         if len(draft_ids) != len(set(draft_ids)):
             raise PublishValidationError("Draft ids in a batch must be unique")
-        proposal_ids = proposal_ids or {}
-        if set(proposal_ids) - set(draft_ids):
-            raise PublishValidationError("A Proposal may only be applied to a Draft in the batch")
         if expected_revisions is not None and set(expected_revisions) != set(draft_ids):
             raise PublishValidationError(
                 "Every Draft in a publish batch must include its reviewed revision"
@@ -205,20 +197,6 @@ class Publisher:
                     )
                 )
             content = draft.content
-            proposal = None
-            proposal_id = proposal_ids.get(draft.id)
-            if proposal_id is not None:
-                if self.proposal_service is None:
-                    raise PublishError("ProposalService is required to apply a Proposal")
-                proposal = self.proposal_service.get(proposal_id)
-                if proposal.target_type != draft.entity_type or proposal.target_id != draft.entity_id:
-                    raise PublishValidationError("Proposal target does not match the Draft")
-                proposed_content = proposal.payload.get("content")
-                if not isinstance(proposed_content, str):
-                    raise PublishValidationError(
-                        "Publishable Proposal payload must include full Markdown/YAML 'content'"
-                    )
-                content = proposed_content
 
             try:
                 path, metadata = self._target_path(draft, content)
@@ -234,12 +212,6 @@ class Publisher:
                 raise PublishValidationError("A batch cannot publish the same canonical path twice")
             target_paths.add(path.resolve())
 
-            draft_content_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
-            if proposal is not None:
-                proposal = self.proposal_service.assert_applicable(
-                    proposal.id, draft_content_hash
-                )
-
             previous = path.read_bytes() if path.is_file() else None
             new_content = content.encode("utf-8")
             if previous == new_content:
@@ -249,9 +221,7 @@ class Publisher:
             prepared.append(
                 {
                     "draft": draft,
-                    "proposal": proposal,
                     "content": content,
-                    "content_hash": draft_content_hash,
                     "path": path,
                     "metadata": metadata,
                     "previous": previous,
@@ -305,15 +275,7 @@ class Publisher:
                 post_publish_warnings.append(
                     "Draft cleanup failed after commit for '{}': {}".format(draft.id, error)
                 )
-            proposal = item["proposal"]
-            if proposal is not None:
-                try:
-                    self.proposal_service.merge(proposal.id, item["content_hash"])
-                except Exception as error:
-                    post_publish_warnings.append(
-                        "Proposal status update failed after commit: {}".format(error)
-                    )
-            elif self.proposal_service is not None:
+            if self.proposal_service is not None:
                 try:
                     self.proposal_service.finalize_draft_publish(
                         draft, item["content"]
@@ -338,7 +300,6 @@ class Publisher:
                 entity_id=item["draft"].entity_id,
                 path=item["path"].relative_to(self.repository_root).as_posix(),
                 commit_revision=commit_revision,
-                proposal_id=item["proposal"].id if item["proposal"] else None,
                 warnings=tuple(item["warnings"] + post_publish_warnings),
             )
             for item in prepared

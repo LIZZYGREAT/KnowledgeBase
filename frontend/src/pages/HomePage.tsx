@@ -25,7 +25,7 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
         listAllEntities("document"),
         listAllEntities("term"),
         listAllEntities("source"),
-        Promise.all(["proposed", "drafted", "approved"].map((status) => listProposals(status))),
+        Promise.all(["proposed", "drafted"].map((status) => listProposals(status))),
         listImports(),
       ]);
     const [proposalGroups, imports] = proposalAndImport as [Proposal[][], ImportJob[]];

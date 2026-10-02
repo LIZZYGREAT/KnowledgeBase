@@ -11,7 +11,7 @@ from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager, GitOperationError
 from backend.app.services.indexer import Indexer
-from backend.app.services.proposal_service import ProposalService, StaleProposalError
+from backend.app.services.proposal_service import ProposalService
 from backend.app.services.publisher import (
     PublishConflictError,
     PublishError,
@@ -508,31 +508,29 @@ def test_unrelated_malformed_markdown_does_not_block_publish(publish_context):
     assert any("run `python tools/kb.py rebuild`" in warning for warning in result.warnings)
 
 
-def test_approved_proposal_is_applied_and_merged_after_commit(publish_context):
+def test_applied_proposal_is_published_through_its_draft(publish_context):
     repository, _, drafts, proposals, publisher = publish_context
     git = GitManager(repository)
     target = "knowledge/documents/learning/proposed-note.md"
-    content = _document("proposed-note", title="Approved Content")
+    base = _document("proposed-note", title="Before")
+    content = _document("proposed-note", title="Candidate Content")
     draft = _create_draft(
-        drafts, git, "document", "proposed-note", "draft placeholder", target
+        drafts, git, "document", "proposed-note", base, target
     )
     proposal = proposals.create(
         "document",
         "proposed-note",
         "document_revision",
-        hashlib.sha256(draft.content.encode("utf-8")).hexdigest(),
-        {"content": content},
-        "reviewer",
+        hashlib.sha256(base.encode("utf-8")).hexdigest(),
+        {"draft_id": draft.id, "content": content},
+        "ai",
     )
-    proposals.approve(
-        proposal.id, hashlib.sha256(draft.content.encode("utf-8")).hexdigest(), "checked"
-    )
+    _, applied = proposals.apply_to_draft(proposal.id, draft, draft.revision)
 
-    result = publisher.publish(draft.id, proposal_id=proposal.id)
+    result = publisher.publish(applied.id, expected_revision=applied.revision)
 
     assert (repository / target).read_text(encoding="utf-8") == content
     assert proposals.get(proposal.id).status == "merged"
-    assert result.proposal_id == proposal.id
     assert result.commit_revision == git.current_revision()
 
 
@@ -542,28 +540,25 @@ def test_proposal_survives_unrelated_document_publish(publish_context):
     proposal_target = "knowledge/documents/learning/proposal-target.md"
     other_target = "knowledge/documents/learning/other-target.md"
     proposal_content = _document("proposal-target", title="Proposed Content")
+    proposal_base = _document("proposal-target", title="Before")
     proposal_draft = _create_draft(
-        drafts, git, "document", "proposal-target", "draft placeholder", proposal_target
+        drafts, git, "document", "proposal-target", proposal_base, proposal_target
     )
     proposal = proposals.create(
         "document",
         "proposal-target",
         "document_revision",
-        hashlib.sha256(proposal_draft.content.encode("utf-8")).hexdigest(),
-        {"content": proposal_content},
-        "reviewer",
+        hashlib.sha256(proposal_base.encode("utf-8")).hexdigest(),
+        {"draft_id": proposal_draft.id, "content": proposal_content},
+        "ai",
     )
-    proposals.approve(
-        proposal.id,
-        hashlib.sha256(proposal_draft.content.encode("utf-8")).hexdigest(),
-        "checked",
-    )
+    _, proposal_draft = proposals.apply_to_draft(proposal.id, proposal_draft, 1)
     other_draft = _create_draft(
         drafts, git, "document", "other-target", _document("other-target"), other_target
     )
 
     publisher.publish(other_draft.id)
-    result = publisher.publish(proposal_draft.id, proposal_id=proposal.id)
+    result = publisher.publish(proposal_draft.id, expected_revision=proposal_draft.revision)
 
     assert result.entity_id == "proposal-target"
     assert proposals.get(proposal.id).status == "merged"
@@ -575,57 +570,60 @@ def test_proposal_status_failure_is_reported_as_post_publish_warning(
     repository, _, drafts, proposals, publisher = publish_context
     git = GitManager(repository)
     target = "knowledge/documents/learning/proposal-warning.md"
+    base = _document("proposal-warning", title="Before")
     content = _document("proposal-warning", title="Published Content")
     draft = _create_draft(
-        drafts, git, "document", "proposal-warning", "draft placeholder", target
+        drafts, git, "document", "proposal-warning", base, target
     )
     proposal = proposals.create(
         "document",
         "proposal-warning",
         "document_revision",
-        hashlib.sha256(draft.content.encode("utf-8")).hexdigest(),
-        {"content": content},
-        "reviewer",
+        hashlib.sha256(base.encode("utf-8")).hexdigest(),
+        {"draft_id": draft.id, "content": content},
+        "ai",
     )
-    proposals.approve(
-        proposal.id, hashlib.sha256(draft.content.encode("utf-8")).hexdigest(), "checked"
-    )
+    _, applied = proposals.apply_to_draft(proposal.id, draft, draft.revision)
 
-    def fail_merge(*_args, **_kwargs):
+    def fail_finalize(*_args, **_kwargs):
         raise RuntimeError("runtime database unavailable")
 
-    monkeypatch.setattr(proposals, "merge", fail_merge)
-    result = publisher.publish(draft.id, proposal_id=proposal.id)
+    monkeypatch.setattr(proposals, "finalize_draft_publish", fail_finalize)
+    result = publisher.publish(applied.id, expected_revision=applied.revision)
 
     assert result.commit_revision == git.current_revision()
     assert (repository / target).read_text(encoding="utf-8") == content
-    assert proposals.get(proposal.id).status == "approved"
+    assert proposals.get(proposal.id).status == "drafted"
     assert any("Proposal status update failed" in warning for warning in result.warnings)
 
 
-def test_proposal_becomes_stale_when_its_draft_changes(publish_context):
+def test_proposal_becomes_stale_when_its_draft_changes_before_publish(publish_context):
     repository, _, drafts, proposals, publisher = publish_context
     git = GitManager(repository)
     target = "knowledge/documents/learning/changed-draft.md"
+    initial_content = _document("changed-draft", title="Before")
     initial_draft = _create_draft(
-        drafts, git, "document", "changed-draft", "draft revision one", target
+        drafts, git, "document", "changed-draft", initial_content, target
     )
-    proposal_hash = hashlib.sha256(initial_draft.content.encode("utf-8")).hexdigest()
+    proposal_hash = hashlib.sha256(initial_content.encode("utf-8")).hexdigest()
     proposal = proposals.create(
         "document",
         "changed-draft",
         "document_revision",
         proposal_hash,
-        {"content": _document("changed-draft", title="Proposed Content")},
-        "reviewer",
+        {"draft_id": initial_draft.id, "content": _document("changed-draft", title="Proposed Content")},
+        "ai",
     )
-    proposals.approve(proposal.id, proposal_hash, "checked")
-    drafts.save(initial_draft.id, "manual edit at revision two", expected_revision=1)
+    _, applied = proposals.apply_to_draft(proposal.id, initial_draft, 1)
+    edited = drafts.save(
+        applied.id,
+        _document("changed-draft", title="Manual Edit"),
+        expected_revision=applied.revision,
+    )
 
-    with pytest.raises(StaleProposalError, match="stale"):
-        publisher.publish(initial_draft.id, proposal_id=proposal.id)
+    publisher.publish(edited.id, expected_revision=edited.revision)
 
-    assert not (repository / target).exists()
+    assert (repository / target).read_text(encoding="utf-8") == edited.content
     assert proposals.get(proposal.id).status == "stale"
 
 

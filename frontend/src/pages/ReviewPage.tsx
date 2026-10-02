@@ -28,7 +28,7 @@ export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigat
   const resource = useResource("review", async (): Promise<ReviewData> => {
     const [documents, terms, sources, ...rest] = await Promise.all([
       listAllEntities("document"), listAllEntities("term"), listAllEntities("source"),
-      Promise.all(["proposed", "drafted", "approved"].map((status) => listProposals(status))), listImports(), listLinkIssues(),
+      Promise.all(["proposed", "drafted"].map((status) => listProposals(status))), listImports(), listLinkIssues(),
       listStalePresentationAnnotations(),
     ]);
     const [groups, imports, linkIssues, staleAnnotations] = rest as [Proposal[][], ImportJob[], LinkIssue[], PresentationAnnotation[]];

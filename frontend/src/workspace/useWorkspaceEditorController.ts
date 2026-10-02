@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { parseDocument } from "yaml";
 import {
   compareDraft, discardDraft, getCollection, listAllEntities, listDrafts, listProposals,
-  preflightDraft, requestAIProposal, reviewProposal, updateDraft,
+  preflightDraft, requestAIProposal, rejectProposal, updateDraft,
   type Draft, type EntitySummary, type Proposal,
 } from "../api";
 import { removeCollectionNode } from "../collectionEditing.js";
@@ -248,7 +248,7 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
     setProposalBusy(true);
     setProposalError("");
     try {
-      await reviewProposal(proposalId, "reject");
+      await rejectProposal(proposalId);
       await refreshProposals();
     } catch (error) {
       setProposalError(errorMessage(error));

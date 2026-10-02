@@ -8,7 +8,6 @@ const onePublishedDraft = {
   entity_type: "document",
   entity_id: "note-one",
   commit_revision: "abc123456789",
-  proposal_id: null,
   warnings: ["Index update failed"],
 };
 

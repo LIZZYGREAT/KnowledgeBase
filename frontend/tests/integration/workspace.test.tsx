@@ -25,7 +25,7 @@ const api = vi.hoisted(() => ({
   deletePresentationAnnotation: vi.fn(),
   requestAIProposal: vi.fn(),
   applyProposalToDraft: vi.fn(),
-  reviewProposal: vi.fn(),
+  rejectProposal: vi.fn(),
 }));
 
 vi.mock("../../src/api", async (importOriginal) => ({
@@ -167,7 +167,6 @@ function installApiBehavior() {
     entity_type: "document",
     entity_id: "quick-start",
     commit_revision: "publish-revision",
-    proposal_id: null,
     warnings: [],
   }));
   api.publishDraftsBatch.mockResolvedValue({ results: [], commit_revision: "batch-revision", warnings: [] });
@@ -223,7 +222,7 @@ function installApiBehavior() {
     proposals = proposals.map((item) => item.id === proposalId ? applied : item);
     return { draft: { ...draft }, proposal: applied };
   });
-  api.reviewProposal.mockImplementation(async (proposalId: string) => {
+  api.rejectProposal.mockImplementation(async (proposalId: string) => {
     const updated = proposals.find((item) => item.id === proposalId);
     if (!updated) throw new Error("Proposal not found");
     const rejected = { ...updated, status: "rejected" };

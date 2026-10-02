@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS proposals (
         'document_revision', 'taxonomy', 'evidence', 'format'
     )),
     status TEXT NOT NULL CHECK (status IN (
-        'proposed', 'drafted', 'approved', 'merged', 'rejected', 'stale'
+        'proposed', 'drafted', 'merged', 'rejected', 'stale'
     )),
     base_content_hash TEXT NOT NULL,
     payload_json TEXT NOT NULL,

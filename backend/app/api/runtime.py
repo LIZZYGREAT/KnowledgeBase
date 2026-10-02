@@ -1,7 +1,6 @@
 """Draft, Proposal, Import, Publish, and Usage API routes."""
 
 from dataclasses import asdict
-import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -33,10 +32,9 @@ from backend.app.api.schemas import (
     ImportItemView,
     ImportItemContentView,
     ImportJobView,
-    ProposalMergeRequest,
     ProposalApplyRequest,
     ProposalApplyView,
-    ProposalReviewRequest,
+    ProposalRejectRequest,
     ProposalView,
     PublishRequest,
     PublishedView,
@@ -259,7 +257,7 @@ async def list_proposals(
     target_id: Optional[str] = None,
     kind: Optional[str] = None,
     proposal_status: Optional[Literal[
-        "proposed", "drafted", "approved", "merged", "rejected", "stale"
+        "proposed", "drafted", "merged", "rejected", "stale"
     ]] = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -292,21 +290,8 @@ async def apply_proposal(
     return {"proposal": asdict(applied_proposal), "draft": asdict(applied_draft)}
 
 
-@router.post("/proposals/{proposal_id}/approve", response_model=ProposalView)
-async def approve_proposal(proposal_id: str, body: ProposalReviewRequest, request: Request):
-    proposal = request.app.state.proposal_service.get(proposal_id)
-    draft = _proposal_draft(request, proposal)
-    current_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
-    result = request.app.state.proposal_service.approve(
-        proposal_id, current_hash, body.review_note
-    )
-    return asdict(result)
-
-
 @router.post("/proposals/{proposal_id}/reject", response_model=ProposalView)
-async def reject_proposal(proposal_id: str, body: ProposalReviewRequest, request: Request):
-    if not body.review_note or not body.review_note.strip():
-        raise ValueError("review_note is required to reject a Proposal")
+async def reject_proposal(proposal_id: str, body: ProposalRejectRequest, request: Request):
     result = request.app.state.proposal_service.reject(
         proposal_id,
         body.review_note,
@@ -317,31 +302,12 @@ async def reject_proposal(proposal_id: str, body: ProposalReviewRequest, request
     return asdict(result)
 
 
-@router.post("/proposals/{proposal_id}/merge", response_model=PublishedView)
-async def merge_proposal(
-    proposal_id: str,
-    request: Request,
-    body: ProposalMergeRequest = ProposalMergeRequest(),
-):
-    proposal = request.app.state.proposal_service.get(proposal_id)
-    draft = _proposal_draft(request, proposal)
-    return _published_view(
-        request.app.state.publisher.publish(
-            draft.id,
-            proposal_id,
-            body.commit_message,
-            expected_revision=draft.revision,
-        )
-    )
-
-
 @router.post("/publish", response_model=PublishedView)
 async def publish(body: PublishRequest, request: Request):
     result = request.app.state.publisher.publish(
         body.draft_id,
-        body.proposal_id,
-        body.commit_message,
         expected_revision=body.expected_revision,
+        commit_message=body.commit_message,
     )
     return _published_view(result)
 
@@ -665,7 +631,6 @@ def _published_view(result: PublishedResult) -> dict:
         "entity_type": result.entity_type,
         "entity_id": result.entity_id,
         "commit_revision": result.commit_revision,
-        "proposal_id": result.proposal_id,
         "warnings": list(result.warnings),
     }
 

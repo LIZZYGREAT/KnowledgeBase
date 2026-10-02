@@ -16,7 +16,7 @@ ProposalKind = Literal[
     "evidence",
     "format",
 ]
-ProposalStatus = Literal["proposed", "drafted", "approved", "merged", "rejected", "stale"]
+ProposalStatus = Literal["proposed", "drafted", "merged", "rejected", "stale"]
 CandidateType = Literal["term", "taxonomy"]
 AnnotationEntityType = Literal["document", "term"]
 AnnotationStyleType = Literal["highlight", "text_color", "underline"]

@@ -3,7 +3,7 @@
 import hashlib
 import json
 import sqlite3
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 import uuid
 
 from backend.app.domain.runtime import CandidateType, Draft, Proposal, ProposalStatus, RejectedCandidate
@@ -87,26 +87,6 @@ class ProposalRepository:
         ).fetchall()
         return [_proposal_from_row(row) for row in rows]
 
-    def update_draft(
-        self, proposal_id: str, payload: Dict[str, Any], diff_text: Optional[str]
-    ) -> Proposal:
-        payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        with self.connection:
-            cursor = self.connection.execute(
-                """UPDATE proposals
-                   SET status = 'drafted', payload_json = ?, diff_text = ?
-                   WHERE id = ? AND status IN ('proposed', 'drafted')""",
-                (payload_json, diff_text, proposal_id),
-            )
-        if cursor.rowcount != 1:
-            proposal = self.get(proposal_id)
-            if proposal is None:
-                raise ProposalNotFoundError("Proposal '{}' does not exist".format(proposal_id))
-            raise ProposalTransitionError(
-                "Cannot draft a Proposal in '{}' status".format(proposal.status)
-            )
-        return self.get(proposal_id)
-
     def apply_to_draft(
         self,
         proposal_id: str,
@@ -138,7 +118,7 @@ class ProposalRepository:
                 or proposal.payload.get("draft_id") != draft_id
             ):
                 raise ValueError("Proposal target does not match its Draft")
-            if proposal.status not in {"proposed", "drafted", "approved"}:
+            if proposal.status not in {"proposed", "drafted"}:
                 raise ProposalTransitionError(
                     "Cannot apply a Proposal in '{}' status".format(proposal.status)
                 )
@@ -206,7 +186,7 @@ class ProposalRepository:
         reviewed_at: str,
     ) -> List[Proposal]:
         """Close active proposals tied to a Draft after its canonical publish."""
-        active_statuses = ("proposed", "drafted", "approved")
+        active_statuses = ("proposed", "drafted")
         placeholders = ", ".join("?" for _ in active_statuses)
         finalized = []
         with self.connection:

@@ -198,8 +198,8 @@ class ProposalView(APIModel):
     review_note: Optional[str]
 
 
-class ProposalReviewRequest(APIModel):
-    review_note: Optional[str] = None
+class ProposalRejectRequest(APIModel):
+    review_note: NonEmptyText
     candidate_type: Optional[Literal["term", "taxonomy"]] = None
     candidate_value: Optional[str] = None
     scope: str = "global"
@@ -218,7 +218,6 @@ class ProposalApplyView(APIModel):
 class PublishRequest(APIModel):
     draft_id: str
     expected_revision: int = Field(ge=1)
-    proposal_id: Optional[str] = None
     commit_message: Optional[str] = None
 
 
@@ -227,7 +226,6 @@ class PublishedView(APIModel):
     entity_type: str
     entity_id: str
     commit_revision: str
-    proposal_id: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -245,10 +243,6 @@ class BatchPublishedView(APIModel):
     results: list[PublishedView]
     commit_revision: str
     warnings: list[str] = Field(default_factory=list)
-
-
-class ProposalMergeRequest(APIModel):
-    commit_message: Optional[str] = None
 
 
 class ImportCreateRequest(APIModel):

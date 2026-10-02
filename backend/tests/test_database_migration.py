@@ -18,7 +18,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     connection = connect_database(database_path)
     try:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
         ).fetchone() is not None
@@ -68,7 +68,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     reopened = connect_database(database_path)
     try:
-        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 3
         assert reopened.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 5
         assert reopened.execute("SELECT COUNT(*) FROM collection_progress").fetchone()[0] == 1
     finally:
@@ -77,11 +77,63 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
 def test_migration_rejects_a_database_from_a_newer_schema_version():
     connection = sqlite3.connect(":memory:")
-    connection.execute("PRAGMA user_version = 3")
+    connection.execute("PRAGMA user_version = 4")
 
     with pytest.raises(RuntimeError, match="newer than supported"):
         migrate_database(connection)
 
+    connection.close()
+
+
+def test_approved_proposals_migrate_to_stale_and_cannot_be_reinserted():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """CREATE TABLE proposals (
+               id TEXT PRIMARY KEY,
+               target_type TEXT NOT NULL,
+               target_id TEXT NOT NULL,
+               kind TEXT NOT NULL,
+               status TEXT NOT NULL CHECK (
+                   status IN ('proposed', 'drafted', 'approved', 'merged', 'rejected', 'stale')
+               ),
+               base_content_hash TEXT NOT NULL,
+               payload_json TEXT NOT NULL,
+               diff_text TEXT,
+               created_by TEXT NOT NULL,
+               provider TEXT,
+               model TEXT,
+               created_at TEXT NOT NULL,
+               reviewed_at TEXT,
+               review_note TEXT
+           );
+           CREATE INDEX proposals_target_status_idx
+               ON proposals (target_type, target_id, status, created_at DESC);
+           INSERT INTO proposals (
+               id, target_type, target_id, kind, status, base_content_hash,
+               payload_json, created_by, created_at, review_note
+           ) VALUES (
+               'legacy-approved', 'document', 'note', 'metadata', 'approved',
+               'hash', '{}', 'human', 'created', 'reviewed'
+           );
+           PRAGMA user_version = 2;"""
+    )
+
+    migrate_database(connection)
+
+    migrated = connection.execute(
+        "SELECT status, review_note FROM proposals WHERE id = 'legacy-approved'"
+    ).fetchone()
+    assert migrated == (
+        "stale",
+        "Legacy approved Proposal requires re-application under the current Draft workflow.",
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            """INSERT INTO proposals (
+                   id, target_type, target_id, kind, status, base_content_hash,
+                   payload_json, created_by, created_at
+               ) VALUES ('approved-again', 'document', 'note', 'metadata', 'approved', 'hash', '{}', 'human', 'now')"""
+        )
     connection.close()
 
 

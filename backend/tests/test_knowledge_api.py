@@ -624,11 +624,10 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
     assert "quote" not in candidate
 
     proposal_id = result["proposal"]["id"]
-    approved = api_client.post(
-        "/api/proposals/{}/approve".format(proposal_id), json={"review_note": "Reviewed"}
+    assert not any(
+        route.path.endswith(("/approve", "/merge"))
+        for route in api_client.app.routes
     )
-    assert approved.status_code == 200
-    assert approved.json()["status"] == "approved"
 
     stale_draft = api_client.post(
         "/api/drafts",
@@ -644,7 +643,8 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
     )
     assert changed.status_code == 200
     conflict = api_client.post(
-        "/api/proposals/{}/approve".format(stale_proposal["id"]), json={}
+        "/api/proposals/{}/apply".format(stale_proposal["id"]),
+        json={"draft_id": stale_draft["id"], "expected_draft_revision": changed.json()["revision"]},
     )
     assert conflict.status_code == 409
     assert api_client.get("/api/proposals/{}".format(stale_proposal["id"])).json()["status"] == "stale"
@@ -659,10 +659,16 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
     )
     assert term_proposal.status_code == 201
     proposal_id = term_proposal.json()["proposal"]["id"]
-    assert api_client.post(
-        "/api/proposals/{}/approve".format(proposal_id), json={}
-    ).json()["status"] == "approved"
-    merged = api_client.post("/api/proposals/{}/merge".format(proposal_id))
+    applied = api_client.post(
+        "/api/proposals/{}/apply".format(proposal_id),
+        json={"draft_id": term_draft["id"], "expected_draft_revision": term_draft["revision"]},
+    )
+    assert applied.status_code == 200, applied.json()
+    assert applied.json()["proposal"]["status"] == "drafted"
+    merged = api_client.post(
+        "/api/publish",
+        json={"draft_id": term_draft["id"], "expected_revision": applied.json()["draft"]["revision"]},
+    )
     assert merged.status_code == 200
     assert api_client.get("/api/proposals/{}".format(proposal_id)).json()["status"] == "merged"
     assert (api_client.app.state.repository_root / "knowledge/terms/api-term.md").is_file()

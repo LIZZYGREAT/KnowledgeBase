@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { requestAIProposal, reviewProposal, type Proposal } from "../api";
+import { requestAIProposal, rejectProposal as rejectProposalRequest, type Proposal } from "../api";
 import type { WorkspaceDraftController } from "../useWorkspaceDraft";
 import { WorkspaceDrawer } from "../WorkspaceDrawer";
 
@@ -48,7 +48,7 @@ export function WorkspaceSelectionAIDrawer({
     setBusy(true);
     setError("");
     try {
-      setProposal(await reviewProposal(proposal.id, "reject"));
+      setProposal(await rejectProposalRequest(proposal.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法更新 Proposal 状态。");
     } finally {
