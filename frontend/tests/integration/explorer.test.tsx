@@ -40,24 +40,24 @@ const document: EntitySummary = {
   metadata: { type: "learning-note", review: { human: { status: "approved" } } },
 };
 
-function makeCollection(nodes: Collection["nodes"] = []): Collection {
+function makeCollection(nodes: Collection["nodes"] = [], id = collectionId, title = "Study Path", position = 0): Collection {
   return {
-    id: collectionId,
-    title: "Study Path",
+    id,
+    title,
     description: "A test path",
     status: "active",
-    position: 0,
+    position,
     nodes,
   };
 }
 
-function makeSummary(): CollectionSummary {
+function makeSummary(id = collectionId, title = "Study Path", position = 0): CollectionSummary {
   return {
-    id: collectionId,
-    title: "Study Path",
+    id,
+    title,
     description: "A test path",
     status: "active",
-    position: 0,
+    position,
     node_count: 1,
     entity_count: 0,
     document_count: 0,
@@ -265,6 +265,59 @@ describe("Explorer React integration", () => {
 
     await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledTimes(2));
     expect(api.publishDraftsBatch).toHaveBeenNthCalledWith(2, [{ draft_id: collectionDraft.id, expected_revision: 6 }]);
+  });
+
+  it("keeps Collection reorders in position Drafts until one organization publish", async () => {
+    const user = userEvent.setup();
+    const canonicalById = new Map<string, Collection>([
+      [collectionId, makeCollection([{ id: "section-notes", kind: "section", title: "Notes", children: [] }])],
+      ["middle-path", makeCollection([], "middle-path", "Middle Path", 1)],
+      ["last-path", makeCollection([], "last-path", "Last Path", 2)],
+    ]);
+    window.localStorage.removeItem("knowledgebase.explorer-preferences");
+    api.listCollections.mockImplementation(async (status: "active" | "archived") => status === "active"
+      ? [...canonicalById.values()].map((item) => ({
+        ...makeSummary(item.id, item.title, item.position),
+      })).sort((left, right) => left.position - right.position)
+      : []);
+    api.getCollection.mockImplementation(async (id: string) => {
+      const item = canonicalById.get(id);
+      if (!item) throw new Error("Collection not found");
+      return { ...item, nodes: structuredClone(item.nodes) };
+    });
+    api.publishDraftsBatch.mockImplementation(async (expectations: Array<{ draft_id: string; expected_revision: number }>) => {
+      for (const expected of expectations) {
+        const draft = drafts.find((item) => item.id === expected.draft_id);
+        if (!draft || draft.revision !== expected.expected_revision) throw Object.assign(new Error("Stale revision"), { status: 409 });
+        const current = canonicalById.get(draft.entity_id)!;
+        canonicalById.set(draft.entity_id, { ...current, ...parse(draft.content) });
+      }
+      return { results: [], commit_revision: "organization-revision", warnings: [] };
+    });
+    renderExplorer();
+
+    await screen.findByRole("heading", { name: "Study Path" });
+    const moveDown = await screen.findByRole("button", { name: "下移此 Collection 并暂存排序" });
+    await waitFor(() => expect((moveDown as HTMLButtonElement).disabled).toBe(false));
+    await user.click(moveDown);
+    await screen.findByText("2 个未发布的 Collection 排序修改");
+    await waitFor(() => expect((screen.getByRole("button", { name: "下移此 Collection 并暂存排序" }) as HTMLButtonElement).disabled).toBe(false));
+    await user.click(screen.getByRole("button", { name: "下移此 Collection 并暂存排序" }));
+    await screen.findByText("3 个未发布的 Collection 排序修改");
+
+    expect(api.publishDraftsBatch).not.toHaveBeenCalled();
+    expect(drafts.filter((draft) => draft.entity_type === "collection")).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Publish Organization Changes" }));
+
+    await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledOnce());
+    const submitted = api.publishDraftsBatch.mock.calls[0][0] as Array<{ draft_id: string; expected_revision: number }>;
+    expect(submitted).toHaveLength(3);
+    for (const expected of submitted) {
+      const draft = drafts.find((item) => item.id === expected.draft_id)!;
+      expect(expected.expected_revision).toBe(draft.revision);
+    }
+    await waitFor(() => expect(screen.queryByText(/个未发布的 Collection 排序修改/)).toBeNull());
   });
 
   it("creates a note inside a Collection and batch-publishes both Drafts in one Publisher call", async () => {

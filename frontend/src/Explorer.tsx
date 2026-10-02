@@ -21,7 +21,8 @@ export function ExplorerPage(props: ExplorerPageProps) {
     actionNotice, publishOutcome, collectionPublishReview, setCollectionPublishReview,
     collectionReviewBusy, collectionPublishing, collectionConflictOpen, setCollectionConflictOpen, busy,
     collectionsResource, collections, collectionResource, virtualResource, collection, collectionDraft,
-    displayedCollection, treeEditMode, filteredNodes, changeDraft, openAddExisting, addExistingEntity,
+    displayedCollection, treeEditMode, filteredNodes, organizationOrderDrafts, organizationDraftsLoading,
+    publishOrganizationChanges, changeDraft, openAddExisting, addExistingEntity,
     createSection, renameSection, deleteSection, handleDrop, startNodeDrag, startReferenceDrag,
     updateProgress, copyEntityToCollection, startNewNoteHere, createNoteHere, enterNewNoteWorkspace,
     cancelNewNoteHere, toggleArchive, saveCollectionMetadata, moveSelectedCollection,
@@ -73,9 +74,13 @@ export function ExplorerPage(props: ExplorerPageProps) {
             </select>
           </label>}
           {!collectionsResource.loading && !collectionsResource.error && <div className="explorer-collection-order-actions" aria-label="调整 Collection 顺序">
-            <button className="button button-quiet" type="button" aria-label="上移此 Collection 并发布排序" title="上移并通过 Publisher 发布顺序" disabled={busy || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) <= 0} onClick={() => void moveSelectedCollection("up")}>↑ 上移</button>
-            <button className="button button-quiet" type="button" aria-label="下移此 Collection 并发布排序" title="下移并通过 Publisher 发布顺序" disabled={busy || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) < 0 || collections.findIndex((item) => item.id === selectedCollectionId) >= collections.length - 1} onClick={() => void moveSelectedCollection("down")}>↓ 下移</button>
+            <button className="button button-quiet" type="button" aria-label="上移此 Collection 并暂存排序" title="上移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "load-error" || collectionDraft.status === "conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) <= 0} onClick={() => void moveSelectedCollection("up")}>↑ 上移</button>
+            <button className="button button-quiet" type="button" aria-label="下移此 Collection 并暂存排序" title="下移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "load-error" || collectionDraft.status === "conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) < 0 || collections.findIndex((item) => item.id === selectedCollectionId) >= collections.length - 1} onClick={() => void moveSelectedCollection("down")}>↓ 下移</button>
             {collectionDraft.collection && <button className="button button-quiet" type="button" disabled={busy || collectionDraft.status === "loading" || collectionDraft.status === "conflict"} onClick={() => setEditCollectionMetadataOpen(true)}>编辑详情</button>}
+          </div>}
+          {organizationOrderDrafts.length > 0 && <div className="explorer-organization-order-pending" role="status">
+            <span>{organizationOrderDrafts.length} 个未发布的 Collection 排序修改</span>
+            <button className="button button-primary" type="button" disabled={busy || organizationDraftsLoading} onClick={() => void publishOrganizationChanges()}>{busy ? "正在发布…" : "Publish Organization Changes"}</button>
           </div>}
 
           <label className="explorer-filter">
@@ -144,6 +149,7 @@ export function ExplorerPage(props: ExplorerPageProps) {
             collection={displayedCollection}
             status={collectionDraft.status}
             draft={collectionDraft.draft}
+            organizationOrderDraft={organizationOrderDrafts.some((draft) => draft.entity_id === selectedCollectionId)}
             error={collectionDraft.error || actionError}
             notice={actionNotice}
             editMode={editMode}
