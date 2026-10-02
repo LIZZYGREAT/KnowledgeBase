@@ -22,6 +22,34 @@ class DraftService:
         base_git_revision: str,
         base_content_hash: str,
     ) -> Draft:
+        return self.repository.create(
+            self._new_draft(
+                entity_type, entity_id, content, base_git_revision, base_content_hash
+            )
+        )
+
+    def create_or_get(
+        self,
+        entity_type: DraftEntityType,
+        entity_id: str,
+        content: str,
+        base_git_revision: str,
+        base_content_hash: str,
+    ) -> Draft:
+        return self.repository.create_or_get(
+            self._new_draft(
+                entity_type, entity_id, content, base_git_revision, base_content_hash
+            )
+        )
+
+    @staticmethod
+    def _new_draft(
+        entity_type: DraftEntityType,
+        entity_id: str,
+        content: str,
+        base_git_revision: str,
+        base_content_hash: str,
+    ) -> Draft:
         if entity_type not in _DRAFT_ENTITY_TYPES:
             raise ValueError("Unsupported Draft entity type: {}".format(entity_type))
         _require_text(entity_id, "entity_id")
@@ -31,7 +59,7 @@ class DraftService:
             raise ValueError("Draft content must be text")
 
         now = _utc_now()
-        draft = Draft(
+        return Draft(
             id=uuid.uuid4().hex,
             entity_type=entity_type,
             entity_id=entity_id,
@@ -42,7 +70,6 @@ class DraftService:
             created_at=now,
             updated_at=now,
         )
-        return self.repository.create(draft)
 
     def get(self, draft_id: str) -> Draft:
         draft = self.repository.get(draft_id)

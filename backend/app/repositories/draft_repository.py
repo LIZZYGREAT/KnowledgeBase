@@ -46,6 +46,22 @@ class DraftRepository:
             )
         return self.get(draft.id)
 
+    def create_or_get(self, draft: Draft) -> Draft:
+        try:
+            return self.create(draft)
+        except sqlite3.IntegrityError as error:
+            is_unique_violation = (
+                getattr(error, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE"
+                or str(error)
+                == "UNIQUE constraint failed: drafts.entity_type, drafts.entity_id"
+            )
+            if not is_unique_violation:
+                raise
+            existing = self.list_for_target(draft.entity_type, draft.entity_id)
+            if not existing:
+                raise
+            return existing[0]
+
     def get(self, draft_id: str) -> Optional[Draft]:
         row = self.connection.execute(
             "SELECT * FROM drafts WHERE id = ?", (draft_id,)

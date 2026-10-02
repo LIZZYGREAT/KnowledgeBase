@@ -2,7 +2,7 @@
 
 ## Current phase
 
-The repository has completed Phases 0–13: repository foundation, canonical entity schemas, Markdown parsing and deterministic style checks, Term/Taxonomy/Source registries and resolvers, SQLite-backed Draft and Proposal workflows, controlled publishing through Git, rebuildable indexes with search and usage tracking, the staged Markdown/PDF Import Pipeline, the server-side DeepSeek Gateway, the Knowledge API, the Reference Hub reading and editing interfaces, Source/Evidence/PaperSkill/Context Export integrations, non-canonical presentation annotations and Markdown formatting tools, legacy migration workflows, private production deployment and backup support, Collection Explorer, and the unified knowledge workspace. A live server and user legacy files still require operator-provided infrastructure and data.
+Phases 0–13 are complete. The current scope is Phase 13.1: resolve the Collection Explorer and Unified Workspace convergence issues while keeping canonical Markdown/YAML, Draft, Publisher, and derived-index boundaries intact. Research Agent work remains outside this phase. A live server and user legacy files still require operator-provided infrastructure and data.
 
 ## Data boundaries
 
@@ -21,7 +21,7 @@ The repository has completed Phases 0–13: repository foundation, canonical ent
 - Current Markdown must pass the writing standard. Legacy Markdown may publish with writing-style warnings; broken frontmatter and other structural errors still block it.
 - Approved Proposal content is applied only through `Publisher`; a Proposal is marked merged only after its canonical commit succeeds.
 - SQLite search and relationship indexes are derived from `knowledge/`; Drafts are not indexed. `python tools/kb.py rebuild` recreates indexes without changing canonical files or usage-event history.
-- Runtime SQLite is disposable during this development phase. Recreate the local database after Runtime schema changes; there is no compatibility migration layer.
+- Runtime SQLite is rebuildable during this development phase. Schema changes use versioned `user_version` migrations that preserve existing Runtime records; do not delete the local database to apply an upgrade.
 - Production backups include a SQLite snapshot so presentation annotations and other Runtime state can be restored with the canonical Git bundle and `storage/` files.
 - Publish and Restore return success after the canonical Git commit. Proposal status or index refresh failures are returned as warnings; `python tools/kb.py rebuild` repairs derived indexes.
 - Import Jobs and Items live in Runtime SQLite. `storage/staging/` holds temporary import copies, and `storage/papers/` holds local PDFs; neither directory is committed. Import uses no AI or network service.

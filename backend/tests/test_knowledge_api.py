@@ -242,10 +242,22 @@ def test_draft_compare_rebase_list_and_discard_are_revision_guarded(api_client):
     )
     assert created.status_code == 201
     draft = created.json()
+    repeated = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "document",
+            "entity_id": "neural-indexing",
+            "content": _document_content() + "\nDifferent request body.\n",
+        },
+    )
+    assert repeated.status_code == 201
+    assert repeated.json()["id"] == draft["id"]
+    assert repeated.json()["content"] == draft["content"]
     drafts = api_client.get(
         "/api/drafts", params={"entity_type": "document", "entity_id": "neural-indexing"}
     )
     assert drafts.status_code == 200
+    assert len(drafts.json()) == 1
     assert drafts.json()[0]["id"] == draft["id"]
 
     unchanged = api_client.get("/api/drafts/{}/compare".format(draft["id"])).json()

@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS drafts (
 CREATE INDEX IF NOT EXISTS drafts_target_updated_idx
     ON drafts (entity_type, entity_id, updated_at DESC);
 
+CREATE UNIQUE INDEX IF NOT EXISTS drafts_target_unique_idx
+    ON drafts (entity_type, entity_id);
+
 CREATE TABLE IF NOT EXISTS proposals (
     id TEXT PRIMARY KEY,
     target_type TEXT NOT NULL CHECK (target_type IN ('document', 'term', 'source', 'taxonomy')),

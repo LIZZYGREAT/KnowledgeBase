@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -19,6 +19,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
         target_version = version + 1
         if target_version == 1:
             migration = _migrate_to_collection_runtime
+        elif target_version == 2:
+            migration = _migrate_to_unique_draft_target
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -124,6 +126,41 @@ def _create_collection_indexes(connection: sqlite3.Connection) -> None:
     connection.execute(
         """CREATE INDEX IF NOT EXISTS collection_node_entity_idx
            ON collection_node_index (entity_type, entity_id)"""
+    )
+
+
+def _migrate_to_unique_draft_target(connection: sqlite3.Connection) -> None:
+    duplicate_targets = connection.execute(
+        """SELECT entity_type, entity_id
+           FROM drafts
+           GROUP BY entity_type, entity_id
+           HAVING COUNT(*) > 1
+           ORDER BY entity_type, entity_id"""
+    ).fetchall()
+    if duplicate_targets:
+        details = []
+        for entity_type, entity_id in duplicate_targets:
+            draft_ids = connection.execute(
+                """SELECT id FROM drafts
+                   WHERE entity_type = ? AND entity_id = ?
+                   ORDER BY updated_at DESC, created_at DESC, id DESC""",
+                (entity_type, entity_id),
+            ).fetchall()
+            details.append(
+                "{}:{} [{}]".format(
+                    entity_type,
+                    entity_id,
+                    ", ".join(row[0] for row in draft_ids),
+                )
+            )
+        raise RuntimeError(
+            "Cannot migrate Runtime database: duplicate Draft targets prevent "
+            "the unique constraint: {}".format("; ".join(details))
+        )
+
+    connection.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS drafts_target_unique_idx
+           ON drafts (entity_type, entity_id)"""
     )
 
 

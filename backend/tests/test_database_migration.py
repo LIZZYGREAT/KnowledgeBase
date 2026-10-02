@@ -18,7 +18,10 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     connection = connect_database(database_path)
     try:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
+        ).fetchone() is not None
         drafts = DraftRepository(connection)
         assert [draft.entity_type for draft in drafts.list_for_target("document", "note")] == [
             "document"
@@ -65,7 +68,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     reopened = connect_database(database_path)
     try:
-        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 2
         assert reopened.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 5
         assert reopened.execute("SELECT COUNT(*) FROM collection_progress").fetchone()[0] == 1
     finally:
@@ -74,11 +77,41 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
 def test_migration_rejects_a_database_from_a_newer_schema_version():
     connection = sqlite3.connect(":memory:")
-    connection.execute("PRAGMA user_version = 2")
+    connection.execute("PRAGMA user_version = 3")
 
     with pytest.raises(RuntimeError, match="newer than supported"):
         migrate_database(connection)
 
+    connection.close()
+
+
+def test_unique_draft_migration_reports_duplicates_and_keeps_existing_rows():
+    connection = connect_database(":memory:")
+    connection.execute("DROP INDEX drafts_target_unique_idx")
+    connection.executemany(
+        """INSERT INTO drafts (
+               id, entity_type, entity_id, base_git_revision, base_content_hash,
+               content, revision, created_at, updated_at
+           ) VALUES (?, 'document', 'duplicate-note', 'revision', 'hash', ?, 1, 'created', ?)""",
+        [("draft-newer", "newer", "2026-10-02T02:00:00+00:00"),
+         ("draft-older", "older", "2026-10-02T01:00:00+00:00")],
+    )
+    connection.execute("PRAGMA user_version = 1")
+    connection.commit()
+
+    with pytest.raises(RuntimeError) as error:
+        migrate_database(connection)
+
+    message = str(error.value)
+    assert "document:duplicate-note" in message
+    assert "draft-newer" in message and "draft-older" in message
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert connection.execute(
+        "SELECT COUNT(*) FROM drafts WHERE entity_type = 'document' AND entity_id = 'duplicate-note'"
+    ).fetchone()[0] == 2
+    assert connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
+    ).fetchone() is None
     connection.close()
 
 

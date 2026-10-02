@@ -1,5 +1,7 @@
 import sqlite3
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -58,7 +60,10 @@ def test_runtime_schema_contains_runtime_and_derived_index_tables(runtime_connec
         "source_fts",
         "evidence_fts",
     } <= tables
-    assert runtime_connection.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert runtime_connection.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert runtime_connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
+    ).fetchone() is not None
 
 
 def test_runtime_data_persists_when_database_is_reopened(tmp_path):
@@ -96,6 +101,45 @@ def test_draft_create_and_autosave_keep_canonical_file_untouched(tmp_path, runti
     assert saved.base_git_revision == "git-rev-a"
     assert saved.base_content_hash == "content-hash-a"
     assert canonical.read_text(encoding="utf-8") == "published content"
+
+
+def test_create_or_get_returns_existing_draft_without_overwriting_it(runtime_connection):
+    service = DraftService(DraftRepository(runtime_connection))
+    original = service.create_or_get("document", "note", "first", "rev-a", "hash-a")
+    existing = service.create_or_get("document", "note", "second", "rev-b", "hash-b")
+
+    assert existing.id == original.id
+    assert existing.content == "first"
+    assert existing.base_git_revision == "rev-a"
+    assert len(service.list_for_target("document", "note")) == 1
+
+
+def test_two_connections_racing_to_create_a_target_return_one_draft(tmp_path):
+    database_path = tmp_path / "runtime" / "knowledge.db"
+    initialized = connect_database(database_path)
+    initialized.close()
+
+    connections = [
+        sqlite3.connect(str(database_path), timeout=10, check_same_thread=False)
+        for _ in range(2)
+    ]
+    for connection in connections:
+        connection.row_factory = sqlite3.Row
+    barrier = Barrier(2)
+
+    def create(connection, content):
+        barrier.wait(timeout=5)
+        service = DraftService(DraftRepository(connection))
+        return service.create_or_get("document", "racing-note", content, "revision", "hash")
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(create, connections, ["one", "two"]))
+        assert results[0].id == results[1].id
+        assert DraftRepository(connections[0]).list_for_target("document", "racing-note") == [results[0]]
+    finally:
+        for connection in connections:
+            connection.close()
 
 
 def test_draft_rejects_stale_autosave_and_unknown_ids(runtime_connection):

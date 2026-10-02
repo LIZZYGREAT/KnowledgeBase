@@ -141,7 +141,7 @@ async def create_draft(body: DraftCreateRequest, request: Request):
                                 request.app.state.runtime_connection)
     git = request.app.state.git_manager
     return asdict(
-        request.app.state.draft_service.create(
+        request.app.state.draft_service.create_or_get(
             body.entity_type,
             body.entity_id,
             body.content,

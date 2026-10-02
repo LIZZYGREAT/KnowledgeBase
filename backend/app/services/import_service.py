@@ -205,7 +205,7 @@ class ImportService:
             target = Path("knowledge") / "terms" / "{}.md".format(metadata.id)
         revision = self.git.current_revision()
         content_hash = self.git.content_hash(target)
-        draft = self.draft_service.create(
+        draft = self.draft_service.create_or_get(
             entity_type,
             metadata.id,
             content,
@@ -396,7 +396,7 @@ class ImportService:
         )
         canonical_path = Path("knowledge") / "sources" / "{}.yaml".format(source_id)
         try:
-            draft = self.draft_service.create(
+            draft = self.draft_service.create_or_get(
                 "source",
                 source_id,
                 source_content,
