@@ -82,11 +82,13 @@ def main(argv: Optional[list[str]] = None) -> int:
                 connection.close()
         print(
             "Rebuilt indexes: {} documents, {} terms, {} aliases, {} taxonomy entries, "
-            "{} backlinks, {} evidence records, {} sources.".format(
+            "{} collections, {} collection nodes, {} backlinks, {} evidence records, {} sources.".format(
                 summary.documents,
                 summary.terms,
                 summary.aliases,
                 summary.taxonomy_entries,
+                summary.collections,
+                summary.collection_nodes,
                 summary.backlinks,
                 summary.evidence,
                 summary.sources,

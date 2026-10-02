@@ -4,6 +4,7 @@ import pytest
 
 from backend.app.db.connection import connect_database
 from backend.app.services.indexer import IndexBuildError, Indexer
+from backend.app.services.knowledge_read_service import KnowledgeReadService
 from backend.app.services.search_service import SearchFilters, SearchService
 from backend.app.services.usage_service import UsageService
 from tools.kb import main as kb_main
@@ -19,6 +20,8 @@ def test_full_rebuild_restores_all_derived_indexes_and_usage(tmp_path):
     assert first.terms == 1
     assert first.aliases == 1
     assert first.taxonomy_entries == 3
+    assert first.collections == 0
+    assert first.collection_nodes == 0
     assert first.backlinks == 2
     assert first.evidence == 1
     assert first.sources == 1
@@ -32,6 +35,7 @@ def test_full_rebuild_restores_all_derived_indexes_and_usage(tmp_path):
         "document_index", "term_index", "source_index", "alias_index",
         "taxonomy_index", "backlink_index", "evidence_index", "document_fts",
         "term_fts", "source_fts", "evidence_fts", "document_stats",
+        "collection_node_index", "collection_index",
     )
     with connection:
         for table in derived_tables:
@@ -47,6 +51,62 @@ def test_full_rebuild_restores_all_derived_indexes_and_usage(tmp_path):
     assert tuple(stats) == (2, 1)
     assert usage.recently_viewed()[0]["entity_id"] == "neural-indexing"
     assert usage.frequently_viewed()[0]["view_count"] == 2
+    connection.close()
+
+
+def test_collection_indexes_preserve_tree_order_and_derive_unfiled_documents(tmp_path):
+    repository = _create_knowledge_tree(tmp_path / "repo")
+    documents = repository / "knowledge" / "documents" / "learning"
+    _write(documents / "unfiled-note.md", _document("unfiled-note", "Unfiled Note"))
+    collections = repository / "knowledge" / "collections"
+    collections.mkdir()
+    collection_path = collections / "reading.yaml"
+    collection_path.write_text(
+        "schema_version: 1\nid: reading\ntitle: Reading\ndescription: Ordered path\n"
+        "status: active\nposition: 10\nnodes:\n"
+        "  - id: foundations\n    kind: section\n    title: Foundations\n"
+        "    children:\n      - id: first-note\n        kind: entity\n"
+        "        entity_type: document\n        entity_id: neural-indexing\n"
+        "      - id: second-note\n        kind: entity\n"
+        "        entity_type: document\n        entity_id: usage-target\n",
+        encoding="utf-8",
+    )
+    connection = connect_database(":memory:")
+    indexer = Indexer(repository, connection)
+
+    summary = indexer.full_rebuild()
+    nodes = connection.execute(
+        """SELECT node_id, parent_node_id, kind, depth, ordinal, section_title,
+                  entity_type, entity_id
+           FROM collection_node_index WHERE collection_id = ? ORDER BY depth, ordinal""",
+        ("reading",),
+    ).fetchall()
+
+    assert summary.collections == 1
+    assert summary.collection_nodes == 3
+    assert [row["node_id"] for row in nodes] == ["foundations", "first-note", "second-note"]
+    assert tuple(nodes[1]) == (
+        "first-note", "foundations", "entity", 1, 0, "Foundations", "document", "neural-indexing"
+    )
+    assert tuple(nodes[2]) == (
+        "second-note", "foundations", "entity", 1, 1, "Foundations", "document", "usage-target"
+    )
+    assert [item["id"] for item in KnowledgeReadService(repository, connection).unfiled_documents()] == [
+        "unfiled-note"
+    ]
+
+    collection_path.write_text(
+        collection_path.read_text(encoding="utf-8").replace(
+            "        entity_id: usage-target", "        entity_id: unfiled-note"
+        ),
+        encoding="utf-8",
+    )
+    incremental = indexer.update_path(collection_path)
+    assert incremental.collections == 1
+    assert incremental.collection_nodes == 3
+    assert [
+        item["id"] for item in KnowledgeReadService(repository, connection).unfiled_documents()
+    ] == ["usage-target"]
     connection.close()
 
 
@@ -215,6 +275,7 @@ def test_rebuild_cli_recreates_runtime_indexes_from_the_selected_repository(tmp_
             "document_index", "term_index", "source_index", "alias_index",
             "taxonomy_index", "backlink_index", "evidence_index", "document_fts",
             "term_fts", "source_fts", "evidence_fts", "document_stats",
+            "collection_node_index", "collection_index",
         ):
             connection.execute("DROP TABLE {}".format(table))
     connection.close()

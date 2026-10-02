@@ -43,6 +43,32 @@ class KnowledgeReadService:
             for row in rows
         ]
 
+    def unfiled_documents(self, limit: int = 50, offset: int = 0) -> list[dict]:
+        """Return Documents that have no Collection entity reference."""
+        _validate_page(limit, offset)
+        rows = self.connection.execute(
+            """SELECT d.entity_id, d.title, d.metadata_json
+               FROM document_index d
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM collection_node_index n
+                   WHERE n.kind = 'entity'
+                     AND n.entity_type = 'document'
+                     AND n.entity_id = d.entity_id
+               )
+               ORDER BY d.title COLLATE NOCASE, d.entity_id
+               LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+        return [
+            {
+                "id": row["entity_id"],
+                "title": row["title"],
+                "entity_type": "document",
+                "metadata": json.loads(row["metadata_json"]),
+            }
+            for row in rows
+        ]
+
     def get_entity(self, entity_type: str, entity_id: str) -> dict:
         if entity_type not in _INDEX_TABLES:
             raise ValueError("Unsupported canonical entity type: {}".format(entity_type))

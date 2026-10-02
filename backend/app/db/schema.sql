@@ -105,6 +105,38 @@ CREATE TABLE IF NOT EXISTS source_index (
     content_hash TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS collection_index (
+    collection_id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    content_hash TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS collection_node_index (
+    collection_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    parent_node_id TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('section', 'entity')),
+    depth INTEGER NOT NULL CHECK (depth >= 0),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    section_title TEXT,
+    entity_type TEXT CHECK (entity_type IN ('document', 'term', 'source')),
+    entity_id TEXT,
+    PRIMARY KEY (collection_id, node_id),
+    FOREIGN KEY (collection_id) REFERENCES collection_index (collection_id) ON DELETE CASCADE,
+    CHECK (
+        (kind = 'section' AND entity_type IS NULL AND entity_id IS NULL) OR
+        (kind = 'entity' AND entity_type IS NOT NULL AND entity_id IS NOT NULL)
+    )
+);
+CREATE INDEX IF NOT EXISTS collection_node_parent_idx
+    ON collection_node_index (collection_id, parent_node_id, ordinal);
+CREATE INDEX IF NOT EXISTS collection_node_entity_idx
+    ON collection_node_index (entity_type, entity_id);
+
 CREATE TABLE IF NOT EXISTS alias_index (
     term_id TEXT NOT NULL,
     alias TEXT NOT NULL,

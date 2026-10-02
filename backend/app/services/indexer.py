@@ -7,9 +7,11 @@ import hashlib
 import json
 import sqlite3
 
+from backend.app.domain.collection import Collection, EntityNode, SectionNode
 from backend.app.domain.document import DocumentMetadata
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.term import TermMetadata
+from backend.app.services.collection_registry import CollectionRegistry
 from backend.app.services.markdown_parser import MarkdownDocument, parse_markdown, parse_yaml
 from backend.app.services.resolution import normalize_key
 from backend.app.services.taxonomy_registry import TaxonomyRegistry
@@ -27,6 +29,8 @@ class IndexBuildSummary:
     terms: int
     aliases: int
     taxonomy_entries: int
+    collections: int
+    collection_nodes: int
     backlinks: int
     evidence: int
     sources: int
@@ -54,7 +58,7 @@ class Indexer:
         self.connection = connection
 
     def full_rebuild(self) -> IndexBuildSummary:
-        documents, terms, sources, taxonomy, markdown = self._snapshot()
+        documents, terms, sources, taxonomy, collections, collection_nodes, markdown = self._snapshot()
         term_records = [record for record in markdown if record.entity_type == "term"]
         backlinks, evidence = self._relations(markdown, term_records)
         with self.connection:
@@ -69,6 +73,7 @@ class Indexer:
                 "INSERT INTO taxonomy_index (kind, entity_id, title) VALUES (?, ?, ?)",
                 taxonomy,
             )
+            self._insert_collections(collections, collection_nodes)
             self._insert_relations(backlinks, evidence)
             self._sync_document_stats()
         counts = self._counts()
@@ -77,6 +82,8 @@ class Indexer:
             terms=len(terms),
             aliases=counts["aliases"],
             taxonomy_entries=len(taxonomy),
+            collections=len(collections),
+            collection_nodes=len(collection_nodes),
             backlinks=len(backlinks),
             evidence=len(evidence),
             sources=len(sources),
@@ -150,6 +157,25 @@ class Indexer:
                     "INSERT INTO taxonomy_index (kind, entity_id, title) VALUES (?, ?, ?)",
                     rows,
                 )
+        elif category == "collections" and target.suffix.lower() == ".yaml":
+            if relative.parts != ("knowledge", "collections", target.name):
+                raise ValueError("Collections must be stored directly under knowledge/collections/")
+            collection_rows, node_rows = self._read_all_collections()
+            collection_id = target.stem
+            collection_row = next(
+                (row for row in collection_rows if row["collection_id"] == collection_id),
+                None,
+            )
+            current_nodes = [row for row in node_rows if row["collection_id"] == collection_id]
+            with self.connection:
+                self.connection.execute(
+                    "DELETE FROM collection_node_index WHERE collection_id = ?", (collection_id,)
+                )
+                self.connection.execute(
+                    "DELETE FROM collection_index WHERE collection_id = ?", (collection_id,)
+                )
+                if collection_row is not None and target.is_file():
+                    self._insert_collections([collection_row], current_nodes)
         else:
             raise ValueError("Unsupported canonical path for incremental indexing: {}".format(relative))
 
@@ -175,7 +201,8 @@ class Indexer:
         terms = [self._term_row(row) for row in markdown if row.entity_type == "term"]
         sources = self._read_all_sources()
         taxonomy = self._read_taxonomy_rows()
-        return documents, terms, sources, taxonomy, markdown
+        collections, collection_nodes = self._read_all_collections()
+        return documents, terms, sources, taxonomy, collections, collection_nodes, markdown
 
     def _read_all_markdown(self) -> List[_MarkdownRecord]:
         records = []
@@ -248,6 +275,108 @@ class Indexer:
             seen.add(row["entity_id"])
             rows.append(row)
         return rows
+
+    def _read_all_collections(self) -> Tuple[List[dict], List[dict]]:
+        directory = self.knowledge_root / "collections"
+        try:
+            registry = CollectionRegistry.load(directory)
+            collection_rows = []
+            node_rows = []
+            for collection in registry.collections:
+                path = directory / (collection.id + ".yaml")
+                content = path.read_bytes()
+                collection_rows.append(
+                    {
+                        "collection_id": collection.id,
+                        "path": path.relative_to(self.repository_root).as_posix(),
+                        "title": collection.title,
+                        "description": collection.description,
+                        "status": collection.status,
+                        "position": collection.position,
+                        "content_hash": hashlib.sha256(content).hexdigest(),
+                    }
+                )
+                node_rows.extend(self._collection_node_rows(collection, collection.nodes))
+            return collection_rows, node_rows
+        except Exception as error:
+            raise IndexBuildError("Cannot index Collections: {}".format(error)) from error
+
+    def _collection_node_rows(
+        self,
+        collection: Collection,
+        nodes,
+        parent_node_id=None,
+        depth=0,
+        parent_section_title=None,
+    ) -> List[dict]:
+        rows = []
+        for ordinal, node in enumerate(nodes):
+            if isinstance(node, SectionNode):
+                rows.append(
+                    {
+                        "collection_id": collection.id,
+                        "node_id": node.id,
+                        "parent_node_id": parent_node_id,
+                        "kind": "section",
+                        "depth": depth,
+                        "ordinal": ordinal,
+                        "section_title": node.title,
+                        "entity_type": None,
+                        "entity_id": None,
+                    }
+                )
+                rows.extend(
+                    self._collection_node_rows(
+                        collection,
+                        node.children,
+                        node.id,
+                        depth + 1,
+                        node.title,
+                    )
+                )
+            elif isinstance(node, EntityNode):
+                rows.append(
+                    {
+                        "collection_id": collection.id,
+                        "node_id": node.id,
+                        "parent_node_id": parent_node_id,
+                        "kind": "entity",
+                        "depth": depth,
+                        "ordinal": ordinal,
+                        "section_title": parent_section_title,
+                        "entity_type": node.entity_type,
+                        "entity_id": node.entity_id,
+                    }
+                )
+        return rows
+
+    def _insert_collections(self, collection_rows, node_rows) -> None:
+        self.connection.executemany(
+            """INSERT INTO collection_index (
+                   collection_id, path, title, description, status, position, content_hash
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    row["collection_id"], row["path"], row["title"], row["description"],
+                    row["status"], row["position"], row["content_hash"],
+                )
+                for row in collection_rows
+            ],
+        )
+        self.connection.executemany(
+            """INSERT INTO collection_node_index (
+                   collection_id, node_id, parent_node_id, kind, depth, ordinal,
+                   section_title, entity_type, entity_id
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    row["collection_id"], row["node_id"], row["parent_node_id"],
+                    row["kind"], row["depth"], row["ordinal"], row["section_title"],
+                    row["entity_type"], row["entity_id"],
+                )
+                for row in node_rows
+            ],
+        )
 
     def _source_row(self, path: Path) -> dict:
         try:
@@ -431,6 +560,7 @@ class Indexer:
 
     def _clear_derived_indexes(self) -> None:
         for table in (
+            "collection_node_index", "collection_index",
             "document_index", "term_index", "source_index", "alias_index",
             "taxonomy_index", "backlink_index", "evidence_index",
             "document_fts", "term_fts", "source_fts", "evidence_fts",
@@ -466,6 +596,8 @@ class Indexer:
             "terms": count("term_index"),
             "aliases": count("alias_index"),
             "taxonomy_entries": count("taxonomy_index"),
+            "collections": count("collection_index"),
+            "collection_nodes": count("collection_node_index"),
             "backlinks": count("backlink_index"),
             "evidence": count("evidence_index"),
             "sources": count("source_index"),
