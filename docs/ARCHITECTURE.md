@@ -21,9 +21,9 @@ The current formal rules are:
 
 - `knowledge/` contains canonical Markdown and YAML.
 - `knowledge/collections/` contains canonical Collection YAML. Collections organize references to Documents, Terms, and Sources without changing their canonical paths or adding reverse membership metadata to entity frontmatter.
-- `runtime/` contains disposable runtime state and is not a source of canonical facts.
-- Collection membership indexes are derived from canonical Collection files and are rebuildable. Reading progress is Runtime SQLite state and is included in database backups, not Git.
-- `presentation_annotations` live in Runtime SQLite. Highlight, text color, and underline never modify Markdown/YAML, Git, Search, Context Export, Evidence, or PaperSkillWork. Runtime loss also loses these personal annotations.
+- `runtime/` contains persistent, noncanonical application state. Runtime data is not a source of canonical knowledge, but user decisions and operational history must be retained in database backups.
+- Collection membership, search, relationship, and other canonical-knowledge indexes are derived from canonical Markdown/YAML and are rebuildable. Reading progress and usage-event history are persistent Runtime SQLite state and are included in database backups, not Git.
+- `presentation_annotations` live in Runtime SQLite. Highlight, text color, and underline never modify Markdown/YAML, Git, Search, Context Export, Evidence, or PaperSkillWork. These personal annotations are persistent Runtime data and require the database backup for recovery.
 - `storage/` contains local papers, uploads, and staging files and is not committed.
 - Parser and linter code is deterministic and does not access external services or persistent state.
 - `Publisher` is the only business service that writes canonical files. A Draft stores its comparison Git revision and target content hash; human rebase and successful Publish advance that comparison point. Publish conflicts depend on the target file's content hash, including whether the target is absent.
@@ -34,14 +34,14 @@ The current formal rules are:
 - Current Markdown must pass the writing standard. Legacy Markdown may publish with writing-style warnings; broken frontmatter and other structural errors still block it.
 - Proposal content is applied to its linked Draft by `ProposalService`. `Publisher` accepts Draft IDs only, writes canonical files, and finalizes matching applied Proposals after the canonical commit succeeds; a mismatched applied Proposal becomes stale.
 - SQLite search and relationship indexes are derived from `knowledge/`; Drafts are not indexed. `python tools/kb.py rebuild` recreates indexes without changing canonical files or usage-event history.
-- Runtime SQLite is rebuildable during this development phase. Schema changes use versioned `user_version` migrations that preserve existing Runtime records; do not delete the local database to apply an upgrade.
-- Production backups include a SQLite snapshot so presentation annotations and other Runtime state can be restored with the canonical Git bundle and `storage/` files.
+- Runtime SQLite is persistent application state, not a rebuildable index. Drafts, Proposals, Import Jobs and Items, usage-event history, reading progress, presentation annotations, Research Works, Discoveries, Analyses, Candidate decisions and notes, watermarks, Runs, manual requests, pauses, and control events cannot be reconstructed completely from canonical files. Versioned `user_version` migrations preserve these records; do not delete the local database to apply an upgrade.
+- Production backups include a consistent SQLite snapshot so persistent Runtime state can be restored with the canonical Git bundle and `storage/` files. Derived indexes can be rebuilt from canonical files and retained usage-event history.
 - Publish and Restore return success after the canonical Git commit. Proposal status or index refresh failures are returned as warnings; `python tools/kb.py rebuild` repairs derived indexes.
 - Import Jobs and Items live in Runtime SQLite. `storage/staging/` holds temporary import copies, and `storage/papers/` holds local PDFs; neither directory is committed. Import uses no AI or network service.
 
 ## Technology
 
-The stack is React + TypeScript + Vite, Python + FastAPI, SQLite + FTS5, Markdown + YAML, Git, DeepSeek API, and Docker Compose. Production serves the static Reference Hub through Nginx and keeps the API off the host-published ports. Registries and resolvers remain file-backed. Drafts, Proposals, Imports, usage, and presentation annotations are Runtime state; only the Publisher writes Canonical Markdown and YAML. The backend uses `KNOWLEDGE_REPO_PATH` as its repository root and `DATABASE_PATH` for Runtime SQLite.
+The stack is React + TypeScript + Vite, Python + FastAPI, SQLite + FTS5, Markdown + YAML, Git, DeepSeek API, and Docker Compose. Production serves the static Reference Hub through Nginx and keeps the API off the host-published ports. Registries and resolvers remain file-backed. Drafts, Proposals, Imports, usage history, reading progress, Research decisions and provenance, and presentation annotations are persistent Runtime state; only the Publisher writes Canonical Markdown and YAML. The backend uses `KNOWLEDGE_REPO_PATH` as its repository root and `DATABASE_PATH` for Runtime SQLite.
 
 ## Phase 4: Publisher + Git
 
@@ -119,7 +119,7 @@ Runtime Draft unmount cleanup only clears autosave timers and invalidates the cu
 
 ## Phase 14: Research Agent (implementation complete; production acceptance pending)
 
-Research Profiles under `config/research/profiles/` and global Research settings under `config/research/research.yaml` are canonical YAML. GitManager includes the Profile directory as an explicit tracked root and is not broadened to the full repository. Research Works, Discoveries, Analyses, Candidates, search watermarks, Runs, manual requests, pauses, and control events live in rebuildable Runtime SQLite state; only `Publisher` writes canonical knowledge.
+Research Profiles under `config/research/profiles/` and global Research settings under `config/research/research.yaml` are canonical YAML. GitManager includes the Profile directory as an explicit tracked root and is not broadened to the full repository. Research Works, Discoveries, Analyses, Candidate decisions and notes, search watermarks, Runs, manual requests, pauses, and control events live in persistent Runtime SQLite state. Provider availability does not make this history exactly reconstructible; include the database in backups. Only `Publisher` writes canonical knowledge.
 
 The Research pipeline uses offline-testable Provider adapters, deterministic normalization/deduplication/screening, bounded knowledge Context Packs, typed DeepSeek Analysis, atomic Candidate-capacity checks, a global process lock, and small SQLite transactions. Runs are recorded before external calls, incomplete slices do not advance their watermarks, and stale Runs or manual requests recover on a later tick. A tick consumes at most one oldest manual request or one most-overdue scheduled Profile.
 

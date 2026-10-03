@@ -25,13 +25,13 @@ GET  /api/drafts/{id}
 PUT  /api/drafts/{id}
 GET  /api/proposals
 GET  /api/proposals/{id}
-POST /api/proposals/{id}/approve
+POST /api/proposals/{id}/apply
 POST /api/proposals/{id}/reject
-POST /api/proposals/{id}/merge
 POST /api/publish
+POST /api/publish/batch
 ```
 
-Draft creation accepts `entity_type`, `entity_id`, and canonical `content`. The backend captures the current Git revision and target-file hash; clients cannot supply or override the conflict base. Draft updates require `expected_revision`. Proposal approval checks the linked Draft's current content hash. Proposal merge publishes through `Publisher`; it does not write canonical files through a route-specific path.
+Draft creation accepts `entity_type`, `entity_id`, and canonical `content`. The backend captures the current Git revision and target-file hash; clients cannot supply or override the conflict base. Draft updates require `expected_revision`. A Proposal moves from `proposed` to `drafted` only when a human applies it to its linked Draft; Apply checks the expected Draft revision and Proposal base-content hash, and changes Runtime Draft content only. The user reviews and publishes the Draft separately through `Publisher`. After the canonical commit succeeds, Publisher finalizes matching applied Proposals as `merged`, or marks them `stale` if their applied content no longer matches. Proposals can also be explicitly `rejected`. There are no Proposal approval or merge endpoints.
 
 ## Imports
 
