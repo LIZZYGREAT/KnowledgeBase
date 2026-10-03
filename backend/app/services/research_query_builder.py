@@ -28,6 +28,7 @@ class ResearchQueryBuilder:
         profile: ResearchProfile,
         lens_overrides: Optional[Mapping[str, bool]] = None,
         additional_queries: Sequence[str] = (),
+        additional_query_lens: Optional[str] = None,
     ) -> tuple[ResearchQuery, ...]:
         overrides = dict(lens_overrides or {})
         if any(
@@ -87,7 +88,21 @@ class ResearchQueryBuilder:
             ]
             if not selected_lenses:
                 raise ValueError("Additional Research queries require at least one selected Lens")
-            lens = selected_lenses[0]
+            if additional_query_lens is None:
+                if len(selected_lenses) > 1:
+                    raise ValueError(
+                        "Additional Research queries require an explicit Lens when multiple Lenses are selected"
+                    )
+                lens = selected_lenses[0]
+            else:
+                lens = next(
+                    (item for item in selected_lenses if item.id == additional_query_lens),
+                    None,
+                )
+                if lens is None:
+                    raise ValueError(
+                        "Additional Research query Lens must be one of the selected Lenses"
+                    )
             for text in additional_queries:
                 if not isinstance(text, str) or not text.strip():
                     raise ValueError("Additional Research queries must be non-empty text")

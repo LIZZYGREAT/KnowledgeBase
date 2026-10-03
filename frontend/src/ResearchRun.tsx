@@ -31,6 +31,15 @@ export function ResearchRunDrawer({ run, onClose }: { run: ResearchRun; onClose:
   const lensIds = Array.isArray(profileSnapshot.lenses)
     ? profileSnapshot.lenses.filter(isRecord).filter((lens) => lens.enabled === true).map((lens) => String(lens.title ?? lens.id))
     : [];
+  const additionalQueryLensId = stringValue(effective.additional_query_lens);
+  const additionalQueryLensTitle = additionalQueryLensId && Array.isArray(profileSnapshot.lenses)
+    ? profileSnapshot.lenses.filter(isRecord).find((lens) => lens.id === additionalQueryLensId)?.title
+    : null;
+  const searchWindow = effective.manual_incremental === true
+    ? "Incremental · scheduled watermark window (not advanced)"
+    : Array.isArray(effective.manual_range)
+      ? effective.manual_range.map((value) => String(value)).join(" → ")
+      : run.trigger === "scheduled" ? "Scheduled coverage" : "Profile initial lookback";
   return <div className="research-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="research-drawer research-run-drawer" role="dialog" aria-modal="true" aria-labelledby="research-run-title">
       <header className="research-drawer-header"><div><p className="eyebrow">RUN INSPECTOR</p><h2 id="research-run-title">Research Run</h2><p>{run.id}</p></div><button className="workspace-drawer-close" aria-label="关闭运行详情" onClick={onClose}>×</button></header>
@@ -38,7 +47,7 @@ export function ResearchRunDrawer({ run, onClose }: { run: ResearchRun; onClose:
         <section className="research-detail-section"><h3>Overview</h3><Detail label="Profile" value={run.profile_id} /><Detail label="Trigger" value={run.trigger} /><Detail label="Status" value={run.status.replaceAll("_", " ")} /><Detail label="Started" value={formatDate(run.started_at)} /><Detail label="Finished" value={formatDate(run.finished_at)} /><Detail label="Lenses" value={lensIds.join(", ")} /></section>
         <section className="research-detail-section"><h3>Pipeline</h3><div className="research-run-stats">{[["Discovery", run.fetched_count], ["Unique works", run.new_work_count], ["Duplicates", run.duplicate_count], ["Filtered", run.deterministic_filtered_count], ["AI analyzed", run.analyzed_count], ["Candidates", run.surfaced_count]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div></section>
         <section className="research-detail-section"><h3>Provider activity</h3>{Object.entries(run.provider_summary).length ? Object.entries(run.provider_summary).map(([provider, summary]) => <div className="research-provider-row" key={provider}><div><Chip tone={summary.errors ? "amber" : "green"}>{provider}</Chip>{summary.circuit_open && <Chip tone="rose">circuit open</Chip>}</div><span>{summary.works} works · {summary.pages} pages · {summary.requests} requests · {summary.errors} errors</span></div>) : <p className="subtle-copy">No provider calls were recorded for this Run.</p>}</section>
-        <section className="research-detail-section"><h3>Effective search</h3><Detail label="Breadth" value={stringValue(effective.breadth_override) ?? stringValue(isRecord(profileSnapshot.search) ? profileSnapshot.search.breadth : null) ?? "balanced"} /><Detail label="Additional queries" value={Array.isArray(effective.additional_queries) ? effective.additional_queries.join(" · ") : "—"} /><Detail label="Configuration hash" value={run.profile_content_hash} /></section>
+        <section className="research-detail-section"><h3>Effective search</h3><Detail label="Breadth" value={stringValue(effective.breadth_override) ?? stringValue(isRecord(profileSnapshot.search) ? profileSnapshot.search.breadth : null) ?? "balanced"} /><Detail label="Search window" value={searchWindow} /><Detail label="Additional queries" value={Array.isArray(effective.additional_queries) ? effective.additional_queries.join(" · ") : "—"} /><Detail label="Additional query Lens" value={additionalQueryLensId ? `${String(additionalQueryLensTitle ?? additionalQueryLensId)} (${additionalQueryLensId})` : "—"} /><Detail label="Configuration hash" value={run.profile_content_hash} /></section>
         {run.error_summary && <section className="research-detail-section"><h3>Run issues</h3><p className="research-run-error">{run.error_summary}</p></section>}
       </div>
       <footer className="research-drawer-footer"><span>Provider counts and errors are retained with this Runtime Run.</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>

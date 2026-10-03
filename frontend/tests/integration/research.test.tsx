@@ -84,8 +84,38 @@ describe("Research workspace", () => {
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(call).toBeTruthy();
     const body = JSON.parse(String(call?.[1]?.body));
-    expect(body).toMatchObject({ lenses: ["regularization"], breadth: "balanced", additional_queries: ["dynamic fisher continual learning"] });
+    expect(body).toMatchObject({ lenses: ["regularization"], breadth: "balanced", additional_queries: ["dynamic fisher continual learning"], additional_query_lens: "regularization" });
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
+  });
+
+  it("requires an Additional Query Lens for multiple selected lenses and queues incremental search", async () => {
+    responseProfileDetail = {
+      ...profileDetail,
+      profile: {
+        ...profile,
+        lenses: [...profile.lenses, { id: "replay", title: "Replay", enabled: true, priority: "medium", queries: ["experience replay"], include_terms: ["replay"], exclude_terms: [] }],
+      },
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Search Now" }));
+    fireEvent.change(screen.getByLabelText("时间范围"), { target: { value: "incremental" } });
+    fireEvent.change(screen.getByLabelText(/额外检索词/), { target: { value: "replay distillation" } });
+
+    expect(screen.getByText("从已有的 Lens / Provider / Query Watermark 窗口检索；没有水位的新增 query 使用 Profile 初始回看天数。这是手动 Run，不会推进 scheduled Watermark。")).toBeTruthy();
+    expect(screen.getByLabelText(/Additional Query Lens/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
+    expect(await screen.findByText("选择多个 Lens 时，请指定 Additional Query Lens。")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/Additional Query Lens/), { target: { value: "replay" } });
+    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
+    expect(await screen.findByText(/Search queued/)).toBeTruthy();
+    const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      lenses: ["regularization", "replay"],
+      date_range: { mode: "incremental" },
+      additional_queries: ["replay distillation"],
+      additional_query_lens: "replay",
+    });
   });
 
   it("explains that discovery is paused when AI Analysis is disabled", async () => {

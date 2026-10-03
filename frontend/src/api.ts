@@ -821,8 +821,9 @@ export function resumeResearchProfile(profileId: string, body: { strategy: "catc
 export interface QueueResearchRunInput {
   lenses: string[];
   breadth?: ResearchBreadth;
-  date_range?: { mode: "last_7_days" | "last_30_days" | "last_90_days" | "custom"; start?: string; end?: string };
+  date_range?: { mode: "incremental" | "last_7_days" | "last_30_days" | "last_90_days" | "custom"; start?: string; end?: string };
   additional_queries?: string[];
+  additional_query_lens?: string;
 }
 
 export function queueResearchRun(profileId: string, body: QueueResearchRunInput) {

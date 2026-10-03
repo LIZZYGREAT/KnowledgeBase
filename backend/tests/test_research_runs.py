@@ -67,6 +67,39 @@ def test_run_is_persisted_before_provider_and_completed_slice_advances_watermark
     connection.close()
 
 
+def test_manual_incremental_run_keeps_scheduled_watermark_unchanged(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([])
+    service, _, search_repository, _ = _service(tmp_path, connection, provider)
+    profile = service.profile_registry.get("continual-learning")
+    query = service.query_builder.build(profile)[0]
+    watermark = _NOW - timedelta(days=1)
+    search_repository.record_attempt(
+        profile.id, query.lens_id, "arxiv", query.query_key, query.text,
+        watermark.isoformat(),
+    )
+    search_repository.complete_slice(
+        profile.id, query.lens_id, "arxiv", query.query_key,
+        watermark.isoformat(), watermark.isoformat(),
+    )
+    before = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+
+    run = service.run_profile(
+        profile.id, trigger="manual", manual_incremental=True
+    )
+
+    after = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert run is not None and run.status == "success"
+    assert run.effective_config["manual_incremental"] is True
+    assert after == before
+    assert provider.calls > 0
+    connection.close()
+
+
 def test_full_inbox_skips_before_provider_or_deepseek_calls(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([])

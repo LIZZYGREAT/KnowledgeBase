@@ -46,6 +46,40 @@ def test_incremental_search_starts_at_watermark_minus_overlap():
         connection.close()
 
 
+def test_manual_incremental_uses_watermark_window_without_advancing_it():
+    connection, repository, service, profile, query, global_config = _setup()
+    try:
+        watermark = _NOW - timedelta(days=1)
+        _seed_watermark(repository, profile, query, "arxiv", watermark)
+        state_before = repository.get_state(
+            profile.id, query.lens_id, "arxiv", query.query_key
+        )
+
+        plan = service.build_plan(
+            profile,
+            query,
+            "arxiv",
+            _NOW,
+            global_config,
+            manual_incremental=True,
+        )
+
+        assert plan.manual is True
+        assert plan.previous_watermark == watermark
+        assert plan.slices[0].start_at == watermark - timedelta(hours=48)
+        assert plan.slices[-1].end_at == _NOW
+        with pytest.raises(ValueError, match="do not update scheduled watermarks"):
+            service.mark_attempt(plan, plan.slices[0], _NOW)
+        with pytest.raises(ValueError, match="do not update scheduled watermarks"):
+            service.complete_slice(plan, plan.slices[0], _NOW)
+        state_after = repository.get_state(
+            profile.id, query.lens_id, "arxiv", query.query_key
+        )
+        assert state_after == state_before
+    finally:
+        connection.close()
+
+
 def test_watermark_advances_only_after_a_slice_is_completed():
     connection, repository, service, profile, query, global_config = _setup()
     try:

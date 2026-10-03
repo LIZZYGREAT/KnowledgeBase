@@ -131,13 +131,21 @@ class ResearchService:
         lens_overrides: Optional[Mapping[str, bool]] = None,
         resume_strategy: ResumeStrategy = "all",
         additional_queries: tuple[str, ...] = (),
+        additional_query_lens: Optional[str] = None,
         breadth_override: Optional[str] = None,
         catchup_days_override: Optional[int] = None,
+        manual_incremental: bool = False,
     ) -> Optional[ResearchRunRecord]:
         if trigger not in {"scheduled", "manual"}:
             raise ValueError("Research Run trigger must be scheduled or manual")
         if manual_range is not None and trigger != "manual":
             raise ValueError("Manual historical ranges require a manual Research Run")
+        if manual_incremental and trigger != "manual":
+            raise ValueError("Manual incremental search requires a manual Research Run")
+        if manual_incremental and manual_range is not None:
+            raise ValueError("Manual incremental and historical ranges cannot be combined")
+        if manual_incremental and resume_strategy != "all":
+            raise ValueError("Manual incremental search uses the scheduled watermark window")
         if not self.global_lock.acquire():
             return None
         try:
@@ -154,8 +162,10 @@ class ResearchService:
                 resume_strategy=resume_strategy,
                 now=now,
                 additional_queries=additional_queries,
+                additional_query_lens=additional_query_lens,
                 breadth_override=breadth_override,
                 catchup_days_override=catchup_days_override,
+                manual_incremental=manual_incremental,
             )
         finally:
             self.global_lock.release()
@@ -231,7 +241,11 @@ class ResearchService:
         if profile is None:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
         normalized_override = dict(override or {})
-        _manual_request_options(normalized_override, profile)
+        options = _manual_request_options(normalized_override, profile)
+        if options["additional_query_lens"] is not None:
+            normalized_override["additional_query_lens"] = options[
+                "additional_query_lens"
+            ]
         return self.run_request_repository.enqueue(
             profile_id,
             normalized_override,
@@ -372,9 +386,15 @@ class ResearchService:
         resume_strategy: ResumeStrategy,
         now: datetime,
         additional_queries: tuple[str, ...] = (),
+        additional_query_lens: Optional[str] = None,
         breadth_override: Optional[str] = None,
         catchup_days_override: Optional[int] = None,
+        manual_incremental: bool = False,
     ) -> Optional[ResearchRunRecord]:
+        if manual_incremental and trigger != "manual":
+            raise ValueError("Manual incremental search requires a manual Research Run")
+        if manual_incremental and (manual_range is not None or resume_strategy != "all"):
+            raise ValueError("Manual incremental search uses the scheduled watermark window")
         canonical_profile = self.profile_registry.get(profile_id)
         if canonical_profile is None:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
@@ -387,6 +407,8 @@ class ResearchService:
             additional_queries,
             breadth_override,
             catchup_days_override,
+            additional_query_lens,
+            manual_incremental,
         )
         profile = canonical_profile
         profile_updates = {}
@@ -454,7 +476,10 @@ class ResearchService:
             )
 
         queries = self.query_builder.build(
-            profile, lens_overrides, additional_queries
+            profile,
+            lens_overrides,
+            additional_queries,
+            additional_query_lens,
         )
         run = ResearchRunRecord(
             id=self.id_factory(),
@@ -514,6 +539,7 @@ class ResearchService:
                         manual_range=manual_range,
                         resume_strategy=resume_strategy,
                         catchup_days_override=catchup_days_override,
+                        manual_incremental=manual_incremental,
                     )
                     if plan.watermark_skip_required:
                         continue
@@ -888,6 +914,8 @@ def _effective_config(
     additional_queries: tuple[str, ...] = (),
     breadth_override: Optional[str] = None,
     catchup_days_override: Optional[int] = None,
+    additional_query_lens: Optional[str] = None,
+    manual_incremental: bool = False,
 ) -> dict:
     return {
         "profile": profile.model_dump(mode="json"),
@@ -899,6 +927,8 @@ def _effective_config(
         ),
         "resume_strategy": resume_strategy,
         "additional_queries": list(additional_queries),
+        "additional_query_lens": additional_query_lens,
+        "manual_incremental": manual_incremental,
         "breadth_override": breadth_override,
         "catchup_days_override": catchup_days_override,
     }
@@ -962,9 +992,11 @@ def _manual_request_options(override: Mapping, profile: ResearchProfile) -> dict
     allowed = {
         "lens_overrides",
         "manual_range",
+        "manual_incremental",
         "resume_strategy",
         "breadth",
         "additional_queries",
+        "additional_query_lens",
     }
     unexpected = set(override) - allowed
     if unexpected:
@@ -996,11 +1028,19 @@ def _manual_request_options(override: Mapping, profile: ResearchProfile) -> dict
         if manual_range[0] >= manual_range[1]:
             raise ValueError("Manual Research Run range must end after it starts")
 
+    manual_incremental = override.get("manual_incremental", False)
+    if type(manual_incremental) is not bool:
+        raise ValueError("manual_incremental must be a boolean")
+    if manual_incremental and manual_range is not None:
+        raise ValueError("Manual incremental and historical ranges cannot be combined")
+
     resume_strategy = override.get("resume_strategy", "all")
     if resume_strategy not in {"all", "from_now"}:
         raise ValueError("resume_strategy must be 'all' or 'from_now'")
     if manual_range is not None and resume_strategy != "all":
         raise ValueError("Resume strategy does not apply to manual historical searches")
+    if manual_incremental and resume_strategy != "all":
+        raise ValueError("Manual incremental search uses the scheduled watermark window")
     breadth = override.get("breadth")
     if breadth is not None and breadth not in {"strict", "balanced", "explore"}:
         raise ValueError("breadth must be strict, balanced, or explore")
@@ -1012,6 +1052,9 @@ def _manual_request_options(override: Mapping, profile: ResearchProfile) -> dict
         if not isinstance(query, str) or not query.strip() or len(query) > 2_000:
             raise ValueError("additional_queries entries must be text up to 2000 characters")
         normalized_queries.append(query.strip())
+    additional_query_lens = override.get("additional_query_lens")
+    if additional_query_lens is not None and not isinstance(additional_query_lens, str):
+        raise ValueError("additional_query_lens must be a Lens id")
     if normalized_queries:
         selected_lenses = [
             lens
@@ -1020,11 +1063,26 @@ def _manual_request_options(override: Mapping, profile: ResearchProfile) -> dict
         ]
         if not selected_lenses:
             raise ValueError("Additional Research queries require a selected Lens")
+        selected_lens_ids = {lens.id for lens in selected_lenses}
+        if additional_query_lens is None:
+            if len(selected_lenses) > 1:
+                raise ValueError(
+                    "Additional Research queries require an explicit Lens when multiple Lenses are selected"
+                )
+            additional_query_lens = selected_lenses[0].id
+        elif additional_query_lens not in selected_lens_ids:
+            raise ValueError(
+                "Additional Research query Lens must be one of the selected Lenses"
+            )
+    elif additional_query_lens is not None:
+        raise ValueError("additional_query_lens requires additional_queries")
     return {
         "manual_range": manual_range,
+        "manual_incremental": manual_incremental,
         "lens_overrides": lens_overrides,
         "resume_strategy": resume_strategy,
         "additional_queries": tuple(normalized_queries),
+        "additional_query_lens": additional_query_lens,
         "breadth_override": breadth,
         "catchup_days_override": None,
     }

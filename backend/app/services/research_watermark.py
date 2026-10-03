@@ -51,6 +51,7 @@ class ResearchWatermarkService:
         manual_range: Optional[tuple[datetime, datetime]] = None,
         resume_strategy: ResumeStrategy = "all",
         catchup_days_override: Optional[int] = None,
+        manual_incremental: bool = False,
     ) -> ResearchSearchPlan:
         now_utc = _as_utc(now, "now")
         if query.profile_id != profile.id:
@@ -69,6 +70,10 @@ class ResearchWatermarkService:
             raise ValueError("Research catchup_days override must be a positive integer")
         if catchup_days_override is not None and resume_strategy != "last_window":
             raise ValueError("catchup_days override requires the last_window strategy")
+        if manual_incremental and manual_range is not None:
+            raise ValueError("Manual incremental and historical ranges cannot be combined")
+        if manual_incremental and resume_strategy != "all":
+            raise ValueError("Manual incremental search uses the scheduled watermark window")
 
         state = self.repository.get_state(
             profile.id, query.lens_id, provider, query.query_key
@@ -135,7 +140,7 @@ class ResearchWatermarkService:
             query_key=query.query_key,
             query_text=query.text,
             slices=_slice_range(start, now_utc, global_config.runtime.slice_days),
-            manual=False,
+            manual=manual_incremental,
             previous_watermark=previous_watermark,
         )
 
@@ -229,7 +234,7 @@ def _validate_scheduled_slice(
     plan: ResearchSearchPlan, search_slice: ResearchSearchSlice
 ) -> None:
     if plan.manual:
-        raise ValueError("Manual historical searches do not update scheduled watermarks")
+        raise ValueError("Manual searches do not update scheduled watermarks")
     if plan.watermark_skip_required:
         raise ValueError("A from_now plan must be applied through skip_profile_to_now")
     if search_slice not in plan.slices:

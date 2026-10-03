@@ -36,6 +36,7 @@ export function ResearchProfilePanel({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [selectedLenses, setSelectedLenses] = useState<string[]>([]);
+  const [additionalQueryLens, setAdditionalQueryLens] = useState("");
   const [breadth, setBreadth] = useState<ResearchBreadth>(profile.search.breadth);
   const [dateMode, setDateMode] = useState<QueueResearchRunInput["date_range"] extends infer T ? T extends { mode: infer M } ? M : never : never>("last_30_days");
   const [dateStart, setDateStart] = useState("");
@@ -46,7 +47,15 @@ export function ResearchProfilePanel({
     setSelectedLenses(profile.lenses.filter((lens) => lens.enabled).map((lens) => lens.id));
     setBreadth(profile.search.breadth);
     setQueries("");
+    setAdditionalQueryLens("");
+    setDateMode("last_30_days");
   }, [profile.id, profile.search.breadth, profile.lenses]);
+
+  useEffect(() => {
+    if (additionalQueryLens && !selectedLenses.includes(additionalQueryLens)) {
+      setAdditionalQueryLens("");
+    }
+  }, [additionalQueryLens, selectedLenses]);
 
   async function pause(days: number) {
     setBusy(true);
@@ -119,6 +128,10 @@ export function ResearchProfilePanel({
       setError("额外检索词需要唯一，每条最多 2,000 字符，最多 20 条。");
       return;
     }
+    if (queryLines.length > 0 && selectedLenses.length > 1 && !selectedLenses.includes(additionalQueryLens)) {
+      setError("选择多个 Lens 时，请指定 Additional Query Lens。");
+      return;
+    }
     setBusy(true);
     setNotice("");
     const input: QueueResearchRunInput = {
@@ -128,6 +141,7 @@ export function ResearchProfilePanel({
         ? { mode: "custom", start: dateStart, end: dateEnd }
         : { mode: dateMode },
       additional_queries: queryLines,
+      ...(queryLines.length ? { additional_query_lens: selectedLenses.length === 1 ? selectedLenses[0] : additionalQueryLens } : {}),
     };
     try {
       const queued = await queueResearchRun(profile.id, input);
@@ -141,7 +155,9 @@ export function ResearchProfilePanel({
   }
 
   function toggleLens(id: string) {
-    setSelectedLenses((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+    setSelectedLenses((current) => {
+      return current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+    });
   }
 
   const scheduledText = !profile.ai_analysis.enabled ? "自动发现已暂停" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
@@ -193,10 +209,12 @@ export function ResearchProfilePanel({
       <div className="research-lens-options">{profile.lenses.map((lens) => <label className="research-lens-option" key={lens.id}><input type="checkbox" checked={selectedLenses.includes(lens.id)} onChange={() => toggleLens(lens.id)} /><span><strong>{lens.title}</strong><small>{lens.priority} priority · {lens.id}</small></span></label>)}</div>
       <div className="research-search-controls">
         <label className="field-label">Breadth<select value={breadth} onChange={(event) => setBreadth(event.target.value as ResearchBreadth)}><option value="strict">Strict · 高相关</option><option value="balanced">Balanced · 均衡</option><option value="explore">Explore · 强调新颖性</option></select></label>
-        <label className="field-label">时间范围<select value={dateMode} onChange={(event) => setDateMode(event.target.value as typeof dateMode)}><option value="last_7_days">最近 7 天</option><option value="last_30_days">最近 30 天</option><option value="last_90_days">最近 90 天</option><option value="custom">自定义</option></select></label>
+        <label className="field-label">时间范围<select value={dateMode} onChange={(event) => setDateMode(event.target.value as typeof dateMode)}><option value="incremental">增量 · 从 scheduled Watermark 到现在</option><option value="last_7_days">最近 7 天</option><option value="last_30_days">最近 30 天</option><option value="last_90_days">最近 90 天</option><option value="custom">自定义</option></select></label>
       </div>
+      {dateMode === "incremental" && <p className="field-hint research-incremental-help">从已有的 Lens / Provider / Query Watermark 窗口检索；没有水位的新增 query 使用 Profile 初始回看天数。这是手动 Run，不会推进 scheduled Watermark。</p>}
       {dateMode === "custom" && <div className="research-search-controls"><label className="field-label">开始日期<input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} /></label><label className="field-label">结束日期<input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} /></label></div>}
       <label className="field-label">额外检索词 <span className="field-hint">每行一条，最多 20 条</span><textarea rows={3} maxLength={40000} value={queries} onChange={(event) => setQueries(event.target.value)} placeholder="dynamic fisher continual learning" /></label>
+      {queries.split(/\r?\n/).some((query) => query.trim()) && selectedLenses.length > 1 && <label className="field-label">Additional Query Lens<select value={additionalQueryLens} onChange={(event) => setAdditionalQueryLens(event.target.value)}><option value="">选择 Lens</option>{profile.lenses.filter((lens) => selectedLenses.includes(lens.id)).map((lens) => <option key={lens.id} value={lens.id}>{lens.title} · {lens.priority}</option>)}</select><span className="field-hint">额外检索词会继承该 Lens 的 priority、include_terms 与 exclude_terms。</span></label>}
       {error && <p className="error-copy" role="alert">{error}</p>}
       <div className="research-search-footer"><span>请求会进入本地队列，由 Research 调度器执行。</span><button className="button button-primary" disabled={busy || !selectedLenses.length}>{busy ? "正在排队…" : "加入搜索队列"}</button></div>
     </form>}

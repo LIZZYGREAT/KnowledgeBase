@@ -1,14 +1,18 @@
 import asyncio
 
+import pytest
+
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from backend.app.domain.ai import ResearchCandidateAnalysisOutput
+from backend.app.domain.research import ResearchLens
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.services.research_providers.base import ProviderWork
 from backend.app.api.research import router
 from backend.tests.test_research_runs import (
     _NOW,
+    _profile,
     FakeProvider,
     _service,
 )
@@ -16,7 +20,20 @@ from backend.tests.test_research_runs import (
 
 def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_path):
     connection = _connection()
-    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
+    profile = _profile()
+    replay_lens = ResearchLens.model_validate(
+        {
+            "id": "replay",
+            "title": "Replay",
+            "enabled": False,
+            "priority": "medium",
+            "queries": ["experience replay"],
+            "include_terms": ["replay"],
+            "exclude_terms": [],
+        }
+    )
+    profile = profile.model_copy(update={"lenses": [*profile.lenses, replay_lens]})
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]), profile=profile)
     app = _app(service)
 
     async def exercise_routes():
@@ -67,6 +84,38 @@ def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_pa
             assert request.override["additional_queries"] == [
                 "dynamic fisher continual learning"
             ]
+            assert request.override["additional_query_lens"] == "regularization"
+
+            incremental = await client.post(
+                "/api/research/profiles/continual-learning/runs",
+                json={
+                    "lenses": ["regularization", "replay"],
+                    "date_range": {"mode": "incremental"},
+                    "additional_queries": ["replay distillation"],
+                    "additional_query_lens": "replay",
+                },
+            )
+            assert incremental.status_code == 202, incremental.json()
+            incremental_request = service.run_request_repository.get(
+                incremental.json()["request_id"]
+            )
+            assert incremental_request is not None
+            assert incremental_request.override["manual_incremental"] is True
+            assert incremental_request.override["additional_query_lens"] == "replay"
+            assert "manual_range" not in incremental_request.override
+
+            profile = service.profile_registry.get("continual-learning")
+            with pytest.raises(ValueError, match="explicit Lens"):
+                service.queue_manual_run(
+                    profile.id,
+                    {
+                        "lens_overrides": {
+                            lens.id: lens.id in {"regularization", "replay"}
+                            for lens in profile.lenses
+                        },
+                        "additional_queries": ["ambiguous additional query"],
+                    },
+                )
             assert (await client.get("/api/research/runs")).json()["count"] == 0
             assert (await client.get("/api/research/candidates")).json()["count"] == 0
             assert (await client.get("/api/research/runs/missing")).status_code == 404

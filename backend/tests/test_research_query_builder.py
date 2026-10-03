@@ -64,7 +64,7 @@ def test_rejects_queries_that_collide_after_unicode_normalization():
         ResearchQueryBuilder().build(profile)
 
 
-def test_additional_queries_bind_to_first_selected_lens_and_get_stable_keys():
+def test_additional_queries_bind_to_a_single_selected_lens_and_get_stable_keys():
     profile = _profile()
     builder = ResearchQueryBuilder()
     overrides = {"regularization": False, "replay": True}
@@ -84,6 +84,38 @@ def test_additional_queries_bind_to_first_selected_lens_and_get_stable_keys():
     assert first[-1].text == "Distillation  replay"
     assert first[-1].normalized_text == "distillation replay"
     assert first[-1].query_key == repeated[-1].query_key
+
+
+def test_additional_queries_require_and_use_an_explicit_selected_lens():
+    profile = _profile()
+    builder = ResearchQueryBuilder()
+    overrides = {"regularization": True, "replay": True}
+
+    with pytest.raises(ValueError, match="explicit Lens"):
+        builder.build(
+            profile,
+            lens_overrides=overrides,
+            additional_queries=("distillation replay",),
+        )
+
+    query = builder.build(
+        profile,
+        lens_overrides=overrides,
+        additional_queries=("distillation replay",),
+        additional_query_lens="replay",
+    )[-1]
+
+    assert query.lens_id == "replay"
+    assert query.priority == "medium"
+    assert query.include_terms == ("replay",)
+
+    with pytest.raises(ValueError, match="one of the selected Lenses"):
+        builder.build(
+            profile,
+            lens_overrides={"regularization": False, "replay": True},
+            additional_queries=("distillation replay",),
+            additional_query_lens="regularization",
+        )
 
 
 def test_additional_queries_reject_duplicate_and_unselected_lens_runs():

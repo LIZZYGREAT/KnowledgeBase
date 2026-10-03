@@ -127,10 +127,15 @@ async def queue_manual_run(
         override["breadth"] = body.breadth
     if body.additional_queries:
         override["additional_queries"] = body.additional_queries
+    if body.additional_query_lens is not None:
+        override["additional_query_lens"] = body.additional_query_lens
     if body.date_range is not None:
-        now = service.now()
-        start, end = _date_range(body.date_range, now)
-        override["manual_range"] = [start.isoformat(), end.isoformat()]
+        if body.date_range.mode == "incremental":
+            override["manual_incremental"] = True
+        else:
+            now = service.now()
+            start, end = _date_range(body.date_range, now)
+            override["manual_range"] = [start.isoformat(), end.isoformat()]
 
     queued = service.queue_manual_run(profile_id, override)
     return {"request_id": queued.id, "status": queued.status}

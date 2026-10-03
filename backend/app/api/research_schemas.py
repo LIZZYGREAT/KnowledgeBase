@@ -98,7 +98,7 @@ class ResearchResumeResultView(APIModel):
 
 
 class ResearchDateRangeRequest(APIModel):
-    mode: Literal["last_7_days", "last_30_days", "last_90_days", "custom"]
+    mode: Literal["incremental", "last_7_days", "last_30_days", "last_90_days", "custom"]
     start: Optional[NonEmptyText] = None
     end: Optional[NonEmptyText] = None
 
@@ -119,6 +119,7 @@ class ResearchManualRunRequest(APIModel):
     additional_queries: list[Annotated[StrictStr, Field(min_length=1, max_length=2000)]] = Field(
         default_factory=list, max_length=20
     )
+    additional_query_lens: Optional[Slug] = None
 
     @model_validator(mode="after")
     def validate_query_values(self):
@@ -129,6 +130,8 @@ class ResearchManualRunRequest(APIModel):
             raise ValueError("additional_queries must be unique")
         if self.lenses is not None and len(self.lenses) != len(set(self.lenses)):
             raise ValueError("lenses must be unique")
+        if self.additional_query_lens is not None and not self.additional_queries:
+            raise ValueError("additional_query_lens requires additional_queries")
         return self
 
 
