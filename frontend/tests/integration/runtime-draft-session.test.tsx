@@ -127,6 +127,92 @@ describe("Runtime Draft session", () => {
     expect(result.current.state).toBe("saved");
   });
 
+  it("rejects Discard while a Draft save is in flight", async () => {
+    const existing = makeDraft("Saved content");
+    let resolveUpdate!: (draft: Draft) => void;
+    api.listDrafts.mockResolvedValue([existing]);
+    api.updateDraft.mockImplementationOnce(() => new Promise<Draft>((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    const { result } = renderHook(() => useRuntimeDraftSession(sessionOptions()));
+    await waitFor(() => expect(result.current.state).toBe("saved"));
+
+    let pendingSave!: Promise<Draft | null>;
+    act(() => {
+      result.current.updateContent("Saving now");
+      pendingSave = result.current.saveNow();
+    });
+    await waitFor(() => expect(api.updateDraft).toHaveBeenCalledOnce());
+
+    await expect(result.current.discard()).rejects.toThrow("请等待保存完成");
+    expect(api.discardDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveUpdate(makeDraft("Saving now", 2));
+      await pendingSave;
+    });
+  });
+
+  it("rejects Discard during a Runtime Draft conflict", async () => {
+    const existing = makeDraft("Saved content");
+    api.listDrafts.mockResolvedValue([existing]);
+    api.updateDraft.mockRejectedValueOnce(Object.assign(new Error("revision changed"), {
+      status: 409,
+      code: "draft_revision_conflict",
+    }));
+    api.getDraft.mockResolvedValue(makeDraft("Other session content", 2));
+    const { result } = renderHook(() => useRuntimeDraftSession(sessionOptions()));
+    await waitFor(() => expect(result.current.state).toBe("saved"));
+
+    await act(async () => {
+      result.current.updateContent("Local content");
+      await expect(result.current.saveNow()).rejects.toThrow("revision changed");
+    });
+    expect(result.current.state).toBe("runtime-conflict");
+
+    await expect(result.current.discard()).rejects.toThrow("请先处理 Runtime Draft 冲突");
+    expect(api.discardDraft).not.toHaveBeenCalled();
+  });
+
+  it("allows Discard after a Draft is saved", async () => {
+    const saved = makeDraft("Saved content");
+    api.listDrafts.mockResolvedValue([saved]);
+    const { result } = renderHook(() => useRuntimeDraftSession(sessionOptions()));
+    await waitFor(() => expect(result.current.state).toBe("saved"));
+
+    await act(async () => { await result.current.discard(); });
+
+    expect(api.discardDraft).toHaveBeenCalledWith(saved.id, saved.revision);
+    expect(result.current.state).toBe("clean");
+  });
+
+  it("cannot delete another session Draft when creation collides in flight", async () => {
+    const remoteDraft = makeDraft("Other session content");
+    let resolveCreate!: (result: { draft: Draft; created: boolean }) => void;
+    api.createDraft.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    const { result } = renderHook(() => useRuntimeDraftSession(sessionOptions()));
+    await waitFor(() => expect(result.current.state).toBe("clean"));
+
+    let pendingSave!: Promise<Draft | null>;
+    act(() => {
+      result.current.updateContent("Local content");
+      pendingSave = result.current.saveNow();
+    });
+    await waitFor(() => expect(api.createDraft).toHaveBeenCalledOnce());
+
+    await expect(result.current.discard()).rejects.toThrow("请等待保存完成");
+    expect(api.discardDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveCreate({ draft: remoteDraft, created: false });
+      await expect(pendingSave).rejects.toThrow("另一个会话已为此内容创建了不同的 Draft");
+    });
+    expect(result.current.state).toBe("runtime-conflict");
+    expect(api.discardDraft).not.toHaveBeenCalledWith(remoteDraft.id, remoteDraft.revision);
+  });
+
   it("keeps local content through revision conflict and applies a merge against the latest revision", async () => {
     const existing = makeDraft("First saved version");
     const latest = makeDraft("Other session version", 2);

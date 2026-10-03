@@ -42,6 +42,7 @@ export function CollectionDraftToolbar({
   if (!collection) return null;
   const archived = collection.status === "archived";
   const isConflict = status === "runtime-conflict" || status === "canonical-conflict";
+  const discardBlocked = status === "saving" || isConflict;
   const canEdit = editMode && !archived && !organizationOrderDraft && !busy && status !== "loading" && status !== "error" && !isConflict;
   const statusLabel = organizationOrderDraft ? "Collection order Draft saved"
     : status === "loading" ? "Loading Draft…"
@@ -68,7 +69,8 @@ export function CollectionDraftToolbar({
         {isConflict && <button className="button button-secondary" onClick={onReviewConflict} disabled={busy}>Review Conflict</button>}
         {organizationOrderDraft && <span className="explorer-action-notice">请使用侧栏的 Publish Organization Changes 统一发布排序。</span>}
         {hasChanges && !organizationOrderDraft && <>
-          <button className="button button-secondary" onClick={onDiscard} disabled={busy || status === "loading"}>Discard Draft</button>
+          <button className="button button-secondary" onClick={onDiscard} disabled={busy || status === "loading" || discardBlocked} title={discardBlocked ? "请等待保存完成或先处理冲突" : undefined}>Discard Draft</button>
+          {discardBlocked && <span className="subtle-copy" role="status">请等待保存完成或先处理冲突</span>}
           <button className="button button-primary" onClick={onPublish} disabled={busy || status === "loading" || isConflict || status === "error"}>Publish</button>
         </>}
       </div>

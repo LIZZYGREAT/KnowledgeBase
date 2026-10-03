@@ -261,6 +261,7 @@ export function useRuntimeDraftSession({
     if (enabled
       && state !== "loading"
       && state !== "error"
+      && state !== "saving"
       && state !== "runtime-conflict"
       && content !== lastSavedRef.current) {
       setState("unsaved");
@@ -309,10 +310,15 @@ export function useRuntimeDraftSession({
 
   const discard = useCallback(async () => {
     if (!enabled || identityRef.current !== identity) return;
+    if (savePromiseRef.current) {
+      throw new Error("请等待 Draft 保存完成后再丢弃。请等待保存完成或先处理冲突。");
+    }
+    if (runtimeConflictRef.current) {
+      throw new Error("请先处理 Runtime Draft 冲突，再丢弃 Draft。");
+    }
     const activeGeneration = generationRef.current;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
-    if (savePromiseRef.current) await savePromiseRef.current.catch(() => undefined);
     if (generationRef.current !== activeGeneration) return;
     const currentDraft = draftRef.current;
     if (currentDraft) await discardDraft(currentDraft.id, currentDraft.revision);

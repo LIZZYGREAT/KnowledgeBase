@@ -26,6 +26,7 @@ const api = vi.hoisted(() => ({
   getEntity: vi.fn(),
   getCollectionNavigation: vi.fn(),
   preflightDraft: vi.fn(),
+  preflightDraftsBatch: vi.fn(),
   listProposals: vi.fn(),
 }));
 
@@ -150,6 +151,9 @@ function installApiBehavior() {
   });
   api.getCollectionNavigation.mockResolvedValue(null);
   api.preflightDraft.mockImplementation(async (id: string) => ({ draft_id: id, valid: true, conflict: false, errors: [], warnings: [] }));
+  api.preflightDraftsBatch.mockImplementation(async (expectations: Array<{ draft_id: string }>) => ({
+    results: expectations.map(({ draft_id }) => ({ draft_id, valid: true, conflict: false, errors: [], warnings: [] })),
+  }));
   api.listProposals.mockResolvedValue([]);
 }
 

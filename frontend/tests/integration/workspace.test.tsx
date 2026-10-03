@@ -436,6 +436,33 @@ describe("Workspace React integration", () => {
     expect(allowed).toBe(false);
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Draft 内容冲突" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "丢弃 Draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("请等待保存完成或先处理冲突")).toBeTruthy();
+  });
+
+  it("disables Reader Discard while a save is in flight", async () => {
+    const draft = seedDraft();
+    let resolveUpdate!: (updated: Draft) => void;
+    api.updateDraft.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await userEvent.setup().click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Markdown 区块 2" }), {
+      target: { value: "Save in flight" },
+    });
+    await waitFor(() => expect(api.updateDraft).toHaveBeenCalledOnce(), { timeout: 2500 });
+
+    expect((screen.getByRole("button", { name: "丢弃 Draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("请等待保存完成或先处理冲突")).toBeTruthy();
+
+    await act(async () => {
+      const content = api.updateDraft.mock.calls[0][1] as string;
+      Object.assign(draft, { content, revision: draft.revision + 1 });
+      resolveUpdate({ ...draft });
+    });
+    await waitFor(() => expect((screen.getByRole("button", { name: "丢弃 Draft" }) as HTMLButtonElement).disabled).toBe(false));
   });
 
   it("opens Metadata directly over the Reader", async () => {
@@ -752,6 +779,8 @@ describe("Workspace React integration", () => {
 
     await user.click(await screen.findByRole("button", { name: "发布" }));
     await screen.findByRole("heading", { name: "解决版本冲突" });
+    expect((screen.getByRole("button", { name: "丢弃 Draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("请等待保存完成或先处理冲突")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "放弃 Draft 并载入当前正式版" }));
 
     await waitFor(() => expect(api.discardDraft).toHaveBeenCalledWith(draft.id, draft.revision));

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../errors";
 import { parseDocument } from "yaml";
 import {
@@ -31,6 +31,8 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
     publishedOutcome,
     isDirty,
   } = workspaceDraft;
+  const saveStateRef = useRef(saveState);
+  saveStateRef.current = saveState;
   const [saveError, setSaveError] = useState("");
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [sourceEntries, setSourceEntries] = useState<EntitySummary[]>([]);
@@ -173,10 +175,16 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
   }
 
   async function discardCurrentDraft() {
-    if (!window.confirm(batchCollectionId
-      ? "丢弃这篇笔记 Draft 并从 Collection Draft 移除它的引用？此前的 Collection 修改会保留。"
-      : "丢弃尚未发布的修改？运行时 Draft 会被删除。")) return;
+    const ensureDiscardAllowed = () => {
+      if (["saving", "runtime-conflict", "canonical-conflict"].includes(saveStateRef.current)) {
+        throw new Error("请等待保存完成或先处理冲突，再丢弃 Draft。");
+      }
+    };
     try {
+      ensureDiscardAllowed();
+      if (!window.confirm(batchCollectionId
+        ? "丢弃这篇笔记 Draft 并从 Collection Draft 移除它的引用？此前的 Collection 修改会保留。"
+        : "丢弃尚未发布的修改？运行时 Draft 会被删除。")) return;
       const relatedCollectionDraft = batchCollectionId
         ? (await listDrafts("collection", batchCollectionId))[0]
         : null;
@@ -189,6 +197,7 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
         const currentCollection = parseCollectionDraft(comparison.draft.content, canonicalCollection);
         const referenceId = findEntityNodeId(currentCollection.nodes, "document", id);
         if (referenceId) {
+          ensureDiscardAllowed();
           const cleanedContent = serializeCollectionDraft(
             removeCollectionNode(currentCollection, referenceId),
           );
@@ -200,6 +209,7 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
           }
         }
       }
+      ensureDiscardAllowed();
       await workspaceDraft.discard();
       navigate(batchCollectionId
         ? `/explorer?collection=${encodeURIComponent(batchCollectionId)}`

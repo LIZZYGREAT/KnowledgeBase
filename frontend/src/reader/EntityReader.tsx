@@ -58,6 +58,7 @@ export function EntityPage({
   const currentEntity = resource.data ?? draftOnlyEntity;
   const hasDraftConflict = workspaceDraft.saveState === "runtime-conflict"
     || workspaceDraft.saveState === "canonical-conflict";
+  const discardBlocked = workspaceDraft.saveState === "saving" || hasDraftConflict;
   const saveStateLabel = workspaceDraft.saveState === "clean" ? "正式版"
     : workspaceDraft.saveState === "unsaved" ? "有未保存修改"
       : workspaceDraft.saveState === "saving" ? "正在保存 Draft…"
@@ -296,9 +297,12 @@ export function EntityPage({
         >{workspaceEditorController.batchCollectionId ? "Publish All" : "发布"}</button>
         {workspaceEditorController.draft && <button
           className="button button-danger"
-          disabled={workspaceEditorController.publishing}
+          disabled={workspaceEditorController.publishing || discardBlocked}
+          title={discardBlocked ? "请等待保存完成或先处理冲突" : undefined}
+          aria-describedby={discardBlocked ? "reader-discard-disabled-reason" : undefined}
           onClick={() => void workspaceEditorController.discardCurrentDraft()}
         >{workspaceEditorController.batchCollectionId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button>}
+        {discardBlocked && <span id="reader-discard-disabled-reason" className="subtle-copy" role="status">请等待保存完成或先处理冲突</span>}
         <span className={`workspace-reader-save-state ${hasDraftConflict ? "conflict" : workspaceDraft.saveState}`} role="status">{saveStateLabel}</span>
         {workspaceDraft.saveState === "canonical-conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}
         <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
