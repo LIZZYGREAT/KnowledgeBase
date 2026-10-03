@@ -1,0 +1,83 @@
+schema_version: 1
+
+id: continual-learning
+title: Continual Learning
+description: 持续学习、灾难性遗忘以及相关缓解方法。
+enabled: true
+
+lenses:
+  - id: regularization
+    title: 正则化方法
+    enabled: true
+    priority: high
+    queries:
+      - elastic weight consolidation
+      - regularization continual learning
+      - parameter importance continual learning
+      - fisher information catastrophic forgetting
+    include_terms:
+      - fisher information
+      - parameter importance
+      - regularization
+    exclude_terms: []
+
+  - id: replay
+    title: Replay / Rehearsal
+    enabled: true
+    priority: medium
+    queries:
+      - replay continual learning
+      - rehearsal continual learning
+      - experience replay catastrophic forgetting
+    include_terms:
+      - replay
+      - rehearsal
+    exclude_terms: []
+
+  - id: class-incremental
+    title: Class-Incremental Learning
+    enabled: true
+    priority: high
+    queries:
+      - class incremental learning
+      - class incremental continual learning
+    include_terms: []
+    exclude_terms: []
+
+exclude_terms:
+  - pure domain adaptation
+
+providers:
+  discovery:
+    - arxiv
+    - openalex
+  enrichment:
+    - openalex
+    - crossref
+
+context:
+  collections: []
+  documents:
+    - gem-gradient-episodic-memory-for-continual-learning
+    - gem-sgd
+    - icarl
+    - icarl-incremental-classifier-and-representation-learning
+  dynamic_retrieval:
+    enabled: true
+    scope: entire-library
+
+schedule:
+  mode: daily
+
+search:
+  breadth: balanced
+  initial_lookback_days: 30
+  max_catchup_days: 30
+  max_candidates_per_run: 10
+
+inbox:
+  max_new_candidates: 20
+
+ai_analysis:
+  enabled: true
+  provider: deepseek

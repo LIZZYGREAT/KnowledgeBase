@@ -1,0 +1,27 @@
+schema_version: 1
+
+providers:
+  timeout_seconds: 20
+  max_retries: 3
+
+runtime:
+  slice_days: 1
+  overlap_hours: 48
+
+analysis:
+  max_context_entities: 8
+  timeout_seconds: 60
+
+ranking:
+  strict:
+    profile_relevance_weight: 0.50
+    knowledge_relevance_weight: 0.35
+    novelty_weight: 0.15
+  balanced:
+    profile_relevance_weight: 0.40
+    knowledge_relevance_weight: 0.30
+    novelty_weight: 0.30
+  explore:
+    profile_relevance_weight: 0.30
+    knowledge_relevance_weight: 0.20
+    novelty_weight: 0.50
