@@ -134,6 +134,78 @@ def test_dynamic_retrieval_can_be_disabled_and_entity_budget_is_enforced(tmp_pat
         connection.close()
 
 
+def test_selected_context_retrieval_excludes_unselected_library_entities(tmp_path):
+    root = _repository(tmp_path / "repo")
+    _write_document(
+        root,
+        "ewc",
+        "EWC Consolidation",
+        "Fisher information protects earlier task parameters.",
+    )
+    _write_document(
+        root,
+        "dynamic-replay",
+        "Replay Memory for Continual Learning",
+        "Replay memory stores examples for future tasks.",
+    )
+    _write_term(root)
+    _write_source(root)
+    _write_collection(root)
+    connection, builder = _context_builder(root, max_context_entities=8)
+    try:
+        profile = _profile(dynamic=True, scope="selected-context")
+
+        pack = builder.build(
+            _work(),
+            profile,
+            profile.lenses[0],
+            keywords=("fisher information", "replay memory"),
+        )
+
+        cards = {(card.entity_type, card.entity_id): card for card in pack.cards}
+        assert ("document", "ewc") in cards
+        assert cards[("document", "ewc")].retrieval_score > 0
+        assert ("document", "dynamic-replay") not in cards
+        assert set(cards) <= {
+            ("collection", "research-core"),
+            ("document", "ewc"),
+            ("term", "fisher-information"),
+            ("source", "source-alpha"),
+        }
+    finally:
+        connection.close()
+
+
+def test_pinned_collection_members_are_materialized_only_after_context_selection(
+    tmp_path, monkeypatch
+):
+    root = _repository(tmp_path / "repo")
+    _write_document(root, "ewc", "EWC Consolidation", "Fisher information protects older tasks.")
+    _write_term(root)
+    _write_source(root)
+    _write_collection(root)
+    connection, builder = _context_builder(root, max_context_entities=2)
+    materialized = []
+    original = builder._offer_canonical_entity
+
+    def record_materialization(candidates, entity_type, entity_id, **kwargs):
+        materialized.append((entity_type, entity_id))
+        return original(candidates, entity_type, entity_id, **kwargs)
+
+    monkeypatch.setattr(builder, "_offer_canonical_entity", record_materialization)
+    try:
+        profile = _profile(dynamic=False)
+
+        pack = builder.build(_work(), profile, profile.lenses[0])
+
+        assert len(pack.cards) == 2
+        assert len(materialized) <= 2
+        assert len(materialized) < 3
+        assert pack.omitted_count >= 2
+    finally:
+        connection.close()
+
+
 def test_context_builder_rejects_lens_from_another_profile_and_bad_budget(tmp_path):
     root = _repository(tmp_path / "repo")
     _write_document(root, "ewc", "EWC", "Fisher information.")
@@ -259,7 +331,7 @@ def _yaml_field(values):
     return "\n" + "\n".join("  - {}".format(value) for value in values)
 
 
-def _profile(profile_id="continual-learning", dynamic=True):
+def _profile(profile_id="continual-learning", dynamic=True, scope="entire-library"):
     return ResearchProfile.model_validate(
         {
             "schema_version": 1,
@@ -282,7 +354,7 @@ def _profile(profile_id="continual-learning", dynamic=True):
             "context": {
                 "collections": ["research-core"],
                 "documents": ["ewc"],
-                "dynamic_retrieval": {"enabled": dynamic, "scope": "entire-library"},
+                "dynamic_retrieval": {"enabled": dynamic, "scope": scope},
             },
             "schedule": {"mode": "daily"},
             "search": {

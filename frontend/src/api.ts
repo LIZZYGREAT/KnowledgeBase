@@ -278,7 +278,7 @@ export interface ResearchProfile {
   lenses: ResearchLens[];
   exclude_terms: string[];
   providers: { discovery: string[]; enrichment: string[] };
-  context: { collections: string[]; documents: string[]; dynamic_retrieval: { enabled: boolean; scope: "entire-library" } };
+  context: { collections: string[]; documents: string[]; dynamic_retrieval: { enabled: boolean; scope: "entire-library" | "selected-context" } };
   schedule: { mode: "daily" | "weekly" | "manual" };
   search: { breadth: ResearchBreadth; initial_lookback_days: number; max_catchup_days: number; max_candidates_per_run: number; max_analyses_per_run: number };
   inbox: { max_new_candidates: number };

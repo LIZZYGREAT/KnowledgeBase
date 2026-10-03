@@ -58,7 +58,7 @@ class ResearchProviders(CanonicalModel):
 
 class DynamicRetrieval(CanonicalModel):
     enabled: StrictBool
-    scope: Literal["entire-library"]
+    scope: Literal["entire-library", "selected-context"]
 
 
 class ResearchContext(CanonicalModel):

@@ -41,6 +41,18 @@ class _ContextCandidate:
     review_rank: int
 
 
+@dataclass(frozen=True)
+class _ContextOption:
+    entity_type: str
+    entity_id: str
+    title: str
+    pinned: bool
+    retrieval_score: float
+    review_rank: int
+    search_result: Optional[SearchResult] = None
+    card: Optional[ResearchContextCard] = None
+
+
 class ResearchContextBuilder:
     def __init__(
         self,
@@ -77,6 +89,8 @@ class ResearchContextBuilder:
         focus_query = _focus_query(work, matched_lens, keywords)
         focus_tokens = set(normalize_title(focus_query).split())
         candidates: dict[tuple[str, str], _ContextCandidate] = {}
+        options: list[_ContextOption] = []
+        pinned_entity_titles: dict[tuple[str, str], str] = {}
 
         for collection_id in profile.context.collections:
             collection = self.collections.get_collection(collection_id)
@@ -93,73 +107,103 @@ class ResearchContextBuilder:
                         excerpt=_clean_excerpt(collection["description"]),
                     ),
                 )
-            self._offer(
-                candidates,
+            collection_card = ResearchContextCard(
                 entity_type="collection",
                 entity_id=collection_id,
                 title=collection["title"],
+                review_status="not_applicable",
+                topics=(),
+                domains=(),
+                relevant_sections=tuple(collection_sections[:_MAX_SECTIONS_PER_CARD]),
                 metadata=collection_metadata,
                 pinned=True,
                 retrieval_score=0.0,
-                sections=tuple(collection_sections[:_MAX_SECTIONS_PER_CARD]),
-                topics=(),
-                domains=(),
-                review_status="not_applicable",
             )
-            for entity_type, entity_id in entities:
-                self._offer_canonical_entity(
-                    candidates,
-                    entity_type,
-                    entity_id,
+            options.append(
+                _ContextOption(
+                    entity_type="collection",
+                    entity_id=collection_id,
+                    title=collection["title"],
                     pinned=True,
                     retrieval_score=0.0,
-                    search_result=None,
-                    focus_query=focus_query,
-                    focus_tokens=focus_tokens,
+                    review_rank=0,
+                    card=collection_card,
                 )
+            )
+            for entity_type, entity_id, title in entities:
+                pinned_entity_titles.setdefault((entity_type, entity_id), title)
 
         for document_id in profile.context.documents:
+            pinned_entity_titles.setdefault(("document", document_id), document_id)
+
+        pinned_entity_ids = set(pinned_entity_titles)
+        retrieved_by_entity: dict[tuple[str, str], SearchResult] = {}
+        if profile.context.dynamic_retrieval.enabled:
+            allowed_entity_ids = (
+                pinned_entity_ids
+                if profile.context.dynamic_retrieval.scope == "selected-context"
+                else None
+            )
+            for result in self._dynamic_search_results(
+                work, matched_lens, keywords, allowed_entity_ids
+            ):
+                retrieved_by_entity[(result.entity_type, result.entity_id)] = result
+
+        for entity_key in pinned_entity_ids | set(retrieved_by_entity):
+            result = retrieved_by_entity.get(entity_key)
+            metadata = result.metadata if result is not None else {}
+            review_status = (
+                _review_status(entity_key[0], metadata) if result is not None else "unreviewed"
+            )
+            options.append(
+                _ContextOption(
+                    entity_type=entity_key[0],
+                    entity_id=entity_key[1],
+                    title=(
+                        result.title
+                        if result is not None
+                        else pinned_entity_titles.get(entity_key, entity_key[1])
+                    ),
+                    pinned=entity_key in pinned_entity_ids,
+                    retrieval_score=float(result.score) if result is not None else 0.0,
+                    review_rank=_review_rank(review_status),
+                    search_result=result,
+                )
+            )
+
+        ordered = sorted(
+            options,
+            key=lambda item: (
+                -item.review_rank,
+                -int(item.pinned),
+                -item.retrieval_score,
+                item.title.casefold(),
+                item.entity_type,
+                item.entity_id,
+            ),
+        )
+        selected_options = ordered[: self.max_context_entities]
+        selected_cards = []
+        for option in selected_options:
+            if option.card is not None:
+                selected_cards.append(option.card)
+                continue
             self._offer_canonical_entity(
                 candidates,
-                "document",
-                document_id,
-                pinned=True,
-                retrieval_score=0.0,
-                search_result=None,
+                option.entity_type,
+                option.entity_id,
+                pinned=option.pinned,
+                retrieval_score=option.retrieval_score,
+                search_result=option.search_result,
                 focus_query=focus_query,
                 focus_tokens=focus_tokens,
             )
-
-        if profile.context.dynamic_retrieval.enabled:
-            for result in self._dynamic_search_results(work, matched_lens, keywords):
-                self._offer_canonical_entity(
-                    candidates,
-                    result.entity_type,
-                    result.entity_id,
-                    pinned=False,
-                    retrieval_score=float(result.score),
-                    search_result=result,
-                    focus_query=focus_query,
-                    focus_tokens=focus_tokens,
-                )
-
-        ordered = sorted(
-            candidates.values(),
-            key=lambda item: (
-                -item.review_rank,
-                -int(item.card.pinned),
-                -item.card.retrieval_score,
-                item.card.title.casefold(),
-                item.card.entity_type,
-                item.card.entity_id,
-            ),
-        )
-        selected = tuple(item.card for item in ordered[: self.max_context_entities])
+            selected_cards.append(candidates[(option.entity_type, option.entity_id)].card)
         return ResearchContextPack(
             focus_query=focus_query,
-            cards=selected,
+            cards=tuple(selected_cards),
             budget=self.max_context_entities,
-            omitted_count=max(0, len(ordered) - len(selected)),
+            omitted_count=max(0, len(ordered) - len(selected_options)),
         )
 
     def _dynamic_search_results(
@@ -167,12 +211,17 @@ class ResearchContextBuilder:
         work: ResearchWorkRecord,
         matched_lens: ResearchLens,
         keywords: tuple[str, ...],
+        allowed_entity_ids: Optional[set[tuple[str, str]]] = None,
     ) -> list[SearchResult]:
         """Run several short searches because SearchService ANDs query tokens."""
         result_limit = min(100, max(20, self.max_context_entities * 10))
         best_by_entity: dict[tuple[str, str], SearchResult] = {}
         for query in _retrieval_queries(work, matched_lens, keywords):
             for result in self.search.search(query=query, limit=result_limit):
+                if allowed_entity_ids is not None and (
+                    result.entity_type, result.entity_id
+                ) not in allowed_entity_ids:
+                    continue
                 key = (result.entity_type, result.entity_id)
                 previous = best_by_entity.get(key)
                 if (
@@ -216,6 +265,19 @@ class ResearchContextBuilder:
             focus_query,
             focus_tokens,
         )
+        if pinned and search_result is not None:
+            pinned_sections = self._relevant_sections(
+                entity_type,
+                entity_id,
+                entity.get("content") or "",
+                metadata,
+                None,
+                focus_query,
+                focus_tokens,
+            )
+            sections = _deduplicate_sections(list(pinned_sections) + list(sections))[
+                :_MAX_SECTIONS_PER_CARD
+            ]
         card_metadata = _card_metadata(entity_type, metadata)
         self._offer(
             candidates,
@@ -408,33 +470,40 @@ def _search_result_rank(result: SearchResult) -> tuple[float, int, int, str]:
     )
 
 
-def _collection_context(collection: dict) -> tuple[list[ResearchContextSection], list[tuple[str, str]]]:
+def _collection_context(
+    collection: dict,
+) -> tuple[list[ResearchContextSection], list[tuple[str, str, str]]]:
     sections = []
-    entities = []
+    entities: list[tuple[str, str, str]] = []
     entries = []
+    member_count = 0
 
     def visit(nodes, breadcrumbs=()):
+        nonlocal member_count
         for node in nodes:
             if node["kind"] == "section":
                 visit(node["children"], breadcrumbs + (node["title"],))
             else:
                 entity_type = node["entity_type"]
                 entity_id = node["entity_id"]
-                entities.append((entity_type, entity_id))
-                path = " / ".join(breadcrumbs)
-                entries.append(
-                    "{}{} ({})".format(
-                        path + ": " if path else "",
-                        node["title"],
-                        entity_type,
+                title = node["title"]
+                entities.append((entity_type, entity_id, title))
+                member_count += 1
+                if len(entries) < 6:
+                    path = " / ".join(breadcrumbs)
+                    entries.append(
+                        "{}{} ({})".format(
+                            path + ": " if path else "",
+                            title,
+                            entity_type,
+                        )
                     )
-                )
 
     visit(collection["nodes"])
     if entries:
         excerpt = "; ".join(entries[:6])
-        if len(entries) > 6:
-            excerpt += "; and {} more".format(len(entries) - 6)
+        if member_count > 6:
+            excerpt += "; and {} more".format(member_count - 6)
         sections.append(
             ResearchContextSection(
                 heading="Pinned members",

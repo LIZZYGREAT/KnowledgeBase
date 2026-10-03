@@ -140,11 +140,14 @@ describe("Research workspace", () => {
 
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Queries/), { target: { value: "fisher information catastrophic forgetting\nnew incremental query" } });
+    expect(screen.getByRole("option", { name: "Selected Collections and Documents" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Dynamic Retrieval scope"), { target: { value: "selected-context" } });
 
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(true);
     }, { timeout: 3000 });
     expect(String(researchProfileDraft?.content)).toContain("new incremental query");
+    expect(String(researchProfileDraft?.content)).toContain("scope: selected-context");
     expect(String(researchProfileDraft?.content)).toContain("max_analyses_per_run: 30");
 
     fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
