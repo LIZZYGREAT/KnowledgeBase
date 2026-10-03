@@ -254,6 +254,106 @@ class ResearchRepository:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_pending_link_for_candidate(
+        self, candidate_id: str, relation_type: str
+    ) -> Optional[dict]:
+        row = self.connection.execute(
+            """SELECT * FROM research_pending_links
+               WHERE candidate_id = ? AND relation_type = ?
+               ORDER BY created_at, id LIMIT 1""",
+            (candidate_id, relation_type),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_pending_link_for_work(self, work_id: str, relation_type: str) -> Optional[dict]:
+        row = self.connection.execute(
+            """SELECT * FROM research_pending_links
+               WHERE work_id = ? AND relation_type = ?
+               ORDER BY created_at, id LIMIT 1""",
+            (work_id, relation_type),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def add_pending_link(
+        self,
+        *,
+        group_id: str,
+        candidate_id: str,
+        work_id: str,
+        draft_id: str,
+        intended_entity_type: str,
+        intended_entity_id: str,
+        relation_type: str,
+        created_at: str,
+    ) -> dict:
+        self.connection.execute(
+            """INSERT OR IGNORE INTO research_pending_links (
+                   id, group_id, candidate_id, work_id, draft_id,
+                   intended_entity_type, intended_entity_id, relation_type,
+                   created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                uuid.uuid4().hex,
+                group_id,
+                candidate_id,
+                work_id,
+                draft_id,
+                intended_entity_type,
+                intended_entity_id,
+                relation_type,
+                created_at,
+            ),
+        )
+        row = self.connection.execute(
+            """SELECT * FROM research_pending_links
+               WHERE draft_id = ? AND relation_type = ?""",
+            (draft_id, relation_type),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Research pending link was not persisted")
+        link = dict(row)
+        if link["work_id"] != work_id:
+            raise ValueError("Research Draft is already linked to a different Work")
+        return link
+
+    def pending_links_for_drafts(self, draft_ids: tuple[str, ...]) -> list[dict]:
+        if not draft_ids:
+            return []
+        placeholders = ", ".join("?" for _ in draft_ids)
+        rows = self.connection.execute(
+            """SELECT * FROM research_pending_links
+               WHERE draft_id IN ({})
+               ORDER BY group_id, work_id, relation_type, id""".format(placeholders),
+            draft_ids,
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_entity_link(
+        self,
+        *,
+        work_id: str,
+        entity_type: str,
+        entity_id: str,
+        relation_type: str,
+        created_at: str,
+    ) -> None:
+        self.connection.execute(
+            """INSERT OR IGNORE INTO research_entity_links (
+                   id, work_id, entity_type, entity_id, relation_type, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?)""",
+            (uuid.uuid4().hex, work_id, entity_type, entity_id, relation_type, created_at),
+        )
+
+    def delete_pending_links_for_drafts(self, draft_ids: tuple[str, ...]) -> int:
+        if not draft_ids:
+            return 0
+        placeholders = ", ".join("?" for _ in draft_ids)
+        cursor = self.connection.execute(
+            "DELETE FROM research_pending_links WHERE draft_id IN ({})".format(placeholders),
+            draft_ids,
+        )
+        return cursor.rowcount
+
     def add_analysis_if_missing(
         self, analysis: ResearchWorkAnalysisRecord
     ) -> tuple[ResearchWorkAnalysisRecord, bool]:

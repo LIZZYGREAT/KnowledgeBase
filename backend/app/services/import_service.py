@@ -306,8 +306,10 @@ class ImportService:
             year = year if year is not None else match.year
             doi = doi or match.identifiers.doi
             arxiv_id = arxiv_id or match.identifiers.arxiv_id
+            openalex_id = match.identifiers.openalex_id
             zotero_key = zotero_key or match.zotero_key
         else:
+            openalex_id = None
             title = title or item.metadata.get("candidate_title") or _display_title(
                 item.metadata.get("display_name", "Imported PDF")
             )
@@ -324,7 +326,7 @@ class ImportService:
             "type": source_type,
             "title": title,
             "authors": authors or [],
-            "identifiers": {"doi": doi, "arxiv_id": arxiv_id},
+            "identifiers": {"doi": doi, "arxiv_id": arxiv_id, "openalex_id": openalex_id},
             "zotero_key": zotero_key,
             "attachments": {"local_pdf": storage_uri},
         }

@@ -8,6 +8,7 @@ from .common import CanonicalModel, NonEmptyText, Slug
 class SourceIdentifiers(CanonicalModel):
     doi: Optional[NonEmptyText] = None
     arxiv_id: Optional[NonEmptyText] = None
+    openalex_id: Optional[NonEmptyText] = None
 
 
 class SourceAttachments(CanonicalModel):

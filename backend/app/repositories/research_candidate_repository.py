@@ -149,6 +149,24 @@ class ResearchCandidateRepository:
         ).fetchone()
         return int(row["count"])
 
+    def mark_work_converted(
+        self, work_id: str, status: str, updated_at: str
+    ) -> int:
+        allowed = {
+            "saved_source": ("new", "shortlisted"),
+            "note_created": ("new", "shortlisted", "saved_source"),
+        }
+        if status not in allowed:
+            raise ValueError("Unsupported Research Candidate conversion status")
+        placeholders = ", ".join("?" for _ in allowed[status])
+        cursor = self.connection.execute(
+            """UPDATE research_candidates
+               SET status = ?, updated_at = ?, decided_at = ?
+               WHERE work_id = ? AND status IN ({})""".format(placeholders),
+            (status, updated_at, updated_at, work_id, *allowed[status]),
+        )
+        return cursor.rowcount
+
     def create_if_capacity(
         self, candidate: ResearchCandidateRecord, max_new_candidates: int
     ) -> tuple[Optional[ResearchCandidateRecord], bool, bool]:

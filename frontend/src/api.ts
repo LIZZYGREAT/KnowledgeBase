@@ -855,6 +855,15 @@ export function dismissResearchCandidate(candidateId: string, reason: "not_relev
   });
 }
 
+export function saveResearchSource(candidateId: string) {
+  return request<{
+    action: "linked_existing" | "draft_created" | "draft_reused";
+    source_id: string;
+    draft_id: string | null;
+    candidate: ResearchCandidate;
+  }>(`/api/research/candidates/${encodeURIComponent(candidateId)}/save-source`, { method: "POST" });
+}
+
 export function listResearchRuns(profileId?: string, offset = 0, limit = 50) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (profileId) params.set("profile_id", profileId);

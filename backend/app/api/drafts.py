@@ -114,4 +114,7 @@ async def rebase_draft(draft_id: str, body: DraftRebaseRequest, request: Request
 @router.delete("/drafts/{draft_id}")
 async def discard_draft(draft_id: str, body: DraftDeleteRequest, request: Request):
     request.app.state.draft_service.discard(draft_id, body.expected_revision)
+    conversion_service = getattr(request.app.state, "research_conversion_service", None)
+    if conversion_service is not None:
+        conversion_service.cancel_pending_for_draft(draft_id)
     return {"deleted": True}

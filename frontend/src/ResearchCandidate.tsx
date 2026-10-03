@@ -12,6 +12,7 @@ export function ResearchCandidateCard({
   onDetails,
   onShortlist,
   onDismiss,
+  onSaveSource,
 }: {
   item: ResearchCandidateListItem;
   profile: ResearchProfile;
@@ -22,6 +23,7 @@ export function ResearchCandidateCard({
   onDetails: () => void;
   onShortlist: () => void;
   onDismiss: () => void;
+  onSaveSource: () => void;
 }) {
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
   const relevance = item.analysis.profile_relevance;
@@ -48,6 +50,7 @@ export function ResearchCandidateCard({
       <span>推荐分 {Math.round(item.recommended_score * 100)} · 收录于 {formatDate(item.candidate.created_at)}</span>
       <div className="research-card-actions">
         {externalUrl && <a className="button button-quiet" href={externalUrl} target="_blank" rel="noreferrer">Open Paper ↗</a>}
+        {(item.candidate.status === "new" || item.candidate.status === "shortlisted") && <button className="button button-secondary" disabled={busy} onClick={onSaveSource}>Save Source</button>}
         {item.candidate.status === "new" && <><button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button><button className="button button-secondary" disabled={busy} onClick={onShortlist}>Shortlist</button></>}
         {item.candidate.status === "shortlisted" && <><button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button><button className="button button-secondary" disabled>Shortlisted</button></>}
       </div>
@@ -87,7 +90,10 @@ export function ResearchCandidateDrawer({
           </div>;
         }) : <p className="subtle-copy">没有关联记录。</p>}</section>
         <section className="research-detail-section"><h3>Candidate history</h3><DetailRow label="Added" value={formatDate(candidate.created_at)} /><DetailRow label="First viewed" value={formatDate(candidate.first_viewed_at)} /><DetailRow label="Last viewed" value={formatDate(candidate.last_viewed_at)} />{candidate.user_note && <DetailRow label="Your note" value={candidate.user_note} />}{candidate.dismiss_reason && <DetailRow label="Dismiss reason" value={candidate.dismiss_reason} />}</section>
-        {(detail.linked_entities.length > 0 || detail.pending_links.length > 0) && <section className="research-detail-section"><h3>Knowledge links</h3>{detail.linked_entities.map((link) => <DetailRow key={`${link.entity_type}:${link.entity_id}`} label={link.relation_type === "source" ? "Source" : "Note"} value={link.entity_id} />)}{detail.pending_links.map((link) => <DetailRow key={link.id} label={`${link.intended_entity_type} draft`} value={link.intended_entity_id} />)}</section>}
+        {(detail.linked_entities.length > 0 || detail.pending_links.length > 0) && <section className="research-detail-section"><h3>Knowledge links</h3>{detail.linked_entities.map((link) => {
+          const path = entityPath(link.entity_type, link.entity_id);
+          return <div className="research-related-row" key={`${link.entity_type}:${link.entity_id}`}><div><strong>{link.relation_type === "source" ? "Source" : "Note"} · {link.entity_id}</strong><small>Published canonical link</small></div>{path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}</div>;
+        })}{detail.pending_links.map((link) => <DetailRow key={link.id} label={`${link.intended_entity_type} draft`} value={link.intended_entity_id} />)}</section>}
         <section className="research-detail-section"><h3>Paper details</h3><DetailRow label="DOI" value={work.doi} /><DetailRow label="arXiv" value={work.arxiv_id} /><DetailRow label="OpenAlex" value={work.openalex_id} /><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Abstract" value={work.abstract} /></section>
       </div>
       <footer className="research-drawer-footer"><span>Candidate actions remain in Runtime until you publish a Draft.</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>

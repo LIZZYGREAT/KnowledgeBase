@@ -19,6 +19,7 @@ from backend.app.api.research_schemas import (
     ResearchQueuedRunView,
     ResearchResumeRequest,
     ResearchResumeResultView,
+    ResearchSaveSourceResultView,
     ResearchRunListView,
     ResearchRunSummaryView,
     ResearchShortlistRequest,
@@ -253,6 +254,20 @@ async def shortlist_candidate(
     return request.app.state.research_service.candidate_service.shortlist(
         candidate_id, user_note=body.note if body is not None else None
     )
+
+
+@router.post(
+    "/candidates/{candidate_id}/save-source",
+    response_model=ResearchSaveSourceResultView,
+)
+async def save_candidate_source(candidate_id: str, request: Request):
+    result = request.app.state.research_conversion_service.save_source(candidate_id)
+    return {
+        "action": result.action,
+        "source_id": result.source_id,
+        "draft_id": result.draft_id,
+        "candidate": result.candidate,
+    }
 
 
 @router.post(

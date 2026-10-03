@@ -38,6 +38,7 @@ class SourceRegistry:
                 for value in (
                     source.identifiers.doi,
                     source.identifiers.arxiv_id,
+                    source.identifiers.openalex_id,
                     source.zotero_key,
                 )
                 if value

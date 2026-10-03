@@ -46,6 +46,7 @@ from backend.app.services.proposal_service import StaleProposalError
 from backend.app.repositories.proposal_repository import ProposalTransitionError
 from backend.app.services.usage_service import UsageService
 from backend.app.services.research_wiring import build_research_service
+from backend.app.services.research_conversion_service import ResearchConversionService
 from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
     PresentationAnnotationService,
@@ -101,6 +102,16 @@ async def lifespan(application: FastAPI):
             canonical_target_resolver=canonical_target_resolver,
         )
         research_service = build_research_service(repository_root, connection)
+        research_conversion_service = ResearchConversionService(
+            repository_root,
+            connection,
+            draft_service,
+            git_manager,
+            canonical_target_resolver,
+        )
+        publisher.add_post_publish_hook(
+            research_conversion_service.finalize_published_drafts
+        )
 
         application.state.repository_root = repository_root
         application.state.database_path = database_path
@@ -120,6 +131,7 @@ async def lifespan(application: FastAPI):
         application.state.import_service = import_service
         application.state.publisher = publisher
         application.state.research_service = research_service
+        application.state.research_conversion_service = research_conversion_service
         yield
     finally:
         connection.close()

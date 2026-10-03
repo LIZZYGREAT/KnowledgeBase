@@ -2,6 +2,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../src/App";
 
+vi.mock("../../src/Workspace", async () => {
+  const React = await import("react");
+  return { WorkspacePage: () => React.createElement("div", null, "Source Workspace") };
+});
+
 const runRequestId = "research-request-123";
 
 describe("Research workspace", () => {
@@ -19,6 +24,7 @@ describe("Research workspace", () => {
       if (path === "/api/research/runs?offset=0&limit=50&profile_id=continual-learning") return jsonResponse({ runs: [], count: 0 });
       if (path === "/api/research/profiles/continual-learning/runs" && init?.method === "POST") return jsonResponse({ request_id: runRequestId, status: "pending" }, 202);
       if (path === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST") return jsonResponse({ ...candidate, status: "shortlisted" });
+      if (path === "/api/research/candidates/candidate-1/save-source" && init?.method === "POST") return jsonResponse({ action: "draft_created", source_id: "research-paper", draft_id: "source-draft-1", candidate });
       return jsonResponse({ detail: `Unexpected request: ${path}` }, 404);
     });
     vi.stubGlobal("fetch", mockFetch);
@@ -59,6 +65,15 @@ describe("Research workspace", () => {
     const body = JSON.parse(String(call?.[1]?.body));
     expect(body).toMatchObject({ lenses: ["regularization"], breadth: "balanced", additional_queries: ["dynamic fisher continual learning"] });
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
+  });
+
+  it("opens the Source Draft in the Unified Workspace", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Save Source" }));
+
+    expect(await screen.findByText("Source Workspace")).toBeTruthy();
+    expect(window.location.pathname).toBe("/sources/research-paper");
+    expect(window.location.search).toBe("?edit=1");
   });
 });
 

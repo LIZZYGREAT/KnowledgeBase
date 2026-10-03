@@ -107,6 +107,7 @@ GET  /api/research/candidates?profile_id=...&status=new&lens=...&sort=recommende
 GET  /api/research/candidates/{candidate_id}
 POST /api/research/candidates/{candidate_id}/shortlist
 POST /api/research/candidates/{candidate_id}/dismiss
+POST /api/research/candidates/{candidate_id}/save-source
 ```
 
 Profile reads combine canonical YAML with Runtime pause state, Inbox capacity, and the latest Run. Pause accepts exactly one of `days` or a timezone-aware `until`. Resume accepts `catch_up` (optionally with `catchup_days`) or `from_now`; `from_now` records an audit event and advances the active search watermarks without contacting Providers.
@@ -114,6 +115,8 @@ Profile reads combine canonical YAML with Runtime pause state, Inbox capacity, a
 Manual Run requests accept selected `lenses`, a temporary `breadth`, an optional `date_range`, and up to 20 `additional_queries`. The endpoint returns HTTP `202` with a `request_id` and `pending` status after inserting a Runtime queue request; it does not execute Providers or AI in the HTTP request. `date_range.mode` supports `last_7_days`, `last_30_days`, `last_90_days`, and `custom` with ISO date or timezone-aware `start` and `end` values.
 
 Candidate list sort options are `recommended`, `newest`, `most_relevant`, and `most_novel`. Candidate reads expose Research Work, validated Analysis, Discovery provenance, and current/pending knowledge links. Opening Candidate detail records its first and latest view timestamps. Shortlist and Dismiss update Runtime Candidate state only; Dismiss reasons exposed by the API are `not_relevant`, `already_known`, `too_redundant`, `not_interested`, and `other`.
+
+`save-source` matches canonical Sources by DOI, arXiv ID, OpenAlex ID, then normalized title/year/first author. An existing Source is linked in Runtime and matching non-dismissed Candidates become `saved_source`. Otherwise the endpoint creates or reuses a Source Draft and a pending Research link; the Candidate stays in its current state until Publisher successfully publishes that Draft. Discarding the Draft removes its pending link without completing the Candidate.
 
 ## Errors
 

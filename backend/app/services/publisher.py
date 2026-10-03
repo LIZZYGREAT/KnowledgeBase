@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Optional, Sequence, Union
 
 import yaml
 from pydantic import ValidationError
@@ -110,6 +110,7 @@ class Publisher:
         git_manager: Optional[GitManager] = None,
         *,
         canonical_target_resolver: CanonicalTargetResolver,
+        post_publish_hooks: Sequence[Callable[[Sequence[Draft]], None]] = (),
     ):
         self.repository_root = Path(repository_root).resolve()
         self.knowledge_root = self.repository_root / "knowledge"
@@ -120,9 +121,17 @@ class Publisher:
         self.git = git_manager or GitManager(self.repository_root)
         self.indexer = indexer
         self.canonical_target_resolver = canonical_target_resolver
+        self.post_publish_hooks = list(post_publish_hooks)
         self.standard = load_writing_standard(
             self.repository_root / "config" / "writing-standard.yaml"
         )
+
+    def add_post_publish_hook(
+        self, hook: Callable[[Sequence[Draft]], None]
+    ) -> None:
+        if not callable(hook):
+            raise ValueError("Publisher post-publish hook must be callable")
+        self.post_publish_hooks.append(hook)
 
     def publish(
         self,
@@ -431,6 +440,14 @@ class Publisher:
             raise
 
         post_publish_warnings = []
+        published_drafts = tuple(item.draft for item in prepared)
+        for hook in self.post_publish_hooks:
+            try:
+                hook(published_drafts)
+            except Exception as error:
+                post_publish_warnings.append(
+                    "Post-publish Runtime synchronization failed: {}".format(error)
+                )
         for item in prepared:
             draft = item.draft
             try:

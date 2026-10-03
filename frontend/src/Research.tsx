@@ -8,6 +8,7 @@ import {
   listResearchProfiles,
   listResearchRuns,
   shortlistResearchCandidate,
+  saveResearchSource,
   type ResearchCandidateDetail,
   type ResearchCandidateListItem,
   type ResearchCandidateStatus,
@@ -198,6 +199,21 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     }
   }
 
+  async function saveSource(candidateId: string) {
+    setActionBusy(true);
+    setActionError("");
+    try {
+      const result = await saveResearchSource(candidateId);
+      refresh();
+      const query = result.draft_id ? "?edit=1" : "";
+      navigate(`/sources/${encodeURIComponent(result.source_id)}${query}`);
+    } catch (reason) {
+      setActionError(errorMessage(reason));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   async function dismiss(reason: "not_relevant" | "already_known" | "too_redundant" | "not_interested" | "other", note: string) {
     const ids = dismissTargets ?? [];
     setActionBusy(true);
@@ -247,7 +263,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
         {tab !== "history" && (tab === "new" || tab === "shortlisted") && items.length > 0 && <div className="research-batch-toolbar"><label><input type="checkbox" checked={items.length > 0 && items.every((item) => selectedCandidates.includes(item.candidate.id))} onChange={(event) => setSelectedCandidates(event.target.checked ? items.map((item) => item.candidate.id) : [])} /> Select visible</label><span>{selectedCandidates.length} selected</span><div>{selectedCandidates.length > 0 && <>{tab === "new" && <button className="button button-secondary" disabled={actionBusy} onClick={() => void shortlist(selectedCandidates)}>Shortlist selected</button>}<button className="button button-quiet" disabled={actionBusy} onClick={() => setDismissTargets(selectedCandidates)}>Dismiss selected</button></>}</div></div>}
         {actionError && <p className="error-copy research-inline-error" role="alert">{actionError}</p>}
         {candidateError && <ErrorState message={candidateError} retry={refresh} />}
-        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={() => { setActionError(""); setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => setDismissTargets([item.candidate.id])} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
+        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={() => { setActionError(""); setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => setDismissTargets([item.candidate.id])} onSaveSource={() => void saveSource(item.candidate.id)} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
         {items.length > 0 && items.length < candidateCount && <div className="research-load-more"><button className="button button-secondary" disabled={candidateLoading} onClick={() => setOffset(items.length)}>{candidateLoading ? "Loading…" : "Load more"}</button></div>}
       </>}
       {tab === "runs" && <>

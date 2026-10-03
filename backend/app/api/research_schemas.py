@@ -148,6 +148,13 @@ class ResearchShortlistRequest(APIModel):
     note: Optional[Annotated[str, Field(max_length=4000)]] = None
 
 
+class ResearchSaveSourceResultView(APIModel):
+    action: Literal["linked_existing", "draft_created", "draft_reused"]
+    source_id: Slug
+    draft_id: Optional[str] = None
+    candidate: ResearchCandidateRecord
+
+
 class ResearchCandidateListItem(APIModel):
     candidate: ResearchCandidateRecord
     work: ResearchWorkRecord
