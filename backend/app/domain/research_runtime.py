@@ -69,6 +69,32 @@ class ResearchWorkAnalysisRecord(CanonicalModel):
         return self
 
 
+ResearchCandidateStatus = Literal[
+    "new", "shortlisted", "dismissed", "saved_source", "note_created"
+]
+ResearchDismissReason = Literal[
+    "not_relevant", "already_known", "too_similar", "not_following_subfield", "other"
+]
+
+
+class ResearchCandidateRecord(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: NonEmptyText
+    work_id: NonEmptyText
+    profile_id: Slug
+    status: ResearchCandidateStatus
+    primary_lens_id: Optional[Slug] = None
+    analysis_id: NonEmptyText
+    user_note: Optional[NonEmptyText] = None
+    dismiss_reason: Optional[ResearchDismissReason] = None
+    created_at: NonEmptyText
+    updated_at: NonEmptyText
+    first_viewed_at: Optional[NonEmptyText] = None
+    last_viewed_at: Optional[NonEmptyText] = None
+    decided_at: Optional[NonEmptyText] = None
+
+
 class ResearchIngestResult(CanonicalModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
