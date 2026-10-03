@@ -25,11 +25,68 @@ from backend.app.services.research_service import ResearchService
 from backend.app.services.source_registry import SourceRegistry
 
 
-def build_research_service(
-    repository_root: Path, connection: sqlite3.Connection
+def assemble_research_service(
+    repository_root: Path,
+    connection: sqlite3.Connection,
+    *,
+    gateway: AIGateway,
+    knowledge: KnowledgeReadService,
+    collections: CollectionService,
+    context_export: ContextExportService,
 ) -> ResearchService:
+    """Assemble Research around services already owned by the API lifespan."""
     root = Path(repository_root).expanduser().resolve()
     registry = ResearchProfileRegistry.load(root)
+    return _assemble_research_service(
+        root,
+        connection,
+        registry=registry,
+        gateway=gateway,
+        knowledge=knowledge,
+        collections=collections,
+        context_export=context_export,
+    )
+
+
+def build_research_service_for_cli(
+    repository_root: Path, connection: sqlite3.Connection
+) -> ResearchService:
+    """Build standalone dependencies for the Research CLI process."""
+    root = Path(repository_root).expanduser().resolve()
+    registry = ResearchProfileRegistry.load(root)
+    configured_ai = DeepSeekConfig.from_environment(root)
+    deepseek = DeepSeekConfig(
+        api_key=configured_ai.api_key,
+        model=configured_ai.model,
+        base_url=configured_ai.base_url,
+        timeout_seconds=registry.global_config.analysis.timeout_seconds,
+        max_retries=configured_ai.max_retries,
+    )
+    gateway = AIGateway(DeepSeekClient(deepseek))
+    knowledge = KnowledgeReadService(root, connection)
+    collections = CollectionService(root, connection)
+    context_export = ContextExportService(knowledge, connection)
+    return _assemble_research_service(
+        root,
+        connection,
+        registry=registry,
+        gateway=gateway,
+        knowledge=knowledge,
+        collections=collections,
+        context_export=context_export,
+    )
+
+
+def _assemble_research_service(
+    root: Path,
+    connection: sqlite3.Connection,
+    *,
+    registry: ResearchProfileRegistry,
+    gateway: AIGateway,
+    knowledge: KnowledgeReadService,
+    collections: CollectionService,
+    context_export: ContextExportService,
+) -> ResearchService:
     provider_settings = registry.global_config.providers
     provider_options = {
         "timeout_seconds": provider_settings.timeout_seconds,
@@ -41,22 +98,10 @@ def build_research_service(
         "crossref": CrossrefProvider(**provider_options),
     }
 
-    configured_ai = DeepSeekConfig.from_environment(root)
-    deepseek = DeepSeekConfig(
-        api_key=configured_ai.api_key,
-        model=configured_ai.model,
-        base_url=configured_ai.base_url,
-        timeout_seconds=registry.global_config.analysis.timeout_seconds,
-        max_retries=configured_ai.max_retries,
-    )
-    gateway = AIGateway(DeepSeekClient(deepseek))
     work_repository = ResearchRepository(connection)
     candidate_service = ResearchCandidateService(
         ResearchCandidateRepository(connection)
     )
-    knowledge = KnowledgeReadService(root, connection)
-    collections = CollectionService(root, connection)
-    context_export = ContextExportService(knowledge, connection)
     context_builder = ResearchContextBuilder(
         knowledge,
         collections,

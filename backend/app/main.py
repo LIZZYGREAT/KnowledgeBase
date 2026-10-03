@@ -45,7 +45,7 @@ from backend.app.services.import_service import ImportValidationError
 from backend.app.services.proposal_service import StaleProposalError
 from backend.app.repositories.proposal_repository import ProposalTransitionError
 from backend.app.services.usage_service import UsageService
-from backend.app.services.research_wiring import build_research_service
+from backend.app.services.research_wiring import assemble_research_service
 from backend.app.services.research_conversion_service import ResearchConversionService
 from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
@@ -101,7 +101,14 @@ async def lifespan(application: FastAPI):
             git_manager,
             canonical_target_resolver=canonical_target_resolver,
         )
-        research_service = build_research_service(repository_root, connection)
+        research_service = assemble_research_service(
+            repository_root,
+            connection,
+            gateway=ai_gateway,
+            knowledge=knowledge_read_service,
+            collections=collection_service,
+            context_export=context_export_service,
+        )
         research_conversion_service = ResearchConversionService(
             repository_root,
             connection,

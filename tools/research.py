@@ -24,7 +24,7 @@ from backend.app.repositories.research_run_request_repository import (
 )
 from backend.app.services.ai_client import DeepSeekConfig
 from backend.app.services.research_profile_registry import ResearchProfileRegistry
-from backend.app.services.research_wiring import build_research_service
+from backend.app.services.research_wiring import build_research_service_for_cli
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -195,7 +195,7 @@ def _execute(root: Path, database_path: Path, args) -> int:
     connection = None
     try:
         connection = connect_database(database_path)
-        service = build_research_service(root, connection)
+        service = build_research_service_for_cli(root, connection)
         if args.command == "tick":
             run = service.tick()
             if run is None:
