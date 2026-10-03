@@ -2,9 +2,9 @@
 
 KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
 
-This repository implements Phases 0–13: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; staged Markdown/PDF imports; the server-side DeepSeek Gateway; the Knowledge API; the Reference Hub reader and editor; Source, Evidence, PaperSkill, and Context Export integrations; non-canonical reader annotations and Markdown formatting tools; legacy migration workflows; private production deployment and backup support; and the Collection Explorer + Unified Workspace.
+This repository implements Phases 0–14: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; staged Markdown/PDF imports; the server-side DeepSeek Gateway; the Knowledge API; the Reference Hub reader and editor; Source, Evidence, PaperSkill, and Context Export integrations; non-canonical reader annotations and Markdown formatting tools; legacy migration workflows; private production deployment and backup support; the Collection Explorer + Unified Workspace; and the Research Agent.
 
-**Phase 13 COMPLETE. Phase 14 NEXT: Research Agent.** Phase 13 is frozen. Phase 14 begins by explicitly extending GitManager's canonical tracked roots from `knowledge/` to `knowledge/` and `config/research/profiles/`; it must not allowlist the whole repository. See [Architecture](docs/ARCHITECTURE.md) for the current Proposal, Draft, resolver, import, API, and frontend rules.
+**Phases 13 and 14 implementation COMPLETE.** Phase 13 is frozen, and Phase 14 production smoke acceptance remains an operator task on the configured Linux host. Research Profiles are canonical YAML under `config/research/profiles/`; GitManager tracks that explicit root without allowlisting the whole repository. See [Architecture](docs/ARCHITECTURE.md) for the current Proposal, Draft, resolver, import, API, frontend, and Research rules.
 
 ## Local setup
 
