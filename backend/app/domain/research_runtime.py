@@ -5,6 +5,7 @@ from typing import Any, Literal, Optional
 from pydantic import ConfigDict, StrictInt
 
 from backend.app.domain.common import CanonicalModel, NonEmptyText, Slug
+from backend.app.domain.research import ResearchProvider as ResearchProviderName
 
 
 class ResearchWorkRecord(CanonicalModel):
@@ -59,3 +60,18 @@ class ResearchIngestResult(CanonicalModel):
         "title_author_year",
         "ambiguous_weak_match",
     ]
+
+
+class ResearchSearchStateRecord(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile_id: Slug
+    lens_id: Slug
+    provider: ResearchProviderName
+    query_key: NonEmptyText
+    query_text: NonEmptyText
+    completed_through: Optional[NonEmptyText] = None
+    last_attempt_at: Optional[NonEmptyText] = None
+    last_success_at: Optional[NonEmptyText] = None
+    created_at: NonEmptyText
+    updated_at: NonEmptyText
