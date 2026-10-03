@@ -82,6 +82,7 @@ class ResearchSearch(CanonicalModel):
     initial_lookback_days: PositiveInt
     max_catchup_days: PositiveInt
     max_candidates_per_run: PositiveInt
+    max_analyses_per_run: PositiveInt
 
 
 class ResearchInbox(CanonicalModel):

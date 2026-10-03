@@ -127,7 +127,7 @@ def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
     )
     provider = FakeProvider(
         [
-            ProviderPage(works=(first_work, second_work)),
+            ProviderPage(works=(first_work,)),
             ProviderPage(works=(second_work,)),
         ]
     )
@@ -171,6 +171,102 @@ def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
     connection.close()
 
 
+def test_page_pre_rank_orders_eligible_work_before_analysis(tmp_path):
+    connection = connect_database(":memory:")
+    lower_ranked = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2402.00001",
+        title="Fisher Information for Parameter Importance",
+        abstract="Fisher information measures parameter importance.",
+        authors=(),
+        year=2026,
+        published_at="2026-10-02",
+        arxiv_id="2402.00001",
+    )
+    higher_ranked = _provider_work()
+    provider = FakeProvider(
+        [ProviderPage(works=(lower_ranked, higher_ranked))]
+    )
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    recording_context = RecordingContextBuilder(service.context_builder)
+    service.context_builder = recording_context
+
+    run = service.run_profile("continual-learning")
+
+    assert run is not None and run.status == "success"
+    assert recording_context.work_titles == [higher_ranked.title, lower_ranked.title]
+    assert run.analyzed_count == 2
+    connection.close()
+
+
+def test_analysis_budget_counts_new_deepseek_calls_not_cached_analyses(tmp_path):
+    connection = connect_database(":memory:")
+    cached_work = _provider_work()
+    new_work = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2402.00001",
+        title="Fisher Information for New Parameter Importance",
+        abstract="Fisher information measures parameter importance.",
+        authors=("Grace Hopper",),
+        year=2026,
+        published_at="2026-10-02",
+        arxiv_id="2402.00001",
+    )
+    over_budget_work = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2403.00002",
+        title="Fisher Information for Another Parameter Study",
+        abstract="Fisher information measures parameter importance.",
+        authors=(),
+        year=2026,
+        published_at="2026-10-02",
+        arxiv_id="2403.00002",
+    )
+    provider = FakeProvider(
+        [ProviderPage(works=(cached_work, new_work, over_budget_work))]
+    )
+    profile = _profile(max_new_candidates=10)
+    profile = profile.model_copy(
+        update={
+            "search": profile.search.model_copy(
+                update={"max_analyses_per_run": 1}
+            )
+        }
+    )
+    service, _, search_repository, ai_client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    query = service.query_builder.build(profile)[0]
+    ingested = service.deduplicator.record_discovery(
+        profile.id,
+        query.lens_id,
+        query.query_key,
+        query.text,
+        cached_work,
+        discovered_at=_NOW,
+    )
+    context_pack = service.context_builder.build(
+        ingested.work, profile, profile.lenses[0], keywords=(query.text,)
+    )
+    cached_analysis = service.analysis_service.analyze(
+        ingested.work, profile, profile.lenses[0], context_pack
+    )
+    assert cached_analysis is not None
+    ai_client.calls.clear()
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert run.analyzed_count == 1
+    assert run.surfaced_count == 2
+    assert ai_client.calls == ["research_candidate_analysis"]
+    assert service.candidate_repository.count_new(profile.id) == 2
+    state = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert state is not None and state.completed_through is None
+    connection.close()
+
+
 def test_incomplete_manual_range_reuses_negative_analysis_on_restart(tmp_path):
     connection = connect_database(":memory:")
     page = ProviderPage(works=(_provider_work(),))
@@ -195,7 +291,8 @@ def test_incomplete_manual_range_reuses_negative_analysis_on_restart(tmp_path):
 
     assert first is not None and first.status == "success"
     assert restarted is not None and restarted.status == "success"
-    assert first.analyzed_count == restarted.analyzed_count == 1
+    assert first.analyzed_count == 1
+    assert restarted.analyzed_count == 0
     assert first.surfaced_count == restarted.surfaced_count == 0
     assert provider.calls == 2
     assert ai_client.calls == ["research_candidate_analysis"]
@@ -586,6 +683,16 @@ class FakeContextBuilder:
         )
 
 
+class RecordingContextBuilder:
+    def __init__(self, delegate):
+        self.delegate = delegate
+        self.work_titles = []
+
+    def build(self, work, profile, matched_lens, keywords=()):
+        self.work_titles.append(work.title)
+        return self.delegate.build(work, profile, matched_lens, keywords)
+
+
 def _service(
     tmp_path,
     connection,
@@ -711,6 +818,7 @@ def _profile(
                 "initial_lookback_days": 1,
                 "max_catchup_days": 30,
                 "max_candidates_per_run": 10,
+                "max_analyses_per_run": 30,
             },
             "inbox": {"max_new_candidates": max_new_candidates},
             "ai_analysis": {"enabled": True, "provider": "deepseek"},

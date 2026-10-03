@@ -209,6 +209,7 @@ def _profile() -> dict:
             "initial_lookback_days": 30,
             "max_catchup_days": 30,
             "max_candidates_per_run": 10,
+            "max_analyses_per_run": 30,
         },
         "inbox": {"max_new_candidates": 20},
         "ai_analysis": {"enabled": True, "provider": "deepseek"},

@@ -584,52 +584,63 @@ class ResearchService:
                 return False, None
             provider_summary["works"] += len(page.works)
             complete_page = True
+            eligible_works = []
             for index, provider_work in enumerate(page.works):
                 if self.candidate_service.remaining_capacity(profile) <= 0:
                     errors.append("Inbox capacity reached before the slice completed")
                     return False, "capacity_reached"
+                self.run_repository.update_progress(run.id, fetched_count=1)
+                if not isinstance(provider_work, ProviderWork):
+                    raise ValueError("Provider page contained an invalid Work")
+                ingested = self.deduplicator.record_discovery(
+                    profile.id,
+                    query.lens_id,
+                    query.query_key,
+                    query.text,
+                    provider_work,
+                    discovered_at=self._now(),
+                )
+                if ingested.created_work:
+                    self.run_repository.update_progress(run.id, new_work_count=1)
+                else:
+                    self.run_repository.update_progress(run.id, duplicate_count=1)
+                work, enrichment_failed = self._enrich_work(
+                    ingested.work,
+                    profile,
+                    stats,
+                    errors,
+                    provider_failures,
+                    unavailable_providers,
+                )
+                if enrichment_failed:
+                    complete_page = False
+                    break
+
+                screened = self.screening.screen(
+                    work,
+                    profile,
+                    query,
+                    search_slice,
+                    self._now(),
+                    analysis_input_hash="",
+                )
+                if not screened.eligible:
+                    self.run_repository.update_progress(
+                        run.id, deterministic_filtered_count=1
+                    )
+                    continue
+
+                if screened.pre_rank is None:
+                    raise RuntimeError("Eligible Work is missing its Pre-Rank score")
+                eligible_works.append((screened.pre_rank.score, index, work))
+
+            if not complete_page:
+                return False, None
+
+            eligible_works.sort(key=lambda item: (-item[0], item[1]))
+            analysis_budget_reached = False
+            for _, _, work in eligible_works:
                 try:
-                    self.run_repository.update_progress(run.id, fetched_count=1)
-                    if not isinstance(provider_work, ProviderWork):
-                        raise ValueError("Provider page contained an invalid Work")
-                    ingested = self.deduplicator.record_discovery(
-                        profile.id,
-                        query.lens_id,
-                        query.query_key,
-                        query.text,
-                        provider_work,
-                        discovered_at=self._now(),
-                    )
-                    if ingested.created_work:
-                        self.run_repository.update_progress(run.id, new_work_count=1)
-                    else:
-                        self.run_repository.update_progress(run.id, duplicate_count=1)
-                    work, enrichment_failed = self._enrich_work(
-                        ingested.work,
-                        profile,
-                        stats,
-                        errors,
-                        provider_failures,
-                        unavailable_providers,
-                    )
-                    if enrichment_failed:
-                        complete_page = False
-                        break
-
-                    screened = self.screening.screen(
-                        work,
-                        profile,
-                        query,
-                        search_slice,
-                        self._now(),
-                        analysis_input_hash="",
-                    )
-                    if not screened.eligible:
-                        self.run_repository.update_progress(
-                            run.id, deterministic_filtered_count=1
-                        )
-                        continue
-
                     context_pack = self.context_builder.build(
                         work,
                         profile,
@@ -643,6 +654,28 @@ class ResearchService:
                         work.id, profile.id, analysis_hash
                     )
                     if analysis is None:
+                        if profile.ai_analysis.enabled:
+                            current_analysis_count = self.run_repository.get(
+                                run.id
+                            ).analyzed_count
+                            if (
+                                current_analysis_count
+                                >= profile.search.max_analyses_per_run
+                            ):
+                                analysis_budget_reached = True
+                                continue
+                            if analysis_breaker.analysis_disabled_for_run:
+                                errors.append(
+                                    "DeepSeek analysis circuit opened for this run"
+                                )
+                                return False, None
+                            self.run_repository.update_progress(
+                                run.id, analyzed_count=1
+                            )
+                            analysis_budget_reached = (
+                                current_analysis_count + 1
+                                >= profile.search.max_analyses_per_run
+                            )
                         analysis = self.analysis_service.analyze(
                             work,
                             profile,
@@ -656,7 +689,6 @@ class ResearchService:
                             return False, None
                         continue
 
-                    self.run_repository.update_progress(run.id, analyzed_count=1)
                     generated = self.candidate_service.generate(analysis, profile, lens)
                     if generated.outcome == "inbox_full":
                         errors.append("Inbox capacity reached before the slice completed")
@@ -680,6 +712,8 @@ class ResearchService:
 
             if not complete_page:
                 return False, None
+            if analysis_budget_reached:
+                return False, "success"
             if page.next_cursor is None:
                 return True, None
             if page.next_cursor in seen_cursors or page.next_cursor == cursor:
