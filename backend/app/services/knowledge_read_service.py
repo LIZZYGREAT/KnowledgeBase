@@ -111,6 +111,42 @@ class KnowledgeReadService:
             result["evidence"] = self._source_evidence(entity_id)
         return result
 
+    def entity_context_summaries(
+        self, entity_keys: set[tuple[str, str]]
+    ) -> dict[tuple[str, str], dict]:
+        """Load bounded ranking metadata without reading canonical entity files."""
+        ids_by_type = {
+            entity_type: sorted(
+                entity_id
+                for candidate_type, entity_id in entity_keys
+                if candidate_type == entity_type
+            )
+            for entity_type in _INDEX_TABLES
+        }
+        summaries = {}
+        batch_size = 800
+        for entity_type, ids in ids_by_type.items():
+            table, _ = _INDEX_TABLES[entity_type]
+            for start in range(0, len(ids), batch_size):
+                batch = ids[start : start + batch_size]
+                placeholders = ", ".join("?" for _ in batch)
+                rows = self.connection.execute(
+                    "SELECT entity_id, title, metadata_json FROM {} "
+                    "WHERE entity_id IN ({})".format(table, placeholders),
+                    batch,
+                ).fetchall()
+                for row in rows:
+                    metadata = json.loads(row["metadata_json"])
+                    summaries[(entity_type, row["entity_id"])] = {
+                        "title": row["title"],
+                        "metadata": {
+                            key: metadata[key]
+                            for key in ("review", "metadata_review", "topics", "domains")
+                            if key in metadata
+                        },
+                    }
+        return summaries
+
     def topics(self, limit: int = 100, offset: int = 0) -> list[dict]:
         _validate_page(limit, offset)
         rows = self.connection.execute(

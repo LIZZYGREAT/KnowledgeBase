@@ -57,11 +57,19 @@ class SearchService:
         query: str = "",
         filters: Optional[Union[SearchFilters, dict]] = None,
         limit: int = 20,
+        allowed_entities: Optional[set[tuple[str, str]]] = None,
     ) -> list[SearchResult]:
         if not isinstance(query, str):
             raise ValueError("query must be text")
         if not isinstance(limit, int) or limit < 1 or limit > 100:
             raise ValueError("limit must be between 1 and 100")
+        if allowed_entities is not None and any(
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or not all(isinstance(value, str) and value for value in item)
+            for item in allowed_entities
+        ):
+            raise ValueError("allowed_entities must contain (entity_type, entity_id) pairs")
         filter_values = _filters_dict(filters)
         query = query.strip()
         normalized_query = normalize_key(query)
@@ -77,6 +85,8 @@ class SearchService:
         sources = self.connection.execute("SELECT * FROM source_index").fetchall()
 
         for row in documents:
+            if not _entity_allowed(allowed_entities, "document", row["entity_id"]):
+                continue
             metadata = json.loads(row["metadata_json"])
             self._offer(
                 results, "document", row["entity_id"], row["title"], row["path"],
@@ -90,6 +100,8 @@ class SearchService:
             )
 
         for row in terms:
+            if not _entity_allowed(allowed_entities, "term", row["entity_id"]):
+                continue
             metadata = json.loads(row["metadata_json"])
             aliases = json.loads(row["aliases_json"])
             match = _canonical_match(query, normalized_query, row["entity_id"], row["title"])
@@ -104,6 +116,8 @@ class SearchService:
             )
 
         for row in sources:
+            if not _entity_allowed(allowed_entities, "source", row["entity_id"]):
+                continue
             metadata = json.loads(row["metadata_json"])
             match = _canonical_match(query, normalized_query, row["entity_id"], row["title"])
             score = 100.0 if match == "exact id" else 80.0 if match == "title" else 0.0
@@ -115,12 +129,12 @@ class SearchService:
         if query:
             fts_query = _fts_query(query)
             if fts_query:
-                self._search_fts(results, "document_fts", fts_query, filter_values)
-                self._search_fts(results, "term_fts", fts_query, filter_values)
-                self._search_fts(results, "source_fts", fts_query, filter_values)
-                self._search_evidence(results, fts_query, filter_values)
+                self._search_fts(results, "document_fts", fts_query, filter_values, allowed_entities)
+                self._search_fts(results, "term_fts", fts_query, filter_values, allowed_entities)
+                self._search_fts(results, "source_fts", fts_query, filter_values, allowed_entities)
+                self._search_evidence(results, fts_query, filter_values, allowed_entities)
             if _CJK_CHARACTERS.search(query):
-                self._search_cjk_literal(results, query, filter_values)
+                self._search_cjk_literal(results, query, filter_values, allowed_entities)
 
         ordered = sorted(
             results.values(),
@@ -134,7 +148,14 @@ class SearchService:
         )
         return ordered[:limit]
 
-    def _search_fts(self, results, table: str, fts_query: str, filters: dict) -> None:
+    def _search_fts(
+        self,
+        results,
+        table: str,
+        fts_query: str,
+        filters: dict,
+        allowed_entities: Optional[set[tuple[str, str]]] = None,
+    ) -> None:
         specs = {
             "document_fts": ("document", "document_index", 2, (0.0, 8.0, 1.0, 0.25)),
             "term_fts": ("term", "term_index", 3, (0.0, 8.0, 2.0, 1.0, 0.25)),
@@ -154,44 +175,101 @@ class SearchService:
         else:
             usage_columns = ", 0 AS view_count, 0 AS search_click_count"
             usage_join = ""
-        rows = self.connection.execute(
-            """SELECT entity_id, bm25({table}, {weights}) AS rank,
-                      snippet({table}, {snippet_column}, '<mark>', '</mark>', '…', 12) AS snippet
-                      {usage_columns}
-               FROM {table}{usage_join}
-               WHERE {table} MATCH ? ORDER BY rank LIMIT 200""".format(
-                table=table,
-                weights=weight_args,
-                snippet_column=snippet_column,
-                usage_columns=usage_columns,
-                usage_join=usage_join,
-            ),
-            tuple(weights) + (fts_query,),
-        ).fetchall()
-        for match in rows:
-            row = self.connection.execute(
-                "SELECT * FROM {} WHERE entity_id = ?".format(index_table),
-                (match["entity_id"],),
-            ).fetchone()
-            if row is None:
-                continue
-            metadata = json.loads(row["metadata_json"])
-            rank = float(match["rank"])
-            retrieval_score = min(50.0, 40.0 + max(0.0, -rank) * 1000000.0)
-            self._offer(
-                results, entity_type, row["entity_id"], row["title"], row["path"],
-                metadata, match["view_count"], match["search_click_count"],
-                "full text", retrieval_score, match["snippet"] or "", filters,
+        allowed_ids = (
+            None
+            if allowed_entities is None
+            else sorted(
+                entity_id
+                for allowed_type, entity_id in allowed_entities
+                if allowed_type == entity_type
             )
+        )
+        batches = (
+            [None]
+            if allowed_ids is None
+            else [allowed_ids[start : start + 500] for start in range(0, len(allowed_ids), 500)]
+        )
+        for batch in batches:
+            if batch == []:
+                continue
+            scope_clause = (
+                ""
+                if batch is None
+                else " AND entity_id IN ({})".format(", ".join("?" for _ in batch))
+            )
+            rows = self.connection.execute(
+                """SELECT entity_id, bm25({table}, {weights}) AS rank,
+                          snippet({table}, {snippet_column}, '<mark>', '</mark>', '…', 12) AS snippet
+                          {usage_columns}
+                   FROM {table}{usage_join}
+                   WHERE {table} MATCH ?{scope_clause} ORDER BY rank LIMIT 200""".format(
+                    table=table,
+                    weights=weight_args,
+                    snippet_column=snippet_column,
+                    usage_columns=usage_columns,
+                    usage_join=usage_join,
+                    scope_clause=scope_clause,
+                ),
+                tuple(weights) + (fts_query,) + (() if batch is None else tuple(batch)),
+            ).fetchall()
+            for match in rows:
+                if not _entity_allowed(allowed_entities, entity_type, match["entity_id"]):
+                    continue
+                row = self.connection.execute(
+                    "SELECT * FROM {} WHERE entity_id = ?".format(index_table),
+                    (match["entity_id"],),
+                ).fetchone()
+                if row is None:
+                    continue
+                metadata = json.loads(row["metadata_json"])
+                rank = float(match["rank"])
+                retrieval_score = min(50.0, 40.0 + max(0.0, -rank) * 1000000.0)
+                self._offer(
+                    results, entity_type, row["entity_id"], row["title"], row["path"],
+                    metadata, match["view_count"], match["search_click_count"],
+                    "full text", retrieval_score, match["snippet"] or "", filters,
+                )
 
-    def _search_evidence(self, results, fts_query: str, filters: dict) -> None:
-        rows = self.connection.execute(
-            """SELECT evidence_id, entity_id,
-                      bm25(evidence_fts, 1.0, 0.0, 1.0) AS rank,
-                      snippet(evidence_fts, 2, '<mark>', '</mark>', '…', 12) AS snippet
-               FROM evidence_fts WHERE evidence_fts MATCH ? ORDER BY rank LIMIT 200""",
-            (fts_query,),
-        ).fetchall()
+    def _search_evidence(
+        self,
+        results,
+        fts_query: str,
+        filters: dict,
+        allowed_entities: Optional[set[tuple[str, str]]] = None,
+    ) -> None:
+        if allowed_entities is None:
+            rows = self.connection.execute(
+                """SELECT evidence_id, entity_id,
+                          bm25(evidence_fts, 1.0, 0.0, 1.0) AS rank,
+                          snippet(evidence_fts, 2, '<mark>', '</mark>', '…', 12) AS snippet
+                   FROM evidence_fts WHERE evidence_fts MATCH ? ORDER BY rank LIMIT 200""",
+                (fts_query,),
+            ).fetchall()
+        else:
+            rows = []
+            for entity_type in ("document", "term"):
+                allowed_ids = sorted(
+                    entity_id
+                    for allowed_type, entity_id in allowed_entities
+                    if allowed_type == entity_type
+                )
+                for start in range(0, len(allowed_ids), 500):
+                    batch = allowed_ids[start : start + 500]
+                    placeholders = ", ".join("?" for _ in batch)
+                    rows.extend(
+                        self.connection.execute(
+                            """SELECT evidence_fts.evidence_id, evidence_index.entity_id,
+                                      bm25(evidence_fts, 1.0, 0.0, 1.0) AS rank,
+                                      snippet(evidence_fts, 2, '<mark>', '</mark>', '…', 12) AS snippet
+                               FROM evidence_fts JOIN evidence_index
+                                 ON evidence_index.id = evidence_fts.evidence_id
+                               WHERE evidence_fts MATCH ?
+                                 AND evidence_index.entity_type = ?
+                                 AND evidence_index.entity_id IN ({})
+                               ORDER BY rank""".format(placeholders),
+                            (fts_query, entity_type, *batch),
+                        ).fetchall()
+                    )
         for match in rows:
             evidence = self.connection.execute(
                 "SELECT * FROM evidence_index WHERE id = ?", (match["evidence_id"],)
@@ -224,7 +302,13 @@ class SearchService:
                 "evidence", retrieval_score, match["snippet"] or evidence["claim"], filters,
             )
 
-    def _search_cjk_literal(self, results, query: str, filters: dict) -> None:
+    def _search_cjk_literal(
+        self,
+        results,
+        query: str,
+        filters: dict,
+        allowed_entities: Optional[set[tuple[str, str]]] = None,
+    ) -> None:
         pattern = "%{}%".format(
             query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
@@ -242,6 +326,8 @@ class SearchService:
                 tuple(pattern for _ in columns),
             ).fetchall()
             for match in matches:
+                if not _entity_allowed(allowed_entities, entity_type, match["entity_id"]):
+                    continue
                 if entity_type == "document":
                     row = self.connection.execute(
                         """SELECT d.*, COALESCE(s.view_count, 0) AS view_count,
@@ -282,6 +368,10 @@ class SearchService:
                 "SELECT * FROM evidence_index WHERE id = ?", (match["evidence_id"],)
             ).fetchone()
             if evidence is None:
+                continue
+            if not _entity_allowed(
+                allowed_entities, evidence["entity_type"], evidence["entity_id"]
+            ):
                 continue
             if evidence["entity_type"] == "document":
                 row = self.connection.execute(
@@ -365,6 +455,14 @@ def _canonical_match(query: str, normalized_query: str, entity_id: str, title: s
     if normalized_query and normalized_query == normalize_key(title):
         return "title"
     return None
+
+
+def _entity_allowed(
+    allowed_entities: Optional[set[tuple[str, str]]],
+    entity_type: str,
+    entity_id: str,
+) -> bool:
+    return allowed_entities is None or (entity_type, entity_id) in allowed_entities
 
 
 def _filters_dict(filters) -> dict:

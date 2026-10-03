@@ -176,6 +176,95 @@ def test_selected_context_retrieval_excludes_unselected_library_entities(tmp_pat
         connection.close()
 
 
+def test_selected_context_filters_search_before_the_global_result_limit(tmp_path):
+    root = _repository(tmp_path / "repo")
+    for index in range(30):
+        _write_document(
+            root,
+            "a-distractor-{:02d}".format(index),
+            "A Distractor {:02d}".format(index),
+            "Fisher information ranks this unrelated document in full-library search.",
+        )
+    _write_document(
+        root,
+        "zz-selected",
+        "Selected Fisher Information Note",
+        "Fisher information is relevant inside the selected collection.",
+    )
+    _write_collection_with_documents(root, "selected-context", "Selected Context", ["zz-selected"])
+    connection, builder = _context_builder(root, max_context_entities=2)
+    try:
+        base_profile = _profile(dynamic=True, scope="selected-context")
+        profile = base_profile.model_copy(
+            update={
+                "context": base_profile.context.model_copy(
+                    update={"collections": ("selected-context",), "documents": ()}
+                )
+            }
+        )
+
+        pack = builder.build(
+            _work(), profile, profile.lenses[0], keywords=("fisher information",)
+        )
+
+        cards = {(card.entity_type, card.entity_id): card for card in pack.cards}
+        assert cards[("document", "zz-selected")].retrieval_score > 0
+        assert set(cards) <= {
+            ("collection", "selected-context"),
+            ("document", "zz-selected"),
+        }
+    finally:
+        connection.close()
+
+
+def test_pinned_metadata_ranks_approved_entities_before_collection_summary(tmp_path):
+    root = _repository(tmp_path / "repo")
+    _write_document(root, "a-unreviewed", "A Unreviewed", "Background on a separate method.")
+    _write_document(
+        root, "m-approved", "M Approved", "A separate approved method.", review_status="approved"
+    )
+    _write_document(
+        root,
+        "z-approved",
+        "Z Approved",
+        "A separate approved method.",
+        review_status="approved",
+        topics=("continual-learning",),
+        domains=("artificial-intelligence",),
+    )
+    _write_collection_with_documents(
+        root,
+        "selected-context",
+        "0 Collection Summary",
+        ["a-unreviewed", "m-approved", "z-approved"],
+    )
+    connection, builder = _context_builder(root, max_context_entities=2)
+    try:
+        base_profile = _profile(dynamic=False)
+        profile = base_profile.model_copy(
+            update={
+                "context": base_profile.context.model_copy(
+                    update={"collections": ("selected-context",), "documents": ()}
+                )
+            }
+        )
+
+        pack = builder.build(_work(), profile, profile.lenses[0])
+
+        cards = {(card.entity_type, card.entity_id): card for card in pack.cards}
+        assert [(card.entity_type, card.entity_id) for card in pack.cards] == [
+            ("document", "z-approved"),
+            ("document", "m-approved"),
+        ]
+        assert cards[("document", "z-approved")].review_status == "approved"
+        assert cards[("document", "z-approved")].topics == ("continual-learning",)
+        assert cards[("document", "z-approved")].domains == ("artificial-intelligence",)
+        assert cards[("document", "z-approved")].retrieval_score > 0
+        assert cards[("document", "m-approved")].retrieval_score == 0
+    finally:
+        connection.close()
+
+
 def test_pinned_collection_members_are_materialized_only_after_context_selection(
     tmp_path, monkeypatch
 ):
@@ -321,6 +410,20 @@ def _write_collection(root):
         "        entity_type: term\n        entity_id: fisher-information\n"
         "      - id: source-node\n        kind: entity\n"
         "        entity_type: source\n        entity_id: source-alpha\n",
+        encoding="utf-8",
+    )
+
+
+def _write_collection_with_documents(root, collection_id, title, document_ids):
+    nodes = "\n".join(
+        "  - id: member-{}\n    kind: entity\n    entity_type: document\n    entity_id: {}".format(
+            index, entity_id
+        )
+        for index, entity_id in enumerate(document_ids)
+    )
+    (root / "knowledge" / "collections" / "{}.yaml".format(collection_id)).write_text(
+        "schema_version: 1\nid: {}\ntitle: {}\ndescription: Selected items\n"
+        "status: active\nposition: 0\nnodes:\n{}\n".format(collection_id, title, nodes),
         encoding="utf-8",
     )
 

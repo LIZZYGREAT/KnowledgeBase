@@ -137,6 +137,7 @@ class ResearchContextBuilder:
             pinned_entity_titles.setdefault(("document", document_id), document_id)
 
         pinned_entity_ids = set(pinned_entity_titles)
+        pinned_summaries = self.knowledge.entity_context_summaries(pinned_entity_ids)
         retrieved_by_entity: dict[tuple[str, str], SearchResult] = {}
         if profile.context.dynamic_retrieval.enabled:
             allowed_entity_ids = (
@@ -151,10 +152,9 @@ class ResearchContextBuilder:
 
         for entity_key in pinned_entity_ids | set(retrieved_by_entity):
             result = retrieved_by_entity.get(entity_key)
-            metadata = result.metadata if result is not None else {}
-            review_status = (
-                _review_status(entity_key[0], metadata) if result is not None else "unreviewed"
-            )
+            summary = pinned_summaries.get(entity_key, {})
+            metadata = result.metadata if result is not None else summary.get("metadata", {})
+            review_status = _review_status(entity_key[0], metadata)
             options.append(
                 _ContextOption(
                     entity_type=entity_key[0],
@@ -162,10 +162,18 @@ class ResearchContextBuilder:
                     title=(
                         result.title
                         if result is not None
-                        else pinned_entity_titles.get(entity_key, entity_key[1])
+                        else summary.get("title", pinned_entity_titles.get(entity_key, entity_key[1]))
                     ),
                     pinned=entity_key in pinned_entity_ids,
-                    retrieval_score=float(result.score) if result is not None else 0.0,
+                    retrieval_score=(
+                        float(result.score)
+                        if result is not None
+                        else _metadata_relevance_score(
+                            summary.get("title", pinned_entity_titles.get(entity_key, entity_key[1])),
+                            metadata,
+                            focus_tokens,
+                        )
+                    ),
                     review_rank=_review_rank(review_status),
                     search_result=result,
                 )
@@ -174,6 +182,7 @@ class ResearchContextBuilder:
         ordered = sorted(
             options,
             key=lambda item: (
+                int(item.entity_type == "collection"),
                 -item.review_rank,
                 -int(item.pinned),
                 -item.retrieval_score,
@@ -217,7 +226,11 @@ class ResearchContextBuilder:
         result_limit = min(100, max(20, self.max_context_entities * 10))
         best_by_entity: dict[tuple[str, str], SearchResult] = {}
         for query in _retrieval_queries(work, matched_lens, keywords):
-            for result in self.search.search(query=query, limit=result_limit):
+            for result in self.search.search(
+                query=query,
+                limit=result_limit,
+                allowed_entities=allowed_entity_ids,
+            ):
                 if allowed_entity_ids is not None and (
                     result.entity_type, result.entity_id
                 ) not in allowed_entity_ids:
@@ -459,6 +472,18 @@ def _match_priority(matched_by: str) -> int:
         "evidence": 1,
         "browse": 0,
     }.get(matched_by, -1)
+
+
+def _metadata_relevance_score(
+    title: str, metadata: dict[str, Any], focus_tokens: set[str]
+) -> float:
+    metadata_terms = (
+        title,
+        *_string_tuple(metadata.get("topics")),
+        *_string_tuple(metadata.get("domains")),
+    )
+    entity_tokens = set(normalize_title(" ".join(metadata_terms)).split())
+    return float(min(30, 3 * len(focus_tokens & entity_tokens)))
 
 
 def _search_result_rank(result: SearchResult) -> tuple[float, int, int, str]:

@@ -242,7 +242,7 @@ function AnalysisTimeContext({ detail }: { detail: ResearchCandidateDetail }) {
         <DetailRow label="Entity ID" value={card.entity_id} />
         <DetailRow label="Topics" value={card.topics.join(" · ")} />
         <DetailRow label="Domains" value={card.domains.join(" · ")} />
-        <DetailRow label="Retrieval score" value={`${Math.round(card.retrieval_score * 100)}%`} />
+        <DetailRow label="Retrieval score" value={card.retrieval_score.toFixed(2)} />
         {card.relevant_sections.map((section, index) => <div className="research-analysis-context-excerpt" key={`${section.heading}:${index}`}>
           <strong>{section.heading}</strong><p>{section.excerpt}</p>
         </div>)}
