@@ -14,6 +14,7 @@ import type { ExplorerView, ExplorerPageProps } from "./ExplorerTypes";
 export function useExplorerController({
   onOpen,
   navigate,
+  registerBeforeNavigate,
   embedded = false,
   selectedEntity,
 }: ExplorerPageProps) {
@@ -95,6 +96,20 @@ export function useExplorerController({
     setSelectedCollectionId,
     setView,
   });
+
+  useEffect(() => {
+    if (!registerBeforeNavigate) return;
+    return registerBeforeNavigate(async () => {
+      if (!collectionDraft.isDirty) return true;
+      try {
+        await collectionDraft.flush();
+        return true;
+      } catch (reason) {
+        editing.reportError(reason);
+        return false;
+      }
+    });
+  }, [collectionDraft.flush, collectionDraft.isDirty, editing.reportError, registerBeforeNavigate]);
 
   const dnd = useExplorerDnD({
     collections,

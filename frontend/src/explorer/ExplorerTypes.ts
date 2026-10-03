@@ -1,5 +1,6 @@
 import type { DragEvent } from "react";
 import type { EntityType } from "../api";
+import type { RegisterBeforeNavigate } from "../navigation";
 
 export type ExplorerView = "collection" | "all" | "unfiled" | "recent";
 
@@ -19,6 +20,7 @@ export type DragPayload =
 export interface ExplorerPageProps {
   onOpen: OpenEntity;
   navigate: Navigate;
+  registerBeforeNavigate?: RegisterBeforeNavigate;
   embedded?: boolean;
   selectedEntity?: { type: EntityType; id: string };
 }

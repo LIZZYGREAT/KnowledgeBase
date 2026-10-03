@@ -4,6 +4,7 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspacePage } from "../../src/Workspace";
 import type { Draft, EntityDetail, PresentationAnnotation, Proposal } from "../../src/api";
+import { navigateWithGuards, type NavigationGuard, type RegisterBeforeNavigate } from "../../src/navigation";
 
 const api = vi.hoisted(() => ({
   getEntity: vi.fn(),
@@ -231,8 +232,24 @@ function installApiBehavior() {
   });
 }
 
-function renderWorkspace(id = "quick-start") {
-  return render(<WorkspacePage type="document" id={id} navigate={vi.fn()} />);
+function renderWorkspace(
+  id = "quick-start",
+  navigate: (path: string) => void = () => undefined,
+  registerBeforeNavigate?: RegisterBeforeNavigate,
+) {
+  return render(<WorkspacePage type="document" id={id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} />);
+}
+
+function renderGuardedWorkspace() {
+  const guards = new Set<NavigationGuard>();
+  const navigate = vi.fn();
+  const registerBeforeNavigate: RegisterBeforeNavigate = (guard) => {
+    guards.add(guard);
+    return () => { guards.delete(guard); };
+  };
+  const requestNavigation = (path: string) => navigateWithGuards(path, guards, navigate);
+  const view = renderWorkspace("quick-start", (path) => { void requestNavigation(path); }, registerBeforeNavigate);
+  return { ...view, guards, navigate, requestNavigation };
 }
 
 function EntitySwitchHarness() {
@@ -355,6 +372,59 @@ describe("Workspace React integration", () => {
     await user.click(publishButton);
     await waitFor(() => expect(api.publishDraft).toHaveBeenCalledOnce());
     expect(api.publishDraft).toHaveBeenCalledWith("draft-1", 1);
+  });
+
+  it("flushes a dirty Draft before internal navigation", async () => {
+    const user = userEvent.setup();
+    const { navigate, requestNavigation } = renderGuardedWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await user.click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
+    fireEvent.change(editor, { target: { value: "Saved before leaving." } });
+
+    let allowed = false;
+    await act(async () => { allowed = await requestNavigation("/library"); });
+
+    expect(allowed).toBe(true);
+    expect(api.createDraft).toHaveBeenCalledWith("document", "quick-start", expect.stringContaining("Saved before leaving."));
+    expect(navigate).toHaveBeenCalledWith("/library");
+  });
+
+  it("keeps the current page open when navigation saving fails", async () => {
+    const user = userEvent.setup();
+    const { navigate, requestNavigation } = renderGuardedWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await user.click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
+    fireEvent.change(editor, { target: { value: "Keep this page open." } });
+    api.createDraft.mockRejectedValueOnce(new Error("network unavailable"));
+
+    let allowed = true;
+    await act(async () => { allowed = await requestNavigation("/library"); });
+
+    expect(allowed).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("network unavailable");
+  });
+
+  it("keeps the current page open and shows Runtime conflict when navigation saving conflicts", async () => {
+    const user = userEvent.setup();
+    const { navigate, requestNavigation } = renderGuardedWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await user.click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
+    fireEvent.change(editor, { target: { value: "Keep this page open through conflict." } });
+    api.createDraft.mockResolvedValueOnce({
+      draft: makeDraft("document", "quick-start", "A different session's content."),
+      created: false,
+    });
+
+    let allowed = true;
+    await act(async () => { allowed = await requestNavigation("/library"); });
+
+    expect(allowed).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Draft 内容冲突" })).toBeTruthy();
   });
 
   it("opens Metadata directly over the Reader", async () => {

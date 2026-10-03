@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { EntityPage } from "./Pages";
 import { WorkspaceShell } from "./workspace/WorkspaceShell";
 import { useWorkspaceDraft } from "./useWorkspaceDraft";
@@ -6,6 +6,8 @@ import { WorkspaceRuntimeDraftConflictDrawer } from "./workspace/WorkspaceRuntim
 import type { EntityType } from "./api";
 import { entityWorkspaceUrl } from "./workspaceRoute";
 import { useWorkspaceEditorController } from "./workspace/useWorkspaceEditorController";
+import { errorMessage } from "./errors";
+import type { RegisterBeforeNavigate } from "./navigation";
 
 const WorkspaceExplorer = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
 
@@ -13,16 +15,31 @@ export function WorkspacePage({
   type,
   id,
   navigate,
+  registerBeforeNavigate,
   collectionId,
   batchCollectionId,
 }: {
   type: EntityType;
   id: string;
   navigate: (path: string) => void;
+  registerBeforeNavigate?: RegisterBeforeNavigate;
   collectionId?: string;
   batchCollectionId?: string;
 }) {
   const workspaceDraft = useWorkspaceDraft(type, id);
+  useEffect(() => {
+    if (!registerBeforeNavigate) return;
+    return registerBeforeNavigate(async () => {
+      if (!workspaceDraft.isDirty) return true;
+      try {
+        await workspaceDraft.saveNow();
+        return true;
+      } catch (reason) {
+        workspaceDraft.setError(errorMessage(reason));
+        return false;
+      }
+    });
+  }, [registerBeforeNavigate, workspaceDraft.isDirty, workspaceDraft.saveNow, workspaceDraft.setError]);
   const workspaceEditorController = useWorkspaceEditorController({
     type,
     id,
@@ -43,6 +60,7 @@ export function WorkspacePage({
             selectedEntity={{ type, id }}
             onOpen={(entityType, entityId) => navigate(entityWorkspaceUrl(entityType, entityId))}
             navigate={navigate}
+            registerBeforeNavigate={registerBeforeNavigate}
           />
         </Suspense>}
       >

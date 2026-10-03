@@ -4,6 +4,7 @@ import {
   type EntityType,
 } from "./api";
 import { LoadingState } from "./ui";
+import { navigateWithGuards, type NavigationGuard, type RegisterBeforeNavigate } from "./navigation";
 
 const HomePage = lazy(() => import("./Pages").then((module) => ({ default: module.HomePage })));
 const SearchPage = lazy(() => import("./Pages").then((module) => ({ default: module.SearchPage })));
@@ -53,6 +54,8 @@ export default function App() {
   const [sidebarPeek, setSidebarPeek] = useState(false);
   const [finePointer, setFinePointer] = useState(false);
   const sidebarHoverTimerRef = useRef<number | null>(null);
+  const navigationGuardsRef = useRef(new Set<NavigationGuard>());
+  const navigationInProgressRef = useRef(false);
 
   useEffect(() => {
     const update = () => setLocation(currentLocation());
@@ -76,13 +79,31 @@ export default function App() {
     }
   }, [sidebarPinned]);
 
-  const navigate = useCallback((path: string) => {
+  const commitNavigation = useCallback((path: string) => {
     window.history.pushState({}, "", path);
     setLocation(currentLocation());
     setMobileNavOpen(false);
     setSidebarPeek(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
+
+  const registerBeforeNavigate = useCallback<RegisterBeforeNavigate>((guard) => {
+    navigationGuardsRef.current.add(guard);
+    return () => { navigationGuardsRef.current.delete(guard); };
+  }, []);
+
+  const navigate = useCallback((path: string) => {
+    if (navigationInProgressRef.current) return;
+    const guards = Array.from(navigationGuardsRef.current);
+    if (!guards.length) {
+      commitNavigation(path);
+      return;
+    }
+    navigationInProgressRef.current = true;
+    void navigateWithGuards(path, guards, commitNavigation).finally(() => {
+      navigationInProgressRef.current = false;
+    });
+  }, [commitNavigation]);
 
   const route = useMemo(() => resolveRoute(location.pathname), [location.pathname]);
   const contentWorkspace = route.kind === "reader" || route.kind === "new-note";
@@ -152,7 +173,7 @@ export default function App() {
     const query = new URLSearchParams(location.search);
     const collectionId = query.get("collection") ?? undefined;
     const batchCollectionId = query.get("publishAll") === "1" ? collectionId : undefined;
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} collectionId={collectionId} batchCollectionId={batchCollectionId} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} collectionId={collectionId} batchCollectionId={batchCollectionId} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;
@@ -165,7 +186,7 @@ export default function App() {
   } else if (route.path === "/review") {
     page = <Suspense fallback={<LoadingState />}><ReviewPage onOpen={openEntity} navigate={navigate} /></Suspense>;
   } else if (route.path === "/explorer") {
-    page = <Suspense fallback={<LoadingState />}><ExplorerPage onOpen={openEntity} navigate={navigate} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><ExplorerPage onOpen={openEntity} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} /></Suspense>;
   } else {
     page = <Suspense fallback={<LoadingState />}><HomePage onOpen={openEntity} navigate={navigate} /></Suspense>;
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { stringify } from "yaml";
 import { errorMessage } from "../errors";
@@ -90,9 +90,9 @@ export function useExplorerEditing({
 
   const busy = operationBusy || publishReviewBusy || publishBusy;
 
-  function reportError(reason: unknown) {
+  const reportError = useCallback((reason: unknown) => {
     setEditingError(errorMessage(reason));
-  }
+  }, []);
 
   function openMetadataDialog() { setMetadataDialog(true); }
   function closeMetadataDialog() { setMetadataDialog(false); }

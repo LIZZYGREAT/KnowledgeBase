@@ -25,6 +25,7 @@ export interface CollectionDraftController {
   collection: DraftCollection | null;
   draft: Draft | null;
   status: CollectionDraftStatus;
+  isDirty: boolean;
   error: string;
   comparison: DraftComparison | null;
   runtimeDraftConflict: RuntimeDraftConflict | null;
@@ -295,6 +296,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
     collection: collection?.id === currentCanonical?.id ? collection : null,
     draft,
     status,
+    isDirty: runtimeSession.isDirty,
     error,
     comparison: activeComparison,
     runtimeDraftConflict,

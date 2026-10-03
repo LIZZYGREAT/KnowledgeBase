@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { parse } from "yaml";
@@ -7,6 +7,7 @@ import { ExplorerPage } from "../../src/Explorer";
 import { WorkspacePage } from "../../src/Workspace";
 import { collectionToDraft, serializeCollectionDraft } from "../../src/collectionDraftModel";
 import type { Collection, CollectionSummary, Draft, EntitySummary } from "../../src/api";
+import { navigateWithGuards, type NavigationGuard, type RegisterBeforeNavigate } from "../../src/navigation";
 
 const api = vi.hoisted(() => ({
   listCollections: vi.fn(),
@@ -152,8 +153,8 @@ function installApiBehavior() {
   api.listProposals.mockResolvedValue([]);
 }
 
-function renderExplorer(navigate = vi.fn()) {
-  return { navigate, ...render(<ExplorerPage onOpen={vi.fn()} navigate={navigate} />) };
+function renderExplorer(navigate = vi.fn(), registerBeforeNavigate?: RegisterBeforeNavigate) {
+  return { navigate, ...render(<ExplorerPage onOpen={vi.fn()} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} />) };
 }
 
 function RouteHarness() {
@@ -179,7 +180,13 @@ describe("Explorer React integration", () => {
 
   it("drags an existing Document into a Collection, autosaves its Draft, and publishes it", async () => {
     const user = userEvent.setup();
-    renderExplorer();
+    const guards = new Set<NavigationGuard>();
+    const navigate = vi.fn();
+    const registerBeforeNavigate: RegisterBeforeNavigate = (guard) => {
+      guards.add(guard);
+      return () => { guards.delete(guard); };
+    };
+    renderExplorer(navigate, registerBeforeNavigate);
     await screen.findByRole("heading", { name: "Study Path" });
     const editStructure = await screen.findByRole("button", { name: "编辑结构" });
     await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
@@ -197,7 +204,14 @@ describe("Explorer React integration", () => {
     fireEvent.dragStart(row!, { dataTransfer });
     fireEvent.drop(screen.getByRole("tree"), { dataTransfer });
 
+    let allowed = false;
+    await act(async () => {
+      allowed = await navigateWithGuards("/documents/orphan-note", guards, navigate);
+    });
+
     await waitFor(() => expect(api.createDraft).toHaveBeenCalledOnce(), { timeout: 2500 });
+    expect(allowed).toBe(true);
+    expect(navigate).toHaveBeenCalledWith("/documents/orphan-note");
     expect(api.createDraft.mock.calls[0][0]).toBe("collection");
     expect(api.createDraft.mock.calls[0][2]).toContain("orphan-note");
     await user.click(await screen.findByRole("button", { name: "Publish" }));

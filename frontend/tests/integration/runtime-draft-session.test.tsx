@@ -80,6 +80,25 @@ describe("Runtime Draft session", () => {
     expect(api.updateDraft).not.toHaveBeenCalled();
   });
 
+  it("arms the browser beforeunload warning only while the session is dirty", async () => {
+    const { result } = renderHook(() => useRuntimeDraftSession(sessionOptions()));
+    await waitFor(() => expect(result.current.state).toBe("clean"));
+
+    const cleanEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(cleanEvent);
+    expect(cleanEvent.defaultPrevented).toBe(false);
+
+    act(() => result.current.updateContent("Unsaved browser-close content"));
+    const dirtyEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(dirtyEvent);
+    expect(dirtyEvent.defaultPrevented).toBe(true);
+
+    await act(async () => { await result.current.saveNow(); });
+    const savedEvent = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(savedEvent);
+    expect(savedEvent.defaultPrevented).toBe(false);
+  });
+
   it("queues concurrent edits behind the in-flight revision update", async () => {
     const first = makeDraft("Initial saved content");
     let resolveFirst!: (draft: Draft) => void;

@@ -159,6 +159,16 @@ export function useRuntimeDraftSession({
     initializeFromSeed(generationRef.current);
   }, [identity, initialContent, initialContentReady, initializeFromSeed]);
 
+  useEffect(() => {
+    if (!isDirty) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [isDirty]);
+
   const captureRuntimeConflict = useCallback(async (
     draftId: string,
     localContent: string,
