@@ -22,6 +22,21 @@ interface LocationState {
   hash: string;
 }
 
+const HISTORY_INDEX_KEY = "__kb_index";
+
+function historyIndex(state: unknown): number | null {
+  if (!state || typeof state !== "object") return null;
+  const index = (state as Record<string, unknown>)[HISTORY_INDEX_KEY];
+  return Number.isInteger(index) && (index as number) >= 0 ? index as number : null;
+}
+
+function stateWithHistoryIndex(state: unknown, index: number): Record<string, unknown> {
+  const existing = state && typeof state === "object" && !Array.isArray(state)
+    ? state as Record<string, unknown>
+    : {};
+  return { ...existing, [HISTORY_INDEX_KEY]: index };
+}
+
 const navigation = [
   { route: "/", title: "Home", translation: "首页", icon: "⌂" },
   { route: "/search", title: "Search", translation: "搜索", icon: "⌕" },
@@ -56,11 +71,63 @@ export default function App() {
   const sidebarHoverTimerRef = useRef<number | null>(null);
   const navigationGuardsRef = useRef(new Set<NavigationGuard>());
   const navigationInProgressRef = useRef(false);
+  const currentHistoryIndexRef = useRef(0);
+  const currentCommittedLocationRef = useRef<LocationState>(currentLocation());
+  const ignoreNextPopRef = useRef(false);
 
   useEffect(() => {
-    const update = () => setLocation(currentLocation());
-    window.addEventListener("popstate", update);
-    return () => window.removeEventListener("popstate", update);
+    const initialIndex = historyIndex(window.history.state) ?? 0;
+    if (historyIndex(window.history.state) === null) {
+      window.history.replaceState(
+        stateWithHistoryIndex(window.history.state, initialIndex),
+        "",
+        window.location.href,
+      );
+    }
+    currentHistoryIndexRef.current = initialIndex;
+    currentCommittedLocationRef.current = currentLocation();
+
+    const restoreCommittedHistory = (targetIndex: number) => {
+      const delta = currentHistoryIndexRef.current - targetIndex;
+      if (delta === 0) return;
+      ignoreNextPopRef.current = true;
+      window.history.go(delta);
+    };
+
+    const handlePopState = (event: PopStateEvent) => {
+      if (ignoreNextPopRef.current) {
+        ignoreNextPopRef.current = false;
+        setLocation(currentCommittedLocationRef.current);
+        navigationInProgressRef.current = false;
+        return;
+      }
+
+      const targetLocation = currentLocation();
+      const targetIndex = historyIndex(event.state) ?? currentHistoryIndexRef.current - 1;
+      if (navigationInProgressRef.current) {
+        restoreCommittedHistory(targetIndex);
+        return;
+      }
+
+      const guards = Array.from(navigationGuardsRef.current);
+      navigationInProgressRef.current = true;
+      void navigateWithGuards(targetLocation.pathname + targetLocation.search + targetLocation.hash, guards, () => {
+        currentHistoryIndexRef.current = targetIndex;
+        currentCommittedLocationRef.current = targetLocation;
+        setLocation(targetLocation);
+        setMobileNavOpen(false);
+        setSidebarPeek(false);
+      }).then((allowed) => {
+        if (!allowed) restoreCommittedHistory(targetIndex);
+      }).catch(() => {
+        restoreCommittedHistory(targetIndex);
+      }).finally(() => {
+        if (!ignoreNextPopRef.current) navigationInProgressRef.current = false;
+      });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   useEffect(() => {
@@ -80,8 +147,12 @@ export default function App() {
   }, [sidebarPinned]);
 
   const commitNavigation = useCallback((path: string) => {
-    window.history.pushState({}, "", path);
-    setLocation(currentLocation());
+    const nextIndex = currentHistoryIndexRef.current + 1;
+    window.history.pushState(stateWithHistoryIndex(window.history.state, nextIndex), "", path);
+    currentHistoryIndexRef.current = nextIndex;
+    const nextLocation = currentLocation();
+    currentCommittedLocationRef.current = nextLocation;
+    setLocation(nextLocation);
     setMobileNavOpen(false);
     setSidebarPeek(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
