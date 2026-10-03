@@ -183,6 +183,31 @@ class ResearchRepository:
         ).fetchall()
         return [_discovery_from_row(row) for row in rows]
 
+    def has_candidate_for_profile(self, work_id: str, profile_id: str) -> bool:
+        row = self.connection.execute(
+            """SELECT 1 FROM research_candidates
+               WHERE work_id = ? AND profile_id = ? LIMIT 1""",
+            (work_id, profile_id),
+        ).fetchone()
+        return row is not None
+
+    def has_analysis_for_profile(
+        self, work_id: str, profile_id: str, input_hash: Optional[str] = None
+    ) -> bool:
+        if input_hash is None:
+            row = self.connection.execute(
+                """SELECT 1 FROM research_work_analyses
+                   WHERE work_id = ? AND profile_id = ? LIMIT 1""",
+                (work_id, profile_id),
+            ).fetchone()
+        else:
+            row = self.connection.execute(
+                """SELECT 1 FROM research_work_analyses
+                   WHERE work_id = ? AND profile_id = ? AND input_hash = ? LIMIT 1""",
+                (work_id, profile_id, input_hash),
+            ).fetchone()
+        return row is not None
+
 
 def _work_values(work: ResearchWorkRecord) -> tuple:
     return (
