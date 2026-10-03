@@ -69,6 +69,17 @@ describe("Runtime Draft session", () => {
     expect(result.current.state).toBe("saved");
   });
 
+  it("does not start a background save when an unsaved session unmounts", async () => {
+    const { result, unmount } = renderHook(() => useRuntimeDraftSession(sessionOptions()));
+    await waitFor(() => expect(result.current.state).toBe("clean"));
+
+    act(() => result.current.updateContent("Unsaved before unmount"));
+    unmount();
+
+    expect(api.createDraft).not.toHaveBeenCalled();
+    expect(api.updateDraft).not.toHaveBeenCalled();
+  });
+
   it("queues concurrent edits behind the in-flight revision update", async () => {
     const first = makeDraft("Initial saved content");
     let resolveFirst!: (draft: Draft) => void;

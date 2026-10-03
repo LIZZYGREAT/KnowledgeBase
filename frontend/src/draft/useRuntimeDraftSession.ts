@@ -65,7 +65,6 @@ export function useRuntimeDraftSession({
   const draftsLoadedGenerationRef = useRef(0);
   const initializedGenerationRef = useRef(0);
   const savePromiseRef = useRef<Promise<Draft | DraftAcquireResult> | null>(null);
-  const saveSnapshotRef = useRef<string | null>(null);
   const runtimeConflictRef = useRef<RuntimeDraftConflict | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -124,7 +123,6 @@ export function useRuntimeDraftSession({
     draftsLoadedGenerationRef.current = 0;
     initializedGenerationRef.current = 0;
     savePromiseRef.current = null;
-    saveSnapshotRef.current = null;
     runtimeConflictRef.current = null;
     setDraft(null);
     setContent("");
@@ -153,22 +151,6 @@ export function useRuntimeDraftSession({
       active = false;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
-      const unsavedContent = contentRef.current;
-      const lastSaved = lastSavedRef.current;
-      const currentDraft = draftRef.current;
-      const inFlight = savePromiseRef.current;
-      const inFlightSnapshot = saveSnapshotRef.current;
-      const hasConflict = Boolean(runtimeConflictRef.current);
-      if (enabled && unsavedContent !== lastSaved && !hasConflict) {
-        void saveOnSessionClose({
-          entityType,
-          entityId,
-          content: unsavedContent,
-          currentDraft,
-          inFlight,
-          inFlightSnapshot,
-        }).catch(() => undefined);
-      }
       if (generationRef.current === generation) generationRef.current += 1;
     };
   }, [enabled, entityId, entityType, identity, initializeFromSeed, installDraft]);
@@ -224,7 +206,6 @@ export function useRuntimeDraftSession({
       ? updateDraft(currentDraft.id, snapshot, currentDraft.revision)
       : createDraft(entityType, entityId, snapshot);
     savePromiseRef.current = operation;
-    saveSnapshotRef.current = snapshot;
     try {
       const result = await operation;
       if (!isActive()) return null;
@@ -240,7 +221,6 @@ export function useRuntimeDraftSession({
       setIsDirty(contentRef.current !== snapshot);
       if (savePromiseRef.current === operation) {
         savePromiseRef.current = null;
-        saveSnapshotRef.current = null;
       }
       if (contentRef.current !== snapshot) return saveNow();
       setState("saved");
@@ -263,7 +243,6 @@ export function useRuntimeDraftSession({
     } finally {
       if (savePromiseRef.current === operation) {
         savePromiseRef.current = null;
-        saveSnapshotRef.current = null;
       }
     }
   }, [captureRuntimeConflict, enabled, entityId, entityType, identity, state]);
@@ -450,35 +429,4 @@ export function useRuntimeDraftSession({
 
 function isDraftAcquireResult(value: Draft | DraftAcquireResult): value is DraftAcquireResult {
   return "draft" in value && "created" in value;
-}
-
-
-async function saveOnSessionClose({
-  entityType,
-  entityId,
-  content,
-  currentDraft,
-  inFlight,
-  inFlightSnapshot,
-}: {
-  entityType: DraftEntityType;
-  entityId: string;
-  content: string;
-  currentDraft: Draft | null;
-  inFlight: Promise<Draft | DraftAcquireResult> | null;
-  inFlightSnapshot: string | null;
-}): Promise<void> {
-  let latestDraft = currentDraft;
-  if (inFlight) {
-    try {
-      const result = await inFlight;
-      if (isDraftAcquireResult(result) && !result.created && result.draft.content !== inFlightSnapshot) return;
-      latestDraft = isDraftAcquireResult(result) ? result.draft : result;
-    } catch {
-      return;
-    }
-    if (inFlightSnapshot === content || latestDraft?.content === content) return;
-  }
-  if (latestDraft) await updateDraft(latestDraft.id, content, latestDraft.revision);
-  else await createDraft(entityType, entityId, content);
 }
