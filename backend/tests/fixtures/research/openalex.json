@@ -1,0 +1,33 @@
+{
+  "meta": {
+    "count": 1,
+    "next_cursor": null
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W1234567890",
+      "doi": "https://doi.org/10.1000/xyz123",
+      "title": "A Method for Continual Learning",
+      "publication_year": 2024,
+      "publication_date": "2024-05-08",
+      "authorships": [
+        {"author": {"display_name": "Ada Lovelace"}},
+        {"author": {"display_name": "Alan Turing"}}
+      ],
+      "primary_location": {
+        "landing_page_url": "https://publisher.example/paper",
+        "source": {"display_name": "Journal of Learning"}
+      },
+      "abstract_inverted_index": {
+        "Continual": [0],
+        "learning": [1],
+        "reduces": [2],
+        "forgetting.": [3]
+      },
+      "type": "article",
+      "cited_by_count": 12,
+      "is_retracted": false,
+      "open_access": {"is_oa": true, "oa_status": "gold"}
+    }
+  ]
+}

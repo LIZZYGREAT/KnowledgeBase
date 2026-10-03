@@ -1,0 +1,24 @@
+{
+  "status": "ok",
+  "message-type": "work-list",
+  "message": {
+    "total-results": 1,
+    "items": [
+      {
+        "DOI": "10.1000/XYZ123",
+        "URL": "https://doi.org/10.1000/XYZ123",
+        "title": ["A Method for Continual Learning"],
+        "author": [
+          {"given": "Ada", "family": "Lovelace"},
+          {"literal": "Alan Turing"}
+        ],
+        "abstract": "<jats:p>A <jats:italic>continual</jats:italic> learning paper.</jats:p>",
+        "container-title": ["Journal of Learning"],
+        "published-online": {"date-parts": [[2024, 5, 8]]},
+        "type": "journal-article",
+        "publisher": "Example Publisher",
+        "score": 52.4
+      }
+    ]
+  }
+}
