@@ -157,16 +157,28 @@ function flattenCollectionSections(collection: Collection): Array<{ id: string; 
 export function ResearchCandidateDrawer({
   detail,
   profile,
+  noteBusy,
+  noteError,
   onClose,
   onOpenEntity,
+  onSaveNote,
 }: {
   detail: ResearchCandidateDetail;
   profile: ResearchProfile;
+  noteBusy: boolean;
+  noteError: string;
   onClose: () => void;
   onOpenEntity: (path: string) => void;
+  onSaveNote: (note: string) => void;
 }) {
   const { candidate, work, analysis } = detail;
   const candidateLens = profile.lenses.find((lens) => lens.id === candidate.primary_lens_id);
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(candidate.user_note ?? "");
+  useEffect(() => {
+    setNoteDraft(candidate.user_note ?? "");
+    setEditingNote(false);
+  }, [candidate.id, candidate.user_note]);
   return <div className="research-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="research-drawer" role="dialog" aria-modal="true" aria-labelledby="research-drawer-title">
       <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">Why this candidate</h2><p>{work.title}</p></div><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></header>
@@ -185,7 +197,7 @@ export function ResearchCandidateDrawer({
             {path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}
           </div>;
         }) : <p className="subtle-copy">没有关联记录。</p>}</section>
-        <section className="research-detail-section"><h3>Candidate history</h3><DetailRow label="Added" value={formatDate(candidate.created_at)} /><DetailRow label="First viewed" value={formatDate(candidate.first_viewed_at)} /><DetailRow label="Last viewed" value={formatDate(candidate.last_viewed_at)} />{candidate.user_note && <DetailRow label="Your note" value={candidate.user_note} />}{candidate.dismiss_reason && <DetailRow label="Dismiss reason" value={candidate.dismiss_reason} />}</section>
+        <section className="research-detail-section"><h3>Candidate history</h3><DetailRow label="Added" value={formatDate(candidate.created_at)} /><DetailRow label="First viewed" value={formatDate(candidate.first_viewed_at)} /><DetailRow label="Last viewed" value={formatDate(candidate.last_viewed_at)} />{candidate.status === "shortlisted" ? editingNote ? <form className="research-candidate-note-editor" onSubmit={(event) => { event.preventDefault(); onSaveNote(noteDraft.trim()); }}><label className="field-label">Candidate note<textarea aria-label="Candidate note" rows={3} maxLength={4000} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label>{noteError && <p className="error-copy" role="alert">{noteError}</p>}<div className="research-inline-actions"><button className="button button-quiet" type="button" disabled={noteBusy} onClick={() => { setNoteDraft(candidate.user_note ?? ""); setEditingNote(false); }}>Cancel</button><button className="button button-secondary" type="submit" disabled={noteBusy || noteDraft.trim() === (candidate.user_note ?? "")}>{noteBusy ? "Saving…" : "Save note"}</button></div></form> : <div className="research-candidate-note"><DetailRow label="Your note" value={candidate.user_note ?? "No note added"} /><button className="text-button" disabled={noteBusy} onClick={() => setEditingNote(true)}>Edit note</button></div> : candidate.user_note && <DetailRow label="Your note" value={candidate.user_note} />}{candidate.dismiss_reason && <DetailRow label="Dismiss reason" value={candidate.dismiss_reason} />}</section>
         {(detail.linked_entities.length > 0 || detail.pending_links.length > 0) && <section className="research-detail-section"><h3>Knowledge links</h3>{detail.linked_entities.map((link) => {
           const path = entityPath(link.entity_type, link.entity_id);
           return <div className="research-related-row" key={`${link.entity_type}:${link.entity_id}`}><div><strong>{link.relation_type === "source" ? "Source" : "Note"} · {link.entity_id}</strong><small>Published canonical link</small></div>{path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}</div>;
@@ -216,6 +228,30 @@ export function ResearchDismissDialog({
       <label className="field-label">Reason<select value={reason} onChange={(event) => setReason(event.target.value as typeof reason)}><option value="not_relevant">Not relevant</option><option value="already_known">Already known</option><option value="too_redundant">Too redundant</option><option value="not_interested">Not following this subfield</option><option value="other">Other</option></select></label>
       <label className="field-label">Note (optional)<textarea rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a short note for future reference" /></label>
       <div className="research-dialog-actions"><button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="button button-danger" type="submit" disabled={busy}>{busy ? "Saving…" : "Confirm Dismiss"}</button></div>
+    </form>
+  </div>;
+}
+
+export function ResearchShortlistDialog({
+  count,
+  busy,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  count: number;
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+  onSubmit: (note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  return <div className="research-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <form className="research-dismiss-dialog" role="dialog" aria-modal="true" aria-labelledby="shortlist-dialog-title" onSubmit={(event) => { event.preventDefault(); onSubmit(note.trim()); }}>
+      <div><p className="eyebrow">CANDIDATE ACTION</p><h2 id="shortlist-dialog-title">Shortlist {count === 1 ? "candidate" : `${count} candidates`}</h2><p>This decision is stored in Research Runtime history.</p></div>
+      <label className="field-label">Note (optional)<textarea aria-label="Shortlist note" rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a reading reminder or comparison point" /></label>
+      {error && <p className="error-copy" role="alert">{error}</p>}
+      <div className="research-dialog-actions"><button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Confirm Shortlist"}</button></div>
     </form>
   </div>;
 }

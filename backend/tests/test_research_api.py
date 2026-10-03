@@ -201,6 +201,20 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             )
             assert shortlist.status_code == 200
             assert shortlist.json()["status"] == "shortlisted"
+            updated_note = await client.patch(
+                "/api/research/candidates/{}/note".format(generated.candidate.id),
+                json={"note": "Compare with the recent replay approach."},
+            )
+            assert updated_note.status_code == 200, updated_note.json()
+            assert updated_note.json()["user_note"] == (
+                "Compare with the recent replay approach."
+            )
+            cleared_note = await client.patch(
+                "/api/research/candidates/{}/note".format(generated.candidate.id),
+                json={"note": "   "},
+            )
+            assert cleared_note.status_code == 200
+            assert cleared_note.json()["user_note"] is None
             dismiss = await client.post(
                 "/api/research/candidates/{}/dismiss".format(generated.candidate.id),
                 json={"reason": "too_redundant", "note": "Already covered."},

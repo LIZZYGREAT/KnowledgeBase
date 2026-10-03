@@ -851,6 +851,12 @@ export function shortlistResearchCandidate(candidateId: string, note?: string) {
   });
 }
 
+export function updateResearchCandidateNote(candidateId: string, note: string) {
+  return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/note`, {
+    method: "PATCH", body: JSON.stringify({ note }),
+  });
+}
+
 export function dismissResearchCandidate(candidateId: string, reason: "not_relevant" | "already_known" | "too_redundant" | "not_interested" | "other", note?: string) {
   return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/dismiss`, {
     method: "POST", body: JSON.stringify({ reason, ...(note ? { note } : {}) }),

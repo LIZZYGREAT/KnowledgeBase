@@ -12,10 +12,12 @@ const runRequestId = "research-request-123";
 describe("Research workspace", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   let responseProfileDetail = profileDetail;
+  let responseCandidateDetail = candidateDetail;
   let researchProfileDraft: Record<string, unknown> | null = null;
 
   beforeEach(() => {
     responseProfileDetail = profileDetail;
+    responseCandidateDetail = candidateDetail;
     researchProfileDraft = null;
     window.history.replaceState({}, "", "/research");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
@@ -40,10 +42,11 @@ describe("Research workspace", () => {
       if (path === "/api/drafts/profile-draft-1/preflight") return jsonResponse({ draft_id: "profile-draft-1", valid: true, conflict: false, errors: [], warnings: [] });
       if (path === "/api/publish" && init?.method === "POST") return jsonResponse({ draft_id: "profile-draft-1", entity_type: "research_profile", entity_id: "continual-learning", commit_revision: "def456", warnings: [] });
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
-      if (path === "/api/research/candidates/candidate-1") return jsonResponse(candidateDetail);
+      if (path === "/api/research/candidates/candidate-1") return jsonResponse(responseCandidateDetail);
       if (path === "/api/research/runs?offset=0&limit=50&profile_id=continual-learning") return jsonResponse({ runs: [], count: 0 });
       if (path === "/api/research/profiles/continual-learning/runs" && init?.method === "POST") return jsonResponse({ request_id: runRequestId, status: "pending" }, 202);
       if (path === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST") return jsonResponse({ ...candidate, status: "shortlisted" });
+      if (path === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH") return jsonResponse({ ...candidate, ...JSON.parse(String(init.body)), status: "shortlisted" });
       if (path === "/api/research/candidates/candidate-1/save-source" && init?.method === "POST") return jsonResponse({ action: "draft_created", source_id: "research-paper", draft_id: "source-draft-1", candidate });
       if (path === "/api/research/candidates/candidate-1/create-note" && init?.method === "POST") return jsonResponse({ group_id: "group-1", source_draft_id: "source-draft-1", document_draft_id: "document-draft-1", collection_draft_id: "collection-draft-1", collection_id: "continual-learning", document_id: "research-note-1", source_id: "research-paper" });
       return jsonResponse({ detail: `Unexpected request: ${path}` }, 404);
@@ -71,7 +74,30 @@ describe("Research workspace", () => {
     expect(screen.getByText("fisher information catastrophic forgetting")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: "Shortlist" }));
+    expect(await screen.findByRole("heading", { name: "Shortlist candidate" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Shortlist note"), { target: { value: "Compare with the replay method." } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Shortlist" }));
     await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST")).toBe(true));
+    const shortlistCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST");
+    expect(JSON.parse(String(shortlistCall?.[1]?.body))).toEqual({ note: "Compare with the replay method." });
+  });
+
+  it("edits the note on a shortlisted candidate", async () => {
+    responseCandidateDetail = {
+      ...candidateDetail,
+      candidate: { ...candidateDetail.candidate, status: "shortlisted", user_note: "Read after the current batch." },
+    };
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Why this candidate/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit note" }));
+    fireEvent.change(screen.getByLabelText("Candidate note"), { target: { value: "Compare with replay-based methods." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+
+    await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH")).toBe(true));
+    const noteCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH");
+    expect(JSON.parse(String(noteCall?.[1]?.body))).toEqual({ note: "Compare with replay-based methods." });
+    expect(await screen.findByText("Compare with replay-based methods.")).toBeTruthy();
   });
 
   it("queues a manual run without executing it in the page request", async () => {

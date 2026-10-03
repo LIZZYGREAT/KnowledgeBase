@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request
 
 from backend.app.api.research_schemas import (
     ResearchCandidateDetailView,
+    ResearchCandidateNoteRequest,
     ResearchCandidateListItem,
     ResearchCandidateListView,
     ResearchCreateNoteRequest,
@@ -261,6 +262,18 @@ async def shortlist_candidate(
 ):
     return request.app.state.research_service.candidate_service.shortlist(
         candidate_id, user_note=body.note if body is not None else None
+    )
+
+
+@router.patch(
+    "/candidates/{candidate_id}/note",
+    response_model=ResearchCandidateRecord,
+)
+async def update_candidate_note(
+    candidate_id: str, request: Request, body: ResearchCandidateNoteRequest
+):
+    return request.app.state.research_service.candidate_service.update_user_note(
+        candidate_id, user_note=body.note
     )
 
 

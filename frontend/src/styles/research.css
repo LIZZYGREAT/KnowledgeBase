@@ -105,6 +105,9 @@
 .research-detail-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-radius: 6px; padding: 7px 9px; background: #f8faf8; font-size: var(--text-xs); }
 .research-detail-row > span { flex: 0 0 auto; color: #8b978f; }
 .research-detail-row > strong { color: #4e6555; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.research-candidate-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.research-candidate-note-editor { display: grid; gap: 8px; }
+.research-candidate-note-editor textarea { width: 100%; resize: vertical; border: 1px solid #e1e8e2; border-radius: 7px; padding: 9px 11px; color: #3b5143; background: #fff; font-size: var(--text-sm); line-height: 1.6; }
 .research-detail-score-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .research-score { display: grid; gap: 5px; border: 1px solid #e8eee8; border-radius: 7px; padding: 8px; }
 .research-score > span { color: #859288; font-size: var(--text-xs); }
