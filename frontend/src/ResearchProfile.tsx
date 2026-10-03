@@ -11,6 +11,26 @@ import {
 import { Chip, formatDate } from "./ui";
 import { errorMessage } from "./errors";
 
+function localDateInputValue(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localDateBoundary(value: string, dayOffset = 0) {
+  const [year, month, day] = value.split("-").map(Number);
+  const boundary = new Date(0);
+  boundary.setFullYear(year, month - 1, day + dayOffset);
+  boundary.setHours(0, 0, 0, 0);
+  return boundary;
+}
+
+function isValidLocalDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && localDateInputValue(localDateBoundary(value)) === value;
+}
+
 export function ResearchProfilePanel({
   summary,
   detail,
@@ -126,6 +146,30 @@ export function ResearchProfilePanel({
       setError("自定义时间范围需要开始和结束日期。");
       return;
     }
+    if (dateMode === "custom" && (!isValidLocalDate(dateStart) || !isValidLocalDate(dateEnd))) {
+      setError("请选择有效日期。");
+      return;
+    }
+    if (dateMode === "custom" && dateStart > dateEnd) {
+      setError("结束日期不能早于开始日期。");
+      return;
+    }
+    if (dateMode === "custom" && dateEnd > localDateInputValue(new Date())) {
+      setError("结束日期不能晚于今天。");
+      return;
+    }
+    let dateRange: QueueResearchRunInput["date_range"];
+    if (dateMode === "custom") {
+      const customStart = localDateBoundary(dateStart);
+      const customEnd = localDateBoundary(dateEnd, 1);
+      dateRange = {
+        mode: "custom",
+        start: customStart.toISOString(),
+        end: new Date(Math.min(customEnd.getTime(), Date.now())).toISOString(),
+      };
+    } else {
+      dateRange = { mode: dateMode };
+    }
     const queryLines = queries.split(/\r?\n/).map((query) => query.trim()).filter(Boolean);
     const normalizedQueries = new Set(queryLines.map((query) => query.toLowerCase().replace(/\s+/g, " ")));
     if (queryLines.length > 20 || queryLines.some((query) => query.length > 2_000) || normalizedQueries.size !== queryLines.length) {
@@ -141,9 +185,7 @@ export function ResearchProfilePanel({
     const input: QueueResearchRunInput = {
       lenses: selectedLenses,
       breadth,
-      date_range: dateMode === "custom"
-        ? { mode: "custom", start: dateStart, end: dateEnd }
-        : { mode: dateMode },
+      date_range: dateRange,
       additional_queries: queryLines,
       ...(queryLines.length ? { additional_query_lens: selectedLenses.length === 1 ? selectedLenses[0] : additionalQueryLens } : {}),
     };
@@ -218,7 +260,7 @@ export function ResearchProfilePanel({
         <label className="field-label">时间范围<select value={dateMode} onChange={(event) => setDateMode(event.target.value as typeof dateMode)}><option value="incremental">增量 · 从 scheduled Watermark 到现在</option><option value="last_7_days">最近 7 天</option><option value="last_30_days">最近 30 天</option><option value="last_90_days">最近 90 天</option><option value="custom">自定义</option></select></label>
       </div>
       {dateMode === "incremental" && <p className="field-hint research-incremental-help">从已有的 Lens / Provider / Query Watermark 窗口检索；没有水位的新增 query 使用 Profile 初始回看天数。这是手动 Run，不会推进 scheduled Watermark。</p>}
-      {dateMode === "custom" && <div className="research-search-controls"><label className="field-label">开始日期<input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} /></label><label className="field-label">结束日期<input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} /></label></div>}
+      {dateMode === "custom" && <><div className="research-search-controls"><label className="field-label">开始日期<input type="date" max={localDateInputValue(new Date())} value={dateStart} onChange={(event) => setDateStart(event.target.value)} /></label><label className="field-label">结束日期<input type="date" max={localDateInputValue(new Date())} value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} /></label></div><p className="field-hint">结束日期按本地日历包含整天；选择今天时截至当前时刻。</p></>}
       <label className="field-label">额外检索词 <span className="field-hint">每行一条，最多 20 条</span><textarea rows={3} maxLength={40000} value={queries} onChange={(event) => setQueries(event.target.value)} placeholder="dynamic fisher continual learning" /></label>
       {queries.split(/\r?\n/).some((query) => query.trim()) && selectedLenses.length > 1 && <label className="field-label">Additional Query Lens<select value={additionalQueryLens} onChange={(event) => setAdditionalQueryLens(event.target.value)}><option value="">选择 Lens</option>{profile.lenses.filter((lens) => selectedLenses.includes(lens.id)).map((lens) => <option key={lens.id} value={lens.id}>{lens.title} · {lens.priority}</option>)}</select><span className="field-hint">额外检索词会继承该 Lens 的 priority、include_terms 与 exclude_terms。</span></label>}
       {error && <p className="error-copy" role="alert">{error}</p>}

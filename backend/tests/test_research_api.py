@@ -108,6 +108,46 @@ def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_pa
             assert incremental_request.override["additional_query_lens"] == "replay"
             assert "manual_range" not in incremental_request.override
 
+            custom = await client.post(
+                "/api/research/profiles/continual-learning/runs",
+                json={
+                    "date_range": {
+                        "mode": "custom",
+                        "start": "2026-10-01T07:00:00Z",
+                        "end": "2026-10-03T07:00:00Z",
+                    }
+                },
+            )
+            assert custom.status_code == 202, custom.json()
+            custom_request = service.run_request_repository.get(
+                custom.json()["request_id"]
+            )
+            assert custom_request is not None
+            assert custom_request.override["manual_range"] == [
+                "2026-10-01T07:00:00+00:00",
+                "2026-10-03T07:00:00+00:00",
+            ]
+
+            through_today = await client.post(
+                "/api/research/profiles/continual-learning/runs",
+                json={
+                    "date_range": {
+                        "mode": "custom",
+                        "start": "2026-10-03T07:00:00Z",
+                        "end": _NOW.isoformat(),
+                    }
+                },
+            )
+            assert through_today.status_code == 202, through_today.json()
+            today_request = service.run_request_repository.get(
+                through_today.json()["request_id"]
+            )
+            assert today_request is not None
+            assert today_request.override["manual_range"] == [
+                "2026-10-03T07:00:00+00:00",
+                _NOW.isoformat(),
+            ]
+
             profile = service.profile_registry.get("continual-learning")
             with pytest.raises(ValueError, match="explicit Lens"):
                 service.queue_manual_run(

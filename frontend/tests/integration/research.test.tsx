@@ -116,6 +116,30 @@ describe("Research workspace", () => {
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
   });
 
+  it("queues custom Research dates as local calendar boundaries", async () => {
+    const now = new Date();
+    const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 3, 0, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0, 0);
+    const startDate = localDate(start);
+    const endDate = localDate(end);
+    const expectedStart = start.toISOString();
+    const expectedEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Search Now" }));
+    fireEvent.change(screen.getByLabelText("时间范围"), { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: startDate } });
+    fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: endDate } });
+    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
+
+    expect(await screen.findByText(/Search queued/)).toBeTruthy();
+    const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
+    expect(call).toBeTruthy();
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      date_range: { mode: "custom", start: expectedStart, end: expectedEnd },
+    });
+  });
+
   it("requires an Additional Query Lens for multiple selected lenses and queues incremental search", async () => {
     responseProfileDetail = {
       ...profileDetail,
