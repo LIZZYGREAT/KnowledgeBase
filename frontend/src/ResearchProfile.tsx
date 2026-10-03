@@ -1,0 +1,200 @@
+import { useEffect, useState, type FormEvent } from "react";
+import {
+  pauseResearchProfile,
+  queueResearchRun,
+  resumeResearchProfile,
+  type QueueResearchRunInput,
+  type ResearchBreadth,
+  type ResearchProfileDetail,
+  type ResearchProfileSummary,
+} from "./api";
+import { Chip, formatDate } from "./ui";
+import { errorMessage } from "./errors";
+
+export function ResearchProfilePanel({
+  summary,
+  detail,
+  onRefresh,
+  onQueued,
+}: {
+  summary: ResearchProfileSummary;
+  detail: ResearchProfileDetail;
+  onRefresh: () => void;
+  onQueued: (requestId: string) => void;
+}) {
+  const profile = detail.profile;
+  const pausedUntil = detail.runtime_state?.paused_until ?? null;
+  const isPaused = Boolean(pausedUntil && new Date(pausedUntil).getTime() > Date.now());
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pauseUntil, setPauseUntil] = useState("");
+  const [resumeStrategy, setResumeStrategy] = useState<"catch_up" | "from_now">("catch_up");
+  const [catchupDays, setCatchupDays] = useState(String(profile.search.max_catchup_days));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [selectedLenses, setSelectedLenses] = useState<string[]>([]);
+  const [breadth, setBreadth] = useState<ResearchBreadth>(profile.search.breadth);
+  const [dateMode, setDateMode] = useState<QueueResearchRunInput["date_range"] extends infer T ? T extends { mode: infer M } ? M : never : never>("last_30_days");
+  const [dateStart, setDateStart] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
+  const [queries, setQueries] = useState("");
+
+  useEffect(() => {
+    setSelectedLenses(profile.lenses.filter((lens) => lens.enabled).map((lens) => lens.id));
+    setBreadth(profile.search.breadth);
+    setQueries("");
+  }, [profile.id, profile.search.breadth, profile.lenses]);
+
+  async function pause(days: number) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await pauseResearchProfile(profile.id, { days });
+      setPauseOpen(false);
+      setNotice(`Research 已暂停 ${days} 天。`);
+      onRefresh();
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pauseToDate() {
+    if (!pauseUntil) return;
+    const localEndOfDay = new Date(`${pauseUntil}T23:59:00`);
+    if (Number.isNaN(localEndOfDay.getTime())) {
+      setError("请选择有效日期。");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await pauseResearchProfile(profile.id, { until: localEndOfDay.toISOString() });
+      setPauseOpen(false);
+      setNotice(`Research 将暂停至 ${formatDate(localEndOfDay.toISOString())}。`);
+      onRefresh();
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resume() {
+    setBusy(true);
+    setError("");
+    try {
+      await resumeResearchProfile(profile.id, {
+        strategy: resumeStrategy,
+        ...(resumeStrategy === "catch_up" && catchupDays ? { catchup_days: Number(catchupDays) } : {}),
+      });
+      setNotice(resumeStrategy === "from_now" ? "已恢复；暂停期间的搜索窗口已跳过。" : "已恢复；将按追赶策略继续搜索。");
+      onRefresh();
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (!selectedLenses.length) {
+      setError("至少选择一个 Search Focus。 ");
+      return;
+    }
+    if (dateMode === "custom" && (!dateStart || !dateEnd)) {
+      setError("自定义时间范围需要开始和结束日期。");
+      return;
+    }
+    const queryLines = queries.split(/\r?\n/).map((query) => query.trim()).filter(Boolean);
+    const normalizedQueries = new Set(queryLines.map((query) => query.toLowerCase().replace(/\s+/g, " ")));
+    if (queryLines.length > 20 || queryLines.some((query) => query.length > 2_000) || normalizedQueries.size !== queryLines.length) {
+      setError("额外检索词需要唯一，每条最多 2,000 字符，最多 20 条。");
+      return;
+    }
+    setBusy(true);
+    setNotice("");
+    const input: QueueResearchRunInput = {
+      lenses: selectedLenses,
+      breadth,
+      date_range: dateMode === "custom"
+        ? { mode: "custom", start: dateStart, end: dateEnd }
+        : { mode: dateMode },
+      additional_queries: queryLines,
+    };
+    try {
+      const queued = await queueResearchRun(profile.id, input);
+      onQueued(queued.request_id);
+      setSearchOpen(false);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleLens(id: string) {
+    setSelectedLenses((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  const scheduledText = profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
+  const capacityPercent = summary.inbox.capacity === 0 ? 100 : Math.min(100, summary.inbox.new_count / summary.inbox.capacity * 100);
+
+  return <section className="surface research-profile-panel">
+    <div className="research-profile-heading">
+      <div>
+        <div className="research-status-line">
+          <Chip tone={isPaused ? "amber" : summary.enabled ? "green" : "rose"}>{isPaused ? "Paused" : summary.enabled ? "Active" : "Disabled"}</Chip>
+          <span>{scheduledText}</span>
+        </div>
+        <h2>{profile.title}</h2>
+        <p>{profile.description || "Research Profile 的外部发现与知识关联。"}</p>
+        <small>{detail.latest_run ? `最近运行 ${formatDate(detail.latest_run.started_at)} · ${detail.latest_run.status}` : "尚无运行记录"}</small>
+      </div>
+      <div className="research-profile-actions">
+        {isPaused ? <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume</button> : <button className="button button-secondary" disabled={busy || !summary.enabled} onClick={() => setPauseOpen((open) => !open)}>Pause</button>}
+        <button className="button button-primary" onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "Close Search" : "Search Now"}</button>
+      </div>
+    </div>
+
+    {isPaused && <div className="research-resume-bar">
+      <label className="field-label">恢复方式<select value={resumeStrategy} onChange={(event) => setResumeStrategy(event.target.value as typeof resumeStrategy)}><option value="catch_up">追赶暂停期间的内容</option><option value="from_now">从现在开始，不补历史</option></select></label>
+      {resumeStrategy === "catch_up" && <label className="field-label">追赶天数<input type="number" min="1" max="3650" value={catchupDays} onChange={(event) => setCatchupDays(event.target.value)} /></label>}
+      <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume Research</button>
+    </div>}
+
+    {pauseOpen && <div className="research-pause-options">
+      <strong>暂停 Research</strong>
+      <div className="research-inline-actions">
+        {[1, 3, 7].map((days) => <button className="button button-secondary" key={days} disabled={busy} onClick={() => void pause(days)}>{days} 天</button>)}
+      </div>
+      <div className="research-pause-date"><label className="field-label">暂停至指定日期<input type="date" value={pauseUntil} min={new Date().toISOString().slice(0, 10)} onChange={(event) => setPauseUntil(event.target.value)} /></label><button className="button button-secondary" disabled={busy || !pauseUntil} onClick={() => void pauseToDate()}>确认日期</button></div>
+    </div>}
+
+    <div className="research-inbox-meter">
+      <div className="research-meter-copy"><div><strong>Inbox</strong><span>{summary.inbox.new_count} / {summary.inbox.capacity}</span></div><small>{summary.inbox.remaining} 个新候选名额</small></div>
+      <div className="research-meter-track" role="progressbar" aria-label="Inbox 使用量" aria-valuemin={0} aria-valuemax={summary.inbox.capacity} aria-valuenow={summary.inbox.new_count}><span style={{ width: `${capacityPercent}%` }} /></div>
+      {summary.inbox.remaining === 0 && <p className="research-capacity-note"><strong>Inbox Full</strong> · 新发现会暂停，处理候选后自动恢复。</p>}
+    </div>
+
+    {searchOpen && <form className="research-search-form" onSubmit={(event) => void submitSearch(event)}>
+      <div className="research-section-heading"><div><h3>Search Focus</h3><p>设置仅对本次搜索生效，不会修改 Profile 默认值。</p></div></div>
+      <div className="research-lens-options">{profile.lenses.map((lens) => <label className="research-lens-option" key={lens.id}><input type="checkbox" checked={selectedLenses.includes(lens.id)} onChange={() => toggleLens(lens.id)} /><span><strong>{lens.title}</strong><small>{lens.priority} priority · {lens.id}</small></span></label>)}</div>
+      <div className="research-search-controls">
+        <label className="field-label">Breadth<select value={breadth} onChange={(event) => setBreadth(event.target.value as ResearchBreadth)}><option value="strict">Strict · 高相关</option><option value="balanced">Balanced · 均衡</option><option value="explore">Explore · 强调新颖性</option></select></label>
+        <label className="field-label">时间范围<select value={dateMode} onChange={(event) => setDateMode(event.target.value as typeof dateMode)}><option value="last_7_days">最近 7 天</option><option value="last_30_days">最近 30 天</option><option value="last_90_days">最近 90 天</option><option value="custom">自定义</option></select></label>
+      </div>
+      {dateMode === "custom" && <div className="research-search-controls"><label className="field-label">开始日期<input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} /></label><label className="field-label">结束日期<input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} /></label></div>}
+      <label className="field-label">额外检索词 <span className="field-hint">每行一条，最多 20 条</span><textarea rows={3} maxLength={40000} value={queries} onChange={(event) => setQueries(event.target.value)} placeholder="dynamic fisher continual learning" /></label>
+      {error && <p className="error-copy" role="alert">{error}</p>}
+      <div className="research-search-footer"><span>请求会进入本地队列，由 Research 调度器执行。</span><button className="button button-primary" disabled={busy || !selectedLenses.length}>{busy ? "正在排队…" : "加入搜索队列"}</button></div>
+    </form>}
+    {error && !searchOpen && <p className="error-copy research-inline-error" role="alert">{error}</p>}
+    {notice && <p className="notice research-inline-notice" role="status">{notice}</p>}
+  </section>;
+}

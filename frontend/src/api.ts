@@ -255,6 +255,175 @@ export interface SearchFilters {
   maintenance?: string;
 }
 
+export type ResearchBreadth = "strict" | "balanced" | "explore";
+export type ResearchCandidateStatus = "new" | "shortlisted" | "dismissed" | "saved_source" | "note_created";
+export type ResearchSort = "recommended" | "newest" | "most_relevant" | "most_novel";
+
+export interface ResearchLens {
+  id: string;
+  title: string;
+  enabled: boolean;
+  priority: "low" | "medium" | "high";
+  queries: string[];
+  include_terms: string[];
+  exclude_terms: string[];
+}
+
+export interface ResearchProfile {
+  schema_version: 1;
+  id: string;
+  title: string;
+  description: string | null;
+  enabled: boolean;
+  lenses: ResearchLens[];
+  exclude_terms: string[];
+  providers: { discovery: string[]; enrichment: string[] };
+  context: { collections: string[]; documents: string[]; dynamic_retrieval: { enabled: boolean; scope: "entire-library" } };
+  schedule: { mode: "daily" | "weekly" | "manual" };
+  search: { breadth: ResearchBreadth; initial_lookback_days: number; max_catchup_days: number; max_candidates_per_run: number };
+  inbox: { max_new_candidates: number };
+  ai_analysis: { enabled: boolean; provider: "deepseek" };
+}
+
+export interface ResearchInboxUsage { new_count: number; capacity: number; remaining: number }
+export interface ResearchRunSummary {
+  id: string;
+  trigger: "scheduled" | "manual";
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  fetched_count: number;
+  surfaced_count: number;
+}
+export interface ResearchProfileSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  enabled: boolean;
+  schedule_mode: "daily" | "weekly" | "manual";
+  breadth: ResearchBreadth;
+  lens_count: number;
+  enabled_lens_ids: string[];
+  paused_until: string | null;
+  last_successful_scheduled_run_at: string | null;
+  inbox: ResearchInboxUsage;
+  latest_run: ResearchRunSummary | null;
+}
+export interface ResearchProfileDetail {
+  profile: ResearchProfile;
+  runtime_state: { profile_id: string; paused_until: string | null; last_successful_scheduled_run_at: string | null; created_at: string; updated_at: string } | null;
+  inbox: ResearchInboxUsage;
+  latest_run: ResearchRunSummary | null;
+  resume_options: Array<"catch_up" | "from_now">;
+}
+export interface ResearchWork {
+  id: string;
+  canonical_key: string;
+  title: string;
+  normalized_title: string;
+  abstract: string | null;
+  authors: string[];
+  year: number | null;
+  published_at: string | null;
+  venue: string | null;
+  doi: string | null;
+  arxiv_id: string | null;
+  openalex_id: string | null;
+  semantic_scholar_id: string | null;
+  url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface ResearchRelation { entity_type: "document" | "term" | "source" | "collection"; entity_id: string; relation: "extends" | "alternative" | "contrasts" | "applies" | "reviews" | "related"; reason: string }
+export interface ResearchAnalysis {
+  relevant: boolean;
+  profile_relevance: number;
+  knowledge_relevance: number;
+  novelty_to_library: number;
+  matched_lenses: string[];
+  matched_topics: string[];
+  summary: string;
+  why_relevant: string;
+  reading_reason: string;
+  existing_relations: ResearchRelation[];
+  suggested_collection?: string | null;
+  suggested_section?: string | null;
+}
+export interface ResearchCandidate {
+  id: string;
+  work_id: string;
+  profile_id: string;
+  status: ResearchCandidateStatus;
+  primary_lens_id: string | null;
+  analysis_id: string;
+  user_note: string | null;
+  dismiss_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  first_viewed_at: string | null;
+  last_viewed_at: string | null;
+  decided_at: string | null;
+}
+export interface ResearchCandidateListItem {
+  candidate: ResearchCandidate;
+  work: ResearchWork;
+  analysis: ResearchAnalysis;
+  recommended_score: number;
+}
+export interface ResearchDiscovery {
+  id: string;
+  work_id: string;
+  profile_id: string;
+  lens_id: string;
+  provider: "arxiv" | "openalex" | "crossref";
+  provider_record_id: string;
+  query_key: string;
+  query_text: string;
+  metadata: Record<string, unknown>;
+  discovered_at: string;
+}
+export interface ResearchWorkAnalysis {
+  id: string;
+  work_id: string;
+  profile_id: string;
+  input_hash: string;
+  outcome: "surface" | "filtered";
+  analysis: ResearchAnalysis;
+  provider: string;
+  model: string;
+  prompt_version: string;
+  analysis_version: number;
+  context_entity_ids: string[];
+  analyzed_at: string;
+}
+export interface ResearchCandidateDetail {
+  candidate: ResearchCandidate;
+  work: ResearchWork;
+  analysis: ResearchWorkAnalysis;
+  discoveries: ResearchDiscovery[];
+  knowledge_relations: ResearchRelation[];
+  linked_entities: Array<{ entity_type: "source" | "document"; entity_id: string; relation_type: "source" | "note"; created_at: string }>;
+  pending_links: Array<{ id: string; group_id: string; draft_id: string; intended_entity_type: string; intended_entity_id: string; relation_type: string; created_at: string }>;
+}
+export interface ResearchRun extends ResearchRunSummary {
+  profile_id: string;
+  request_id: string | null;
+  profile_content_hash: string;
+  effective_config: Record<string, unknown>;
+  new_work_count: number;
+  duplicate_count: number;
+  deterministic_filtered_count: number;
+  analyzed_count: number;
+  provider_summary: Record<string, { requests: number; pages: number; works: number; errors: number; circuit_open: boolean }>;
+  error_summary: string | null;
+}
+export interface ResearchCandidateList {
+  candidates: ResearchCandidateListItem[];
+  count: number;
+  offset: number;
+  limit: number;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(path, {
@@ -624,6 +793,76 @@ export async function recordDocumentOpen(documentId: string) {
     method: "POST",
     body: JSON.stringify({ document_id: documentId }),
   });
+}
+
+export function listResearchProfiles() {
+  return request<ResearchProfileSummary[]>("/api/research/profiles");
+}
+
+export function getResearchProfile(profileId: string) {
+  return request<ResearchProfileDetail>(`/api/research/profiles/${encodeURIComponent(profileId)}`);
+}
+
+export function pauseResearchProfile(profileId: string, body: { days?: number; until?: string }) {
+  return request<{ runtime_state: NonNullable<ResearchProfileDetail["runtime_state"]> }>(
+    `/api/research/profiles/${encodeURIComponent(profileId)}/pause`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function resumeResearchProfile(profileId: string, body: { strategy: "catch_up" | "from_now"; catchup_days?: number }) {
+  return request<{ runtime_state: NonNullable<ResearchProfileDetail["runtime_state"]>; strategy: "catch_up" | "from_now"; watermark_skipped: boolean }>(
+    `/api/research/profiles/${encodeURIComponent(profileId)}/resume`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export interface QueueResearchRunInput {
+  lenses: string[];
+  breadth?: ResearchBreadth;
+  date_range?: { mode: "last_7_days" | "last_30_days" | "last_90_days" | "custom"; start?: string; end?: string };
+  additional_queries?: string[];
+}
+
+export function queueResearchRun(profileId: string, body: QueueResearchRunInput) {
+  return request<{ request_id: string; status: "pending" | "claimed" | "completed" | "failed" }>(
+    `/api/research/profiles/${encodeURIComponent(profileId)}/runs`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function listResearchCandidates(filters: {
+  profile_id?: string; status?: ResearchCandidateStatus; lens?: string; sort?: ResearchSort; offset?: number; limit?: number;
+}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") params.set(key, String(value));
+  return request<ResearchCandidateList>(`/api/research/candidates?${params.toString()}`);
+}
+
+export function getResearchCandidate(candidateId: string) {
+  return request<ResearchCandidateDetail>(`/api/research/candidates/${encodeURIComponent(candidateId)}`);
+}
+
+export function shortlistResearchCandidate(candidateId: string, note?: string) {
+  return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/shortlist`, {
+    method: "POST", body: JSON.stringify(note ? { note } : {}),
+  });
+}
+
+export function dismissResearchCandidate(candidateId: string, reason: "not_relevant" | "already_known" | "too_redundant" | "not_interested" | "other", note?: string) {
+  return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/dismiss`, {
+    method: "POST", body: JSON.stringify({ reason, ...(note ? { note } : {}) }),
+  });
+}
+
+export function listResearchRuns(profileId?: string, offset = 0, limit = 50) {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+  if (profileId) params.set("profile_id", profileId);
+  return request<{ runs: ResearchRun[]; count: number }>(`/api/research/runs?${params.toString()}`);
+}
+
+export function getResearchRun(runId: string) {
+  return request<ResearchRun>(`/api/research/runs/${encodeURIComponent(runId)}`);
 }
 
 function typePath(type: EntityType) {

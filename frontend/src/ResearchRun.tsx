@@ -1,0 +1,59 @@
+import type { ResearchRun } from "./api";
+import { Chip, formatDate } from "./ui";
+
+export function ResearchRunList({
+  runs,
+  count,
+  loading,
+  onOpen,
+}: {
+  runs: ResearchRun[];
+  count: number;
+  loading: boolean;
+  onOpen: (runId: string) => void;
+}) {
+  if (loading && runs.length === 0) return <div className="research-loading">Loading Research Runs…</div>;
+  if (!runs.length) return <div className="empty-state"><span className="empty-mark">◷</span><strong>No Research Runs yet</strong><p>Scheduled discoveries and manual searches will appear here.</p></div>;
+  return <div className="research-run-list">
+    <div className="research-run-list-heading"><div><h2>Research Runs</h2><p>{count} recorded run{count === 1 ? "" : "s"} for this Profile</p></div></div>
+    {runs.map((run) => <button className="research-run-row" key={run.id} onClick={() => onOpen(run.id)}>
+      <span className={`research-run-mark research-run-${run.status}`} aria-hidden="true">{run.status === "success" ? "✓" : run.status === "running" ? "◷" : "!"}</span>
+      <span className="research-run-row-main"><strong>{formatDate(run.started_at)} · {run.trigger === "scheduled" ? "Scheduled" : "Manual"}</strong><small>{run.fetched_count} fetched · {run.surfaced_count} candidates · {run.status.replaceAll("_", " ")}</small></span>
+      <Chip tone={run.status === "success" ? "green" : run.status === "partial" ? "amber" : run.status === "running" ? "blue" : "rose"}>{run.status.replaceAll("_", " ")}</Chip>
+      <span className="row-arrow" aria-hidden="true">↗</span>
+    </button>)}
+  </div>;
+}
+
+export function ResearchRunDrawer({ run, onClose }: { run: ResearchRun; onClose: () => void }) {
+  const effective = run.effective_config;
+  const profileSnapshot = isRecord(effective.profile) ? effective.profile : {};
+  const lensIds = Array.isArray(profileSnapshot.lenses)
+    ? profileSnapshot.lenses.filter(isRecord).filter((lens) => lens.enabled === true).map((lens) => String(lens.title ?? lens.id))
+    : [];
+  return <div className="research-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <aside className="research-drawer research-run-drawer" role="dialog" aria-modal="true" aria-labelledby="research-run-title">
+      <header className="research-drawer-header"><div><p className="eyebrow">RUN INSPECTOR</p><h2 id="research-run-title">Research Run</h2><p>{run.id}</p></div><button className="workspace-drawer-close" aria-label="关闭运行详情" onClick={onClose}>×</button></header>
+      <div className="research-drawer-body">
+        <section className="research-detail-section"><h3>Overview</h3><Detail label="Profile" value={run.profile_id} /><Detail label="Trigger" value={run.trigger} /><Detail label="Status" value={run.status.replaceAll("_", " ")} /><Detail label="Started" value={formatDate(run.started_at)} /><Detail label="Finished" value={formatDate(run.finished_at)} /><Detail label="Lenses" value={lensIds.join(", ")} /></section>
+        <section className="research-detail-section"><h3>Pipeline</h3><div className="research-run-stats">{[["Discovery", run.fetched_count], ["Unique works", run.new_work_count], ["Duplicates", run.duplicate_count], ["Filtered", run.deterministic_filtered_count], ["AI analyzed", run.analyzed_count], ["Candidates", run.surfaced_count]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div></section>
+        <section className="research-detail-section"><h3>Provider activity</h3>{Object.entries(run.provider_summary).length ? Object.entries(run.provider_summary).map(([provider, summary]) => <div className="research-provider-row" key={provider}><div><Chip tone={summary.errors ? "amber" : "green"}>{provider}</Chip>{summary.circuit_open && <Chip tone="rose">circuit open</Chip>}</div><span>{summary.works} works · {summary.pages} pages · {summary.requests} requests · {summary.errors} errors</span></div>) : <p className="subtle-copy">No provider calls were recorded for this Run.</p>}</section>
+        <section className="research-detail-section"><h3>Effective search</h3><Detail label="Breadth" value={stringValue(effective.breadth_override) ?? stringValue(isRecord(profileSnapshot.search) ? profileSnapshot.search.breadth : null) ?? "balanced"} /><Detail label="Additional queries" value={Array.isArray(effective.additional_queries) ? effective.additional_queries.join(" · ") : "—"} /><Detail label="Configuration hash" value={run.profile_content_hash} /></section>
+        {run.error_summary && <section className="research-detail-section"><h3>Run issues</h3><p className="research-run-error">{run.error_summary}</p></section>}
+      </div>
+      <footer className="research-drawer-footer"><span>Provider counts and errors are retained with this Runtime Run.</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>
+    </aside>
+  </div>;
+}
+
+function Detail({ label, value }: { label: string; value: string | null | undefined }) {
+  return <div className="research-detail-row"><span>{label}</span><strong>{value || "—"}</strong></div>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
