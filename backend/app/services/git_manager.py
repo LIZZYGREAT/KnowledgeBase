@@ -19,11 +19,14 @@ class GitConflictError(RuntimeError):
 
 
 class GitManager:
-    """Wrap Git access and restrict all file operations to ``knowledge/``."""
+    """Wrap Git access to the repository's explicit canonical roots."""
 
     def __init__(self, repository_root: Union[str, Path]):
         self.repository_root = Path(repository_root).resolve()
         self.knowledge_root = self.repository_root / "knowledge"
+        self.research_profile_root = (
+            self.repository_root / "config" / "research" / "profiles"
+        )
         if not self.knowledge_root.is_dir():
             raise ValueError("Repository must contain a knowledge/ directory")
         result = self._run(["rev-parse", "--show-toplevel"], check=False)
@@ -43,12 +46,12 @@ class GitManager:
 
     def diff(self, base_revision: str, path: Union[str, Path]) -> str:
         revision = _validate_revision(base_revision)
-        relative_path = self._relative_knowledge_path(path)
+        relative_path = self._relative_canonical_path(path)
         result = self._run(["diff", revision, "--", relative_path])
         return result.stdout.decode("utf-8", errors="replace")
 
     def content_hash(self, path: Union[str, Path]) -> str:
-        target, _ = self._resolve_knowledge_path(path)
+        target, _ = self._resolve_canonical_path(path)
         if not target.is_file():
             return hashlib.sha256(b"\x00knowledgebase:missing").hexdigest()
         return hashlib.sha256(target.read_bytes()).hexdigest()
@@ -59,7 +62,7 @@ class GitManager:
         """Read a canonical file from a commit, or return None if it was absent."""
         target_revision = _validate_revision(revision)
         self._run(["cat-file", "-e", "{}^{{commit}}".format(target_revision)])
-        _, relative_path = self._resolve_knowledge_path(path)
+        _, relative_path = self._resolve_canonical_path(path)
         object_spec = "{}:{}".format(target_revision, relative_path)
         historical = self._run(["cat-file", "-e", object_spec], check=False)
         if historical.returncode != 0:
@@ -90,7 +93,7 @@ class GitManager:
 
     def commit_many(self, paths, message: str) -> str:
         """Commit only the supplied canonical paths, preserving unrelated staged files."""
-        relative_paths = [self._relative_knowledge_path(path) for path in paths]
+        relative_paths = [self._relative_canonical_path(path) for path in paths]
         if not relative_paths:
             raise ValueError("At least one canonical file path is required")
         if len(relative_paths) != len(set(relative_paths)):
@@ -127,19 +130,42 @@ class GitManager:
                 )
             raise
 
-    def _relative_knowledge_path(self, path: Union[str, Path]) -> str:
-        _, relative = self._resolve_knowledge_path(path)
+    def _relative_canonical_path(self, path: Union[str, Path]) -> str:
+        _, relative = self._resolve_canonical_path(path)
         return relative
 
-    def _resolve_knowledge_path(self, path: Union[str, Path]):
+    def _resolve_canonical_path(self, path: Union[str, Path]):
         supplied = Path(path)
         lexical = supplied if supplied.is_absolute() else self.repository_root / supplied
         lexical = Path(os.path.abspath(str(lexical)))
         try:
             repo_relative = lexical.relative_to(self.repository_root)
-            knowledge_relative = lexical.relative_to(self.knowledge_root)
         except ValueError as error:
-            raise ValueError("Git operations are limited to repository knowledge/ files") from error
+            raise ValueError(
+                "Git operations are limited to knowledge/ and "
+                "config/research/profiles/ files"
+            ) from error
+
+        canonical_root = None
+        allowed_suffixes = set()
+        for root, suffixes in (
+            (self.knowledge_root, {".md", ".yaml", ".yml"}),
+            (self.research_profile_root, {".yaml", ".yml"}),
+        ):
+            try:
+                relative_to_root = lexical.relative_to(root)
+            except ValueError:
+                continue
+            if relative_to_root.parts:
+                canonical_root = root
+                allowed_suffixes = suffixes
+                break
+
+        if canonical_root is None:
+            raise ValueError(
+                "Git operations are limited to knowledge/ and "
+                "config/research/profiles/ files"
+            )
 
         cursor = self.repository_root
         for part in repo_relative.parts:
@@ -147,9 +173,7 @@ class GitManager:
             if cursor.is_symlink():
                 raise ValueError("Git operations do not follow symlinks")
 
-        if not knowledge_relative.parts or any(part in {".", ".."} for part in knowledge_relative.parts):
-            raise ValueError("A canonical file path under knowledge/ is required")
-        if lexical.suffix.lower() not in {".md", ".yaml", ".yml"}:
+        if lexical.suffix.lower() not in allowed_suffixes:
             raise ValueError("Canonical files must use .md, .yaml, or .yml")
         if lexical.exists() and not lexical.is_file():
             raise ValueError("Canonical target must be a regular file")

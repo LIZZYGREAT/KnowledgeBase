@@ -483,7 +483,7 @@ class Publisher:
         """Restore a canonical file only when the prospective repository stays valid."""
         historical_content = self.git.read_at_revision(path, revision)
         restore_warnings = self._validate_restore_candidate(path, historical_content)
-        relative_path = self.git._relative_knowledge_path(path)
+        relative_path = self.git._relative_canonical_path(path)
         target = self.repository_root / relative_path
         previous = target.read_bytes() if target.is_file() else None
         prepared = [{"path": target, "previous": previous}]
@@ -530,7 +530,7 @@ class Publisher:
     def _validate_restore_candidate(
         self, path: Union[str, Path], historical_content: Optional[bytes]
     ) -> list[str]:
-        relative_path = self.git._relative_knowledge_path(path)
+        relative_path = self.git._relative_canonical_path(path)
         parts = Path(relative_path).parts
         if (
             len(parts) == 4
