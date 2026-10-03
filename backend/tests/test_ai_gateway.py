@@ -79,7 +79,7 @@ def test_invalid_json_or_schema_does_not_create_proposal():
     connection.close()
 
 
-def test_all_phase_seven_tasks_have_output_schemas_and_proposal_kinds():
+def test_ai_task_registry_declares_output_contracts():
     assert set(TASKS) == {
         "suggest_metadata",
         "detect_terms",
@@ -88,9 +88,32 @@ def test_all_phase_seven_tasks_have_output_schemas_and_proposal_kinds():
         "draft_term",
         "suggest_revision",
         "suggest_evidence",
+        "research_candidate_analysis",
     }
     assert all(task.output_model.model_json_schema() for task in TASKS.values())
-    assert all(task.proposal_kind for task in TASKS.values())
+    assert all(
+        task.proposal_kind
+        for task in TASKS.values()
+        if task.output_usage == "proposal"
+    )
+    assert TASKS["research_candidate_analysis"].output_usage == "analysis"
+    assert TASKS["research_candidate_analysis"].proposal_kind is None
+
+
+def test_research_analysis_cannot_be_persisted_as_a_proposal():
+    connection = connect_database(":memory:")
+    drafts = DraftService(DraftRepository(connection))
+    proposals = ProposalService(ProposalRepository(connection))
+    client = MockDeepSeekClient()
+    ai = AIProposalService(
+        Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client)
+    )
+
+    with pytest.raises(ValueError, match="does not produce a Proposal"):
+        ai.generate("research_candidate_analysis", "unused-draft")
+
+    assert client.calls == []
+    connection.close()
 
 
 def test_term_draft_must_match_existing_term_draft_target():
@@ -233,9 +256,10 @@ def test_deepseek_client_stops_after_bounded_retries():
         opener=opener,
         sleeper=lambda _: None,
     )
-    with pytest.raises(AIProviderError, match="3 attempt"):
+    with pytest.raises(AIProviderError, match="3 attempt") as error:
         client.complete([], {})
     assert len(attempts) == 3
+    assert error.value.transient is True
 
 
 def test_gateway_configuration_requires_server_side_key():

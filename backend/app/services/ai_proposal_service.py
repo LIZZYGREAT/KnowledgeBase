@@ -47,6 +47,8 @@ class AIProposalService:
         task = TASKS.get(task_name)
         if task is None:
             raise ValueError("Unsupported AI task: {}".format(task_name))
+        if task.output_usage != "proposal" or task.proposal_kind is None:
+            raise ValueError("AI task '{}' does not produce a Proposal".format(task_name))
         draft = self.draft_service.get(draft_id)
         if extra_context is not None and not isinstance(extra_context, dict):
             raise ValueError("AI request context must be a JSON object")

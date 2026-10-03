@@ -93,6 +93,28 @@ class SuggestEvidenceOutput(AIOutput):
     candidates: list[EvidenceCandidate]
 
 
+class ResearchRelation(AIOutput):
+    entity_type: Literal["document", "term", "source", "collection"]
+    entity_id: NonEmptyText
+    relation: Literal["extends", "alternative", "contrasts", "applies", "reviews", "related"]
+    reason: NonEmptyText
+
+
+class ResearchCandidateAnalysisOutput(AIOutput):
+    relevant: bool
+    profile_relevance: float = Field(ge=0.0, le=1.0)
+    knowledge_relevance: float = Field(ge=0.0, le=1.0)
+    novelty_to_library: float = Field(ge=0.0, le=1.0)
+    matched_lenses: list[Slug] = Field(default_factory=list, max_length=12)
+    matched_topics: list[NonEmptyText] = Field(default_factory=list, max_length=20)
+    summary: NonEmptyText
+    why_relevant: NonEmptyText
+    reading_reason: NonEmptyText
+    existing_relations: list[ResearchRelation] = Field(default_factory=list, max_length=12)
+    suggested_collection: Optional[Slug] = None
+    suggested_section: Optional[NonEmptyText] = None
+
+
 TASK_OUTPUTS = {
     "suggest_metadata": SuggestMetadataOutput,
     "detect_terms": DetectTermsOutput,
@@ -101,4 +123,5 @@ TASK_OUTPUTS = {
     "draft_term": DraftTermOutput,
     "suggest_revision": SuggestRevisionOutput,
     "suggest_evidence": SuggestEvidenceOutput,
+    "research_candidate_analysis": ResearchCandidateAnalysisOutput,
 }

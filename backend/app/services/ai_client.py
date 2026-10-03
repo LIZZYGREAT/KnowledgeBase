@@ -19,7 +19,10 @@ class AIConfigurationError(AIGatewayError):
 
 
 class AIProviderError(AIGatewayError):
-    pass
+    def __init__(self, message: str, transient: bool = False, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.transient = bool(transient)
+        self.status_code = status_code
 
 
 class AIResponseError(AIGatewayError):
@@ -124,14 +127,17 @@ class DeepSeekClient:
                 raise AIProviderError(
                     "DeepSeek returned HTTP {}{}".format(
                         error.code, " after retries" if retryable else ""
-                    )
+                    ),
+                    transient=retryable,
+                    status_code=error.code,
                 ) from error
             except (TimeoutError, URLError, OSError) as error:
                 if attempt < self.config.max_retries:
                     self._wait(attempt)
                     continue
                 raise AIProviderError(
-                    "DeepSeek request failed after {} attempt(s)".format(attempt + 1)
+                    "DeepSeek request failed after {} attempt(s)".format(attempt + 1),
+                    transient=True,
                 ) from error
             except (UnicodeDecodeError, json.JSONDecodeError) as error:
                 raise AIResponseError("DeepSeek returned an invalid JSON envelope") from error

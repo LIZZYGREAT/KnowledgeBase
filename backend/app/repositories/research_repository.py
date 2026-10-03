@@ -6,7 +6,12 @@ import sqlite3
 import uuid
 from typing import Iterator, Optional
 
-from backend.app.domain.research_runtime import ResearchDiscoveryRecord, ResearchWorkRecord
+from backend.app.domain.ai import ResearchCandidateAnalysisOutput
+from backend.app.domain.research_runtime import (
+    ResearchDiscoveryRecord,
+    ResearchWorkAnalysisRecord,
+    ResearchWorkRecord,
+)
 
 
 _IDENTIFIER_COLUMNS = ("doi", "arxiv_id", "openalex_id", "semantic_scholar_id")
@@ -208,6 +213,39 @@ class ResearchRepository:
             ).fetchone()
         return row is not None
 
+    def get_analysis(
+        self, work_id: str, profile_id: str, input_hash: str
+    ) -> Optional[ResearchWorkAnalysisRecord]:
+        row = self.connection.execute(
+            """SELECT * FROM research_work_analyses
+               WHERE work_id = ? AND profile_id = ? AND input_hash = ?""",
+            (work_id, profile_id, input_hash),
+        ).fetchone()
+        return _analysis_from_row(row) if row else None
+
+    def add_analysis_if_missing(
+        self, analysis: ResearchWorkAnalysisRecord
+    ) -> tuple[ResearchWorkAnalysisRecord, bool]:
+        values = _analysis_values(analysis)
+        with self.write_transaction():
+            cursor = self.connection.execute(
+                """INSERT OR IGNORE INTO research_work_analyses (
+                       id, work_id, profile_id, input_hash, outcome, analysis_json,
+                       provider, model, prompt_version, analysis_version,
+                       context_entity_ids_json, analyzed_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                values,
+            )
+            inserted = cursor.rowcount == 1
+            persisted = (
+                analysis
+                if inserted
+                else self.get_analysis(analysis.work_id, analysis.profile_id, analysis.input_hash)
+            )
+        if persisted is None:
+            raise RuntimeError("Research Analysis insert was ignored without a matching row")
+        return persisted, inserted
+
 
 def _work_values(work: ResearchWorkRecord) -> tuple:
     return (
@@ -263,4 +301,45 @@ def _discovery_from_row(row: sqlite3.Row) -> ResearchDiscoveryRecord:
         query_text=row["query_text"],
         metadata=json.loads(row["metadata_json"]),
         discovered_at=row["discovered_at"],
+    )
+
+
+def _analysis_values(analysis: ResearchWorkAnalysisRecord) -> tuple:
+    return (
+        analysis.id,
+        analysis.work_id,
+        analysis.profile_id,
+        analysis.input_hash,
+        analysis.outcome,
+        json.dumps(
+            analysis.analysis.model_dump(mode="json", exclude_none=True),
+            ensure_ascii=False,
+            sort_keys=True,
+            allow_nan=False,
+        ),
+        analysis.provider,
+        analysis.model,
+        analysis.prompt_version,
+        analysis.analysis_version,
+        json.dumps(list(analysis.context_entity_ids), ensure_ascii=False),
+        analysis.analyzed_at,
+    )
+
+
+def _analysis_from_row(row: sqlite3.Row) -> ResearchWorkAnalysisRecord:
+    return ResearchWorkAnalysisRecord(
+        id=row["id"],
+        work_id=row["work_id"],
+        profile_id=row["profile_id"],
+        input_hash=row["input_hash"],
+        outcome=row["outcome"],
+        analysis=ResearchCandidateAnalysisOutput.model_validate(
+            json.loads(row["analysis_json"])
+        ),
+        provider=row["provider"],
+        model=row["model"],
+        prompt_version=row["prompt_version"],
+        analysis_version=row["analysis_version"],
+        context_entity_ids=tuple(json.loads(row["context_entity_ids_json"])),
+        analyzed_at=row["analyzed_at"],
     )

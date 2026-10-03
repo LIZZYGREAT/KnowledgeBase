@@ -2,9 +2,10 @@
 
 from typing import Any, Literal, Optional
 
-from pydantic import ConfigDict, StrictBool, StrictFloat, StrictInt
+from pydantic import ConfigDict, StrictBool, StrictFloat, StrictInt, model_validator
 
 from backend.app.domain.common import CanonicalModel, NonEmptyText, Slug
+from backend.app.domain.ai import ResearchCandidateAnalysisOutput
 from backend.app.domain.research import ResearchProvider as ResearchProviderName
 
 
@@ -42,6 +43,30 @@ class ResearchDiscoveryRecord(CanonicalModel):
     query_text: NonEmptyText
     metadata: dict[str, Any]
     discovered_at: NonEmptyText
+
+
+class ResearchWorkAnalysisRecord(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: NonEmptyText
+    work_id: NonEmptyText
+    profile_id: Slug
+    input_hash: NonEmptyText
+    outcome: Literal["surface", "filtered"]
+    analysis: ResearchCandidateAnalysisOutput
+    provider: NonEmptyText
+    model: NonEmptyText
+    prompt_version: NonEmptyText
+    analysis_version: StrictInt
+    context_entity_ids: tuple[NonEmptyText, ...] = ()
+    analyzed_at: NonEmptyText
+
+    @model_validator(mode="after")
+    def outcome_matches_analysis(self):
+        expected = "surface" if self.analysis.relevant else "filtered"
+        if self.outcome != expected:
+            raise ValueError("Research Analysis outcome must match its relevance decision")
+        return self
 
 
 class ResearchIngestResult(CanonicalModel):
