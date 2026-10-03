@@ -139,7 +139,9 @@ class ResearchRunRecord(CanonicalModel):
     new_work_count: StrictInt = 0
     duplicate_count: StrictInt = 0
     deterministic_filtered_count: StrictInt = 0
+    analysis_attempt_count: StrictInt = 0
     analyzed_count: StrictInt = 0
+    analysis_counts_known: StrictBool = True
     surfaced_count: StrictInt = 0
     provider_summary: dict[str, Any]
     error_summary: Optional[NonEmptyText] = None

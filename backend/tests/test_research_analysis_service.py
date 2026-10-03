@@ -41,9 +41,14 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     )
     profile = _profile()
     pack = _context_pack()
+    attempts = []
 
-    first = service.analyze(work, profile, profile.lenses[0], pack)
-    second = service.analyze(work, profile, profile.lenses[0], pack)
+    first = service.analyze(
+        work, profile, profile.lenses[0], pack, on_attempt=lambda: attempts.append("call")
+    )
+    second = service.analyze(
+        work, profile, profile.lenses[0], pack, on_attempt=lambda: attempts.append("call")
+    )
 
     assert first is not None
     assert first.id == second.id
@@ -53,6 +58,7 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert first.context_entity_ids == ("document:ewc",)
     assert isinstance(first.analysis, ResearchCandidateAnalysisOutput)
     assert client.calls == ["research_candidate_analysis"]
+    assert attempts == ["call"]
     sent_input = json.loads(client.messages[0][1]["content"])
     assert sent_input == service.build_analysis_input(
         work, profile, profile.lenses[0], pack

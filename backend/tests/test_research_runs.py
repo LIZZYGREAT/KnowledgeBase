@@ -20,7 +20,7 @@ from backend.app.repositories.research_run_request_repository import (
     ResearchRunRequestRepository,
 )
 from backend.app.repositories.research_search_repository import ResearchSearchRepository
-from backend.app.services.ai_client import MockDeepSeekClient
+from backend.app.services.ai_client import AIGatewayError, MockDeepSeekClient
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.research_analysis_service import ResearchAnalysisService
 from backend.app.services.research_candidate_service import ResearchCandidateService
@@ -50,7 +50,14 @@ def test_run_is_persisted_before_provider_and_completed_slice_advances_watermark
 
     assert run is not None
     assert run.status == "success"
-    assert (run.fetched_count, run.new_work_count, run.analyzed_count, run.surfaced_count) == (
+    assert (
+        run.fetched_count,
+        run.new_work_count,
+        run.analysis_attempt_count,
+        run.analyzed_count,
+        run.surfaced_count,
+    ) == (
+        1,
         1,
         1,
         1,
@@ -333,6 +340,7 @@ def test_page_pre_rank_orders_eligible_work_before_analysis(tmp_path):
 
     assert run is not None and run.status == "success"
     assert recording_context.work_titles == [higher_ranked.title, lower_ranked.title]
+    assert run.analysis_attempt_count == 2
     assert run.analyzed_count == 2
     connection.close()
 
@@ -394,6 +402,7 @@ def test_analysis_budget_counts_new_deepseek_calls_not_cached_analyses(tmp_path)
     run = service.run_profile(profile.id)
 
     assert run is not None and run.status == "success"
+    assert run.analysis_attempt_count == 1
     assert run.analyzed_count == 1
     assert run.surfaced_count == 2
     assert ai_client.calls == ["research_candidate_analysis"]
@@ -402,6 +411,25 @@ def test_analysis_budget_counts_new_deepseek_calls_not_cached_analyses(tmp_path)
         profile.id, query.lens_id, "arxiv", query.query_key
     )
     assert state is not None and state.completed_through is None
+    connection.close()
+
+
+def test_run_counts_failed_ai_request_as_attempt_but_not_analysis(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+
+    def fail_analysis(*args, **kwargs):
+        raise AIGatewayError("analysis request failed")
+
+    service.analysis_service.gateway.run = fail_analysis
+    run = service.run_profile("continual-learning")
+
+    assert run is not None
+    assert run.analysis_counts_known is True
+    assert run.analysis_attempt_count == 1
+    assert run.analyzed_count == 0
+    assert "analysis request failed" in (run.error_summary or "")
     connection.close()
 
 
@@ -429,6 +457,8 @@ def test_incomplete_manual_range_reuses_negative_analysis_on_restart(tmp_path):
 
     assert first is not None and first.status == "success"
     assert restarted is not None and restarted.status == "success"
+    assert first.analysis_attempt_count == 1
+    assert restarted.analysis_attempt_count == 0
     assert first.analyzed_count == 1
     assert restarted.analyzed_count == 0
     assert first.surfaced_count == restarted.surfaced_count == 0
@@ -542,6 +572,7 @@ def test_optional_enrichment_failure_warns_but_completes_discovery_slice(tmp_pat
     assert run.provider_summary["crossref"]["requests"] == 1
     assert run.provider_summary["crossref"]["errors"] == 1
     assert enrichment.enrichment_calls == 1
+    assert run.analysis_attempt_count == 1
     assert run.analyzed_count == 1
     assert ai_client.calls == ["research_candidate_analysis"]
     state = search_repository.get_state(

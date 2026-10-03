@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -31,6 +31,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_shared_research_source_draft_intents
         elif target_version == 7:
             migration = _migrate_to_persist_research_analysis_input_context
+        elif target_version == 8:
+            migration = _migrate_to_record_research_analysis_attempts
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -90,6 +92,27 @@ def _migrate_to_persist_research_analysis_input_context(
         connection.execute(
             """ALTER TABLE research_work_analyses
                ADD COLUMN input_context_json TEXT NOT NULL DEFAULT '{}'"""
+        )
+
+
+def _migrate_to_record_research_analysis_attempts(
+    connection: sqlite3.Connection,
+) -> None:
+    if not _table_exists(connection, "research_runs"):
+        return
+    if not _column_exists(connection, "research_runs", "analysis_attempt_count"):
+        connection.execute(
+            """ALTER TABLE research_runs ADD COLUMN analysis_attempt_count
+               INTEGER NOT NULL DEFAULT 0"""
+        )
+        # Before schema 8 this field counted calls started, despite its old label.
+        connection.execute(
+            """UPDATE research_runs SET analysis_attempt_count = analyzed_count"""
+        )
+    if not _column_exists(connection, "research_runs", "analysis_counts_known"):
+        connection.execute(
+            """ALTER TABLE research_runs ADD COLUMN analysis_counts_known
+               INTEGER NOT NULL DEFAULT 0"""
         )
 
 

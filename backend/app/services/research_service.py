@@ -744,7 +744,8 @@ class ResearchService:
             remaining_inbox = self.candidate_service.remaining_capacity(profile)
             current_run = self.run_repository.get(run.id)
             remaining_analysis_budget = (
-                profile.search.max_analyses_per_run - current_run.analyzed_count
+                profile.search.max_analyses_per_run
+                - current_run.analysis_attempt_count
             )
             remaining_candidate_budget = (
                 profile.search.max_candidates_per_run - current_run.surfaced_count
@@ -858,11 +859,11 @@ class ResearchService:
                     )
                     if analysis is None:
                         if profile.ai_analysis.enabled:
-                            current_analysis_count = self.run_repository.get(
+                            current_attempt_count = self.run_repository.get(
                                 run.id
-                            ).analyzed_count
+                            ).analysis_attempt_count
                             if (
-                                current_analysis_count
+                                current_attempt_count
                                 >= profile.search.max_analyses_per_run
                             ):
                                 analysis_budget_reached = True
@@ -895,14 +896,36 @@ class ResearchService:
                                     work.id, profile.id, analysis_hash
                                 )
                             if analysis is None:
-                                self.run_repository.update_progress(
-                                    run.id, analyzed_count=1
+                                analysis_attempted = False
+
+                                def record_analysis_attempt():
+                                    nonlocal analysis_attempted
+                                    self.run_repository.update_progress(
+                                        run.id, analysis_attempt_count=1
+                                    )
+                                    analysis_attempted = True
+
+                                analysis = self.analysis_service.analyze(
+                                    work,
+                                    profile,
+                                    lens,
+                                    context_pack,
+                                    circuit_breaker=analysis_breaker,
+                                    on_attempt=record_analysis_attempt,
                                 )
-                                analysis_budget_reached = (
-                                    current_analysis_count + 1
-                                    >= profile.search.max_analyses_per_run
-                                )
-                        if analysis is None:
+                                if analysis_attempted:
+                                    current_attempt_count = self.run_repository.get(
+                                        run.id
+                                    ).analysis_attempt_count
+                                    analysis_budget_reached = (
+                                        current_attempt_count
+                                        >= profile.search.max_analyses_per_run
+                                    )
+                                    if analysis is not None:
+                                        self.run_repository.update_progress(
+                                            run.id, analyzed_count=1
+                                        )
+                        if analysis is None and not profile.ai_analysis.enabled:
                             analysis = self.analysis_service.analyze(
                                 work,
                                 profile,

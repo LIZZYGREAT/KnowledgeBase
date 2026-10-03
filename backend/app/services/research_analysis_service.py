@@ -115,6 +115,7 @@ class ResearchAnalysisService:
         matched_lens: ResearchLens,
         context_pack: ResearchContextPack,
         circuit_breaker: Optional[ResearchAnalysisCircuitBreaker] = None,
+        on_attempt: Optional[Callable[[], None]] = None,
     ) -> Optional[ResearchWorkAnalysisRecord]:
         _validate_lens(profile, matched_lens)
         if not profile.ai_analysis.enabled:
@@ -128,9 +129,11 @@ class ResearchAnalysisService:
         if cached is not None:
             return cached
 
-        invoke = lambda: self.gateway.run(
-            "research_candidate_analysis", analysis_input
-        )
+        def invoke():
+            if on_attempt is not None:
+                on_attempt()
+            return self.gateway.run("research_candidate_analysis", analysis_input)
+
         output = circuit_breaker.call(invoke) if circuit_breaker else invoke()
         if output is None:
             return None

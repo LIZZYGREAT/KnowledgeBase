@@ -454,7 +454,9 @@ export interface ResearchRun extends ResearchRunSummary {
   new_work_count: number;
   duplicate_count: number;
   deterministic_filtered_count: number;
+  analysis_attempt_count: number;
   analyzed_count: number;
+  analysis_counts_known: boolean;
   provider_summary: Record<string, { requests: number; pages: number; works: number; errors: number; circuit_open: boolean }>;
   error_summary: string | null;
 }

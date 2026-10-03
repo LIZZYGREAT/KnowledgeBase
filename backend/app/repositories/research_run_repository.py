@@ -19,6 +19,7 @@ _COUNTERS = {
     "new_work_count",
     "duplicate_count",
     "deterministic_filtered_count",
+    "analysis_attempt_count",
     "analyzed_count",
     "surfaced_count",
 }
@@ -36,9 +37,10 @@ class ResearchRunRepository:
                        id, profile_id, request_id, trigger, status,
                        profile_content_hash, effective_config_json, fetched_count,
                        new_work_count, duplicate_count, deterministic_filtered_count,
-                       analyzed_count, surfaced_count, provider_summary_json,
-                       error_summary, started_at, finished_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       analysis_attempt_count, analyzed_count, analysis_counts_known,
+                       surfaced_count, provider_summary_json, error_summary,
+                       started_at, finished_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 _run_values(run),
             )
         return run
@@ -287,7 +289,9 @@ def _run_values(run: ResearchRunRecord) -> tuple:
         run.new_work_count,
         run.duplicate_count,
         run.deterministic_filtered_count,
+        run.analysis_attempt_count,
         run.analyzed_count,
+        run.analysis_counts_known,
         run.surfaced_count,
         json.dumps(run.provider_summary, ensure_ascii=False, sort_keys=True, allow_nan=False),
         run.error_summary,
@@ -309,7 +313,9 @@ def _run_from_row(row: sqlite3.Row) -> ResearchRunRecord:
         new_work_count=row["new_work_count"],
         duplicate_count=row["duplicate_count"],
         deterministic_filtered_count=row["deterministic_filtered_count"],
+        analysis_attempt_count=row["analysis_attempt_count"],
         analyzed_count=row["analyzed_count"],
+        analysis_counts_known=bool(row["analysis_counts_known"]),
         surfaced_count=row["surfaced_count"],
         provider_summary=json.loads(row["provider_summary_json"]),
         error_summary=row["error_summary"],
