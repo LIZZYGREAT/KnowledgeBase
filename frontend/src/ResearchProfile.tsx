@@ -27,6 +27,10 @@ export function ResearchProfilePanel({
   const profile = detail.profile;
   const pausedUntil = detail.runtime_state?.paused_until ?? null;
   const isPaused = Boolean(pausedUntil && new Date(pausedUntil).getTime() > Date.now());
+  const canSearch = summary.enabled
+    && !isPaused
+    && profile.ai_analysis.enabled
+    && summary.inbox.remaining > 0;
   const [pauseOpen, setPauseOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pauseUntil, setPauseUntil] = useState("");
@@ -178,11 +182,13 @@ export function ResearchProfilePanel({
       <div className="research-profile-actions">
         <button className="button button-secondary" type="button" onClick={onEditDefaults}>Edit Defaults</button>
         {isPaused ? <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume</button> : <button className="button button-secondary" disabled={busy || !summary.enabled} onClick={() => setPauseOpen((open) => !open)}>Pause</button>}
-        <button className="button button-primary" disabled={!profile.ai_analysis.enabled} onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "Close Search" : "Search Now"}</button>
+        <button className="button button-primary" disabled={!canSearch} onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "Close Search" : "Search Now"}</button>
       </div>
     </div>
 
-    {!profile.ai_analysis.enabled && <p className="research-ai-disabled-note" role="status">AI Analysis disabled · 自动发现已暂停；启用后会从原 Watermark 继续。</p>}
+    {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 Search Now。</p>}
+    {isPaused && <p className="research-search-block-note" role="status">Research paused · Resume Profile 后才能运行 Search Now。</p>}
+    {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">AI Analysis disabled · 自动发现已暂停；启用后会从原 Watermark 继续。</p>}
 
     {isPaused && <div className="research-resume-bar">
       <label className="field-label">恢复方式<select value={resumeStrategy} onChange={(event) => setResumeStrategy(event.target.value as typeof resumeStrategy)}><option value="catch_up">追赶暂停期间的内容</option><option value="from_now">从现在开始，不补历史</option></select></label>
@@ -201,10 +207,10 @@ export function ResearchProfilePanel({
     <div className="research-inbox-meter">
       <div className="research-meter-copy"><div><strong>Inbox</strong><span>{summary.inbox.new_count} / {summary.inbox.capacity}</span></div><small>{summary.inbox.remaining} 个新候选名额</small></div>
       <div className="research-meter-track" role="progressbar" aria-label="Inbox 使用量" aria-valuemin={0} aria-valuemax={summary.inbox.capacity} aria-valuenow={summary.inbox.new_count}><span style={{ width: `${capacityPercent}%` }} /></div>
-      {summary.inbox.remaining === 0 && <p className="research-capacity-note"><strong>Inbox Full</strong> · 新发现会暂停，处理候选后自动恢复。</p>}
+      {summary.inbox.remaining === 0 && <p className="research-capacity-note" role="status"><strong>Inbox Full</strong> · 处理候选后才能运行 Search Now。</p>}
     </div>
 
-    {searchOpen && profile.ai_analysis.enabled && <form className="research-search-form" onSubmit={(event) => void submitSearch(event)}>
+    {searchOpen && canSearch && <form className="research-search-form" onSubmit={(event) => void submitSearch(event)}>
       <div className="research-section-heading"><div><h3>Search Focus</h3><p>设置仅对本次搜索生效，不会修改 Profile 默认值。</p></div></div>
       <div className="research-lens-options">{profile.lenses.map((lens) => <label className="research-lens-option" key={lens.id}><input type="checkbox" checked={selectedLenses.includes(lens.id)} onChange={() => toggleLens(lens.id)} /><span><strong>{lens.title}</strong><small>{lens.priority} priority · {lens.id}</small></span></label>)}</div>
       <div className="research-search-controls">

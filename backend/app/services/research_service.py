@@ -242,6 +242,20 @@ class ResearchService:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
         normalized_override = dict(override or {})
         options = _manual_request_options(normalized_override, profile)
+        queued_at = self._now()
+        if not profile.enabled:
+            raise ValueError("Research Profile is disabled")
+        if not profile.ai_analysis.enabled:
+            raise ValueError("Research AI Analysis is disabled")
+        profile_state = self.profile_state_repository.get(profile_id)
+        if (
+            profile_state is not None
+            and profile_state.paused_until is not None
+            and _parse_timestamp(profile_state.paused_until) > queued_at
+        ):
+            raise ValueError("Research Profile is paused")
+        if self.candidate_service.remaining_capacity(profile) <= 0:
+            raise ValueError("Research Inbox is full")
         if options["additional_query_lens"] is not None:
             normalized_override["additional_query_lens"] = options[
                 "additional_query_lens"
@@ -249,7 +263,7 @@ class ResearchService:
         return self.run_request_repository.enqueue(
             profile_id,
             normalized_override,
-            self._now(),
+            queued_at,
             request_id=self.id_factory(),
         )
 
@@ -451,8 +465,7 @@ class ResearchService:
 
         profile_state = self.profile_state_repository.get_or_create(profile.id, now)
         if (
-            trigger == "scheduled"
-            and profile_state.paused_until is not None
+            profile_state.paused_until is not None
             and _parse_timestamp(profile_state.paused_until) > now
         ):
             return self._create_finished_run(

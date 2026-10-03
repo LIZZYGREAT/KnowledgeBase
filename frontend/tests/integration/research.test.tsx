@@ -12,11 +12,13 @@ const runRequestId = "research-request-123";
 describe("Research workspace", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   let responseProfileDetail = profileDetail;
+  let responseProfileSummary = profileSummary;
   let responseCandidateDetail = candidateDetail;
   let researchProfileDraft: Record<string, unknown> | null = null;
 
   beforeEach(() => {
     responseProfileDetail = profileDetail;
+    responseProfileSummary = profileSummary;
     responseCandidateDetail = candidateDetail;
     researchProfileDraft = null;
     window.history.replaceState({}, "", "/research");
@@ -27,7 +29,7 @@ describe("Research workspace", () => {
       if (path === "/api/collections/continual-learning") return jsonResponse({ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] });
       if (path === "/api/drafts?entity_type=collection&entity_id=continual-learning") return jsonResponse([]);
       if (path === "/api/documents?limit=100&offset=0") return jsonResponse([]);
-      if (path === "/api/research/profiles") return jsonResponse([profileSummary]);
+      if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary]);
       if (path === "/api/research/profiles/continual-learning") return jsonResponse(responseProfileDetail);
       if (path === "/api/drafts?entity_type=research_profile&entity_id=continual-learning") return jsonResponse([]);
       if (path === "/api/drafts" && init?.method === "POST") {
@@ -154,6 +156,49 @@ describe("Research workspace", () => {
     expect(await screen.findByText(
       "AI Analysis disabled · 自动发现已暂停；启用后会从原 Watermark 继续。",
     )).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("blocks manual search when the Profile is disabled", async () => {
+    responseProfileSummary = { ...profileSummary, enabled: false };
+    responseProfileDetail = {
+      ...profileDetail,
+      profile: { ...profile, enabled: false },
+    };
+    render(<App />);
+
+    expect(await screen.findByText(
+      "Profile disabled · 启用 Profile 后才能运行 Search Now。",
+    )).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("blocks manual search while the Profile is paused", async () => {
+    responseProfileDetail = {
+      ...profileDetail,
+      runtime_state: {
+        ...profileDetail.runtime_state!,
+        paused_until: new Date(Date.now() + 86_400_000).toISOString(),
+      },
+    };
+    render(<App />);
+
+    expect(await screen.findByText(
+      "Research paused · Resume Profile 后才能运行 Search Now。",
+    )).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("blocks manual search when the Inbox is full", async () => {
+    const fullInbox = { new_count: 20, capacity: 20, remaining: 0 };
+    responseProfileSummary = { ...profileSummary, inbox: fullInbox };
+    responseProfileDetail = { ...profileDetail, inbox: fullInbox };
+    render(<App />);
+
+    expect(await screen.findByText("Inbox Full")).toBeTruthy();
+    expect(screen.getByText("Inbox Full").parentElement?.textContent).toContain(
+      "Inbox Full · 处理候选后才能运行 Search Now。",
+    );
     expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
   });
 

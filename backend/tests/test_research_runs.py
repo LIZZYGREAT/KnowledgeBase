@@ -118,7 +118,7 @@ def test_full_inbox_skips_before_provider_or_deepseek_calls(tmp_path):
     connection.close()
 
 
-def test_disabled_ai_skips_scheduled_and_manual_discovery_without_advancing_watermark(
+def test_disabled_ai_skips_scheduled_and_rejects_manual_queue_without_advancing_watermark(
     tmp_path,
 ):
     connection = connect_database(":memory:")
@@ -139,18 +139,70 @@ def test_disabled_ai_skips_scheduled_and_manual_discovery_without_advancing_wate
     assert provider.calls == 0
     assert service.profile_state_repository.get(profile.id) is None
 
-    request = service.queue_manual_run(profile.id)
-    run = service.tick()
+    with pytest.raises(ValueError, match="Research AI Analysis is disabled"):
+        service.queue_manual_run(profile.id)
 
-    assert run is not None and run.status == "skipped_ai_disabled"
-    assert run.trigger == "manual" and run.request_id == request.id
-    assert run.provider_summary == {}
-    assert (run.fetched_count, run.analyzed_count, run.surfaced_count) == (0, 0, 0)
     assert provider.calls == 0
     assert ai_client.calls == []
     assert service.profile_state_repository.get(profile.id) is None
     assert connection.execute("SELECT COUNT(*) FROM research_search_state").fetchone()[0] == 0
-    assert [saved.id for saved in run_repository.list_for_profile(profile.id)] == [run.id]
+    assert connection.execute("SELECT COUNT(*) FROM research_run_requests").fetchone()[0] == 0
+    assert run_repository.list_for_profile(profile.id) == []
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    ("blocker", "message"),
+    [
+        ("profile_disabled", "Research Profile is disabled"),
+        ("ai_disabled", "Research AI Analysis is disabled"),
+        ("paused", "Research Profile is paused"),
+        ("inbox_full", "Research Inbox is full"),
+    ],
+)
+def test_manual_queue_rejects_profiles_that_cannot_discover(
+    tmp_path, blocker, message
+):
+    connection = connect_database(":memory:")
+    base_profile = _profile(max_new_candidates=1 if blocker == "inbox_full" else 20)
+    if blocker == "profile_disabled":
+        profile = base_profile.model_copy(update={"enabled": False})
+    elif blocker == "ai_disabled":
+        profile = base_profile.model_copy(
+            update={
+                "ai_analysis": base_profile.ai_analysis.model_copy(
+                    update={"enabled": False}
+                )
+            }
+        )
+    else:
+        profile = base_profile
+    if blocker == "inbox_full":
+        _seed_existing_new_candidate(connection, profile)
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]), profile=profile)
+    if blocker == "paused":
+        service.pause_profile(profile.id, _NOW + timedelta(days=1))
+
+    with pytest.raises(ValueError, match=message):
+        service.queue_manual_run(profile.id)
+
+    assert connection.execute("SELECT COUNT(*) FROM research_run_requests").fetchone()[0] == 0
+    connection.close()
+
+
+def test_queued_manual_run_rechecks_pause_before_discovery(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    request = service.queue_manual_run("continual-learning")
+    service.pause_profile("continual-learning", _NOW + timedelta(days=1))
+
+    run = service.tick()
+
+    assert run is not None and run.status == "skipped_paused"
+    assert run.request_id == request.id
+    assert service.run_request_repository.get(request.id).status == "completed"
+    assert provider.calls == 0
     connection.close()
 
 
