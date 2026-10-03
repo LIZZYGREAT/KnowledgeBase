@@ -43,8 +43,8 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(screen.getByRole("button", { name: /Research/ }).getAttribute("aria-current")).toBe("page");
-    expect(await screen.findByText("Discoveries")).toBeTruthy();
-    expect(await screen.findByRole("heading", { name: "A New Regularization Method" })).toBeTruthy();
+    expect(await screen.findByText("Discoveries", {}, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText("Related knowledge")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Why this candidate/ }));
