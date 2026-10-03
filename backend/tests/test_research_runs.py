@@ -109,6 +109,68 @@ def test_capacity_reached_mid_slice_stops_pagination_without_advancing_watermark
     connection.close()
 
 
+def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    first_work = _provider_work()
+    second_work = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2402.00001",
+        title="A second Fisher Information study on parameter importance",
+        abstract="Fisher information offers a distinct measure of parameter importance.",
+        authors=("Grace Hopper",),
+        year=2026,
+        published_at="2026-10-03",
+        arxiv_id="2402.00001",
+        url="https://arxiv.org/abs/2402.00001",
+    )
+    provider = FakeProvider(
+        [
+            ProviderPage(works=(first_work, second_work)),
+            ProviderPage(works=(second_work,)),
+        ]
+    )
+    profile = _profile(max_new_candidates=10)
+    profile = profile.model_copy(
+        update={
+            "search": profile.search.model_copy(
+                update={"max_candidates_per_run": 1}
+            )
+        }
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    now = [_NOW]
+    service.clock = lambda: now[0]
+
+    first_run = service.tick()
+
+    assert first_run is not None and first_run.status == "success"
+    assert first_run.surfaced_count == 1
+    assert service.candidate_service.remaining_capacity(profile) == 9
+    assert provider.calls == 1
+    state = search_repository.get_state(
+        profile.id, "regularization", "arxiv", _query_key(service)
+    )
+    assert state is not None and state.completed_through is None
+    assert service.tick() is None
+    assert provider.calls == 1
+
+    now[0] = _NOW + timedelta(days=1)
+    second_run = service.tick()
+
+    assert second_run is not None and second_run.status == "success"
+    assert second_run.surfaced_count == 1
+    assert provider.calls == 2
+    state = search_repository.get_state(
+        profile.id, "regularization", "arxiv", _query_key(service)
+    )
+    assert state is not None and state.completed_through is None
+    connection.close()
+
+
 def test_incomplete_manual_range_reuses_negative_analysis_on_restart(tmp_path):
     connection = connect_database(":memory:")
     page = ProviderPage(works=(_provider_work(),))

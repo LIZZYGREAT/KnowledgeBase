@@ -666,9 +666,11 @@ class ResearchService:
                         if self.candidate_service.remaining_capacity(profile) <= 0:
                             errors.append("Inbox capacity reached before the slice completed")
                             return False, "capacity_reached"
-                        if self.run_repository.get(run.id).surfaced_count >= profile.search.max_candidates_per_run:
-                            errors.append("Per-run Candidate limit reached before the slice completed")
-                            return False, "capacity_reached"
+                        if (
+                            self.run_repository.get(run.id).surfaced_count
+                            >= profile.search.max_candidates_per_run
+                        ):
+                            return False, "success"
                 except AIGatewayError as error:
                     errors.append("DeepSeek: {}".format(str(error)[:240]))
                     complete_page = False
