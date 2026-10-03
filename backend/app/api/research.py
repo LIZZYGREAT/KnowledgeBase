@@ -9,6 +9,8 @@ from backend.app.api.research_schemas import (
     ResearchCandidateDetailView,
     ResearchCandidateListItem,
     ResearchCandidateListView,
+    ResearchCreateNoteRequest,
+    ResearchCreateNoteResultView,
     ResearchDateRangeRequest,
     ResearchDismissRequest,
     ResearchManualRunRequest,
@@ -267,6 +269,30 @@ async def save_candidate_source(candidate_id: str, request: Request):
         "source_id": result.source_id,
         "draft_id": result.draft_id,
         "candidate": result.candidate,
+    }
+
+
+@router.post(
+    "/candidates/{candidate_id}/create-note",
+    response_model=ResearchCreateNoteResultView,
+)
+async def create_candidate_note(
+    candidate_id: str, body: ResearchCreateNoteRequest, request: Request
+):
+    result = request.app.state.research_conversion_service.create_note(
+        candidate_id,
+        document_type=body.document_type,
+        template=body.template,
+        collection_id=body.collection_id,
+        section_id=body.section_id,
+    )
+    return {
+        "group_id": result.group_id,
+        "source_draft_id": result.source_draft_id,
+        "document_draft_id": result.document_draft_id,
+        "collection_draft_id": result.collection_draft_id,
+        "document_id": result.document_id,
+        "source_id": result.source_id,
     }
 
 

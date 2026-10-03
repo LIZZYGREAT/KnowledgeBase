@@ -155,6 +155,28 @@ class ResearchSaveSourceResultView(APIModel):
     candidate: ResearchCandidateRecord
 
 
+class ResearchCreateNoteRequest(APIModel):
+    document_type: Literal["paper-note", "learning-note"]
+    template: Literal["structured", "blank"] = "structured"
+    collection_id: Optional[Slug] = None
+    section_id: Optional[Slug] = None
+
+    @model_validator(mode="after")
+    def validate_section_collection(self):
+        if self.section_id is not None and self.collection_id is None:
+            raise ValueError("section_id requires collection_id")
+        return self
+
+
+class ResearchCreateNoteResultView(APIModel):
+    group_id: NonEmptyText
+    source_draft_id: Optional[NonEmptyText] = None
+    document_draft_id: NonEmptyText
+    collection_draft_id: Optional[NonEmptyText] = None
+    document_id: Slug
+    source_id: Optional[Slug] = None
+
+
 class ResearchCandidateListItem(APIModel):
     candidate: ResearchCandidateRecord
     work: ResearchWorkRecord
