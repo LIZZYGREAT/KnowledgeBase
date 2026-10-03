@@ -19,6 +19,7 @@ from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.research_providers.base import ProviderWork
+from backend.tests.test_research_runs import FakeProvider, _service
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -957,11 +958,22 @@ def test_browser_upload_stages_multiple_markdown_and_pdf_files(api_client):
     assert not list(browser_uploads.iterdir())
 
 
-def test_research_profile_controls_manual_queue_runs_and_candidate_actions(api_client):
-    service = api_client.app.state.research_service
+def test_research_profile_controls_manual_queue_runs_and_candidate_actions(
+    api_client, tmp_path, request
+):
+    api_service = api_client.app.state.research_service
     profile_id = "continual-learning"
-    profile = service.profile_registry.get(profile_id)
+    profile = api_service.profile_registry.get(profile_id)
     assert profile is not None
+
+    # TestClient owns the app connection on its lifespan thread. Keep all
+    # test-side repository reads and writes on a separate connection created
+    # by this pytest thread.
+    test_connection = connect_database(api_client.app.state.database_path)
+    request.addfinalizer(test_connection.close)
+    service, _, _, _ = _service(
+        tmp_path, test_connection, FakeProvider([]), profile=profile
+    )
 
     profiles = api_client.get("/api/research/profiles")
     assert profiles.status_code == 200
