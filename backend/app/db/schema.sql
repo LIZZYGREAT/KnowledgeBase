@@ -385,8 +385,8 @@ CREATE TABLE IF NOT EXISTS research_runs (
     status TEXT NOT NULL CHECK (
         status IN (
             'running', 'success', 'partial', 'failed', 'interrupted',
-            'skipped_paused', 'skipped_disabled', 'skipped_inbox_full',
-            'capacity_reached'
+            'skipped_paused', 'skipped_disabled', 'skipped_ai_disabled',
+            'skipped_inbox_full', 'capacity_reached'
         )
     ),
     profile_content_hash TEXT NOT NULL,

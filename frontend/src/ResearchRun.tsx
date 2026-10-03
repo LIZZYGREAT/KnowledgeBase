@@ -19,7 +19,7 @@ export function ResearchRunList({
     {runs.map((run) => <button className="research-run-row" key={run.id} onClick={() => onOpen(run.id)}>
       <span className={`research-run-mark research-run-${run.status}`} aria-hidden="true">{run.status === "success" ? "✓" : run.status === "running" ? "◷" : "!"}</span>
       <span className="research-run-row-main"><strong>{formatDate(run.started_at)} · {run.trigger === "scheduled" ? "Scheduled" : "Manual"}</strong><small>{run.fetched_count} fetched · {run.surfaced_count} candidates · {run.status.replaceAll("_", " ")}</small></span>
-      <Chip tone={run.status === "success" ? "green" : run.status === "partial" ? "amber" : run.status === "running" ? "blue" : "rose"}>{run.status.replaceAll("_", " ")}</Chip>
+      <Chip tone={run.status === "success" ? "green" : run.status === "partial" || run.status === "skipped_ai_disabled" ? "amber" : run.status === "running" ? "blue" : "rose"}>{run.status.replaceAll("_", " ")}</Chip>
       <span className="row-arrow" aria-hidden="true">↗</span>
     </button>)}
   </div>;

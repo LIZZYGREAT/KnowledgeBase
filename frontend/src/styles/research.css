@@ -17,6 +17,7 @@
 .research-meter-track > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #a9cfb2, #4c8963); transition: width .25s ease; }
 .research-capacity-note { margin: 0; border-radius: 7px; padding: 8px 10px; color: #836b3f; background: #fff9ed; font-size: var(--text-xs); }
 .research-capacity-note strong { color: #8f6d32; }
+.research-ai-disabled-note { margin: 0; border-radius: 7px; padding: 9px 11px; color: #836b3f; background: #fff9ed; font-size: var(--text-xs); }
 .research-pause-options, .research-resume-bar { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; border: 1px solid #e7eee8; border-radius: 9px; padding: 12px; background: #f9fbf9; }
 .research-pause-options > strong { align-self: center; margin-right: auto; color: #53675a; font-size: var(--text-sm); }
 .research-pause-date { display: flex; align-items: end; gap: 8px; }
@@ -128,7 +129,7 @@
 .research-run-row { display: flex; width: 100%; min-height: 63px; align-items: center; gap: 10px; border: 0; border-top: 1px solid #edf1ed; padding: 9px 3px; background: transparent; text-align: left; cursor: pointer; }
 .research-run-row:hover .research-run-row-main strong { color: #347151; }
 .research-run-mark { display: grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; border-radius: 8px; color: #64866b; background: #eff6f0; font-size: var(--text-sm); font-weight: 700; }
-.research-run-partial, .research-run-skipped_inbox_full, .research-run-capacity_reached { color: #94713e; background: #fbf6e9; }
+.research-run-partial, .research-run-skipped_ai_disabled, .research-run-skipped_inbox_full, .research-run-capacity_reached { color: #94713e; background: #fbf6e9; }
 .research-run-failed, .research-run-interrupted { color: #a15d56; background: #fcf1ef; }
 .research-run-row-main { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .research-run-row-main strong { overflow: hidden; color: #52665a; font-size: var(--text-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }

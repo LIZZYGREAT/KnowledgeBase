@@ -85,6 +85,42 @@ def test_full_inbox_skips_before_provider_or_deepseek_calls(tmp_path):
     connection.close()
 
 
+def test_disabled_ai_skips_scheduled_and_manual_discovery_without_advancing_watermark(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    base_profile = _profile()
+    profile = base_profile.model_copy(
+        update={
+            "ai_analysis": base_profile.ai_analysis.model_copy(
+                update={"enabled": False}
+            )
+        }
+    )
+    service, run_repository, _, ai_client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+
+    assert service.tick() is None
+    assert provider.calls == 0
+    assert service.profile_state_repository.get(profile.id) is None
+
+    request = service.queue_manual_run(profile.id)
+    run = service.tick()
+
+    assert run is not None and run.status == "skipped_ai_disabled"
+    assert run.trigger == "manual" and run.request_id == request.id
+    assert run.provider_summary == {}
+    assert (run.fetched_count, run.analyzed_count, run.surfaced_count) == (0, 0, 0)
+    assert provider.calls == 0
+    assert ai_client.calls == []
+    assert service.profile_state_repository.get(profile.id) is None
+    assert connection.execute("SELECT COUNT(*) FROM research_search_state").fetchone()[0] == 0
+    assert [saved.id for saved in run_repository.list_for_profile(profile.id)] == [run.id]
+    connection.close()
+
+
 def test_capacity_reached_mid_slice_stops_pagination_without_advancing_watermark(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider(

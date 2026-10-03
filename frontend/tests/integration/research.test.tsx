@@ -11,8 +11,10 @@ const runRequestId = "research-request-123";
 
 describe("Research workspace", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
+  let responseProfileDetail = profileDetail;
 
   beforeEach(() => {
+    responseProfileDetail = profileDetail;
     window.history.replaceState({}, "", "/research");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -21,7 +23,7 @@ describe("Research workspace", () => {
       if (path === "/api/collections/continual-learning") return jsonResponse({ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] });
       if (path === "/api/drafts?entity_type=collection&entity_id=continual-learning") return jsonResponse([]);
       if (path === "/api/research/profiles") return jsonResponse([profileSummary]);
-      if (path === "/api/research/profiles/continual-learning") return jsonResponse(profileDetail);
+      if (path === "/api/research/profiles/continual-learning") return jsonResponse(responseProfileDetail);
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
       if (path === "/api/research/candidates/candidate-1") return jsonResponse(candidateDetail);
       if (path === "/api/research/runs?offset=0&limit=50&profile_id=continual-learning") return jsonResponse({ runs: [], count: 0 });
@@ -69,6 +71,22 @@ describe("Research workspace", () => {
     const body = JSON.parse(String(call?.[1]?.body));
     expect(body).toMatchObject({ lenses: ["regularization"], breadth: "balanced", additional_queries: ["dynamic fisher continual learning"] });
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
+  });
+
+  it("explains that discovery is paused when AI Analysis is disabled", async () => {
+    responseProfileDetail = {
+      ...profileDetail,
+      profile: {
+        ...profile,
+        ai_analysis: { ...profile.ai_analysis, enabled: false },
+      },
+    };
+    render(<App />);
+
+    expect(await screen.findByText(
+      "AI Analysis disabled · 自动发现已暂停；启用后会从原 Watermark 继续。",
+    )).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("opens the Source Draft in the Unified Workspace", async () => {

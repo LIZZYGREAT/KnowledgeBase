@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -25,6 +25,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_current_proposal_lifecycle
         elif target_version == 4:
             migration = _migrate_to_research_runtime
+        elif target_version == 5:
+            migration = _migrate_to_research_run_ai_disabled_status
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -37,6 +39,57 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             connection.rollback()
             raise
         version = target_version
+
+
+def _migrate_to_research_run_ai_disabled_status(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """CREATE TABLE research_runs_with_ai_disabled_status (
+               id TEXT PRIMARY KEY,
+               profile_id TEXT NOT NULL,
+               request_id TEXT,
+               trigger TEXT NOT NULL CHECK (trigger IN ('scheduled', 'manual')),
+               status TEXT NOT NULL CHECK (
+                   status IN (
+                       'running', 'success', 'partial', 'failed', 'interrupted',
+                       'skipped_paused', 'skipped_disabled', 'skipped_ai_disabled',
+                       'skipped_inbox_full', 'capacity_reached'
+                   )
+               ),
+               profile_content_hash TEXT NOT NULL,
+               effective_config_json TEXT NOT NULL,
+               fetched_count INTEGER NOT NULL DEFAULT 0,
+               new_work_count INTEGER NOT NULL DEFAULT 0,
+               duplicate_count INTEGER NOT NULL DEFAULT 0,
+               deterministic_filtered_count INTEGER NOT NULL DEFAULT 0,
+               analyzed_count INTEGER NOT NULL DEFAULT 0,
+               surfaced_count INTEGER NOT NULL DEFAULT 0,
+               provider_summary_json TEXT NOT NULL,
+               error_summary TEXT,
+               started_at TEXT NOT NULL,
+               finished_at TEXT
+           )"""
+    )
+    connection.execute(
+        """INSERT INTO research_runs_with_ai_disabled_status (
+               id, profile_id, request_id, trigger, status, profile_content_hash,
+               effective_config_json, fetched_count, new_work_count, duplicate_count,
+               deterministic_filtered_count, analyzed_count, surfaced_count,
+               provider_summary_json, error_summary, started_at, finished_at
+           )
+           SELECT id, profile_id, request_id, trigger, status, profile_content_hash,
+                  effective_config_json, fetched_count, new_work_count, duplicate_count,
+                  deterministic_filtered_count, analyzed_count, surfaced_count,
+                  provider_summary_json, error_summary, started_at, finished_at
+           FROM research_runs"""
+    )
+    connection.execute("DROP TABLE research_runs")
+    connection.execute(
+        "ALTER TABLE research_runs_with_ai_disabled_status RENAME TO research_runs"
+    )
+    connection.execute(
+        """CREATE INDEX research_runs_profile_idx
+           ON research_runs (profile_id, started_at DESC)"""
+    )
 
 
 def _migrate_to_collection_runtime(connection: sqlite3.Connection) -> None:

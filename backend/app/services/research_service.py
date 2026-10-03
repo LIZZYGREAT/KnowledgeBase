@@ -284,7 +284,11 @@ class ResearchService:
     def _most_overdue_profile(self, now: datetime) -> Optional[ResearchProfile]:
         eligible = []
         for profile in self.profile_registry.profiles:
-            if not profile.enabled or profile.schedule.mode == "manual":
+            if (
+                not profile.enabled
+                or not profile.ai_analysis.enabled
+                or profile.schedule.mode == "manual"
+            ):
                 continue
             state = self.profile_state_repository.get(profile.id)
             if state is not None and state.paused_until is not None:
@@ -396,6 +400,16 @@ class ResearchService:
             )
         if trigger == "scheduled" and not self._schedule_due(profile, now):
             return None
+        if not profile.ai_analysis.enabled:
+            return self._create_finished_run(
+                profile,
+                profile_hash,
+                effective_config,
+                trigger,
+                request_id,
+                "skipped_ai_disabled",
+                now,
+            )
 
         profile_state = self.profile_state_repository.get_or_create(profile.id, now)
         if (

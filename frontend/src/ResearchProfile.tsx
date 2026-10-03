@@ -142,7 +142,7 @@ export function ResearchProfilePanel({
     setSelectedLenses((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
-  const scheduledText = profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
+  const scheduledText = !profile.ai_analysis.enabled ? "自动发现已暂停" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
   const capacityPercent = summary.inbox.capacity === 0 ? 100 : Math.min(100, summary.inbox.new_count / summary.inbox.capacity * 100);
 
   return <section className="surface research-profile-panel">
@@ -150,6 +150,7 @@ export function ResearchProfilePanel({
       <div>
         <div className="research-status-line">
           <Chip tone={isPaused ? "amber" : summary.enabled ? "green" : "rose"}>{isPaused ? "Paused" : summary.enabled ? "Active" : "Disabled"}</Chip>
+          {!profile.ai_analysis.enabled && <Chip tone="amber">AI Analysis disabled</Chip>}
           <span>{scheduledText}</span>
         </div>
         <h2>{profile.title}</h2>
@@ -158,9 +159,11 @@ export function ResearchProfilePanel({
       </div>
       <div className="research-profile-actions">
         {isPaused ? <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume</button> : <button className="button button-secondary" disabled={busy || !summary.enabled} onClick={() => setPauseOpen((open) => !open)}>Pause</button>}
-        <button className="button button-primary" onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "Close Search" : "Search Now"}</button>
+        <button className="button button-primary" disabled={!profile.ai_analysis.enabled} onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "Close Search" : "Search Now"}</button>
       </div>
     </div>
+
+    {!profile.ai_analysis.enabled && <p className="research-ai-disabled-note" role="status">AI Analysis disabled · 自动发现已暂停；启用后会从原 Watermark 继续。</p>}
 
     {isPaused && <div className="research-resume-bar">
       <label className="field-label">恢复方式<select value={resumeStrategy} onChange={(event) => setResumeStrategy(event.target.value as typeof resumeStrategy)}><option value="catch_up">追赶暂停期间的内容</option><option value="from_now">从现在开始，不补历史</option></select></label>
@@ -182,7 +185,7 @@ export function ResearchProfilePanel({
       {summary.inbox.remaining === 0 && <p className="research-capacity-note"><strong>Inbox Full</strong> · 新发现会暂停，处理候选后自动恢复。</p>}
     </div>
 
-    {searchOpen && <form className="research-search-form" onSubmit={(event) => void submitSearch(event)}>
+    {searchOpen && profile.ai_analysis.enabled && <form className="research-search-form" onSubmit={(event) => void submitSearch(event)}>
       <div className="research-section-heading"><div><h3>Search Focus</h3><p>设置仅对本次搜索生效，不会修改 Profile 默认值。</p></div></div>
       <div className="research-lens-options">{profile.lenses.map((lens) => <label className="research-lens-option" key={lens.id}><input type="checkbox" checked={selectedLenses.includes(lens.id)} onChange={() => toggleLens(lens.id)} /><span><strong>{lens.title}</strong><small>{lens.priority} priority · {lens.id}</small></span></label>)}</div>
       <div className="research-search-controls">

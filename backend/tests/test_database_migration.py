@@ -18,7 +18,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     connection = connect_database(database_path)
     try:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
         ).fetchone() is not None
@@ -68,7 +68,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     reopened = connect_database(database_path)
     try:
-        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 5
         assert reopened.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 5
         assert reopened.execute("SELECT COUNT(*) FROM collection_progress").fetchone()[0] == 1
     finally:
@@ -77,7 +77,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
 def test_migration_rejects_a_database_from_a_newer_schema_version():
     connection = sqlite3.connect(":memory:")
-    connection.execute("PRAGMA user_version = 5")
+    connection.execute("PRAGMA user_version = 6")
 
     with pytest.raises(RuntimeError, match="newer than supported"):
         migrate_database(connection)
@@ -115,7 +115,7 @@ def test_version_three_database_migrates_research_tables_and_preserves_drafts():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
     assert connection.execute(
         "SELECT content, revision FROM drafts WHERE id = 'existing-draft'"
     ).fetchone() == ("preserved draft content", 2)
@@ -149,6 +149,62 @@ def test_version_three_database_migrates_research_tables_and_preserves_drafts():
     assert connection.execute(
         "SELECT entity_id FROM drafts WHERE id = 'profile-draft'"
     ).fetchone()[0] == "continual-learning"
+    connection.close()
+
+
+def test_version_four_research_run_migration_preserves_rows_and_adds_ai_disabled_status():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """CREATE TABLE research_runs (
+               id TEXT PRIMARY KEY,
+               profile_id TEXT NOT NULL,
+               request_id TEXT,
+               trigger TEXT NOT NULL CHECK (trigger IN ('scheduled', 'manual')),
+               status TEXT NOT NULL CHECK (
+                   status IN (
+                       'running', 'success', 'partial', 'failed', 'interrupted',
+                       'skipped_paused', 'skipped_disabled', 'skipped_inbox_full',
+                       'capacity_reached'
+                   )
+               ),
+               profile_content_hash TEXT NOT NULL,
+               effective_config_json TEXT NOT NULL,
+               fetched_count INTEGER NOT NULL DEFAULT 0,
+               new_work_count INTEGER NOT NULL DEFAULT 0,
+               duplicate_count INTEGER NOT NULL DEFAULT 0,
+               deterministic_filtered_count INTEGER NOT NULL DEFAULT 0,
+               analyzed_count INTEGER NOT NULL DEFAULT 0,
+               surfaced_count INTEGER NOT NULL DEFAULT 0,
+               provider_summary_json TEXT NOT NULL,
+               error_summary TEXT,
+               started_at TEXT NOT NULL,
+               finished_at TEXT
+           );
+           CREATE INDEX research_runs_profile_idx
+               ON research_runs (profile_id, started_at DESC);
+           INSERT INTO research_runs VALUES (
+               'existing-run', 'profile', NULL, 'manual', 'success', 'hash', '{}',
+               2, 1, 0, 0, 1, 1, '{}', NULL, 'started', 'finished'
+           );
+           PRAGMA user_version = 4;"""
+    )
+
+    migrate_database(connection)
+
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+    assert connection.execute(
+        "SELECT status, fetched_count, finished_at FROM research_runs WHERE id = 'existing-run'"
+    ).fetchone() == ("success", 2, "finished")
+    connection.execute(
+        """INSERT INTO research_runs (
+               id, profile_id, trigger, status, profile_content_hash,
+               effective_config_json, provider_summary_json, started_at, finished_at
+           ) VALUES ('disabled-run', 'profile', 'manual', 'skipped_ai_disabled',
+                     'hash', '{}', '{}', 'started', 'finished')"""
+    )
+    assert connection.execute(
+        "SELECT status FROM research_runs WHERE id = 'disabled-run'"
+    ).fetchone()[0] == "skipped_ai_disabled"
     connection.close()
 
 

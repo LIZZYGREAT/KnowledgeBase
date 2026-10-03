@@ -286,10 +286,11 @@ export interface ResearchProfile {
 }
 
 export interface ResearchInboxUsage { new_count: number; capacity: number; remaining: number }
+export type ResearchRunStatus = "running" | "success" | "partial" | "failed" | "interrupted" | "skipped_paused" | "skipped_disabled" | "skipped_ai_disabled" | "skipped_inbox_full" | "capacity_reached";
 export interface ResearchRunSummary {
   id: string;
   trigger: "scheduled" | "manual";
-  status: string;
+  status: ResearchRunStatus;
   started_at: string;
   finished_at: string | null;
   fetched_count: number;
