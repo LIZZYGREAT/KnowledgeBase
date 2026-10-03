@@ -26,11 +26,8 @@ async def publish(body: PublishRequest, request: Request):
 @router.post("/publish/batch", response_model=BatchPublishedView)
 async def publish_batch(body: BatchPublishRequest, request: Request):
     result = request.app.state.publisher.publish_batch(
-        [item.draft_id for item in body.drafts],
+        [(item.draft_id, item.expected_revision) for item in body.drafts],
         body.commit_message,
-        expected_revisions={
-            item.draft_id: item.expected_revision for item in body.drafts
-        },
     )
     return {
         "results": [_published_view(item) for item in result.results],

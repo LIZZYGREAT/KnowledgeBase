@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Sequence, Union
 
 import yaml
 from pydantic import ValidationError
@@ -118,7 +118,7 @@ class Publisher:
         commit_message: Optional[str] = None,
     ) -> PublishedResult:
         result = self.publish_batch(
-            [draft_id], commit_message, {draft_id: expected_revision}
+            [(draft_id, expected_revision)], commit_message
         )
         return result.results[0]
 
@@ -169,30 +169,34 @@ class Publisher:
 
     def publish_batch(
         self,
-        draft_ids,
+        drafts: Sequence[tuple[str, int]],
         commit_message: Optional[str] = None,
-        expected_revisions: Optional[dict[str, int]] = None,
     ) -> BatchPublishedResult:
         """Validate and publish multiple Drafts in one canonical Git commit."""
-        if isinstance(draft_ids, (str, bytes)) or not draft_ids:
+        if isinstance(drafts, (str, bytes)):
             raise ValueError("At least one Draft id is required")
-        draft_ids = list(draft_ids)
-        if len(draft_ids) != len(set(draft_ids)):
-            raise PublishValidationError("Draft ids in a batch must be unique")
-        if expected_revisions is not None and set(expected_revisions) != set(draft_ids):
-            raise PublishValidationError(
-                "Every Draft in a publish batch must include its reviewed revision"
-            )
+        drafts = list(drafts)
+        if not drafts:
+            raise ValueError("At least one Draft id is required")
+        seen_draft_ids = set()
+        for item in drafts:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise PublishValidationError(
+                    "Each publish batch entry must include a Draft id and its reviewed revision"
+                )
+            draft_id, expected_revision = item
+            if not isinstance(draft_id, str) or not draft_id:
+                raise PublishValidationError("Draft ids in a batch must be non-empty strings")
+            if type(expected_revision) is not int or expected_revision < 1:
+                raise PublishValidationError("Reviewed Draft revisions must be positive integers")
+            if draft_id in seen_draft_ids:
+                raise PublishValidationError("Draft ids in a batch must be unique")
+            seen_draft_ids.add(draft_id)
 
         prepared = []
         target_paths = set()
-        for draft_id in draft_ids:
+        for draft_id, expected_revision in drafts:
             draft = self.draft_service.get(draft_id)
-            expected_revision = (
-                expected_revisions[draft_id]
-                if expected_revisions is not None
-                else draft.revision
-            )
             if draft.revision != expected_revision:
                 raise PublishConflictError(
                     "Draft changed after review. Refresh the Publish Review before publishing. "

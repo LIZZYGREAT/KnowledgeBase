@@ -194,11 +194,7 @@ def test_batch_publish_rejects_any_changed_reviewed_revision_atomically(publish_
         match="Draft changed after review. Refresh the Publish Review before publishing.",
     ):
         publisher.publish_batch(
-            [document.id, collection.id],
-            expected_revisions={
-                document.id: document.revision,
-                collection.id: collection.revision,
-            },
+            [(document.id, document.revision), (collection.id, collection.revision)],
         )
 
     assert not (repository / document_path).exists()
@@ -206,6 +202,26 @@ def test_batch_publish_rejects_any_changed_reviewed_revision_atomically(publish_
     assert git.current_revision() == current_commit
     assert drafts.get(document.id).revision == document.revision
     assert drafts.get(collection.id).revision == collection.revision + 1
+
+
+def test_batch_publish_requires_unique_draft_revision_pairs(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "batch-revision-required",
+        _document("batch-revision-required"),
+        "knowledge/documents/learning/batch-revision-required.md",
+    )
+
+    with pytest.raises(PublishValidationError, match="Draft id and its reviewed revision"):
+        publisher.publish_batch([draft.id])
+    with pytest.raises(PublishValidationError, match="positive integers"):
+        publisher.publish_batch([(draft.id, 0)])
+    with pytest.raises(PublishValidationError, match="must be unique"):
+        publisher.publish_batch([(draft.id, draft.revision), (draft.id, draft.revision)])
 
 
 def test_publish_collection_metadata_and_reorder_updates_the_derived_order(publish_context):
@@ -238,7 +254,10 @@ def test_publish_collection_metadata_and_reorder_updates_the_derived_order(publi
     )
 
     result = publisher.publish_batch(
-        [alpha_update_draft.id, beta_reorder_draft.id],
+        [
+            (alpha_update_draft.id, alpha_update_draft.revision),
+            (beta_reorder_draft.id, beta_reorder_draft.revision),
+        ],
         "kb: update and reorder collections",
     )
 
@@ -274,7 +293,11 @@ def test_publish_batch_commits_document_and_collection_together(publish_context)
     base_revision = git.current_revision()
 
     result = publisher.publish_batch(
-        [document_draft.id, collection_draft.id], "kb: publish reading workspace"
+        [
+            (document_draft.id, document_draft.revision),
+            (collection_draft.id, collection_draft.revision),
+        ],
+        "kb: publish reading workspace",
     )
 
     assert result.commit_revision == git.current_revision()
@@ -328,7 +351,10 @@ def test_publish_batch_validation_failure_restores_all_files_and_keeps_drafts(
     head = git.current_revision()
 
     with pytest.raises(PublishValidationError, match="Unknown document entity 'missing-note'"):
-        publisher.publish_batch([document_draft.id, collection_draft.id])
+        publisher.publish_batch([
+            (document_draft.id, document_draft.revision),
+            (collection_draft.id, collection_draft.revision),
+        ])
 
     assert not (repository / document_path).exists()
     assert not (repository / collection_path).exists()
@@ -371,7 +397,10 @@ def test_publish_batch_commit_failure_restores_all_files_and_keeps_drafts(
 
     monkeypatch.setattr(publisher.git, "commit_many", fail_commit)
     with pytest.raises(GitOperationError, match="forced commit failure"):
-        publisher.publish_batch([document_draft.id, collection_draft.id])
+        publisher.publish_batch([
+            (document_draft.id, document_draft.revision),
+            (collection_draft.id, collection_draft.revision),
+        ])
 
     assert not (repository / document_path).exists()
     assert not (repository / collection_path).exists()
