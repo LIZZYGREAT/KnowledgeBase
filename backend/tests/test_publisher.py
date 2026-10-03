@@ -161,6 +161,36 @@ def test_publish_requires_the_reviewed_revision(publish_context):
         publisher.publish(draft.id)
 
 
+def test_publish_rejects_repository_duplicate_ids_and_rolls_back_candidate(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    duplicate_content = _document("duplicate-note", title="Duplicate Note")
+    first = repository / "knowledge/documents/learning/duplicate-note.md"
+    second = repository / "knowledge/documents/courses/duplicate-note.md"
+    first.parent.mkdir(parents=True, exist_ok=True)
+    second.parent.mkdir(parents=True, exist_ok=True)
+    first.write_text(duplicate_content, encoding="utf-8")
+    second.write_text(duplicate_content, encoding="utf-8")
+
+    target = "knowledge/documents/learning/publish-target.md"
+    draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "publish-target",
+        _document("publish-target", title="Publish Target"),
+        target,
+    )
+    current_commit = git.current_revision()
+
+    with pytest.raises(PublishValidationError, match="Duplicate Document id 'duplicate-note'"):
+        publisher.publish(draft.id, expected_revision=draft.revision)
+
+    assert not (repository / target).exists()
+    assert git.current_revision() == current_commit
+    assert drafts.get(draft.id).revision == draft.revision
+
+
 def test_batch_publish_rejects_any_changed_reviewed_revision_atomically(publish_context):
     repository, _, drafts, _, publisher = publish_context
     git = GitManager(repository)
