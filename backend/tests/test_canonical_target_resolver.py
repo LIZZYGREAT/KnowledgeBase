@@ -72,6 +72,20 @@ def test_resolves_source_collection_and_taxonomy_paths(resolver):
     )
 
 
+def test_resolves_research_profile_to_its_config_path_and_checks_id(resolver):
+    repository, _, target_resolver = resolver
+    content = _research_profile("profile-one")
+
+    result = target_resolver.resolve_target(
+        "research_profile", "profile-one", content
+    )
+
+    assert result.path == repository / "config/research/profiles/profile-one.yaml"
+    assert result.metadata.id == "profile-one"
+    with pytest.raises(ValueError, match="must match Research Profile id"):
+        target_resolver.resolve_target("research_profile", "other-id", content)
+
+
 def test_rejects_document_type_changes(resolver):
     _, connection, target_resolver = resolver
     indexed_path = "knowledge/documents/papers/same-id.md"
@@ -133,4 +147,21 @@ def _term(entity_id: str) -> str:
         "---\nschema_version: 1\nid: {}\ntitle: Example\ntype: concept\n"
         "depth: standard\naliases: []\ndomains: []\ntopics: []\ntags: []\n"
         "sources: []\n---\n# Example\n"
+    ).format(entity_id)
+
+
+def _research_profile(entity_id: str) -> str:
+    return (
+        "schema_version: 1\nid: {}\ntitle: Profile One\nenabled: true\n"
+        "lenses:\n  - id: focus\n    title: Focus\n    enabled: true\n"
+        "    priority: high\n    queries: [continual learning]\n"
+        "    include_terms: []\n    exclude_terms: []\n"
+        "exclude_terms: []\nproviders:\n  discovery: [arxiv]\n"
+        "  enrichment: []\ncontext:\n  collections: []\n  documents: []\n"
+        "  dynamic_retrieval:\n    enabled: true\n    scope: entire-library\n"
+        "schedule:\n  mode: manual\nsearch:\n  breadth: balanced\n"
+        "  initial_lookback_days: 30\n  max_catchup_days: 30\n"
+        "  max_candidates_per_run: 10\n  max_analyses_per_run: 5\n"
+        "inbox:\n  max_new_candidates: 20\nai_analysis:\n"
+        "  enabled: true\n  provider: deepseek\n"
     ).format(entity_id)

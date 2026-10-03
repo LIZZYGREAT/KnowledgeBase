@@ -127,7 +127,9 @@ class SearchResultView(APIModel):
 
 
 class DraftCreateRequest(APIModel):
-    entity_type: Literal["document", "term", "source", "taxonomy", "collection"]
+    entity_type: Literal[
+        "document", "term", "source", "taxonomy", "collection", "research_profile"
+    ]
     entity_id: NonEmptyText
     content: str
 
@@ -149,7 +151,9 @@ class DraftDeleteRequest(APIModel):
 
 class DraftView(APIModel):
     id: str
-    entity_type: Literal["document", "term", "source", "taxonomy", "collection"]
+    entity_type: Literal[
+        "document", "term", "source", "taxonomy", "collection", "research_profile"
+    ]
     entity_id: str
     base_git_revision: str
     base_content_hash: str

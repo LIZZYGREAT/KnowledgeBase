@@ -2,10 +2,11 @@
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
 import uuid
 
 from backend.app.domain.research import ResearchProfile
+from backend.app.domain.runtime import Draft
 from backend.app.domain.research_runtime import (
     ResearchContextPack,
     ResearchRunRequestRecord,
@@ -105,6 +106,21 @@ class ResearchService:
         self.id_factory = id_factory
         self.stale_run_after = stale_run_after
         self.provider_failure_threshold = provider_failure_threshold
+
+    def refresh_canonical_state(
+        self, published_drafts: Sequence[Draft] = ()
+    ) -> None:
+        if published_drafts and not any(
+            draft.entity_type in {"source", "research_profile"}
+            for draft in published_drafts
+        ):
+            return
+        profile_registry = ResearchProfileRegistry.load(self.repository_root)
+        source_registry = SourceRegistry.load(
+            self.repository_root / "knowledge" / "sources"
+        )
+        self.profile_registry = profile_registry
+        self.screening.sources = source_registry
 
     def run_profile(
         self,

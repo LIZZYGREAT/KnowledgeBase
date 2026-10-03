@@ -1,5 +1,5 @@
 export type EntityType = "document" | "term" | "source";
-export type DraftEntityType = EntityType | "taxonomy" | "collection";
+export type DraftEntityType = EntityType | "taxonomy" | "collection" | "research_profile";
 export type AnnotationStyleType = "highlight" | "text_color" | "underline";
 
 export interface PresentationAnnotation {

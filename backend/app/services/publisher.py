@@ -10,6 +10,7 @@ import yaml
 from pydantic import ValidationError
 
 from backend.app.domain.collection import Collection
+from backend.app.domain.research import ResearchProfile
 from backend.app.domain.runtime import Draft
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.taxonomy import TaxonomyRegistry as TaxonomyRegistryModel
@@ -32,6 +33,7 @@ from backend.app.services.canonical_validator import (
     validate_repository_references,
 )
 from backend.app.services.collection_registry import CollectionRegistry
+from backend.app.services.research_profile_registry import ResearchProfileRegistry
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import lint_markdown, load_writing_standard
 from backend.app.services.taxonomy_registry import (
@@ -711,6 +713,14 @@ class Publisher:
         validate_references: bool = True,
         sources_override: Optional[SourceRegistry] = None,
     ) -> list[str]:
+        if draft.entity_type == "research_profile":
+            if not isinstance(metadata, ResearchProfile):
+                raise PublishValidationError("Research Profile Draft has invalid metadata")
+            ResearchProfileRegistry.validate_candidate(
+                self.repository_root, metadata, path
+            )
+            return []
+
         if draft.entity_type == "source":
             self._validate_source_attachment(metadata)
             return []
@@ -888,6 +898,8 @@ class Publisher:
         return TaxonomyRegistry(tuple(records))
 
     def _default_commit_message(self, draft: Draft, was_existing: bool = False) -> str:
+        if draft.entity_type == "research_profile":
+            return "research({}): update research profile".format(draft.entity_id)
         if draft.entity_type == "document":
             return "docs({}): publish knowledge update".format(draft.entity_id)
         if draft.entity_type == "term":

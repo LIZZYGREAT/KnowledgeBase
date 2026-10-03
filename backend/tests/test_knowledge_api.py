@@ -422,6 +422,98 @@ def test_collection_draft_uses_the_existing_runtime_lifecycle(api_client):
     assert comparison.json()["canonical_changed"] is False
 
 
+def test_research_profile_draft_publish_validates_and_refreshes_runtime_registry(api_client):
+    repository = api_client.app.state.repository_root
+    profile_path = (
+        repository / "config" / "research" / "profiles" / "continual-learning.yaml"
+    )
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    profile["title"] = "Updated Continual Learning"
+    profile["context"]["documents"] = ["missing-research-document"]
+    invalid_content = yaml.safe_dump(profile, sort_keys=False, allow_unicode=True)
+
+    created = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "research_profile",
+            "entity_id": "continual-learning",
+            "content": invalid_content,
+        },
+    )
+
+    assert created.status_code == 201, created.json()
+    draft = created.json()["draft"]
+    assert draft["entity_type"] == "research_profile"
+    assert api_client.get(
+        "/api/drafts",
+        params={
+            "entity_type": "research_profile",
+            "entity_id": "continual-learning",
+        },
+    ).json()[0]["id"] == draft["id"]
+    invalid_preflight = api_client.get(
+        "/api/drafts/{}/preflight".format(draft["id"])
+    )
+    assert invalid_preflight.status_code == 200
+    assert invalid_preflight.json()["valid"] is False
+    assert "unknown pinned Document id(s): missing-research-document" in " ".join(
+        invalid_preflight.json()["errors"]
+    )
+
+    profile["context"]["documents"] = ["neural-indexing"]
+    valid_content = yaml.safe_dump(profile, sort_keys=False, allow_unicode=True)
+    updated = api_client.put(
+        "/api/drafts/{}".format(draft["id"]),
+        json={"content": valid_content, "expected_revision": draft["revision"]},
+    )
+    assert updated.status_code == 200, updated.json()
+    assert updated.json()["revision"] == 2
+    preflight = api_client.get("/api/drafts/{}/preflight".format(draft["id"]))
+    assert preflight.status_code == 200
+    assert preflight.json()["valid"] is True
+
+    published = api_client.post(
+        "/api/publish",
+        json={"draft_id": draft["id"], "expected_revision": updated.json()["revision"]},
+    )
+
+    assert published.status_code == 200, published.json()
+    assert published.json()["entity_type"] == "research_profile"
+    visible_profiles = api_client.get("/api/research/profiles").json()
+    assert next(
+        item for item in visible_profiles if item["id"] == "continual-learning"
+    )["title"] == "Updated Continual Learning"
+    assert subprocess.run(
+        ["git", "log", "-1", "--pretty=%s"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip() == "research(continual-learning): update research profile"
+
+
+def test_publishing_source_refreshes_research_screening_registry(api_client):
+    content = (
+        "schema_version: 1\nid: source-beta\ntype: web\ntitle: Source Beta\n"
+        "url: https://example.test/source-beta\n"
+    )
+    created = api_client.post(
+        "/api/drafts",
+        json={"entity_type": "source", "entity_id": "source-beta", "content": content},
+    )
+    assert created.status_code == 201, created.json()
+    draft = created.json()["draft"]
+
+    published = api_client.post(
+        "/api/publish",
+        json={"draft_id": draft["id"], "expected_revision": draft["revision"]},
+    )
+
+    assert published.status_code == 200, published.json()
+    source = api_client.app.state.research_service.screening.sources.get("source-beta")
+    assert source is not None and source.title == "Source Beta"
+
+
 def test_collection_api_resolves_tree_navigation_unfiled_and_progress(api_client):
     repository = api_client.app.state.repository_root
     collections_root = repository / "knowledge" / "collections"

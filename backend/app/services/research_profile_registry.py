@@ -75,6 +75,27 @@ class ResearchProfileRegistry:
         _validate_references(root, profiles, profile_paths)
         return cls(global_config, tuple(profiles), profile_paths, profile_hashes)
 
+    @classmethod
+    def validate_candidate(
+        cls, repository_root: Path, profile: ResearchProfile, profile_path: Path
+    ) -> None:
+        root = Path(repository_root).resolve()
+        expected_path = (
+            root / "config" / "research" / "profiles" / "{}.yaml".format(profile.id)
+        )
+        if Path(profile_path).resolve() != expected_path:
+            raise ValueError(
+                "Research Profile target path must match its id and canonical filename"
+            )
+        registry = cls.load(root)
+        prospective_profiles = [
+            existing for existing in registry.profiles if existing.id != profile.id
+        ]
+        prospective_profiles.append(profile)
+        prospective_paths = dict(registry._profile_paths)
+        prospective_paths[profile.id] = expected_path
+        _validate_references(root, prospective_profiles, prospective_paths)
+
     def get(self, profile_id: str) -> Optional[ResearchProfile]:
         return next(
             (profile for profile in self.profiles if profile.id == profile_id), None

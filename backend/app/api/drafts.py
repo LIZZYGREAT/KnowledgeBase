@@ -40,7 +40,9 @@ async def create_draft(body: DraftCreateRequest, request: Request, response: Res
 @router.get("/drafts", response_model=list[DraftView])
 async def list_drafts(
     request: Request,
-    entity_type: Literal["document", "term", "source", "taxonomy", "collection"],
+    entity_type: Literal[
+        "document", "term", "source", "taxonomy", "collection", "research_profile"
+    ],
     entity_id: str,
 ):
     return [

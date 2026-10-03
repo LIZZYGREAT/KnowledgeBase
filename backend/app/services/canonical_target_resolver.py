@@ -8,6 +8,7 @@ from typing import Union
 
 from backend.app.domain.collection import Collection
 from backend.app.domain.document import DocumentMetadata
+from backend.app.domain.research import ResearchProfile
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.taxonomy import TaxonomyRegistry as TaxonomyRegistryModel
 from backend.app.domain.term import TermMetadata
@@ -76,10 +77,21 @@ class CanonicalTargetResolver:
                 )
             metadata = TaxonomyRegistryModel.model_validate(parse_yaml(content))
             path = self.knowledge_root / "taxonomy" / self._TAXONOMY_FILES[entity_id]
+        elif entity_type == "research_profile":
+            metadata = ResearchProfile.model_validate(parse_yaml(content))
+            if metadata.id != entity_id:
+                raise ValueError("Draft entity_id must match Research Profile id")
+            path = (
+                self.repository_root
+                / "config"
+                / "research"
+                / "profiles"
+                / "{}.yaml".format(entity_id)
+            )
         else:
             raise ValueError("Unsupported Draft entity type: {}".format(entity_type))
 
-        path = self._canonical_path(path)
+        path = self._canonical_path(path, entity_type)
         return CanonicalTarget(path=path, metadata=metadata)
 
     def _validate_entity_id(self, entity_type: str, entity_id: str) -> None:
@@ -134,9 +146,9 @@ class CanonicalTargetResolver:
             or (entity_type == "document" and len(relative.parts) != 4)
         ):
             raise ValueError("Indexed canonical path does not match its entity")
-        return self._canonical_path(self.repository_root / relative)
+        return self._canonical_path(self.repository_root / relative, entity_type)
 
-    def _canonical_path(self, path: Path) -> Path:
+    def _canonical_path(self, path: Path, entity_type: str) -> Path:
         candidate = Path(path)
         if not candidate.is_absolute():
             candidate = self.repository_root / candidate
@@ -144,7 +156,16 @@ class CanonicalTargetResolver:
             relative = candidate.absolute().relative_to(self.repository_root)
         except ValueError as error:
             raise ValueError("Canonical target must remain inside the repository") from error
-        if len(relative.parts) < 3 or relative.parts[0] != "knowledge":
+        if entity_type == "research_profile":
+            if (
+                len(relative.parts) != 4
+                or relative.parts[:3] != ("config", "research", "profiles")
+                or relative.suffix != ".yaml"
+            ):
+                raise ValueError(
+                    "Research Profile target must be config/research/profiles/<id>.yaml"
+                )
+        elif len(relative.parts) < 3 or relative.parts[0] != "knowledge":
             raise ValueError("Canonical target must be under knowledge/")
         cursor = self.repository_root
         for part in relative.parts:

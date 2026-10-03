@@ -112,6 +112,7 @@ async def lifespan(application: FastAPI):
         publisher.add_post_publish_hook(
             research_conversion_service.finalize_published_drafts
         )
+        publisher.add_post_publish_hook(research_service.refresh_canonical_state)
 
         application.state.repository_root = repository_root
         application.state.database_path = database_path
