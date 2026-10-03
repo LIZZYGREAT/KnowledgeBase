@@ -80,7 +80,6 @@ class CanonicalTargetResolver:
             raise ValueError("Unsupported Draft entity type: {}".format(entity_type))
 
         path = self._canonical_path(path)
-        self._ensure_unique_entity_path(entity_type, entity_id, path)
         return CanonicalTarget(path=path, metadata=metadata)
 
     def _validate_entity_id(self, entity_type: str, entity_id: str) -> None:
@@ -158,36 +157,3 @@ class CanonicalTargetResolver:
         except ValueError as error:
             raise ValueError("Canonical target must remain inside the repository") from error
         return target
-
-    def _ensure_unique_entity_path(
-        self, entity_type: str, entity_id: str, target_path: Path
-    ) -> None:
-        locations = {
-            "document": (self.knowledge_root / "documents", "*.md"),
-            "term": (self.knowledge_root / "terms", "*.md"),
-            "source": (self.knowledge_root / "sources", "*.yaml"),
-            "collection": (self.knowledge_root / "collections", "*.yaml"),
-        }
-        location = locations.get(entity_type)
-        if location is None:
-            return
-        root, pattern = location
-        if not root.exists():
-            return
-        for existing in root.rglob(pattern):
-            if existing.resolve() == target_path:
-                continue
-            try:
-                text = existing.read_text(encoding="utf-8")
-                current_id = (
-                    (parse_markdown(text).frontmatter or {}).get("id")
-                    if entity_type in {"document", "term"}
-                    else (parse_yaml(text) or {}).get("id")
-                )
-            except Exception:
-                continue
-            if current_id == entity_id:
-                relative = existing.relative_to(self.repository_root).as_posix()
-                raise ValueError(
-                    "Entity already exists at a different canonical path: {}".format(relative)
-                )

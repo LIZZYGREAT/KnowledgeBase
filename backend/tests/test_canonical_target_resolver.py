@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from backend.app.db.connection import connect_database
@@ -70,8 +72,8 @@ def test_resolves_source_collection_and_taxonomy_paths(resolver):
     )
 
 
-def test_rejects_document_type_changes_and_duplicate_canonical_ids(resolver):
-    repository, connection, target_resolver = resolver
+def test_rejects_document_type_changes(resolver):
+    _, connection, target_resolver = resolver
     indexed_path = "knowledge/documents/papers/same-id.md"
     connection.execute(
         """INSERT INTO document_index
@@ -82,11 +84,27 @@ def test_rejects_document_type_changes_and_duplicate_canonical_ids(resolver):
     with pytest.raises(ValueError, match="cannot change its canonical type"):
         target_resolver.resolve_target("document", "same-id", _document("same-id", "course-note"))
 
-    duplicate = repository / "knowledge/documents/learning/same-id.md"
-    duplicate.parent.mkdir(parents=True)
-    duplicate.write_text(_document("same-id", "learning-note"), encoding="utf-8")
-    with pytest.raises(ValueError, match="different canonical path"):
-        target_resolver.resolve_target("document", "same-id", _document("same-id", "paper-note"))
+
+def test_resolving_existing_document_does_not_scan_the_document_tree(resolver, monkeypatch):
+    repository, connection, target_resolver = resolver
+    indexed_path = "knowledge/documents/papers/indexed-document.md"
+    connection.execute(
+        """INSERT INTO document_index
+           (entity_id, path, title, document_type, metadata_json, content_hash)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        ("indexed-document", indexed_path, "Indexed", "paper-note", "{}", "hash"),
+    )
+
+    def fail_rglob(*_args, **_kwargs):
+        raise AssertionError("CanonicalTargetResolver must not scan the knowledge tree")
+
+    monkeypatch.setattr(Path, "rglob", fail_rglob)
+
+    result = target_resolver.resolve_target(
+        "document", "indexed-document", _document("indexed-document", "paper-note")
+    )
+
+    assert result.path == repository / indexed_path
 
 
 def test_rejects_unsafe_indexed_paths_and_mismatched_entity_ids(resolver):
