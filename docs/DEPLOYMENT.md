@@ -28,6 +28,22 @@ docker compose -f docker-compose.production.yml ps
 
 The repository is mounted at `/workspace` so Publisher commits go into the server's Git checkout. `runtime/` and `storage/` persist on that host and are ignored by Git. The Compose file does not publish the API port. Do not change `KB_HTTP_BIND` to `0.0.0.0` on an internet-facing server.
 
+### Research Agent scheduler
+
+The Research Agent runs one queued manual request or one due Profile per tick. Install the supplied systemd units on the host; they execute the CLI inside the production backend container and do not require a host Python environment.
+
+Before installing, set `WorkingDirectory` in `deploy/systemd/knowledgebase-research.service` to the server checkout and replace `/usr/bin/docker` with the path returned by `command -v docker` if it differs. Then install and enable the timer:
+
+```sh
+sudo cp deploy/systemd/knowledgebase-research.service /etc/systemd/system/
+sudo cp deploy/systemd/knowledgebase-research.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now knowledgebase-research.timer
+systemctl list-timers knowledgebase-research.timer
+```
+
+Validate configuration without contacting providers with `docker compose -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check`. Use `profiles` to inspect configured Profiles and `status` to review Inbox capacity, pauses, and recent Runs. A scheduled tick exits successfully when another process holds the global Research lock or when nothing is due.
+
 ### Tailscale
 
 Install and sign in to Tailscale on the server host, then serve the loopback-only Hub to the tailnet:

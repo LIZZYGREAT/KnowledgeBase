@@ -1,0 +1,11 @@
+[Unit]
+Description=KnowledgeBase Research Agent Tick
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/KnowledgeBase
+# Check `command -v docker` on the host and update this executable if needed.
+ExecStart=/usr/bin/docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py tick
+TimeoutStartSec=45min

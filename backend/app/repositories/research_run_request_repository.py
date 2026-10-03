@@ -61,6 +61,16 @@ class ResearchRunRequestRepository:
         ).fetchall()
         return [_request_from_row(row) for row in rows]
 
+    def count_pending_and_claimed(self, profile_id: str) -> tuple[int, int]:
+        row = self.connection.execute(
+            """SELECT
+                   SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                   SUM(CASE WHEN status = 'claimed' THEN 1 ELSE 0 END) AS claimed
+               FROM research_run_requests WHERE profile_id = ?""",
+            (profile_id,),
+        ).fetchone()
+        return int(row["pending"] or 0), int(row["claimed"] or 0)
+
     def claim_next(self, claimed_at: datetime) -> Optional[ResearchRunRequestRecord]:
         timestamp = _timestamp(claimed_at)
         with self.transactions.write_transaction():

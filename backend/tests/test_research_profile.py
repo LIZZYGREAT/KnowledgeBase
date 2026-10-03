@@ -84,6 +84,26 @@ def test_research_check_rejects_invalid_global_ranking_config(tmp_path, capsys):
     assert "weights must sum to 1.0" in capsys.readouterr().out
 
 
+def test_research_cli_profiles_status_and_idle_tick_are_offline(tmp_path, capsys):
+    root = _valid_repository(tmp_path)
+    database = root / "runtime" / "knowledge.db"
+
+    assert research_main(["profiles", "--root", str(root)]) == 0
+    assert "research-profile · Research Profile" in capsys.readouterr().out
+
+    assert research_main(
+        ["status", "--root", str(root), "--database", str(database)]
+    ) == 0
+    status = capsys.readouterr().out
+    assert "inbox 0/20" in status
+    assert "manual requests pending/claimed 0/0" in status
+
+    assert research_main(
+        ["tick", "--root", str(root), "--database", str(database)]
+    ) == 0
+    assert "No queued manual request or due scheduled Profile." in capsys.readouterr().out
+
+
 def test_profile_registry_rejects_symlinked_profiles(tmp_path):
     root = _valid_repository(tmp_path)
     profiles = root / "config" / "research" / "profiles"
@@ -117,6 +137,12 @@ def _valid_repository(tmp_path: Path) -> Path:
     )
     (root / "config" / "research" / "research.yaml").write_text(
         yaml.safe_dump(_global_config(), sort_keys=False), encoding="utf-8"
+    )
+    (root / "config" / "ai.yaml.example").write_text(
+        "provider: deepseek\napi_style: openai-chat-completions\n"
+        "base_url: https://api.deepseek.com\nmodel: test-model\n"
+        "api_key_env: DEEPSEEK_API_KEY\ntimeout_seconds: 60\nmax_retries: 2\n",
+        encoding="utf-8",
     )
     _write_profile(root, _profile())
     return root
