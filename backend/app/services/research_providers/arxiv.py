@@ -13,6 +13,7 @@ from .base import (
     ProviderWork,
     ResearchHttpClient,
     build_url,
+    effective_page_size,
     parse_nonnegative_cursor,
     validate_search_request,
 )
@@ -51,8 +52,10 @@ class ArxivProvider:
         start_at: datetime,
         end_at: datetime,
         cursor: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> ProviderPage:
         start_utc, end_utc = validate_search_request(query, start_at, end_at)
+        page_size = effective_page_size(self.page_size, limit)
         offset = parse_nonnegative_cursor(cursor, self.name)
         date_range = "submittedDate:[{} TO {}]".format(
             start_utc.strftime("%Y%m%d%H%M"), end_utc.strftime("%Y%m%d%H%M")
@@ -64,7 +67,7 @@ class ArxivProvider:
             [
                 ("search_query", search_query),
                 ("start", str(offset)),
-                ("max_results", str(self.page_size)),
+                ("max_results", str(page_size)),
                 ("sortBy", "submittedDate"),
                 ("sortOrder", "ascending"),
             ],
@@ -80,7 +83,7 @@ class ArxivProvider:
         next_offset = offset + len(works)
         next_cursor = (
             str(next_offset)
-            if len(works) == self.page_size
+            if len(works) == page_size
             and (total_count is None or next_offset < total_count)
             else None
         )

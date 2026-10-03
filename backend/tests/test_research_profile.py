@@ -26,6 +26,7 @@ def test_repository_research_configuration_loads_profiles_without_network():
     assert registry.content_hash(profile.id) == hashlib.sha256(
         registry.path_for(profile.id).read_bytes()
     ).hexdigest()
+    assert registry.global_config.runtime.discovery_page_size == 20
     assert research_main(["check", "--root", str(root)]) == 0
 
 
@@ -82,6 +83,17 @@ def test_research_check_rejects_invalid_global_ranking_config(tmp_path, capsys):
 
     assert research_main(["check", "--root", str(root)]) == 1
     assert "weights must sum to 1.0" in capsys.readouterr().out
+
+
+def test_research_check_rejects_nonpositive_discovery_page_size(tmp_path, capsys):
+    root = _valid_repository(tmp_path)
+    config_path = root / "config" / "research" / "research.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["runtime"]["discovery_page_size"] = 0
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    assert research_main(["check", "--root", str(root)]) == 1
+    assert "discovery_page_size" in capsys.readouterr().out
 
 
 def test_research_cli_profiles_status_and_idle_tick_are_offline(tmp_path, capsys):

@@ -169,12 +169,29 @@ def test_capacity_reached_mid_slice_stops_pagination_without_advancing_watermark
     assert run is not None and run.status == "capacity_reached"
     assert run.surfaced_count == 1
     assert provider.calls == 1
+    assert provider.limit_requests == [1]
     state = search_repository.get_state(
         profile.id, "regularization", "arxiv", _query_key(service)
     )
     assert state is not None
     assert state.completed_through is None
     assert state.last_attempt_at is not None
+    connection.close()
+
+
+def test_provider_request_is_bounded_by_one_remaining_inbox_slot(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    profile = _profile(max_new_candidates=2)
+    _seed_existing_new_candidate(connection, profile)
+    service, _, _, _ = _service(tmp_path, connection, provider, profile=profile)
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "capacity_reached"
+    assert run.surfaced_count == 1
+    assert provider.limit_requests == [1]
+    assert provider.calls == 1
     connection.close()
 
 
@@ -405,6 +422,39 @@ def test_configured_enrichment_fills_work_metadata_before_analysis(tmp_path):
     assert enriched_work.abstract == "Enriched abstract with more detail."
     assert enriched_work.doi == "10.1000/enriched"
     assert ai_client.calls == ["research_candidate_analysis"]
+    connection.close()
+
+
+def test_deterministically_filtered_work_skips_optional_enrichment(tmp_path):
+    connection = connect_database(":memory:")
+    unrelated = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2401.98765",
+        title="A Chemistry Spectroscopy Survey",
+        abstract="This work studies spectroscopy without continual learning.",
+        authors=("Grace Hopper",),
+        year=2026,
+        published_at="2026-10-02",
+        doi="10.1000/unrelated",
+        arxiv_id="2401.98765",
+    )
+    discovery = FakeProvider([ProviderPage(works=(unrelated,))])
+    enrichment = FakeEnrichmentProvider(name="crossref")
+    profile = _profile(enrichment=("crossref",))
+    service, _, _, _ = _service(
+        tmp_path,
+        connection,
+        discovery,
+        profile=profile,
+        additional_providers={"crossref": enrichment},
+    )
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert run.deterministic_filtered_count == 1
+    assert enrichment.enrichment_calls == 0
+    assert run.provider_summary["crossref"]["requests"] == 0
     connection.close()
 
 
@@ -795,16 +845,34 @@ class FakeProvider:
         self.pages = list(pages)
         self.error = error
         self.calls = 0
+        self.limit_requests = []
         self.before_search = None
 
-    def search(self, query, start_at, end_at, cursor=None):
+    def search(self, query, start_at, end_at, cursor=None, limit=None):
         self.calls += 1
+        self.limit_requests.append(limit)
         if self.before_search is not None:
             self.before_search()
         if self.error:
             raise ResearchProviderError(self.name, "temporary failure", retryable=True)
         if self.pages:
-            return self.pages.pop(0)
+            page = self.pages.pop(0)
+            if limit is not None and len(page.works) > limit:
+                remainder = page.works[limit:]
+                self.pages.insert(
+                    0,
+                    ProviderPage(
+                        works=remainder,
+                        next_cursor=page.next_cursor,
+                        total_count=page.total_count,
+                    ),
+                )
+                return ProviderPage(
+                    works=page.works[:limit],
+                    next_cursor="fake-page-{}".format(self.calls),
+                    total_count=page.total_count,
+                )
+            return page
         return ProviderPage(works=())
 
 

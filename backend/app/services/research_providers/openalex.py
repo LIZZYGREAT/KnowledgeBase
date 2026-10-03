@@ -12,6 +12,7 @@ from .base import (
     ProviderWork,
     ResearchHttpClient,
     build_url,
+    effective_page_size,
     validate_search_request,
 )
 
@@ -44,8 +45,10 @@ class OpenAlexProvider:
         start_at: datetime,
         end_at: datetime,
         cursor: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> ProviderPage:
         start_utc, end_utc = validate_search_request(query, start_at, end_at)
+        page_size = effective_page_size(self.page_size, limit)
         parameters = [
             ("search", query.strip()),
             (
@@ -54,7 +57,7 @@ class OpenAlexProvider:
                     start_utc.date().isoformat(), end_utc.date().isoformat()
                 ),
             ),
-            ("per_page", str(self.page_size)),
+            ("per_page", str(page_size)),
             ("cursor", cursor or "*"),
         ]
         payload = self.client.get_json(build_url(_WORKS_ENDPOINT, parameters))

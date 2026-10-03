@@ -50,6 +50,37 @@ def test_arxiv_adapter_parses_atom_and_removes_version_from_work_identifier():
     assert parameters["max_results"] == ["100"]
 
 
+def test_provider_search_limit_overrides_default_page_size():
+    arxiv_client = _FakeClient(_fixture_bytes("arxiv.atom.xml"))
+    ArxivProvider(client=arxiv_client).search(
+        "continual learning", _START, _END, limit=1
+    )
+    assert _query_parameters(arxiv_client.urls[0])["max_results"] == ["1"]
+
+    openalex_client = _FakeClient(_fixture_bytes("openalex.json"))
+    OpenAlexProvider(client=openalex_client).search(
+        "continual learning", _START, _END, limit=1
+    )
+    assert _query_parameters(openalex_client.urls[0])["per_page"] == ["1"]
+
+    crossref_body = _fixture_bytes("crossref.json").replace(
+        b'"total-results": 1', b'"total-results": 2'
+    )
+    crossref_client = _FakeClient(crossref_body)
+    page = CrossrefProvider(client=crossref_client).search(
+        "continual learning", _START, _END, limit=1
+    )
+    assert _query_parameters(crossref_client.urls[0])["rows"] == ["1"]
+    assert page.next_cursor == "1"
+
+
+def test_provider_search_limit_must_be_positive():
+    with pytest.raises(ValueError, match="positive integer"):
+        OpenAlexProvider(client=_FakeClient(_fixture_bytes("openalex.json"))).search(
+            "continual learning", _START, _END, limit=0
+        )
+
+
 def test_arxiv_adapter_exposes_offset_cursor_for_another_page():
     body = _fixture_bytes("arxiv.atom.xml").replace(
         b"<opensearch:totalResults>1", b"<opensearch:totalResults>3"

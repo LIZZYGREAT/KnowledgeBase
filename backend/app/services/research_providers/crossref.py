@@ -13,6 +13,7 @@ from .base import (
     ProviderWork,
     ResearchHttpClient,
     build_url,
+    effective_page_size,
     parse_nonnegative_cursor,
     validate_search_request,
 )
@@ -46,8 +47,10 @@ class CrossrefProvider:
         start_at: datetime,
         end_at: datetime,
         cursor: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> ProviderPage:
         start_utc, end_utc = validate_search_request(query, start_at, end_at)
+        page_size = effective_page_size(self.page_size, limit)
         offset = parse_nonnegative_cursor(cursor, self.name)
         url = build_url(
             _WORKS_ENDPOINT,
@@ -59,7 +62,7 @@ class CrossrefProvider:
                         start_utc.date().isoformat(), end_utc.date().isoformat()
                     ),
                 ),
-                ("rows", str(self.page_size)),
+                ("rows", str(page_size)),
                 ("offset", str(offset)),
             ],
         )
@@ -73,7 +76,7 @@ class CrossrefProvider:
         next_offset = offset + len(works)
         next_cursor = (
             str(next_offset)
-            if len(works) == self.page_size
+            if len(works) == page_size
             and (total_count is None or next_offset < total_count)
             else None
         )

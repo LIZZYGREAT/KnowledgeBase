@@ -8,6 +8,7 @@ runtime:
   slice_days: 1
   overlap_hours: 48
   retry_cooldown_minutes: 60
+  discovery_page_size: 20
 
 analysis:
   max_context_entities: 8

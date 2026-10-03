@@ -127,6 +127,7 @@ class ResearchRuntimeSettings(CanonicalModel):
     slice_days: PositiveInt
     overlap_hours: NonNegativeInt
     retry_cooldown_minutes: PositiveInt
+    discovery_page_size: PositiveInt = 20
 
 
 class ResearchAnalysisSettings(CanonicalModel):

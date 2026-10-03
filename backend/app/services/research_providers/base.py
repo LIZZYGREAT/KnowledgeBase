@@ -58,8 +58,21 @@ class ResearchProvider(Protocol):
         start_at: datetime,
         end_at: datetime,
         cursor: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> ProviderPage:
         ...
+
+
+def effective_page_size(configured_size: int, requested_limit: Optional[int]) -> int:
+    if requested_limit is None:
+        return configured_size
+    if (
+        isinstance(requested_limit, bool)
+        or not isinstance(requested_limit, int)
+        or requested_limit < 1
+    ):
+        raise ValueError("Research Provider limit must be a positive integer")
+    return min(configured_size, requested_limit)
 
 
 class ResearchProviderError(RuntimeError):

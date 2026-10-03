@@ -622,9 +622,25 @@ class ResearchService:
         cursor = None
         seen_cursors = set()
         while True:
-            if self.candidate_service.remaining_capacity(profile) <= 0:
+            remaining_inbox = self.candidate_service.remaining_capacity(profile)
+            current_run = self.run_repository.get(run.id)
+            remaining_analysis_budget = (
+                profile.search.max_analyses_per_run - current_run.analyzed_count
+            )
+            remaining_candidate_budget = (
+                profile.search.max_candidates_per_run - current_run.surfaced_count
+            )
+            if remaining_inbox <= 0:
                 errors.append("Inbox capacity reached before the slice completed")
                 return False, "capacity_reached"
+            if remaining_analysis_budget <= 0 or remaining_candidate_budget <= 0:
+                return False, "success"
+            request_limit = min(
+                self.profile_registry.global_config.runtime.discovery_page_size,
+                remaining_inbox,
+                remaining_analysis_budget,
+                remaining_candidate_budget,
+            )
             provider_summary["requests"] += 1
             try:
                 page = provider.search(
@@ -632,6 +648,7 @@ class ResearchService:
                     search_slice.start_at,
                     search_slice.end_at,
                     cursor,
+                    limit=request_limit,
                 )
             except ResearchProviderError as error:
                 provider_summary["errors"] += 1
@@ -649,6 +666,14 @@ class ResearchService:
             provider_summary["pages"] += 1
             if not isinstance(page, ProviderPage):
                 errors.append("{}: adapter returned an invalid page".format(provider_name))
+                provider_summary["errors"] += 1
+                return False, None
+            if len(page.works) > request_limit:
+                errors.append(
+                    "{}: adapter returned more Works than the requested limit".format(
+                        provider_name
+                    )
+                )
                 provider_summary["errors"] += 1
                 return False, None
             provider_summary["works"] += len(page.works)
@@ -673,18 +698,8 @@ class ResearchService:
                     self.run_repository.update_progress(run.id, new_work_count=1)
                 else:
                     self.run_repository.update_progress(run.id, duplicate_count=1)
-                work = self._enrich_work(
-                    ingested.work,
-                    profile,
-                    stats,
-                    provider_work.provider,
-                    warnings,
-                    enrichment_provider_failures,
-                    unavailable_enrichment_providers,
-                )
-
                 screened = self.screening.screen(
-                    work,
+                    ingested.work,
                     profile,
                     query,
                     search_slice,
@@ -698,14 +713,17 @@ class ResearchService:
 
                 if screened.pre_rank is None:
                     raise RuntimeError("Eligible Work is missing its Pre-Rank score")
-                eligible_works.append((screened.pre_rank.score, index, work))
+                eligible_works.append(
+                    (screened.pre_rank.score, index, ingested.work, provider_work.provider)
+                )
 
             if not complete_page:
                 return False, None
 
             eligible_works.sort(key=lambda item: (-item[0], item[1]))
             analysis_budget_reached = False
-            for _, _, work in eligible_works:
+            for _, _, eligible_work, discovery_provider in eligible_works:
+                work = eligible_work
                 try:
                     context_pack = self.context_builder.build(
                         work,
@@ -735,20 +753,44 @@ class ResearchService:
                                     "DeepSeek analysis circuit opened for this run"
                                 )
                                 return False, None
-                            self.run_repository.update_progress(
-                                run.id, analyzed_count=1
+                            work = self._enrich_work(
+                                work,
+                                profile,
+                                stats,
+                                discovery_provider,
+                                warnings,
+                                enrichment_provider_failures,
+                                unavailable_enrichment_providers,
                             )
-                            analysis_budget_reached = (
-                                current_analysis_count + 1
-                                >= profile.search.max_analyses_per_run
+                            if work != eligible_work:
+                                context_pack = self.context_builder.build(
+                                    work,
+                                    profile,
+                                    lens,
+                                    keywords=(query.text,),
+                                )
+                                analysis_hash = self.analysis_service.input_hash(
+                                    work, profile, lens, context_pack
+                                )
+                                analysis = self.work_repository.get_analysis(
+                                    work.id, profile.id, analysis_hash
+                                )
+                            if analysis is None:
+                                self.run_repository.update_progress(
+                                    run.id, analyzed_count=1
+                                )
+                                analysis_budget_reached = (
+                                    current_analysis_count + 1
+                                    >= profile.search.max_analyses_per_run
+                                )
+                        if analysis is None:
+                            analysis = self.analysis_service.analyze(
+                                work,
+                                profile,
+                                lens,
+                                context_pack,
+                                circuit_breaker=analysis_breaker,
                             )
-                        analysis = self.analysis_service.analyze(
-                            work,
-                            profile,
-                            lens,
-                            context_pack,
-                            circuit_breaker=analysis_breaker,
-                        )
                     if analysis is None:
                         if analysis_breaker.analysis_disabled_for_run:
                             errors.append("DeepSeek analysis circuit opened for this run")
