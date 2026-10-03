@@ -36,6 +36,19 @@ export function EntityPage({
   workspaceEditorController: WorkspaceEditorController;
 }) {
   const resource = useResource(`entity:${type}:${id}`, () => loadEntity(type, id));
+  const resourceRetryRef = useRef(resource.retry);
+  resourceRetryRef.current = resource.retry;
+  const lastPublishedRevisionRef = useRef("");
+  useEffect(() => {
+    const revision = workspaceDraft.publishedRevision;
+    if (!revision) {
+      lastPublishedRevisionRef.current = "";
+      return;
+    }
+    if (revision === lastPublishedRevisionRef.current) return;
+    lastPublishedRevisionRef.current = revision;
+    resourceRetryRef.current();
+  }, [workspaceDraft.publishedRevision]);
   const collectionNavigation = useResource(
     `collection-navigation:${collectionId ?? ""}:${type}:${id}`,
     () => collectionId ? getCollectionNavigation(collectionId, type, id) : Promise.resolve(null),

@@ -58,6 +58,8 @@ let proposals: Proposal[];
 let annotations: PresentationAnnotation[];
 let draftSequence: number;
 let conflictOnPreflight: boolean;
+let publishedEntity: EntityDetail | null;
+let publishedSource: EntityDetail | null;
 
 function makeEntity(id = "quick-start"): EntityDetail {
   const titles: Record<string, string> = {
@@ -121,7 +123,10 @@ function seedDraft(content = canonicalContent) {
 
 function installApiBehavior() {
   api.getEntity.mockImplementation(async (type: string, id: string) => {
-    if (type === "document" && ["quick-start", "second-note", "formatted-note", "linked-note", "repeated-note"].includes(id)) return makeEntity(id);
+    if (type === "source" && publishedSource?.id === id) return publishedSource;
+    if (type === "document" && ["quick-start", "second-note", "formatted-note", "linked-note", "repeated-note"].includes(id)) {
+      return publishedEntity?.id === id ? publishedEntity : makeEntity(id);
+    }
     throw Object.assign(new Error("Not found"), { status: 404 });
   });
   api.getCollectionNavigation.mockResolvedValue(null);
@@ -353,6 +358,8 @@ describe("Workspace React integration", () => {
     annotations = [];
     draftSequence = 0;
     conflictOnPreflight = false;
+    publishedEntity = null;
+    publishedSource = null;
     vi.clearAllMocks();
     installApiBehavior();
   });
@@ -541,6 +548,85 @@ describe("Workspace React integration", () => {
 
     await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith("draft-1", 1));
     expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
+  });
+
+  it("refreshes canonical Reader data after Publish and enables another publish after editing", async () => {
+    const user = userEvent.setup();
+    const publishedContent = canonicalContent
+      .replace("title: Quick Start", "title: Published Title")
+      .replace("sources: []", "sources:\n  - source-one")
+      .replace("selected phrase", "published phrase");
+    const publishedBody = canonicalBody.replace("selected phrase", "published phrase");
+    const draft = seedDraft(publishedContent);
+    annotations = [{
+      id: "published-annotation",
+      entity_type: "document",
+      entity_id: "quick-start",
+      style_type: "highlight",
+      style_value: "yellow",
+      selected_text: "published phrase",
+      prefix_text: "A paragraph with a ",
+      suffix_text: ".",
+      start_offset: 0,
+      end_offset: "published phrase".length,
+      base_content_hash: "published-hash",
+      status: "active",
+      created_at: "2026-10-02T00:00:00Z",
+      updated_at: "2026-10-02T00:00:00Z",
+    }];
+    api.publishDraft.mockImplementationOnce(async (id: string) => {
+      const baseEntity = makeEntity();
+      publishedEntity = {
+        ...baseEntity,
+        title: "Published Title",
+        metadata: { ...baseEntity.metadata, sources: ["source-one"] },
+        content: publishedBody,
+        canonical_content: publishedContent,
+      };
+      publishedSource = {
+        id: "source-one",
+        title: "Updated Source",
+        entity_type: "source",
+        metadata: { type: "paper" },
+        content: null,
+        canonical_content: null,
+        related_terms: [],
+        backlinks: [],
+        detected_mentions: [],
+        evidence: [],
+        related_documents: [],
+      };
+      return {
+        draft_id: id,
+        entity_type: "document",
+        entity_id: "quick-start",
+        commit_revision: "publish-revision",
+        warnings: [],
+      };
+    });
+    const { container } = renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+
+    await user.click(await screen.findByRole("button", { name: "发布" }));
+    await screen.findByRole("heading", { name: "变更摘要" });
+    const publishButton = await screen.findByRole("button", { name: "确认发布" });
+    await waitFor(() => expect((publishButton as HTMLButtonElement).disabled).toBe(false));
+    await user.click(publishButton);
+
+    await screen.findByRole("heading", { name: "Published Title" });
+    await waitFor(() => expect(api.getEntity.mock.calls.filter(([type, id]) => type === "document" && id === "quick-start").length).toBeGreaterThanOrEqual(3));
+    await user.click(screen.getByRole("button", { name: "More" }));
+    expect(await screen.findByRole("button", { name: /Updated Source/ })).toBeTruthy();
+
+    selectParagraphSubstring(container, "published phrase");
+    const annotationButton = await screen.findByRole("button", { name: "yellow 高亮" });
+    await waitFor(() => expect((annotationButton as HTMLButtonElement).disabled).toBe(false));
+
+    await user.click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
+    await user.clear(await screen.findByRole("textbox", { name: "Markdown 区块 2" }));
+    await user.type(screen.getByRole("textbox", { name: "Markdown 区块 2" }), "Edited after publishing.");
+    await waitFor(() => expect((screen.getByRole("button", { name: "发布" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(draft.content).toBe(publishedContent);
   });
 
   it("preflights a new Document and its Collection reference as one batch", async () => {

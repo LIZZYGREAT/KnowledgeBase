@@ -109,7 +109,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setError: setRuntimeError,
     isDirty: runtimeIsDirty,
     runtimeConflict,
-    updateContent,
+    updateContent: updateRuntimeContent,
     getCurrentContent,
     saveNow,
     acquireDraft,
@@ -129,6 +129,21 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
   const runtimeDraftConflict: RuntimeDraftConflict | null = runtimeConflict
     ? { ...runtimeConflict, canonicalContent: canonicalContentRef.current }
     : null;
+
+  useEffect(() => {
+    if (publishedRevision && runtimeContent !== canonicalContentRef.current) {
+      setPublishedRevision("");
+      setPublishedOutcome(null);
+    }
+  }, [publishedRevision, runtimeContent]);
+
+  const updateContent = useCallback((value: string) => {
+    updateRuntimeContent(value);
+    if (publishedRevision && value !== canonicalContentRef.current) {
+      setPublishedRevision("");
+      setPublishedOutcome(null);
+    }
+  }, [publishedRevision, updateRuntimeContent]);
 
   const loadError = currentCanonicalState.error
     ? (!currentCanonicalState.missing || (!runtimeLoading && !runtimeDraft)
