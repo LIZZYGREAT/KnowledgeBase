@@ -238,6 +238,9 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
       if (!result) throw new Error("还没有可发布的 Draft 变化。");
       setActiveDrawer(null);
       await refreshProposals();
+      if (batchCollectionId) {
+        navigate(entityWorkspaceUrl(type, id, { collectionId: batchCollectionId }));
+      }
     } catch (error) {
       setSaveError(errorMessage(error));
       if ((error as { status?: number })?.status === 409) await openComparison();

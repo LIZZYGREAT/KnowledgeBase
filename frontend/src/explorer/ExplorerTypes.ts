@@ -22,6 +22,7 @@ export interface ExplorerPageProps {
   navigate: Navigate;
   registerBeforeNavigate?: RegisterBeforeNavigate;
   embedded?: boolean;
+  readOnly?: boolean;
   selectedEntity?: { type: EntityType; id: string };
 }
 

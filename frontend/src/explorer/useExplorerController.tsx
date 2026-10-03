@@ -16,6 +16,7 @@ export function useExplorerController({
   navigate,
   registerBeforeNavigate,
   embedded = false,
+  readOnly = false,
   selectedEntity,
 }: ExplorerPageProps) {
   const initialPreferences = useExplorerPreferences();
@@ -125,6 +126,7 @@ export function useExplorerController({
   const actionNotice = editing.editingNotice;
   const publishOutcome = editing.publishOutcome ?? ordering.publishOutcome;
   const treeEditMode = editMode
+    && !readOnly
     && displayedCollection?.status === "active"
     && !busy
     && collectionDraft.status !== "loading"
@@ -169,6 +171,7 @@ export function useExplorerController({
     onOpen,
     navigate,
     embedded,
+    readOnly,
     selectedEntity,
     selectedCollectionId,
     setSelectedCollectionId,

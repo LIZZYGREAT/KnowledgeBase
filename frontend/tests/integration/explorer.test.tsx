@@ -131,6 +131,8 @@ function installApiBehavior() {
         canonical = { ...canonical, ...next };
       }
     }
+    const publishedIds = new Set(draftsToPublish.map((item) => item.draft_id));
+    drafts = drafts.filter((draft) => !publishedIds.has(draft.id));
     return { results: [], commit_revision: "batch-revision", warnings: [] };
   });
   api.listAllEntities.mockImplementation(async (type: string) => type === "document" ? [document] : []);
@@ -164,11 +166,12 @@ function renderExplorer(navigate = vi.fn(), registerBeforeNavigate?: RegisterBef
 function RouteHarness() {
   const [path, setPath] = useState(`/explorer?collection=${collectionId}`);
   const url = new URL(path, window.location.origin);
-  if (url.pathname === "/explorer") return <ExplorerPage onOpen={() => undefined} navigate={setPath} />;
+  const routeMarker = <output data-testid="current-route">{path}</output>;
+  if (url.pathname === "/explorer") return <>{routeMarker}<ExplorerPage onOpen={() => undefined} navigate={setPath} /></>;
   const id = decodeURIComponent(url.pathname.split("/").at(-1) ?? "");
   const activeCollectionId = url.searchParams.get("collection") ?? undefined;
   const batchCollectionId = url.searchParams.get("publishAll") === "1" ? activeCollectionId : undefined;
-  return <WorkspacePage type="document" id={id} navigate={setPath} collectionId={activeCollectionId} batchCollectionId={batchCollectionId} />;
+  return <>{routeMarker}<WorkspacePage type="document" id={id} navigate={setPath} collectionId={activeCollectionId} batchCollectionId={batchCollectionId} /></>;
 }
 
 describe("Explorer React integration", () => {
@@ -441,6 +444,17 @@ describe("Explorer React integration", () => {
     await user.click(screen.getByRole("button", { name: "创建 Draft 并编辑" }));
 
     await screen.findByRole("heading", { name: "Nested note" });
+    expect((screen.getByRole("combobox", { name: "选择 Collection" }) as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "编辑结构" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "编辑名称与描述" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New Collection" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "在 Notes 中新建笔记" })).toBeNull();
+    const tree = screen.getByRole("tree");
+    const notesSection = within(tree).getByRole("button", { name: /Notes/ });
+    const updateCount = api.updateDraft.mock.calls.length;
+    await user.click(notesSection);
+    expect(api.updateDraft).toHaveBeenCalledTimes(updateCount);
+
     await user.click(screen.getByRole("button", { name: "Publish All" }));
     const batchPublish = await screen.findByRole("button", { name: "Publish All · 一个 Git 提交" });
     await waitFor(() => expect((batchPublish as HTMLButtonElement).disabled).toBe(false));
@@ -450,6 +464,12 @@ describe("Explorer React integration", () => {
     expect(api.publishDraftsBatch.mock.calls[0][0]).toHaveLength(2);
     expect(api.publishDraftsBatch.mock.calls[0][0].map((item) => item.draft_id)).toContain("draft-1");
     expect(api.publishDraftsBatch.mock.calls[0][0].map((item) => item.draft_id)).toContain("draft-2");
+    await waitFor(() => {
+      const route = new URL(screen.getByTestId("current-route").textContent!, window.location.origin);
+      expect(route.searchParams.get("publishAll")).toBeNull();
+      expect(route.searchParams.get("collection")).toBe(collectionId);
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "编辑结构" })).toBeTruthy());
   });
 
   it("discards a new note while preserving earlier Collection Draft changes", async () => {

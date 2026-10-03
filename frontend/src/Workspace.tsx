@@ -56,7 +56,9 @@ export function WorkspacePage({
         id={id}
         explorer={<Suspense fallback={<div className="workspace-explorer-loading">正在载入 Explorer…</div>}>
           <WorkspaceExplorer
+            key={`explorer:${collectionId ?? ""}:${batchCollectionId ? "batch" : "normal"}`}
             embedded
+            readOnly={Boolean(batchCollectionId)}
             selectedEntity={{ type, id }}
             onOpen={(entityType, entityId) => navigate(entityWorkspaceUrl(entityType, entityId))}
             navigate={navigate}
