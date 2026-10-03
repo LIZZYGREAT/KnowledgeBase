@@ -61,6 +61,13 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert sent_input["profile"]["breadth_policy"]
     assert sent_input["provider"] == first.provider
     assert sent_input["model"] == first.model
+    assert first.input_context == sent_input
+    assert second.input_context == sent_input
+    assert json.loads(
+        connection.execute(
+            "SELECT input_context_json FROM research_work_analyses"
+        ).fetchone()[0]
+    ) == sent_input
     assert connection.execute(
         "SELECT COUNT(*) FROM research_work_analyses"
     ).fetchone()[0] == 1

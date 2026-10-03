@@ -118,6 +118,10 @@
 .research-provenance-card > div:first-child { display: flex; align-items: center; gap: 8px; color: #98a39b; font-size: var(--text-xs); }
 .research-context-id-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .research-context-id-list li { border: 1px solid #e8eee8; border-radius: 5px; padding: 4px 7px; color: #67806d; background: #f8faf8; font: var(--text-xs)/1.5 "Cascadia Code", Consolas, monospace; overflow-wrap: anywhere; }
+.research-analysis-context-cards { display: grid; gap: 8px; }
+.research-analysis-context-excerpt { border-left: 2px solid #dce8de; padding-left: 8px; }
+.research-analysis-context-excerpt > strong { color: #64786a; font-size: var(--text-xs); }
+.research-analysis-context-excerpt > p { margin: 3px 0 0; color: #718077; font-size: var(--text-xs); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .research-related-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #eff2ef; padding: 8px 1px; }
 .research-related-row > div { display: grid; gap: 3px; }
 .research-related-row strong { color: #53685a; font-size: var(--text-xs); }

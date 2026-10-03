@@ -386,8 +386,8 @@ class ResearchRepository:
                 """INSERT OR IGNORE INTO research_work_analyses (
                        id, work_id, profile_id, input_hash, outcome, analysis_json,
                        provider, model, prompt_version, analysis_version,
-                       context_entity_ids_json, analyzed_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       context_entity_ids_json, analyzed_at, input_context_json
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 values,
             )
             inserted = cursor.rowcount == 1
@@ -477,6 +477,12 @@ def _analysis_values(analysis: ResearchWorkAnalysisRecord) -> tuple:
         analysis.analysis_version,
         json.dumps(list(analysis.context_entity_ids), ensure_ascii=False),
         analysis.analyzed_at,
+        json.dumps(
+            analysis.input_context,
+            ensure_ascii=False,
+            sort_keys=True,
+            allow_nan=False,
+        ),
     )
 
 
@@ -496,4 +502,5 @@ def _analysis_from_row(row: sqlite3.Row) -> ResearchWorkAnalysisRecord:
         analysis_version=row["analysis_version"],
         context_entity_ids=tuple(json.loads(row["context_entity_ids_json"])),
         analyzed_at=row["analyzed_at"],
+        input_context=json.loads(row["input_context_json"]),
     )

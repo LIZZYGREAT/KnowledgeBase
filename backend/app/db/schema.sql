@@ -335,6 +335,7 @@ CREATE TABLE IF NOT EXISTS research_work_analyses (
     analysis_version INTEGER NOT NULL,
     context_entity_ids_json TEXT NOT NULL,
     analyzed_at TEXT NOT NULL,
+    input_context_json TEXT NOT NULL DEFAULT '{}',
     FOREIGN KEY (work_id) REFERENCES research_works(id) ON DELETE CASCADE,
     UNIQUE (work_id, profile_id, input_hash)
 );

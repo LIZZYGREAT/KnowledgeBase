@@ -18,7 +18,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     connection = connect_database(database_path)
     try:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
         ).fetchone() is not None
@@ -68,7 +68,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     reopened = connect_database(database_path)
     try:
-        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 7
         assert reopened.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 5
         assert reopened.execute("SELECT COUNT(*) FROM collection_progress").fetchone()[0] == 1
     finally:
@@ -77,7 +77,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
 def test_migration_rejects_a_database_from_a_newer_schema_version():
     connection = sqlite3.connect(":memory:")
-    connection.execute("PRAGMA user_version = 7")
+    connection.execute("PRAGMA user_version = 8")
 
     with pytest.raises(RuntimeError, match="newer than supported"):
         migrate_database(connection)
@@ -104,6 +104,20 @@ def test_version_five_migration_allows_multiple_candidates_to_share_source_draft
            );
            CREATE INDEX research_pending_links_group_idx
                ON research_pending_links (group_id);
+           CREATE TABLE research_work_analyses (
+               id TEXT PRIMARY KEY,
+               work_id TEXT NOT NULL,
+               profile_id TEXT NOT NULL,
+               input_hash TEXT NOT NULL,
+               outcome TEXT NOT NULL,
+               analysis_json TEXT NOT NULL,
+               provider TEXT NOT NULL,
+               model TEXT NOT NULL,
+               prompt_version TEXT NOT NULL,
+               analysis_version INTEGER NOT NULL,
+               context_entity_ids_json TEXT NOT NULL,
+               analyzed_at TEXT NOT NULL
+           );
            INSERT INTO research_pending_links VALUES (
                'link-a', 'group-a', 'candidate-a', 'work-a', 'source-draft',
                'source', 'source-a', 'source', 'now'
@@ -113,7 +127,7 @@ def test_version_five_migration_allows_multiple_candidates_to_share_source_draft
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
     assert connection.execute(
         "SELECT candidate_id, draft_id FROM research_pending_links"
     ).fetchall() == [("candidate-a", "source-draft")]
@@ -163,7 +177,7 @@ def test_version_three_database_migrates_research_tables_and_preserves_drafts():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
     assert connection.execute(
         "SELECT content, revision FROM drafts WHERE id = 'existing-draft'"
     ).fetchone() == ("preserved draft content", 2)
@@ -246,6 +260,20 @@ def test_version_four_research_run_migration_preserves_rows_and_adds_ai_disabled
            );
            CREATE INDEX research_pending_links_group_idx
                ON research_pending_links (group_id);
+           CREATE TABLE research_work_analyses (
+               id TEXT PRIMARY KEY,
+               work_id TEXT NOT NULL,
+               profile_id TEXT NOT NULL,
+               input_hash TEXT NOT NULL,
+               outcome TEXT NOT NULL,
+               analysis_json TEXT NOT NULL,
+               provider TEXT NOT NULL,
+               model TEXT NOT NULL,
+               prompt_version TEXT NOT NULL,
+               analysis_version INTEGER NOT NULL,
+               context_entity_ids_json TEXT NOT NULL,
+               analyzed_at TEXT NOT NULL
+           );
            INSERT INTO research_runs VALUES (
                'existing-run', 'profile', NULL, 'manual', 'success', 'hash', '{}',
                2, 1, 0, 0, 1, 1, '{}', NULL, 'started', 'finished'
@@ -255,7 +283,7 @@ def test_version_four_research_run_migration_preserves_rows_and_adds_ai_disabled
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
     assert connection.execute(
         "SELECT status, fetched_count, finished_at FROM research_runs WHERE id = 'existing-run'"
     ).fetchone() == ("success", 2, "finished")
@@ -269,6 +297,39 @@ def test_version_four_research_run_migration_preserves_rows_and_adds_ai_disabled
     assert connection.execute(
         "SELECT status FROM research_runs WHERE id = 'disabled-run'"
     ).fetchone()[0] == "skipped_ai_disabled"
+    connection.close()
+
+
+def test_version_six_migration_preserves_analyses_with_empty_input_context():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """CREATE TABLE research_work_analyses (
+               id TEXT PRIMARY KEY,
+               work_id TEXT NOT NULL,
+               profile_id TEXT NOT NULL,
+               input_hash TEXT NOT NULL,
+               outcome TEXT NOT NULL,
+               analysis_json TEXT NOT NULL,
+               provider TEXT NOT NULL,
+               model TEXT NOT NULL,
+               prompt_version TEXT NOT NULL,
+               analysis_version INTEGER NOT NULL,
+               context_entity_ids_json TEXT NOT NULL,
+               analyzed_at TEXT NOT NULL
+           );
+           INSERT INTO research_work_analyses VALUES (
+               'analysis-1', 'work-1', 'profile-1', 'hash', 'surface', '{}',
+               'deepseek', 'model', 'prompt-v1', 1, '[]', 'analyzed'
+           );
+           PRAGMA user_version = 6;"""
+    )
+
+    migrate_database(connection)
+
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+    assert connection.execute(
+        "SELECT input_context_json FROM research_work_analyses WHERE id = 'analysis-1'"
+    ).fetchone()[0] == "{}"
     connection.close()
 
 

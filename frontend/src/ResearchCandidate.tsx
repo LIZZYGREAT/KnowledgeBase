@@ -187,7 +187,7 @@ export function ResearchCandidateDrawer({
         <section className="research-detail-section"><h3>Discovery</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Lens" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} />
           {detail.discoveries.map((discovery) => <div className="research-provenance-card" key={discovery.id}><div><Chip tone="blue">{discovery.provider}</Chip><span>{formatDate(discovery.discovered_at)}</span></div><DetailRow label="Matched query" value={discovery.query_text} /><DetailRow label="Provider record" value={discovery.provider_record_id} /><DetailRow label="Lens" value={profile.lenses.find((lens) => lens.id === discovery.lens_id)?.title ?? discovery.lens_id} /></div>)}
         </section>
-        <section className="research-detail-section"><h3>Knowledge context used</h3><p>DeepSeek analysis used the selected Research context below. Candidate analysis does not modify canonical knowledge.</p>{analysis.context_entity_ids.length ? <ul className="research-context-id-list">{analysis.context_entity_ids.map((id) => <li key={id}>{id}</li>)}</ul> : <p className="subtle-copy">No context entities were attached to this analysis.</p>}</section>
+        <AnalysisTimeContext detail={detail} />
         <section className="research-detail-section"><h3>Analysis provenance</h3><DetailRow label="Provider" value={analysis.provider} /><DetailRow label="Model" value={analysis.model} /><DetailRow label="Analysis version" value={String(analysis.analysis_version)} /><DetailRow label="Prompt version" value={analysis.prompt_version} /><DetailRow label="Analyzed at" value={formatDate(analysis.analyzed_at)} /><DetailRow label="Input hash" value={analysis.input_hash} /></section>
         <section className="research-detail-section"><h3>Matched terms</h3><div className="research-candidate-tags">{analysis.analysis.matched_topics.length ? analysis.analysis.matched_topics.map((term) => <Chip key={term}>{term}</Chip>) : <span className="subtle-copy">No matched topics recorded.</span>}</div></section>
         <section className="research-detail-section"><h3>Related knowledge</h3>{detail.knowledge_relations.length ? detail.knowledge_relations.map((relation) => {
@@ -198,7 +198,7 @@ export function ResearchCandidateDrawer({
           </div>;
         }) : <p className="subtle-copy">没有关联记录。</p>}</section>
         <section className="research-detail-section"><h3>Candidate history</h3><DetailRow label="Added" value={formatDate(candidate.created_at)} /><DetailRow label="First viewed" value={formatDate(candidate.first_viewed_at)} /><DetailRow label="Last viewed" value={formatDate(candidate.last_viewed_at)} />{candidate.status === "shortlisted" ? editingNote ? <form className="research-candidate-note-editor" onSubmit={(event) => { event.preventDefault(); onSaveNote(noteDraft.trim()); }}><label className="field-label">Candidate note<textarea aria-label="Candidate note" rows={3} maxLength={4000} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label>{noteError && <p className="error-copy" role="alert">{noteError}</p>}<div className="research-inline-actions"><button className="button button-quiet" type="button" disabled={noteBusy} onClick={() => { setNoteDraft(candidate.user_note ?? ""); setEditingNote(false); }}>Cancel</button><button className="button button-secondary" type="submit" disabled={noteBusy || noteDraft.trim() === (candidate.user_note ?? "")}>{noteBusy ? "Saving…" : "Save note"}</button></div></form> : <div className="research-candidate-note"><DetailRow label="Your note" value={candidate.user_note ?? "No note added"} /><button className="text-button" disabled={noteBusy} onClick={() => setEditingNote(true)}>Edit note</button></div> : candidate.user_note && <DetailRow label="Your note" value={candidate.user_note} />}{candidate.dismiss_reason && <DetailRow label="Dismiss reason" value={candidate.dismiss_reason} />}</section>
-        {(detail.linked_entities.length > 0 || detail.pending_links.length > 0) && <section className="research-detail-section"><h3>Knowledge links</h3>{detail.linked_entities.map((link) => {
+        {(detail.linked_entities.length > 0 || detail.pending_links.length > 0) && <section className="research-detail-section"><h3>Current knowledge links</h3>{detail.linked_entities.map((link) => {
           const path = entityPath(link.entity_type, link.entity_id);
           return <div className="research-related-row" key={`${link.entity_type}:${link.entity_id}`}><div><strong>{link.relation_type === "source" ? "Source" : "Note"} · {link.entity_id}</strong><small>Published canonical link</small></div>{path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}</div>;
         })}{detail.pending_links.map((link) => <DetailRow key={link.id} label={`${link.intended_entity_type} draft`} value={link.intended_entity_id} />)}</section>}
@@ -207,6 +207,54 @@ export function ResearchCandidateDrawer({
       <footer className="research-drawer-footer"><span>Candidate actions remain in Runtime until you publish a Draft.</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>
     </aside>
   </div>;
+}
+
+function AnalysisTimeContext({ detail }: { detail: ResearchCandidateDetail }) {
+  const { analysis, work } = detail;
+  const input = analysis.input_context;
+  const hasSnapshot = Object.keys(input).length > 0;
+  const cards = input.knowledge_context?.cards ?? [];
+
+  return <section className="research-detail-section">
+    <h3>Analysis-time context</h3>
+    {hasSnapshot ? <>
+      <p>Stored bounded input used for this analysis.</p>
+      <DetailRow label="Work title" value={input.work?.title ?? work.title} />
+      <DetailRow label="Authors" value={input.work?.authors?.join(", ")} />
+      <DetailRow label="Year" value={input.work?.year == null ? undefined : String(input.work.year)} />
+      <DetailRow label="Published" value={input.work?.published_at} />
+      <DetailRow label="Venue" value={input.work?.venue} />
+      <DetailRow label="DOI" value={input.work?.doi} />
+      <DetailRow label="arXiv ID" value={input.work?.arxiv_id} />
+      <DetailRow label="Abstract at analysis time" value={input.work?.abstract} />
+      <DetailRow label="Research Profile" value={input.profile?.title ?? input.profile?.id} />
+      <DetailRow label="Profile breadth" value={input.profile?.breadth} />
+      <DetailRow label="Breadth policy" value={input.profile?.breadth_policy} />
+      <DetailRow label="Profile description" value={input.profile?.description} />
+      <DetailRow label="Matched Lens" value={input.matched_lens?.title ?? input.matched_lens?.id} />
+      <DetailRow label="Lens queries" value={input.matched_lens?.queries?.join(" · ")} />
+      <DetailRow label="Lens include terms" value={input.matched_lens?.include_terms?.join(" · ")} />
+      <DetailRow label="Lens exclude terms" value={input.matched_lens?.exclude_terms?.join(" · ")} />
+      {input.knowledge_context?.focus_query && <DetailRow label="Context focus" value={input.knowledge_context.focus_query} />}
+      {cards.length ? <div className="research-analysis-context-cards">{cards.map((card) => <article className="research-provenance-card" key={`${card.entity_type}:${card.entity_id}`}>
+        <div><Chip tone="blue">{card.entity_type}</Chip><span>{card.review_status}{card.pinned ? " · Pinned" : ""}</span></div>
+        <strong>{card.title}</strong>
+        <DetailRow label="Entity ID" value={card.entity_id} />
+        <DetailRow label="Topics" value={card.topics.join(" · ")} />
+        <DetailRow label="Domains" value={card.domains.join(" · ")} />
+        <DetailRow label="Retrieval score" value={`${Math.round(card.retrieval_score * 100)}%`} />
+        {card.relevant_sections.map((section, index) => <div className="research-analysis-context-excerpt" key={`${section.heading}:${index}`}>
+          <strong>{section.heading}</strong><p>{section.excerpt}</p>
+        </div>)}
+        {Object.keys(card.metadata).length > 0 && <DetailRow label="Metadata" value={JSON.stringify(card.metadata)} />}
+      </article>)}</div> : <p className="subtle-copy">No knowledge cards were included.</p>}
+      {input.knowledge_context && <DetailRow label="Context budget" value={String(input.knowledge_context.budget ?? "—")} />}
+      {input.knowledge_context?.omitted_count != null && <DetailRow label="Omitted cards" value={String(input.knowledge_context.omitted_count)} />}
+    </> : <>
+      <p className="subtle-copy">This older analysis has no saved input snapshot.</p>
+      {analysis.context_entity_ids.length ? <ul className="research-context-id-list">{analysis.context_entity_ids.map((id) => <li key={id}>{id}</li>)}</ul> : <p className="subtle-copy">No context entities were attached to this analysis.</p>}
+    </>}
+  </section>;
 }
 
 export function ResearchDismissDialog({

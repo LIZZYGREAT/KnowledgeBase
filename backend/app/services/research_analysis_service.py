@@ -158,6 +158,7 @@ class ResearchAnalysisService:
                     for card in context_pack.cards
                 )
             ),
+            input_context=analysis_input,
             analyzed_at=analyzed_at.astimezone(timezone.utc).isoformat(),
         )
         persisted, _ = self.repository.add_analysis_if_missing(analysis)

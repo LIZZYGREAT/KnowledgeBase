@@ -383,6 +383,38 @@ export interface ResearchDiscovery {
   metadata: Record<string, unknown>;
   discovered_at: string;
 }
+export interface ResearchAnalysisInputContext {
+  analysis_version?: number;
+  prompt_version?: string;
+  provider?: string;
+  model?: string;
+  work?: Partial<Omit<ResearchWork, "created_at" | "updated_at">>;
+  profile?: {
+    id?: string;
+    title?: string;
+    description?: string | null;
+    breadth?: ResearchBreadth;
+    breadth_policy?: string;
+  };
+  matched_lens?: Partial<ResearchLens>;
+  knowledge_context?: {
+    focus_query?: string;
+    cards?: Array<{
+      entity_type: string;
+      entity_id: string;
+      title: string;
+      review_status: string;
+      topics: string[];
+      domains: string[];
+      relevant_sections: Array<{ heading: string; excerpt: string }>;
+      metadata: Record<string, unknown>;
+      pinned: boolean;
+      retrieval_score: number;
+    }>;
+    budget?: number;
+    omitted_count?: number;
+  };
+}
 export interface ResearchWorkAnalysis {
   id: string;
   work_id: string;
@@ -395,6 +427,7 @@ export interface ResearchWorkAnalysis {
   prompt_version: string;
   analysis_version: number;
   context_entity_ids: string[];
+  input_context: ResearchAnalysisInputContext;
   analyzed_at: string;
 }
 export interface ResearchCandidateDetail {

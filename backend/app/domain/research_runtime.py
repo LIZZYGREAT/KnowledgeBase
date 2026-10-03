@@ -2,7 +2,7 @@
 
 from typing import Any, Literal, Optional
 
-from pydantic import ConfigDict, StrictBool, StrictFloat, StrictInt, model_validator
+from pydantic import ConfigDict, Field, StrictBool, StrictFloat, StrictInt, model_validator
 
 from backend.app.domain.common import CanonicalModel, NonEmptyText, Slug
 from backend.app.domain.ai import ResearchCandidateAnalysisOutput
@@ -59,6 +59,7 @@ class ResearchWorkAnalysisRecord(CanonicalModel):
     prompt_version: NonEmptyText
     analysis_version: StrictInt
     context_entity_ids: tuple[NonEmptyText, ...] = ()
+    input_context: dict[str, Any] = Field(default_factory=dict)
     analyzed_at: NonEmptyText
 
     @model_validator(mode="after")

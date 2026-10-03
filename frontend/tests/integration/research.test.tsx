@@ -75,7 +75,11 @@ describe("Research workspace", () => {
     expect(await screen.findByRole("heading", { name: "Why this candidate" })).toBeTruthy();
     expect(screen.getByText("Matched query")).toBeTruthy();
     expect(screen.getByText("research-candidate-analysis-v1")).toBeTruthy();
-    expect(screen.getByText("fisher information catastrophic forgetting")).toBeTruthy();
+    expect(screen.getAllByText("fisher information catastrophic forgetting").length).toBeGreaterThan(1);
+    expect(screen.getByRole("heading", { name: "Analysis-time context" })).toBeTruthy();
+    expect(screen.getByText("Snapshot excerpt used at analysis time.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Current knowledge links" })).toBeTruthy();
+    expect(screen.getByText("Source · published-paper")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Edit note" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Candidate note" }), { target: { value: "Compare with replay-based methods." } });
     fireEvent.click(screen.getByRole("button", { name: "Save note" }));
@@ -279,9 +283,9 @@ const candidateListItem = { candidate, work, analysis, recommended_score: 0.84 }
 const candidateDetail = {
   candidate: { ...candidate, first_viewed_at: "2026-10-03T00:00:00+00:00", last_viewed_at: "2026-10-03T00:00:00+00:00" },
   work,
-  analysis: { id: "analysis-1", work_id: work.id, profile_id: profile.id, input_hash: "sha256:abc", outcome: "surface", analysis, provider: "deepseek", model: "deepseek-chat", prompt_version: "research-candidate-analysis-v1", analysis_version: 1, context_entity_ids: ["gem-sgd"], analyzed_at: "2026-10-03T00:00:00+00:00" },
+  analysis: { id: "analysis-1", work_id: work.id, profile_id: profile.id, input_hash: "sha256:abc", outcome: "surface", analysis, provider: "deepseek", model: "deepseek-chat", prompt_version: "research-candidate-analysis-v1", analysis_version: 1, context_entity_ids: ["gem-sgd"], input_context: { analysis_version: 1, prompt_version: "research-candidate-analysis-v1", provider: "deepseek", model: "deepseek-chat", work: { ...work }, profile: { id: profile.id, title: profile.title, description: profile.description, breadth: "balanced", breadth_policy: "Include work related to the core topic and adjacent methods." }, matched_lens: { ...profile.lenses[0] }, knowledge_context: { focus_query: "fisher information catastrophic forgetting", budget: 5, omitted_count: 0, cards: [{ entity_type: "document", entity_id: "gem-sgd", title: "Elastic Weight Consolidation", review_status: "reviewed", topics: ["continual-learning"], domains: [], relevant_sections: [{ heading: "Method", excerpt: "Snapshot excerpt used at analysis time." }], metadata: {}, pinned: true, retrieval_score: 0.9 }] } }, analyzed_at: "2026-10-03T00:00:00+00:00" },
   discoveries: [{ id: "discovery-1", work_id: work.id, profile_id: profile.id, lens_id: "regularization", provider: "arxiv", provider_record_id: "2501.00001", query_key: "query-key", query_text: "fisher information catastrophic forgetting", metadata: {}, discovered_at: "2026-10-03T00:00:00+00:00" }],
   knowledge_relations: analysis.existing_relations,
-  linked_entities: [],
+  linked_entities: [{ entity_type: "source", entity_id: "published-paper", relation_type: "source", created_at: "2026-10-03T00:00:00+00:00" }],
   pending_links: [],
 };

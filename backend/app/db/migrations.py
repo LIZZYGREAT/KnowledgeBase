@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -29,6 +29,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_research_run_ai_disabled_status
         elif target_version == 6:
             migration = _migrate_to_shared_research_source_draft_intents
+        elif target_version == 7:
+            migration = _migrate_to_persist_research_analysis_input_context
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -79,6 +81,16 @@ def _migrate_to_shared_research_source_draft_intents(
         """CREATE INDEX research_pending_links_group_idx
            ON research_pending_links (group_id)"""
     )
+
+
+def _migrate_to_persist_research_analysis_input_context(
+    connection: sqlite3.Connection,
+) -> None:
+    if not _column_exists(connection, "research_work_analyses", "input_context_json"):
+        connection.execute(
+            """ALTER TABLE research_work_analyses
+               ADD COLUMN input_context_json TEXT NOT NULL DEFAULT '{}'"""
+        )
 
 
 def _migrate_to_research_run_ai_disabled_status(connection: sqlite3.Connection) -> None:
@@ -558,3 +570,10 @@ def _table_exists(connection: sqlite3.Connection, name: str) -> bool:
     return connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
     ).fetchone() is not None
+
+
+def _column_exists(connection: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(
+        row[1] == column
+        for row in connection.execute("PRAGMA table_info({})".format(table))
+    )
