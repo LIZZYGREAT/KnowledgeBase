@@ -21,6 +21,7 @@ import {
 } from "./api";
 import { ResearchCandidateCard, ResearchCandidateDrawer, ResearchCreateNoteDialog, ResearchDismissDialog, type ResearchNoteOptions } from "./ResearchCandidate";
 import { ResearchProfilePanel } from "./ResearchProfile";
+import { ResearchProfileDefaultsEditor } from "./ResearchProfileDefaultsEditor";
 import { ResearchRunDrawer, ResearchRunList } from "./ResearchRun";
 import { ErrorState, LoadingState, PageHeader } from "./ui";
 import { errorMessage } from "./errors";
@@ -64,6 +65,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [runCount, setRunCount] = useState(0);
   const [runsLoading, setRunsLoading] = useState(false);
   const [runDetail, setRunDetail] = useState<ResearchRun | null>(null);
+  const [editingDefaults, setEditingDefaults] = useState(false);
 
   const currentSummary = useMemo(() => profiles.find((item) => item.id === selectedProfileId) ?? null, [profiles, selectedProfileId]);
 
@@ -273,9 +275,10 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   if (!profiles.length) return <div className="page-stack"><PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="从外部研究发现候选内容，并由你决定哪些进入知识库。" /><div className="surface"><div className="empty-state"><span className="empty-mark">⌕</span><strong>没有可用的 Research Profile</strong><p>添加并验证 Profile 配置后，这里会显示研究发现。</p></div></div></div>;
 
   return <div className="page-stack research-page">
-    <PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<label className="research-profile-select"><span>Profile</span><select aria-label="Research Profile" value={selectedProfileId} onChange={(event) => { setSelectedProfileId(event.target.value); setTab("new"); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>Select a Profile</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>} />
+    <PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<label className="research-profile-select"><span>Profile</span><select aria-label="Research Profile" value={selectedProfileId} onChange={(event) => { setEditingDefaults(false); setSelectedProfileId(event.target.value); setTab("new"); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>Select a Profile</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>} />
     {profileError && <ErrorState message={profileError} retry={refresh} />}
-    {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={(id) => { setQueuedRequestId(id); setTab("new"); }} />}
+    {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={(id) => { setQueuedRequestId(id); setTab("new"); }} onEditDefaults={() => setEditingDefaults(true)} />}
+    {editingDefaults && profile?.profile.id === selectedProfileId && <ResearchProfileDefaultsEditor profile={profile.profile} onClose={() => setEditingDefaults(false)} onPublished={() => { setEditingDefaults(false); refresh(); }} />}
     {queuedRequestId && <div className="notice research-queued-notice" role="status"><strong>Search queued</strong><span>Request {queuedRequestId.slice(0, 10)} 已加入本地队列；将在下次 Research tick 执行。</span><button className="text-button" onClick={() => setQueuedRequestId("")}>Dismiss</button></div>}
 
     <section className="surface research-inbox-section">

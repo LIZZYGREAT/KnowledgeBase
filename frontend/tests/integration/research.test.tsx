@@ -12,9 +12,11 @@ const runRequestId = "research-request-123";
 describe("Research workspace", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   let responseProfileDetail = profileDetail;
+  let researchProfileDraft: Record<string, unknown> | null = null;
 
   beforeEach(() => {
     responseProfileDetail = profileDetail;
+    researchProfileDraft = null;
     window.history.replaceState({}, "", "/research");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -22,8 +24,21 @@ describe("Research workspace", () => {
       if (path === "/api/collections?status=active") return jsonResponse([{ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, node_count: 1, entity_count: 0, document_count: 0 }]);
       if (path === "/api/collections/continual-learning") return jsonResponse({ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] });
       if (path === "/api/drafts?entity_type=collection&entity_id=continual-learning") return jsonResponse([]);
+      if (path === "/api/documents?limit=100&offset=0") return jsonResponse([]);
       if (path === "/api/research/profiles") return jsonResponse([profileSummary]);
       if (path === "/api/research/profiles/continual-learning") return jsonResponse(responseProfileDetail);
+      if (path === "/api/drafts?entity_type=research_profile&entity_id=continual-learning") return jsonResponse([]);
+      if (path === "/api/drafts" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        researchProfileDraft = { id: "profile-draft-1", entity_type: "research_profile", entity_id: body.entity_id, base_git_revision: "abc123", base_content_hash: "a".repeat(64), content: body.content, revision: 1, created_at: "2026-10-03T00:00:00+00:00", updated_at: "2026-10-03T00:00:00+00:00" };
+        return jsonResponse({ draft: researchProfileDraft, created: true }, 201);
+      }
+      if (path === "/api/drafts/profile-draft-1/compare" && researchProfileDraft) {
+        const canonical = JSON.stringify(profile, null, 2);
+        return jsonResponse({ draft: researchProfileDraft, base_content: canonical, current_content: canonical, current_git_revision: "abc123", current_content_hash: "a".repeat(64), canonical_changed: false });
+      }
+      if (path === "/api/drafts/profile-draft-1/preflight") return jsonResponse({ draft_id: "profile-draft-1", valid: true, conflict: false, errors: [], warnings: [] });
+      if (path === "/api/publish" && init?.method === "POST") return jsonResponse({ draft_id: "profile-draft-1", entity_type: "research_profile", entity_id: "continual-learning", commit_revision: "def456", warnings: [] });
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
       if (path === "/api/research/candidates/candidate-1") return jsonResponse(candidateDetail);
       if (path === "/api/research/runs?offset=0&limit=50&profile_id=continual-learning") return jsonResponse({ runs: [], count: 0 });
@@ -89,6 +104,30 @@ describe("Research workspace", () => {
     expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("edits Profile Defaults through autosaved Draft review and publish", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Defaults" }));
+
+    expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Queries/), { target: { value: "fisher information catastrophic forgetting\nnew incremental query" } });
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(true);
+    }, { timeout: 3000 });
+    expect(String(researchProfileDraft?.content)).toContain("new incremental query");
+    expect(String(researchProfileDraft?.content)).toContain("max_analyses_per_run: 30");
+
+    fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
+    expect(await screen.findByText("Profile Draft preflight 通过。")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Profile changes" }).textContent).toContain("new incremental query");
+    fireEvent.click(screen.getByRole("button", { name: "Publish Defaults" }));
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑 Continual Learning" })).toBeNull());
+  });
+
   it("opens the Source Draft in the Unified Workspace", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Save Source" }));
@@ -130,7 +169,7 @@ const profile = {
   providers: { discovery: ["arxiv"], enrichment: [] },
   context: { collections: [], documents: [], dynamic_retrieval: { enabled: true, scope: "entire-library" } },
   schedule: { mode: "daily" },
-  search: { breadth: "balanced", initial_lookback_days: 30, max_catchup_days: 30, max_candidates_per_run: 10 },
+  search: { breadth: "balanced", initial_lookback_days: 30, max_catchup_days: 30, max_candidates_per_run: 10, max_analyses_per_run: 30 },
   inbox: { max_new_candidates: 20 },
   ai_analysis: { enabled: true, provider: "deepseek" },
 };

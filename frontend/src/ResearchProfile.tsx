@@ -16,11 +16,13 @@ export function ResearchProfilePanel({
   detail,
   onRefresh,
   onQueued,
+  onEditDefaults,
 }: {
   summary: ResearchProfileSummary;
   detail: ResearchProfileDetail;
   onRefresh: () => void;
   onQueued: (requestId: string) => void;
+  onEditDefaults: () => void;
 }) {
   const profile = detail.profile;
   const pausedUntil = detail.runtime_state?.paused_until ?? null;
@@ -158,6 +160,7 @@ export function ResearchProfilePanel({
         <small>{detail.latest_run ? `最近运行 ${formatDate(detail.latest_run.started_at)} · ${detail.latest_run.status}` : "尚无运行记录"}</small>
       </div>
       <div className="research-profile-actions">
+        <button className="button button-secondary" type="button" onClick={onEditDefaults}>Edit Defaults</button>
         {isPaused ? <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume</button> : <button className="button button-secondary" disabled={busy || !summary.enabled} onClick={() => setPauseOpen((open) => !open)}>Pause</button>}
         <button className="button button-primary" disabled={!profile.ai_analysis.enabled} onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "Close Search" : "Search Now"}</button>
       </div>
