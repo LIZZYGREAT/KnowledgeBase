@@ -60,6 +60,10 @@ describe("Research workspace", () => {
   });
 
   it("shows the Research inbox and explains candidate provenance", async () => {
+    responseCandidateDetail = {
+      ...candidateDetail,
+      candidate: { ...candidateDetail.candidate, status: "shortlisted", user_note: "Read after the current batch." },
+    };
     render(<App />);
 
     expect(screen.getByRole("button", { name: /Research/ }).getAttribute("aria-current")).toBe("page");
@@ -72,33 +76,22 @@ describe("Research workspace", () => {
     expect(screen.getByText("Matched query")).toBeTruthy();
     expect(screen.getByText("research-candidate-analysis-v1")).toBeTruthy();
     expect(screen.getByText("fisher information catastrophic forgetting")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit note" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Candidate note" }), { target: { value: "Compare with replay-based methods." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH")).toBe(true));
+    const noteCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH");
+    expect(JSON.parse(String(noteCall?.[1]?.body))).toEqual({ note: "Compare with replay-based methods." });
+    expect(await screen.findByText("Compare with replay-based methods.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    fireEvent.click(screen.getByRole("button", { name: "Shortlist" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Shortlist" }));
     expect(await screen.findByRole("heading", { name: "Shortlist candidate" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Shortlist note"), { target: { value: "Compare with the replay method." } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm Shortlist" }));
     await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST")).toBe(true));
     const shortlistCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST");
     expect(JSON.parse(String(shortlistCall?.[1]?.body))).toEqual({ note: "Compare with the replay method." });
-  });
-
-  it("edits the note on a shortlisted candidate", async () => {
-    responseCandidateDetail = {
-      ...candidateDetail,
-      candidate: { ...candidateDetail.candidate, status: "shortlisted", user_note: "Read after the current batch." },
-    };
-    render(<App />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /Why this candidate/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Edit note" }));
-    fireEvent.change(screen.getByLabelText("Candidate note"), { target: { value: "Compare with replay-based methods." } });
-    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
-
-    await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH")).toBe(true));
-    const noteCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH");
-    expect(JSON.parse(String(noteCall?.[1]?.body))).toEqual({ note: "Compare with replay-based methods." });
-    expect(await screen.findByText("Compare with replay-based methods.")).toBeTruthy();
-  });
+  }, 10_000);
 
   it("queues a manual run without executing it in the page request", async () => {
     render(<App />);

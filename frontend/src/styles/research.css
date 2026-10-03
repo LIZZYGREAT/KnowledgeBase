@@ -180,7 +180,7 @@
 .research-default-review { display: grid; gap: 10px; border-top: 1px solid #e8eee8; padding-top: 14px; }
 .research-default-review .research-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .research-profile-diff { max-height: 290px; overflow: auto; border: 1px solid #e5ebe5; border-radius: 8px; padding: 8px 0; background: #f8faf8; }
-.research-profile-diff-line { display: grid; grid-template-columns: 22px minmax(0, 1fr); padding: 1px 8px; font-size: 11px; line-height: 1.5; }
+.research-profile-diff-line { display: grid; grid-template-columns: 22px minmax(0, 1fr); padding: 1px 8px; font-size: var(--text-xs); line-height: 1.5; }
 .research-profile-diff-line span { color: #8e9b91; }
 .research-profile-diff-line code { overflow-wrap: anywhere; color: #617166; white-space: pre-wrap; }
 .research-profile-diff-line.added { background: #e9f7eb; }

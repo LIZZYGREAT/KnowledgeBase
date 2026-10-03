@@ -6,6 +6,7 @@ from threading import Barrier
 import pytest
 
 from backend.app.db.connection import connect_database
+from backend.app.db.migrations import CURRENT_SCHEMA_VERSION
 from backend.app.repositories.draft_repository import (
     DraftNotFoundError,
     DraftRepository,
@@ -71,7 +72,10 @@ def test_runtime_schema_contains_runtime_and_derived_index_tables(runtime_connec
         "research_entity_links",
         "research_pending_links",
     } <= tables
-    assert runtime_connection.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert (
+        runtime_connection.execute("PRAGMA user_version").fetchone()[0]
+        == CURRENT_SCHEMA_VERSION
+    )
     assert runtime_connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
     ).fetchone() is not None
