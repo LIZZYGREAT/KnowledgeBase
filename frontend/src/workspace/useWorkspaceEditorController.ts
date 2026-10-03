@@ -3,7 +3,7 @@ import { errorMessage } from "../errors";
 import { parseDocument } from "yaml";
 import {
   compareDraft, discardDraft, getCollection, listAllEntities, listDrafts, listProposals,
-  preflightDraft, requestAIProposal, rejectProposal, updateDraft,
+  preflightDraft, preflightDraftsBatch, requestAIProposal, rejectProposal, updateDraft,
   type Draft, type EntitySummary, type Proposal,
 } from "../api";
 import { removeCollectionNode } from "../collectionEditing";
@@ -108,11 +108,18 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
         if (!collectionDraft) throw new Error("找不到此 Collection 的 Draft；请返回 Explorer 检查目录变更。");
         targets.push({ id: collectionDraft.id, entityType: collectionDraft.entity_type, label: "Collection" });
       }
-      const reviewed = await Promise.all(targets.map(async (target) => {
-        const [preflight, comparison] = await Promise.all([
-          preflightDraft(target.id),
-          compareDraft(target.id),
-        ]);
+      const comparisons = await Promise.all(targets.map((target) => compareDraft(target.id)));
+      const preflights = batchCollectionId
+        ? (await preflightDraftsBatch(comparisons.map(({ draft: reviewedDraft }) => ({
+          draft_id: reviewedDraft.id,
+          expected_revision: reviewedDraft.revision,
+        })))).results
+        : [await preflightDraft(targets[0].id)];
+      const preflightByDraftId = new Map(preflights.map((result) => [result.draft_id, result]));
+      const reviewed = targets.map((target, index) => {
+        const comparison = comparisons[index];
+        const preflight = preflightByDraftId.get(comparison.draft.id);
+        if (!preflight) throw new Error("批量预检未返回所有 Draft 的结果，请重新检查发布审阅。");
         return {
           label: target.label,
           entityType: target.entityType,
@@ -120,7 +127,7 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
           preflight,
           comparison,
         };
-      }));
+      });
       setPublishReview(reviewed);
 
       const documentConflict = reviewed.some((item) => item.entityType !== "collection" && (item.preflight.conflict || item.comparison.canonical_changed));

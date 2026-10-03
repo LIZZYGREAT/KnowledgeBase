@@ -239,6 +239,14 @@ class BatchPublishRequest(APIModel):
     commit_message: Optional[str] = None
 
 
+class BatchPreflightRequest(APIModel):
+    drafts: list[DraftPublishExpectation] = Field(min_length=1, max_length=100)
+
+
+class BatchPreflightView(APIModel):
+    results: list[DraftPreflightView]
+
+
 class BatchPublishedView(APIModel):
     results: list[PublishedView]
     commit_revision: str

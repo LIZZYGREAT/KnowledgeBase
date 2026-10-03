@@ -351,6 +351,96 @@ def test_publish_batch_commits_document_and_collection_together(publish_context)
     ).fetchone()["entity_id"] == "batch-note"
 
 
+def test_preflight_batch_accepts_collection_reference_to_new_document(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    document_content = _document("preflight-batch-note", title="Batch Note")
+    collection_content = _collection(
+        "preflight-batch-reading",
+        "Batch Reading",
+        "  - id: preflight-batch-note\n    kind: entity\n    entity_type: document\n    entity_id: preflight-batch-note\n",
+    )
+    document_draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "preflight-batch-note",
+        document_content,
+        "knowledge/documents/learning/preflight-batch-note.md",
+    )
+    collection_draft = _create_draft(
+        drafts,
+        git,
+        "collection",
+        "preflight-batch-reading",
+        collection_content,
+        "knowledge/collections/preflight-batch-reading.yaml",
+    )
+    head = git.current_revision()
+
+    results = publisher.preflight_batch(
+        [
+            (document_draft.id, document_draft.revision),
+            (collection_draft.id, collection_draft.revision),
+        ]
+    )
+
+    assert [result.valid for result in results] == [True, True]
+    assert all(not result.conflict and not result.errors for result in results)
+    assert git.current_revision() == head
+    assert git.status() == ""
+    assert not (repository / "knowledge/documents/learning/preflight-batch-note.md").exists()
+    assert not (repository / "knowledge/collections/preflight-batch-reading.yaml").exists()
+
+
+def test_preflight_batch_rejects_unknown_document_reference(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    collection_draft = _create_draft(
+        drafts,
+        git,
+        "collection",
+        "preflight-batch-invalid",
+        _collection(
+            "preflight-batch-invalid",
+            "Invalid Batch",
+            "  - id: missing-note\n    kind: entity\n    entity_type: document\n    entity_id: missing-note\n",
+        ),
+        "knowledge/collections/preflight-batch-invalid.yaml",
+    )
+
+    result = publisher.preflight_batch([(collection_draft.id, collection_draft.revision)])[0]
+
+    assert result.valid is False
+    assert result.conflict is False
+    assert "Unknown document entity 'missing-note'" in " ".join(result.errors)
+    assert not (repository / "knowledge/collections/preflight-batch-invalid.yaml").exists()
+
+
+def test_preflight_batch_reports_stale_review_revision_as_conflict(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "preflight-stale-review",
+        _document("preflight-stale-review"),
+        "knowledge/documents/learning/preflight-stale-review.md",
+    )
+    drafts.save(
+        draft.id,
+        _document("preflight-stale-review", title="Changed after review"),
+        expected_revision=draft.revision,
+    )
+
+    result = publisher.preflight_batch([(draft.id, draft.revision)])[0]
+
+    assert result.valid is False
+    assert result.conflict is True
+    assert "expected revision 1, current revision 2" in " ".join(result.errors)
+
+
 def test_publish_batch_validation_failure_restores_all_files_and_keeps_drafts(
     publish_context,
 ):

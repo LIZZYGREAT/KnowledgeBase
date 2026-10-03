@@ -24,6 +24,7 @@ from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.canonical_validator import (
+    canonical_document_ids,
     find_taxonomy_references,
     find_source_references,
     validate_markdown_references,
@@ -166,6 +167,171 @@ class Publisher:
             return DraftPreflightResult(draft_id, False, errors=(str(error),))
 
         return DraftPreflightResult(draft_id, True, warnings=tuple(warnings))
+
+    def preflight_batch(
+        self, drafts: Sequence[tuple[str, int]]
+    ) -> tuple[DraftPreflightResult, ...]:
+        """Validate a related set of Drafts against one prospective canonical state."""
+        if isinstance(drafts, (str, bytes)):
+            raise ValueError("At least one Draft id is required")
+        drafts = list(drafts)
+        if not drafts:
+            raise ValueError("At least one Draft id is required")
+
+        seen_draft_ids = set()
+        for item in drafts:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise PublishValidationError(
+                    "Each preflight batch entry must include a Draft id and its reviewed revision"
+                )
+            draft_id, expected_revision = item
+            if not isinstance(draft_id, str) or not draft_id:
+                raise PublishValidationError("Draft ids in a batch must be non-empty strings")
+            if type(expected_revision) is not int or expected_revision < 1:
+                raise PublishValidationError("Reviewed Draft revisions must be positive integers")
+            if draft_id in seen_draft_ids:
+                raise PublishValidationError("Draft ids in a batch must be unique")
+            seen_draft_ids.add(draft_id)
+
+        results: dict[str, DraftPreflightResult] = {}
+        prepared = []
+        target_paths = set()
+        for draft_id, expected_revision in drafts:
+            draft = self.draft_service.get(draft_id)
+            if draft.revision != expected_revision:
+                results[draft_id] = DraftPreflightResult(
+                    draft_id,
+                    False,
+                    conflict=True,
+                    errors=(
+                        "Draft changed after review. Refresh the Publish Review before publishing. "
+                        "(expected revision {}, current revision {})".format(
+                            expected_revision, draft.revision
+                        ),
+                    ),
+                )
+                continue
+
+            try:
+                target = self.canonical_target_resolver.resolve_target(
+                    draft.entity_type, draft.entity_id, draft.content
+                )
+                path, metadata = target.path, target.metadata
+            except (ValueError, ValidationError, yaml.YAMLError, TypeError) as error:
+                results[draft_id] = DraftPreflightResult(
+                    draft_id, False, errors=(str(error),)
+                )
+                continue
+
+            try:
+                self.git.assert_base(draft.base_git_revision, draft.base_content_hash, path)
+            except (GitConflictError, ValueError) as error:
+                results[draft_id] = DraftPreflightResult(
+                    draft_id, False, conflict=True, errors=(str(error),)
+                )
+                continue
+
+            if path.resolve() in target_paths:
+                results[draft_id] = DraftPreflightResult(
+                    draft_id,
+                    False,
+                    errors=("A batch cannot publish the same canonical path twice",),
+                )
+                continue
+            target_paths.add(path.resolve())
+
+            previous = path.read_bytes() if path.is_file() else None
+            if previous == draft.content.encode("utf-8"):
+                results[draft_id] = DraftPreflightResult(
+                    draft_id, False, errors=("Draft has no canonical changes to publish",)
+                )
+                continue
+
+            try:
+                warnings = self._validate_candidate(
+                    draft, draft.content, path, metadata, validate_references=True
+                )
+            except (PublishValidationError, ValueError, OSError, yaml.YAMLError, TypeError) as error:
+                results[draft_id] = DraftPreflightResult(
+                    draft_id, False, errors=(str(error),)
+                )
+                continue
+
+            prepared.append(
+                {
+                    "draft": draft,
+                    "path": path,
+                    "metadata": metadata,
+                    "warnings": tuple(warnings),
+                }
+            )
+            results[draft_id] = DraftPreflightResult(
+                draft_id, True, warnings=tuple(warnings)
+            )
+
+        collection_items = [
+            item for item in prepared if item["draft"].entity_type == "collection"
+        ]
+        if collection_items:
+            try:
+                current = CollectionRegistry.load(self.knowledge_root / "collections")
+                proposed = [
+                    collection
+                    for collection in current.collections
+                    if all(collection.id != item["metadata"].id for item in collection_items)
+                ] + [item["metadata"] for item in collection_items]
+                prospective_document_ids = {
+                    item["metadata"].id
+                    for item in prepared
+                    if item["draft"].entity_type == "document"
+                }
+                prospective_document_ids |= canonical_document_ids(
+                    self.knowledge_root / "documents"
+                )
+                issues = validate_collection_references(
+                    self.repository_root,
+                    proposed,
+                    prospective_document_ids=prospective_document_ids,
+                )
+                if issues:
+                    affected = {
+                        item["metadata"].id: item["draft"].id
+                        for item in collection_items
+                    }
+                    by_draft: dict[str, list[str]] = {}
+                    unassigned_errors = []
+                    for issue in issues:
+                        collection_id = Path(issue.path).stem
+                        affected_draft = affected.get(collection_id)
+                        if affected_draft is not None:
+                            by_draft.setdefault(affected_draft, []).append(
+                                "{}: {}".format(issue.path, issue.message)
+                            )
+                        else:
+                            unassigned_errors.append(
+                                "{}: {}".format(issue.path, issue.message)
+                            )
+                    for item in collection_items:
+                        draft_id = item["draft"].id
+                        errors = by_draft.get(draft_id, []) + unassigned_errors
+                        if errors:
+                            results[draft_id] = DraftPreflightResult(
+                                draft_id, False, errors=tuple(errors)
+                            )
+            except (
+                PublishValidationError,
+                ValueError,
+                OSError,
+                yaml.YAMLError,
+                TypeError,
+            ) as error:
+                for item in collection_items:
+                    draft_id = item["draft"].id
+                    results[draft_id] = DraftPreflightResult(
+                        draft_id, False, errors=(str(error),)
+                    )
+
+        return tuple(results[draft_id] for draft_id, _ in drafts)
 
     def publish_batch(
         self,

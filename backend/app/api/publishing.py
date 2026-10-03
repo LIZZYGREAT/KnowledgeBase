@@ -3,6 +3,8 @@
 from fastapi import APIRouter, Request
 
 from backend.app.api.schemas import (
+    BatchPreflightRequest,
+    BatchPreflightView,
     BatchPublishRequest,
     BatchPublishedView,
     PublishRequest,
@@ -11,6 +13,14 @@ from backend.app.api.schemas import (
 from backend.app.services.publisher import PublishedResult
 
 router = APIRouter(prefix="/api", tags=["Runtime"])
+
+
+@router.post("/publish/preflight-batch", response_model=BatchPreflightView)
+async def preflight_publish_batch(body: BatchPreflightRequest, request: Request):
+    results = request.app.state.publisher.preflight_batch(
+        [(item.draft_id, item.expected_revision) for item in body.drafts]
+    )
+    return {"results": [asdict(result) for result in results]}
 
 
 @router.post("/publish", response_model=PublishedView)

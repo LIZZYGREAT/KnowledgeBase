@@ -183,6 +183,10 @@ export interface DraftPreflight {
   warnings: string[];
 }
 
+export interface BatchDraftPreflight {
+  results: DraftPreflight[];
+}
+
 export interface PublishedDraft {
   draft_id: string;
   entity_type: string;
@@ -418,6 +422,13 @@ export function compareDraft(draftId: string) {
 
 export function preflightDraft(draftId: string) {
   return request<DraftPreflight>(`/api/drafts/${encodeURIComponent(draftId)}/preflight`);
+}
+
+export function preflightDraftsBatch(drafts: DraftPublishExpectation[]) {
+  return request<BatchDraftPreflight>("/api/publish/preflight-batch", {
+    method: "POST",
+    body: JSON.stringify({ drafts }),
+  });
 }
 
 export function rebaseDraft(

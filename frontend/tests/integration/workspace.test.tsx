@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   discardDraft: vi.fn(),
   compareDraft: vi.fn(),
   preflightDraft: vi.fn(),
+  preflightDraftsBatch: vi.fn(),
   publishDraft: vi.fn(),
   publishDraftsBatch: vi.fn(),
   listProposals: vi.fn(),
@@ -163,6 +164,15 @@ function installApiBehavior() {
     errors: conflictOnPreflight ? ["Canonical changed"] : [],
     warnings: [],
   }));
+  api.preflightDraftsBatch.mockImplementation(async (expectations: Array<{ draft_id: string }>) => ({
+    results: expectations.map(({ draft_id }) => ({
+      draft_id,
+      valid: !conflictOnPreflight,
+      conflict: conflictOnPreflight,
+      errors: conflictOnPreflight ? ["Canonical changed"] : [],
+      warnings: [],
+    })),
+  }));
   api.publishDraft.mockImplementation(async (id: string, _expectedRevision: number) => ({
     draft_id: id,
     entity_type: "document",
@@ -236,8 +246,9 @@ function renderWorkspace(
   id = "quick-start",
   navigate: (path: string) => void = () => undefined,
   registerBeforeNavigate?: RegisterBeforeNavigate,
+  batchCollectionId?: string,
 ) {
-  return render(<WorkspacePage type="document" id={id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} />);
+  return render(<WorkspacePage type="document" id={id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} batchCollectionId={batchCollectionId} />);
 }
 
 function renderGuardedWorkspace() {
@@ -503,6 +514,29 @@ describe("Workspace React integration", () => {
 
     await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith("draft-1", 1));
     expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
+  });
+
+  it("preflights a new Document and its Collection reference as one batch", async () => {
+    const user = userEvent.setup();
+    const documentDraft = seedDraft(canonicalContent.replace("selected phrase", "batch reviewed"));
+    const collectionDraft = makeDraft(
+      "collection",
+      "reading-list",
+      "schema_version: 1\nid: reading-list\ntitle: Reading List\nstatus: active\nposition: 0\nnodes:\n  - id: quick-start\n    kind: entity\n    entity_type: document\n    entity_id: quick-start\n",
+    );
+    drafts.push(collectionDraft);
+    renderWorkspace("quick-start", () => undefined, undefined, "reading-list");
+    await screen.findByRole("heading", { name: "Quick Start" });
+
+    await user.click(screen.getByRole("button", { name: "Publish All" }));
+
+    await screen.findByRole("heading", { name: "变更摘要" });
+    expect(api.preflightDraftsBatch).toHaveBeenCalledWith([
+      { draft_id: documentDraft.id, expected_revision: documentDraft.revision },
+      { draft_id: collectionDraft.id, expected_revision: collectionDraft.revision },
+    ]);
+    expect(api.preflightDraft).not.toHaveBeenCalled();
+    await waitFor(() => expect((screen.getByRole("button", { name: /Publish All · 一个 Git 提交/ }) as HTMLButtonElement).disabled).toBe(false));
   });
 
   it("publishes only the Draft revision captured by Publish Review", async () => {

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from pydantic import ValidationError
 import yaml
@@ -109,7 +110,7 @@ def validate_repository_references(repository_root: Path) -> list[CanonicalRefer
 
     term_resolver = TermResolver(terms)
     issues = []
-    document_ids = _canonical_document_ids(knowledge_root / "documents")
+    document_ids = canonical_document_ids(knowledge_root / "documents")
     entity_ids = {
         "document": document_ids,
         "term": {term.id for term in terms.terms},
@@ -194,9 +195,11 @@ def find_duplicate_entity_id_issues(
 
 
 def validate_collection_references(
-    repository_root: Path, collections: list[Collection]
+    repository_root: Path,
+    collections: list[Collection],
+    prospective_document_ids: Optional[set[str]] = None,
 ) -> list[CanonicalReferenceIssue]:
-    """Validate proposed Collection references against the current canonical entities."""
+    """Validate proposed Collection references against current or prospective entities."""
     repository_root = Path(repository_root).resolve()
     knowledge_root = repository_root / "knowledge"
     try:
@@ -211,7 +214,11 @@ def validate_collection_references(
             )
         ]
     entity_ids = {
-        "document": _canonical_document_ids(knowledge_root / "documents"),
+        "document": (
+            prospective_document_ids
+            if prospective_document_ids is not None
+            else canonical_document_ids(knowledge_root / "documents")
+        ),
         "term": {term.id for term in terms.terms},
         "source": {source.id for source in sources.sources},
     }
@@ -235,7 +242,7 @@ def _collection_reference_issues(collections, entity_ids) -> list[CanonicalRefer
     return issues
 
 
-def _canonical_document_ids(directory: Path) -> set[str]:
+def canonical_document_ids(directory: Path) -> set[str]:
     identifiers = set()
     if not directory.exists():
         return identifiers
