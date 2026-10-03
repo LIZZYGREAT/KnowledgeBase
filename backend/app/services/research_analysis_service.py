@@ -18,8 +18,8 @@ from backend.app.services.ai_client import AIProviderError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v1"
-RESEARCH_ANALYSIS_VERSION = 1
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v2"
+RESEARCH_ANALYSIS_VERSION = 2
 
 
 class ResearchAnalysisCircuitBreaker:
@@ -75,23 +75,38 @@ class ResearchAnalysisService:
         matched_lens: ResearchLens,
         context_pack: ResearchContextPack,
     ) -> str:
+        return _hash_analysis_input(
+            self.build_analysis_input(work, profile, matched_lens, context_pack)
+        )
+
+    def build_analysis_input(
+        self,
+        work: ResearchWorkRecord,
+        profile: ResearchProfile,
+        matched_lens: ResearchLens,
+        context_pack: ResearchContextPack,
+    ) -> dict:
+        """Return the exact semantic payload sent to the Research analysis model."""
         _validate_lens(profile, matched_lens)
-        payload = {
+        breadth = profile.search.breadth
+        return {
             "analysis_version": RESEARCH_ANALYSIS_VERSION,
             "prompt_version": RESEARCH_ANALYSIS_PROMPT_VERSION,
-            "work": work.model_dump(mode="json", exclude={"created_at", "updated_at"}),
-            "profile": profile.model_dump(mode="json", exclude={"schedule", "providers"}),
+            "provider": self.gateway.provider,
+            "model": self.gateway.model,
+            "work": work.model_dump(
+                mode="json", exclude={"created_at", "updated_at"}, exclude_none=True
+            ),
+            "profile": {
+                "id": profile.id,
+                "title": profile.title,
+                "description": profile.description,
+                "breadth": breadth,
+                "breadth_policy": _breadth_policy(breadth),
+            },
             "matched_lens": matched_lens.model_dump(mode="json"),
-            "context": context_pack.model_dump(mode="json"),
+            "knowledge_context": context_pack.model_dump(mode="json"),
         }
-        encoded = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def analyze(
         self,
@@ -105,13 +120,17 @@ class ResearchAnalysisService:
         if not profile.ai_analysis.enabled:
             return None
 
-        input_hash = self.input_hash(work, profile, matched_lens, context_pack)
+        analysis_input = self.build_analysis_input(
+            work, profile, matched_lens, context_pack
+        )
+        input_hash = _hash_analysis_input(analysis_input)
         cached = self.repository.get_analysis(work.id, profile.id, input_hash)
         if cached is not None:
             return cached
 
-        context = _analysis_context(work, profile, matched_lens, context_pack)
-        invoke = lambda: self.gateway.run("research_candidate_analysis", context)
+        invoke = lambda: self.gateway.run(
+            "research_candidate_analysis", analysis_input
+        )
         output = circuit_breaker.call(invoke) if circuit_breaker else invoke()
         if output is None:
             return None
@@ -153,20 +172,32 @@ def _validate_lens(profile: ResearchProfile, matched_lens: ResearchLens) -> None
         raise ValueError("Matched Lens does not belong to the Research Profile")
 
 
-def _analysis_context(
-    work: ResearchWorkRecord,
-    profile: ResearchProfile,
-    matched_lens: ResearchLens,
-    context_pack: ResearchContextPack,
-) -> dict:
+def _hash_analysis_input(analysis_input: dict) -> str:
+    encoded = json.dumps(
+        analysis_input,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _breadth_policy(breadth: str) -> str:
     return {
-        "work": work.model_dump(
-            mode="json", exclude={"created_at", "updated_at"}, exclude_none=True
+        "strict": (
+            "Admit only work directly relevant to the selected Lens. "
+            "Novelty alone or a merely adjacent topic is not sufficient."
         ),
-        "profile": {"id": profile.id, "title": profile.title},
-        "matched_lens": matched_lens.model_dump(mode="json"),
-        "knowledge_context": context_pack.model_dump(mode="json"),
-    }
+        "balanced": (
+            "Admit directly relevant work and clearly useful neighboring work. "
+            "A neighboring topic must have a concrete connection to the selected Lens."
+        ),
+        "explore": (
+            "Admit work with a clear connection to the selected Lens, including "
+            "useful neighboring directions. Novelty alone never makes unrelated work relevant."
+        ),
+    }[breadth]
 
 
 def _validate_analysis_references(

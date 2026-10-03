@@ -153,10 +153,12 @@ class MockDeepSeekClient:
     def __init__(self, responses: Optional[dict] = None):
         self.responses = responses or {}
         self.calls = []
+        self.messages = []
 
     def complete(self, messages: list[dict], output_schema: dict) -> str:
         task_name = messages[0]["content"].split("Task: ", 1)[1].splitlines()[0]
         self.calls.append(task_name)
+        self.messages.append(messages)
         if task_name not in self.responses:
             raise AIResponseError("Mock has no response for task '{}'".format(task_name))
         response = self.responses[task_name]

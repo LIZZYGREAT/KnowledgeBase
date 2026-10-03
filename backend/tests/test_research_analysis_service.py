@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,6 +23,7 @@ from backend.app.services.research_analysis_service import (
     ResearchAnalysisCircuitBreaker,
     ResearchAnalysisService,
 )
+import backend.app.services.research_analysis_service as analysis_service_module
 
 
 def test_research_analysis_is_structured_cached_and_profile_scoped():
@@ -50,9 +53,64 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert first.context_entity_ids == ("document:ewc",)
     assert isinstance(first.analysis, ResearchCandidateAnalysisOutput)
     assert client.calls == ["research_candidate_analysis"]
+    sent_input = json.loads(client.messages[0][1]["content"])
+    assert sent_input == service.build_analysis_input(
+        work, profile, profile.lenses[0], pack
+    )
+    assert sent_input["profile"]["breadth"] == "balanced"
+    assert sent_input["profile"]["breadth_policy"]
+    assert sent_input["provider"] == first.provider
+    assert sent_input["model"] == first.model
     assert connection.execute(
         "SELECT COUNT(*) FROM research_work_analyses"
     ).fetchone()[0] == 1
+    connection.close()
+
+
+def test_analysis_hash_uses_semantic_input_not_runtime_budgets_and_tracks_model(monkeypatch):
+    connection = connect_database(":memory:")
+    service = ResearchAnalysisService(
+        ResearchRepository(connection),
+        AIGateway(MockDeepSeekClient({"research_candidate_analysis": _analysis_output()})),
+    )
+    work = _work()
+    profile = _profile()
+    lens = profile.lenses[0]
+    pack = _context_pack()
+    original = service.input_hash(work, profile, lens, pack)
+
+    runtime_only_change = profile.model_copy(
+        update={
+            "search": profile.search.model_copy(
+                update={"max_analyses_per_run": 4, "max_candidates_per_run": 2}
+            ),
+            "inbox": profile.inbox.model_copy(update={"max_new_candidates": 3}),
+        }
+    )
+    assert service.input_hash(work, runtime_only_change, lens, pack) == original
+
+    service.gateway = SimpleNamespace(provider="deepseek", model="different-model")
+    assert service.input_hash(work, profile, lens, pack) != original
+    service.gateway = SimpleNamespace(provider="other-provider", model="mock")
+    assert service.input_hash(work, profile, lens, pack) != original
+
+    service.gateway = SimpleNamespace(provider="mock", model="mock")
+    changed_lens = lens.model_copy(update={"queries": ["different query"]})
+    changed_profile = profile.model_copy(update={"lenses": [changed_lens]})
+    assert service.input_hash(work, changed_profile, changed_lens, pack) != original
+    changed_breadth = profile.model_copy(
+        update={"search": profile.search.model_copy(update={"breadth": "strict"})}
+    )
+    assert service.input_hash(work, changed_breadth, lens, pack) != original
+    changed_pack = pack.model_copy(update={"omitted_count": 1})
+    assert service.input_hash(work, profile, lens, changed_pack) != original
+
+    monkeypatch.setattr(
+        analysis_service_module,
+        "RESEARCH_ANALYSIS_PROMPT_VERSION",
+        "research-candidate-analysis-test",
+    )
+    assert service.input_hash(work, profile, lens, pack) != original
     connection.close()
 
 
