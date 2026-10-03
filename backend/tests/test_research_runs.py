@@ -275,6 +275,26 @@ def test_manual_run_request_is_atomically_claimed_and_finished_by_tick(tmp_path)
     connection.close()
 
 
+def test_manual_run_can_temporarily_enable_a_disabled_lens(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=())])
+    profile = _profile()
+    disabled_lens = profile.lenses[0].model_copy(update={"enabled": False})
+    profile = profile.model_copy(update={"lenses": [disabled_lens]})
+    service, _, _, _ = _service(tmp_path, connection, provider, profile=profile)
+    request = service.queue_manual_run(
+        profile.id, {"lens_overrides": {disabled_lens.id: True}}
+    )
+
+    run = service.tick()
+
+    assert run is not None and run.status == "success"
+    assert run.request_id == request.id
+    assert run.effective_config["lens_overrides"] == {disabled_lens.id: True}
+    assert provider.calls == 1
+    connection.close()
+
+
 def test_tick_does_not_claim_request_when_another_process_holds_global_lock(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([ProviderPage(works=())])
@@ -392,6 +412,22 @@ def test_tick_selects_most_overdue_profile_and_skips_paused_profiles(tmp_path):
     )
     assert service.tick() is None
     assert provider.calls == 1
+    connection.close()
+
+
+def test_resume_catchup_days_are_applied_to_the_next_scheduled_run(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=())])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    service.resume_profile(
+        "continual-learning", strategy="catch_up", catchup_days=7, now=_NOW
+    )
+
+    run = service.tick()
+
+    assert run is not None and run.status == "success"
+    assert run.effective_config["resume_strategy"] == "last_window"
+    assert run.effective_config["catchup_days_override"] == 7
     connection.close()
 
 

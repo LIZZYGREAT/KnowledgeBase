@@ -21,6 +21,9 @@ from backend.app.repositories.research_run_repository import (
 from backend.app.repositories.research_run_request_repository import (
     ResearchRunRequestRepository,
 )
+from backend.app.repositories.research_control_event_repository import (
+    ResearchControlEventRepository,
+)
 from backend.app.repositories.research_search_repository import ResearchSearchRepository
 from backend.app.services.ai_client import AIGatewayError
 from backend.app.services.research_analysis_service import (
@@ -82,6 +85,7 @@ class ResearchService:
         self.search_repository = ResearchSearchRepository(connection)
         self.run_repository = ResearchRunRepository(connection)
         self.run_request_repository = ResearchRunRequestRepository(connection)
+        self.control_event_repository = ResearchControlEventRepository(connection)
         self.profile_state_repository = ResearchProfileStateRepository(connection)
         self.candidate_repository = candidate_service.repository
         self.query_builder = ResearchQueryBuilder()
@@ -110,6 +114,9 @@ class ResearchService:
         manual_range: Optional[tuple[datetime, datetime]] = None,
         lens_overrides: Optional[Mapping[str, bool]] = None,
         resume_strategy: ResumeStrategy = "all",
+        additional_queries: tuple[str, ...] = (),
+        breadth_override: Optional[str] = None,
+        catchup_days_override: Optional[int] = None,
     ) -> Optional[ResearchRunRecord]:
         if trigger not in {"scheduled", "manual"}:
             raise ValueError("Research Run trigger must be scheduled or manual")
@@ -130,9 +137,76 @@ class ResearchService:
                 lens_overrides=lens_overrides,
                 resume_strategy=resume_strategy,
                 now=now,
+                additional_queries=additional_queries,
+                breadth_override=breadth_override,
+                catchup_days_override=catchup_days_override,
             )
         finally:
             self.global_lock.release()
+
+    def now(self) -> datetime:
+        return self._now()
+
+    def pause_profile(
+        self, profile_id: str, paused_until: datetime, now: Optional[datetime] = None
+    ):
+        if self.profile_registry.get(profile_id) is None:
+            raise LookupError("Research Profile '{}' does not exist".format(profile_id))
+        timestamp = self._now() if now is None else _aware_utc(now, "now")
+        until = _aware_utc(paused_until, "paused_until")
+        if until <= timestamp:
+            raise ValueError("Research Profile pause time must be in the future")
+        with self.work_repository.write_transaction():
+            state = self.profile_state_repository.pause_until(profile_id, until, timestamp)
+            self.control_event_repository.create(
+                profile_id,
+                "pause",
+                {"paused_until": until.isoformat()},
+                timestamp,
+            )
+        return state
+
+    def resume_profile(
+        self,
+        profile_id: str,
+        strategy: str = "catch_up",
+        catchup_days: Optional[int] = None,
+        now: Optional[datetime] = None,
+    ):
+        profile = self.profile_registry.get(profile_id)
+        if profile is None:
+            raise LookupError("Research Profile '{}' does not exist".format(profile_id))
+        if strategy not in {"catch_up", "from_now"}:
+            raise ValueError("Research resume strategy must be catch_up or from_now")
+        if catchup_days is not None and (
+            isinstance(catchup_days, bool)
+            or not isinstance(catchup_days, int)
+            or catchup_days < 1
+        ):
+            raise ValueError("catchup_days must be a positive integer")
+        if strategy == "from_now" and catchup_days is not None:
+            raise ValueError("catchup_days cannot be combined with from_now")
+        timestamp = self._now() if now is None else _aware_utc(now, "now")
+        with self.work_repository.write_transaction():
+            if strategy == "from_now":
+                queries = self.query_builder.build(profile)
+                self.watermarks.skip_profile_to_now(profile, timestamp, queries)
+                self.control_event_repository.create(
+                    profile_id,
+                    "watermark_skip",
+                    {"strategy": "from_now"},
+                    timestamp,
+                )
+            state = self.profile_state_repository.pause_until(
+                profile_id, None, timestamp
+            )
+            self.control_event_repository.create(
+                profile_id,
+                "resume",
+                {"strategy": strategy, "catchup_days": catchup_days},
+                timestamp,
+            )
+        return state
 
     def queue_manual_run(
         self, profile_id: str, override: Optional[Mapping] = None
@@ -190,14 +264,19 @@ class ResearchService:
             profile = self._most_overdue_profile(now)
             if profile is None:
                 return None
+            state = self.profile_state_repository.get(profile.id)
+            resume_strategy, catchup_days_override = self._scheduled_resume_options(
+                profile.id, state
+            )
             return self._run_profile_locked(
                 profile_id=profile.id,
                 trigger="scheduled",
                 request_id=None,
                 manual_range=None,
                 lens_overrides=None,
-                resume_strategy="all",
+                resume_strategy=resume_strategy,
                 now=now,
+                catchup_days_override=catchup_days_override,
             )
         finally:
             self.global_lock.release()
@@ -228,6 +307,24 @@ class ResearchService:
             return None
         return min(eligible, key=lambda item: (item[0], item[1]))[2]
 
+    def _scheduled_resume_options(self, profile_id: str, state) -> tuple[str, Optional[int]]:
+        event = self.control_event_repository.latest_resume(profile_id)
+        if event is None:
+            return "all", None
+        last_success = (
+            _parse_timestamp(state.last_successful_scheduled_run_at)
+            if state is not None and state.last_successful_scheduled_run_at is not None
+            else None
+        )
+        event_at = _parse_timestamp(event["created_at"])
+        if last_success is not None and event_at <= last_success:
+            return "all", None
+        payload = event["payload"]
+        catchup_days = payload.get("catchup_days")
+        if payload.get("strategy") == "catch_up" and catchup_days is not None:
+            return "last_window", catchup_days
+        return "all", None
+
     def _run_profile_locked(
         self,
         profile_id: str,
@@ -237,14 +334,38 @@ class ResearchService:
         lens_overrides: Optional[Mapping[str, bool]],
         resume_strategy: ResumeStrategy,
         now: datetime,
+        additional_queries: tuple[str, ...] = (),
+        breadth_override: Optional[str] = None,
+        catchup_days_override: Optional[int] = None,
     ) -> Optional[ResearchRunRecord]:
-        profile = self.profile_registry.get(profile_id)
-        if profile is None:
+        canonical_profile = self.profile_registry.get(profile_id)
+        if canonical_profile is None:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
         profile_hash = self.profile_registry.content_hash(profile_id)
         effective_config = _effective_config(
-            profile, lens_overrides, manual_range, resume_strategy
+            canonical_profile,
+            lens_overrides,
+            manual_range,
+            resume_strategy,
+            additional_queries,
+            breadth_override,
+            catchup_days_override,
         )
+        profile = canonical_profile
+        profile_updates = {}
+        if lens_overrides is not None:
+            profile_updates["lenses"] = [
+                lens.model_copy(
+                    update={"enabled": lens_overrides.get(lens.id, lens.enabled)}
+                )
+                for lens in profile.lenses
+            ]
+        if breadth_override is not None:
+            profile_updates["search"] = profile.search.model_copy(
+                update={"breadth": breadth_override}
+            )
+        if profile_updates:
+            profile = profile.model_copy(update=profile_updates)
 
         if not profile.enabled:
             return self._create_finished_run(
@@ -285,7 +406,9 @@ class ResearchService:
                 now,
             )
 
-        queries = self.query_builder.build(profile, lens_overrides)
+        queries = self.query_builder.build(
+            profile, lens_overrides, additional_queries
+        )
         run = ResearchRunRecord(
             id=self.id_factory(),
             profile_id=profile.id,
@@ -340,6 +463,7 @@ class ResearchService:
                         self.profile_registry.global_config,
                         manual_range=manual_range,
                         resume_strategy=resume_strategy,
+                        catchup_days_override=catchup_days_override,
                     )
                     if plan.watermark_skip_required:
                         continue
@@ -640,6 +764,9 @@ def _effective_config(
     lens_overrides: Optional[Mapping[str, bool]],
     manual_range: Optional[tuple[datetime, datetime]],
     resume_strategy: ResumeStrategy,
+    additional_queries: tuple[str, ...] = (),
+    breadth_override: Optional[str] = None,
+    catchup_days_override: Optional[int] = None,
 ) -> dict:
     return {
         "profile": profile.model_dump(mode="json"),
@@ -650,6 +777,9 @@ def _effective_config(
             else None
         ),
         "resume_strategy": resume_strategy,
+        "additional_queries": list(additional_queries),
+        "breadth_override": breadth_override,
+        "catchup_days_override": catchup_days_override,
     }
 
 
@@ -685,10 +815,22 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _aware_utc(value: datetime, label: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("Research {} must be timezone-aware".format(label))
+    return value.astimezone(timezone.utc)
+
+
 def _manual_request_options(override: Mapping, profile: ResearchProfile) -> dict:
     if not isinstance(override, Mapping):
         raise ValueError("Manual Research Run override must be an object")
-    allowed = {"lens_overrides", "manual_range", "resume_strategy"}
+    allowed = {
+        "lens_overrides",
+        "manual_range",
+        "resume_strategy",
+        "breadth",
+        "additional_queries",
+    }
     unexpected = set(override) - allowed
     if unexpected:
         raise ValueError(
@@ -722,26 +864,53 @@ def _manual_request_options(override: Mapping, profile: ResearchProfile) -> dict
     resume_strategy = override.get("resume_strategy", "all")
     if resume_strategy not in {"all", "from_now"}:
         raise ValueError("resume_strategy must be 'all' or 'from_now'")
+    if manual_range is not None and resume_strategy != "all":
+        raise ValueError("Resume strategy does not apply to manual historical searches")
+    breadth = override.get("breadth")
+    if breadth is not None and breadth not in {"strict", "balanced", "explore"}:
+        raise ValueError("breadth must be strict, balanced, or explore")
+    additional_queries = override.get("additional_queries", ())
+    if not isinstance(additional_queries, (list, tuple)) or len(additional_queries) > 20:
+        raise ValueError("additional_queries must contain at most 20 query strings")
+    normalized_queries = []
+    for query in additional_queries:
+        if not isinstance(query, str) or not query.strip() or len(query) > 2_000:
+            raise ValueError("additional_queries entries must be text up to 2000 characters")
+        normalized_queries.append(query.strip())
+    if normalized_queries:
+        selected_lenses = [
+            lens
+            for lens in profile.lenses
+            if (lens_overrides or {}).get(lens.id, lens.enabled)
+        ]
+        if not selected_lenses:
+            raise ValueError("Additional Research queries require a selected Lens")
     return {
         "manual_range": manual_range,
         "lens_overrides": lens_overrides,
         "resume_strategy": resume_strategy,
+        "additional_queries": tuple(normalized_queries),
+        "breadth_override": breadth,
+        "catchup_days_override": None,
     }
 
 
 def _parse_override_datetime(value) -> datetime:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("Manual Research Run timestamps must be non-empty text")
+    if len(value) == 10:
+        try:
+            return datetime.combine(
+                datetime.strptime(value, "%Y-%m-%d").date(),
+                datetime.min.time(),
+                timezone.utc,
+            )
+        except ValueError:
+            pass
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as error:
-        # Date-only values represent UTC midnight for API clients.
-        try:
-            parsed = datetime.combine(
-                datetime.strptime(value, "%Y-%m-%d").date(), datetime.min.time(), timezone.utc
-            )
-        except ValueError:
-            raise ValueError("Manual Research Run range contains an invalid timestamp") from error
+        raise ValueError("Manual Research Run range contains an invalid timestamp") from error
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("Manual Research Run timestamps must include a timezone")
     return parsed.astimezone(timezone.utc)

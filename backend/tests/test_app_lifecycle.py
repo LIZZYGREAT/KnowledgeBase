@@ -3,6 +3,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import yaml
+
 from backend.app.main import app
 
 
@@ -15,6 +17,12 @@ def test_application_initializes_phase_services_from_configured_paths(
     repository = tmp_path / "repository"
     repository.mkdir()
     shutil.copytree(_ROOT / "config", repository / "config")
+    profile_path = (
+        repository / "config" / "research" / "profiles" / "continual-learning.yaml"
+    )
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    profile["context"]["documents"] = []
+    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
     (repository / "knowledge").mkdir()
     shutil.copytree(
         _ROOT / "knowledge" / "taxonomy",
@@ -44,6 +52,7 @@ def test_application_initializes_phase_services_from_configured_paths(
             assert app.state.ai_proposal_service.repository_root == repository.resolve()
             assert app.state.knowledge_read_service.repository_root == repository.resolve()
             assert app.state.context_export_service.knowledge is app.state.knowledge_read_service
+            assert app.state.research_service.profile_registry.get("continual-learning") is not None
             assert app.state.usage_service.connection is app.state.runtime_connection
             assert app.state.runtime_connection.execute("SELECT 1").fetchone()[0] == 1
 

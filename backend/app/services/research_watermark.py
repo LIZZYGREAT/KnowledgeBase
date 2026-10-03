@@ -50,6 +50,7 @@ class ResearchWatermarkService:
         global_config: ResearchGlobalConfig,
         manual_range: Optional[tuple[datetime, datetime]] = None,
         resume_strategy: ResumeStrategy = "all",
+        catchup_days_override: Optional[int] = None,
     ) -> ResearchSearchPlan:
         now_utc = _as_utc(now, "now")
         if query.profile_id != profile.id:
@@ -60,6 +61,14 @@ class ResearchWatermarkService:
             raise ValueError("Provider is not enabled for discovery by this Profile")
         if resume_strategy not in {"all", "last_window", "from_now"}:
             raise ValueError("Unsupported Research resume strategy")
+        if catchup_days_override is not None and (
+            isinstance(catchup_days_override, bool)
+            or not isinstance(catchup_days_override, int)
+            or catchup_days_override < 1
+        ):
+            raise ValueError("Research catchup_days override must be a positive integer")
+        if catchup_days_override is not None and resume_strategy != "last_window":
+            raise ValueError("catchup_days override requires the last_window strategy")
 
         state = self.repository.get_state(
             profile.id, query.lens_id, provider, query.query_key
@@ -112,7 +121,12 @@ class ResearchWatermarkService:
                 hours=global_config.runtime.overlap_hours
             )
         if resume_strategy == "last_window":
-            catchup_start = now_utc - timedelta(days=profile.search.max_catchup_days)
+            catchup_days = (
+                catchup_days_override
+                if catchup_days_override is not None
+                else profile.search.max_catchup_days
+            )
+            catchup_start = now_utc - timedelta(days=catchup_days)
             start = max(start, catchup_start)
         return ResearchSearchPlan(
             profile_id=profile.id,

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from backend.app.api.ai import router as ai_router
 from backend.app.api.knowledge import router as knowledge_router
+from backend.app.api.research import router as research_router
 from backend.app.api.runtime import router as runtime_router
 from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
@@ -44,6 +45,7 @@ from backend.app.services.import_service import ImportValidationError
 from backend.app.services.proposal_service import StaleProposalError
 from backend.app.repositories.proposal_repository import ProposalTransitionError
 from backend.app.services.usage_service import UsageService
+from backend.app.services.research_wiring import build_research_service
 from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
     PresentationAnnotationService,
@@ -98,6 +100,7 @@ async def lifespan(application: FastAPI):
             git_manager,
             canonical_target_resolver=canonical_target_resolver,
         )
+        research_service = build_research_service(repository_root, connection)
 
         application.state.repository_root = repository_root
         application.state.database_path = database_path
@@ -116,6 +119,7 @@ async def lifespan(application: FastAPI):
         application.state.canonical_target_resolver = canonical_target_resolver
         application.state.import_service = import_service
         application.state.publisher = publisher
+        application.state.research_service = research_service
         yield
     finally:
         connection.close()
@@ -125,6 +129,7 @@ app = FastAPI(title="KnowledgeBase API", version="0.8.0", lifespan=lifespan)
 app.include_router(knowledge_router)
 app.include_router(runtime_router)
 app.include_router(ai_router)
+app.include_router(research_router)
 
 
 def _error_response(status_code: int, error: Exception) -> JSONResponse:

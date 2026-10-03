@@ -93,6 +93,28 @@ POST /api/context/export
 
 The request supplies exactly one of `document_id` or `source_id`, plus `trust` (`raw`, `reviewed`, or `verified`) and `purpose` (`research`, `teaching`, or `evidence`). `raw` returns available content, `reviewed` returns content only for human-approved Documents, and `verified` returns traceable claims only when the Document is human-approved and its Source metadata is marked verified; verified exports omit full Document content. **The `verified` level is provisional:** it means the claim is traceable to a Source whose metadata is marked verified, not that the claim has passed independent Evidence review. PaperSkillWork must not treat it as Evidence Verified. Revisit this meaning when the Phase 11 Source/Evidence UI adds per-claim review. `purpose: evidence` returns Source metadata, claims, and locators without Document or Term bodies. The response can include Sources, related Documents and Terms, Evidence Locators, and unresolved or ambiguous Wiki Links. It never returns internal file paths.
 
+## Research Agent
+
+```text
+GET  /api/research/profiles
+GET  /api/research/profiles/{profile_id}
+POST /api/research/profiles/{profile_id}/pause
+POST /api/research/profiles/{profile_id}/resume
+POST /api/research/profiles/{profile_id}/runs
+GET  /api/research/runs?profile_id=...&offset=0&limit=50
+GET  /api/research/runs/{run_id}
+GET  /api/research/candidates?profile_id=...&status=new&lens=...&sort=recommended&offset=0&limit=50
+GET  /api/research/candidates/{candidate_id}
+POST /api/research/candidates/{candidate_id}/shortlist
+POST /api/research/candidates/{candidate_id}/dismiss
+```
+
+Profile reads combine canonical YAML with Runtime pause state, Inbox capacity, and the latest Run. Pause accepts exactly one of `days` or a timezone-aware `until`. Resume accepts `catch_up` (optionally with `catchup_days`) or `from_now`; `from_now` records an audit event and advances the active search watermarks without contacting Providers.
+
+Manual Run requests accept selected `lenses`, a temporary `breadth`, an optional `date_range`, and up to 20 `additional_queries`. The endpoint returns HTTP `202` with a `request_id` and `pending` status after inserting a Runtime queue request; it does not execute Providers or AI in the HTTP request. `date_range.mode` supports `last_7_days`, `last_30_days`, `last_90_days`, and `custom` with ISO date or timezone-aware `start` and `end` values.
+
+Candidate list sort options are `recommended`, `newest`, `most_relevant`, and `most_novel`. Candidate reads expose Research Work, validated Analysis, Discovery provenance, and current/pending knowledge links. Opening Candidate detail records its first and latest view timestamps. Shortlist and Dismiss update Runtime Candidate state only; Dismiss reasons exposed by the API are `not_relevant`, `already_known`, `too_redundant`, `not_interested`, and `other`.
+
 ## Errors
 
 Request validation and canonical content errors return `422`; missing entities return `404`; stale revisions, stale annotations, stale Proposals, and publishing conflicts return `409`; AI configuration errors return `503`; DeepSeek transport or response errors return `502`.

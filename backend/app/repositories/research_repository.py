@@ -229,6 +229,31 @@ class ResearchRepository:
         ).fetchone()
         return _analysis_from_row(row) if row else None
 
+    def get_analysis_by_id(self, analysis_id: str) -> Optional[ResearchWorkAnalysisRecord]:
+        row = self.connection.execute(
+            "SELECT * FROM research_work_analyses WHERE id = ?", (analysis_id,)
+        ).fetchone()
+        return _analysis_from_row(row) if row else None
+
+    def list_entity_links(self, work_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            """SELECT entity_type, entity_id, relation_type, created_at
+               FROM research_entity_links WHERE work_id = ?
+               ORDER BY created_at, entity_type, entity_id""",
+            (work_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_pending_links(self, candidate_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            """SELECT id, group_id, draft_id, intended_entity_type,
+                      intended_entity_id, relation_type, created_at
+               FROM research_pending_links WHERE candidate_id = ?
+               ORDER BY created_at, id""",
+            (candidate_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def add_analysis_if_missing(
         self, analysis: ResearchWorkAnalysisRecord
     ) -> tuple[ResearchWorkAnalysisRecord, bool]:

@@ -59,6 +59,42 @@ class ResearchRunRepository:
         ).fetchall()
         return [_run_from_row(row) for row in rows]
 
+    def list_recent(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        profile_id: Optional[str] = None,
+    ) -> list[ResearchRunRecord]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
+            raise ValueError("Research Run list limit must be between 1 and 500")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("Research Run offset must be non-negative")
+        if profile_id is None:
+            rows = self.connection.execute(
+                """SELECT * FROM research_runs
+                   ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?""",
+                (limit, offset),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                """SELECT * FROM research_runs WHERE profile_id = ?
+                   ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?""",
+                (profile_id, limit, offset),
+            ).fetchall()
+        return [_run_from_row(row) for row in rows]
+
+    def count_recent(self, profile_id: Optional[str] = None) -> int:
+        if profile_id is None:
+            row = self.connection.execute(
+                "SELECT COUNT(*) AS count FROM research_runs"
+            ).fetchone()
+        else:
+            row = self.connection.execute(
+                "SELECT COUNT(*) AS count FROM research_runs WHERE profile_id = ?",
+                (profile_id,),
+            ).fetchone()
+        return int(row["count"])
+
     def update_progress(self, run_id: str, **increments: int) -> ResearchRunRecord:
         if not increments or set(increments) - _COUNTERS:
             raise ValueError("Research Run progress contains unsupported counters")

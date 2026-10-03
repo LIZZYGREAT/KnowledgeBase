@@ -55,6 +55,92 @@ class ResearchCandidateRepository:
             ).fetchall()
         return [_candidate_from_row(row) for row in rows]
 
+    def list_filtered(
+        self,
+        profile_id: Optional[str] = None,
+        status: Optional[ResearchCandidateStatus] = None,
+        lens_id: Optional[str] = None,
+        sort: str = "recommended",
+        offset: int = 0,
+        limit: int = 50,
+        ranking_weights: tuple[float, float, float] = (0.4, 0.3, 0.3),
+    ) -> list[ResearchCandidateRecord]:
+        if sort not in {"recommended", "newest", "most_relevant", "most_novel"}:
+            raise ValueError("Unsupported Research Candidate sort")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("Research Candidate offset must be non-negative")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("Research Candidate limit must be between 1 and 100")
+        if len(ranking_weights) != 3 or any(
+            isinstance(weight, bool) or not isinstance(weight, (int, float))
+            for weight in ranking_weights
+        ):
+            raise ValueError("Research Candidate ranking weights must contain three numbers")
+
+        conditions = []
+        parameters = []
+        if profile_id is not None:
+            conditions.append("c.profile_id = ?")
+            parameters.append(profile_id)
+        if status is not None:
+            conditions.append("c.status = ?")
+            parameters.append(status)
+        if lens_id is not None:
+            conditions.append("c.primary_lens_id = ?")
+            parameters.append(lens_id)
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        profile_score = "CAST(json_extract(a.analysis_json, '$.profile_relevance') AS REAL)"
+        novelty_score = "CAST(json_extract(a.analysis_json, '$.novelty_to_library') AS REAL)"
+        if sort == "newest":
+            order = "c.created_at DESC, c.id DESC"
+            weights = ()
+        elif sort == "most_relevant":
+            order = "{} DESC, c.created_at DESC, c.id DESC".format(profile_score)
+            weights = ()
+        elif sort == "most_novel":
+            order = "{} DESC, c.created_at DESC, c.id DESC".format(novelty_score)
+            weights = ()
+        else:
+            knowledge_score = "CAST(json_extract(a.analysis_json, '$.knowledge_relevance') AS REAL)"
+            order = (
+                "(? * {} + ? * {} + ? * {}) DESC, c.created_at DESC, c.id DESC"
+            ).format(profile_score, knowledge_score, novelty_score)
+            weights = tuple(ranking_weights)
+        rows = self.connection.execute(
+            """SELECT c.* FROM research_candidates c
+               JOIN research_work_analyses a ON a.id = c.analysis_id"""
+            + where
+            + " ORDER BY "
+            + order
+            + " LIMIT ? OFFSET ?",
+            tuple(parameters) + weights + (limit, offset),
+        ).fetchall()
+        return [_candidate_from_row(row) for row in rows]
+
+    def count_filtered(
+        self,
+        profile_id: Optional[str] = None,
+        status: Optional[ResearchCandidateStatus] = None,
+        lens_id: Optional[str] = None,
+    ) -> int:
+        conditions = []
+        parameters = []
+        if profile_id is not None:
+            conditions.append("profile_id = ?")
+            parameters.append(profile_id)
+        if status is not None:
+            conditions.append("status = ?")
+            parameters.append(status)
+        if lens_id is not None:
+            conditions.append("primary_lens_id = ?")
+            parameters.append(lens_id)
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        row = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM research_candidates" + where,
+            tuple(parameters),
+        ).fetchone()
+        return int(row["count"])
+
     def count_new(self, profile_id: str) -> int:
         row = self.connection.execute(
             """SELECT COUNT(*) AS count FROM research_candidates

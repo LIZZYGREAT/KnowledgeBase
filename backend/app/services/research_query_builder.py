@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import unicodedata
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
 
 from backend.app.domain.research import ResearchProfile
 
@@ -27,6 +27,7 @@ class ResearchQueryBuilder:
         self,
         profile: ResearchProfile,
         lens_overrides: Optional[Mapping[str, bool]] = None,
+        additional_queries: Sequence[str] = (),
     ) -> tuple[ResearchQuery, ...]:
         overrides = dict(lens_overrides or {})
         if any(
@@ -63,6 +64,39 @@ class ResearchQueryBuilder:
                             lens.id
                         )
                     )
+                emitted_keys.add(query_key)
+                queries.append(
+                    ResearchQuery(
+                        profile_id=profile.id,
+                        lens_id=lens.id,
+                        lens_title=lens.title,
+                        text=text.strip(),
+                        normalized_text=normalized_text,
+                        query_key=query_key,
+                        priority=lens.priority,
+                        include_terms=tuple(lens.include_terms),
+                        exclude_terms=tuple(lens.exclude_terms),
+                        profile_exclude_terms=tuple(profile.exclude_terms),
+                    )
+                )
+        if additional_queries:
+            selected_lenses = [
+                lens
+                for lens in profile.lenses
+                if overrides.get(lens.id, lens.enabled)
+            ]
+            if not selected_lenses:
+                raise ValueError("Additional Research queries require at least one selected Lens")
+            lens = selected_lenses[0]
+            for text in additional_queries:
+                if not isinstance(text, str) or not text.strip():
+                    raise ValueError("Additional Research queries must be non-empty text")
+                normalized_text = normalize_query(text)
+                query_key = hashlib.sha256(
+                    "\0".join((profile.id, lens.id, normalized_text)).encode("utf-8")
+                ).hexdigest()
+                if query_key in emitted_keys:
+                    raise ValueError("Research Run contains a duplicate query")
                 emitted_keys.add(query_key)
                 queries.append(
                     ResearchQuery(

@@ -5,9 +5,12 @@ import shutil
 import subprocess
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from backend.app.db.connection import connect_database
+from backend.app.domain.ai import ResearchCandidateAnalysisOutput
+from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.main import app
 from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.ai_client import MockDeepSeekClient
@@ -15,6 +18,7 @@ from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
+from backend.app.services.research_providers.base import ProviderWork
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -953,6 +957,144 @@ def test_browser_upload_stages_multiple_markdown_and_pdf_files(api_client):
     assert not list(browser_uploads.iterdir())
 
 
+def test_research_profile_controls_manual_queue_runs_and_candidate_actions(api_client):
+    service = api_client.app.state.research_service
+    profile_id = "continual-learning"
+    profile = service.profile_registry.get(profile_id)
+    assert profile is not None
+
+    profiles = api_client.get("/api/research/profiles")
+    assert profiles.status_code == 200
+    assert profiles.json()[0]["id"] == profile_id
+    assert profiles.json()[0]["inbox"] == {
+        "new_count": 0,
+        "capacity": profile.inbox.max_new_candidates,
+        "remaining": profile.inbox.max_new_candidates,
+    }
+    detail = api_client.get("/api/research/profiles/{}".format(profile_id))
+    assert detail.status_code == 200
+    assert detail.json()["profile"]["lenses"][0]["id"] == "regularization"
+
+    assert api_client.post(
+        "/api/research/profiles/{}/pause".format(profile_id),
+        json={"days": 3, "until": "2026-10-08T00:00:00Z"},
+    ).status_code == 422
+    paused = api_client.post(
+        "/api/research/profiles/{}/pause".format(profile_id), json={"days": 3}
+    )
+    assert paused.status_code == 200
+    assert paused.json()["runtime_state"]["paused_until"]
+    resumed = api_client.post(
+        "/api/research/profiles/{}/resume".format(profile_id),
+        json={"strategy": "from_now"},
+    )
+    assert resumed.status_code == 200
+    assert resumed.json()["watermark_skipped"] is True
+    assert service.control_event_repository.latest_resume(profile_id)["payload"]["strategy"] == "from_now"
+
+    queued = api_client.post(
+        "/api/research/profiles/{}/runs".format(profile_id),
+        json={
+            "lenses": ["regularization"],
+            "breadth": "explore",
+            "date_range": {"mode": "last_7_days"},
+            "additional_queries": ["dynamic fisher continual learning"],
+        },
+    )
+    assert queued.status_code == 202, queued.json()
+    request_id = queued.json()["request_id"]
+    assert queued.json()["status"] == "pending"
+    request_row = service.run_request_repository.get(request_id)
+    assert request_row is not None and request_row.status == "pending"
+    assert request_row.override["breadth"] == "explore"
+    assert request_row.override["additional_queries"] == ["dynamic fisher continual learning"]
+    assert api_client.get("/api/research/runs").json()["count"] == 0
+
+    query = service.query_builder.build(profile)[0]
+    ingested = service.deduplicator.record_discovery(
+        profile_id,
+        query.lens_id,
+        query.query_key,
+        query.text,
+        ProviderWork(
+            provider="arxiv",
+            provider_record_id="2501.01234",
+            title="A Research API Candidate",
+            abstract="A concrete abstract for the research candidate.",
+            authors=("Example Author",),
+            year=2026,
+            arxiv_id="2501.01234",
+        ),
+        discovered_at=service.now(),
+    )
+    analysis_output = ResearchCandidateAnalysisOutput.model_validate(
+        {
+            "relevant": True,
+            "profile_relevance": 0.9,
+            "knowledge_relevance": 0.8,
+            "novelty_to_library": 0.7,
+            "matched_lenses": [query.lens_id],
+            "matched_topics": ["continual learning"],
+            "summary": "A concise analysis summary.",
+            "why_relevant": "It matches the Profile's Research Lens.",
+            "reading_reason": "It may provide a useful method comparison.",
+            "existing_relations": [
+                {
+                    "entity_type": "document",
+                    "entity_id": "neural-indexing",
+                    "relation": "related",
+                    "reason": "Both concern parameter importance.",
+                }
+            ],
+        }
+    )
+    analysis = ResearchWorkAnalysisRecord(
+        id="api-analysis",
+        work_id=ingested.work.id,
+        profile_id=profile_id,
+        input_hash="api-analysis-hash",
+        outcome="surface",
+        analysis=analysis_output,
+        provider="mock",
+        model="mock",
+        prompt_version="research-candidate-analysis-v1",
+        analysis_version=1,
+        context_entity_ids=("document:neural-indexing",),
+        analyzed_at=service.now().isoformat(),
+    )
+    analysis, _ = service.work_repository.add_analysis_if_missing(analysis)
+    generated = service.candidate_service.generate(analysis, profile, profile.lenses[0])
+    candidate_id = generated.candidate.id
+
+    candidate_page = api_client.get(
+        "/api/research/candidates",
+        params={"profile_id": profile_id, "status": "new", "sort": "recommended"},
+    )
+    assert candidate_page.status_code == 200, candidate_page.json()
+    assert candidate_page.json()["count"] == 1
+    assert candidate_page.json()["candidates"][0]["work"]["id"] == ingested.work.id
+    candidate_detail = api_client.get(
+        "/api/research/candidates/{}".format(candidate_id)
+    )
+    assert candidate_detail.status_code == 200, candidate_detail.json()
+    assert candidate_detail.json()["knowledge_relations"][0]["entity_id"] == "neural-indexing"
+    assert candidate_detail.json()["candidate"]["first_viewed_at"]
+
+    shortlist = api_client.post(
+        "/api/research/candidates/{}/shortlist".format(candidate_id),
+        json={"note": "Read after the current review batch."},
+    )
+    assert shortlist.status_code == 200
+    assert shortlist.json()["status"] == "shortlisted"
+    dismissed = api_client.post(
+        "/api/research/candidates/{}/dismiss".format(candidate_id),
+        json={"reason": "too_redundant", "note": "Already covered in my notes."},
+    )
+    assert dismissed.status_code == 200
+    assert dismissed.json()["status"] == "dismissed"
+    assert dismissed.json()["dismiss_reason"] == "too_similar"
+
+
 def _create_repository(root: Path) -> Path:
     repository = root
     (repository / "config").mkdir(parents=True)
@@ -984,6 +1126,14 @@ def _create_repository(root: Path) -> Path:
     (repository / "knowledge" / "terms" / "neural-indexing.md").write_text(term, encoding="utf-8")
     (repository / "knowledge" / "documents" / "learning" / "neural-indexing.md").write_text(
         _document_content(), encoding="utf-8"
+    )
+    research_profile_path = (
+        repository / "config" / "research" / "profiles" / "continual-learning.yaml"
+    )
+    research_profile = yaml.safe_load(research_profile_path.read_text(encoding="utf-8"))
+    research_profile["context"]["documents"] = []
+    research_profile_path.write_text(
+        yaml.safe_dump(research_profile, sort_keys=False), encoding="utf-8"
     )
     subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
     subprocess.run(["git", "config", "user.name", "API Tests"], cwd=repository, check=True)

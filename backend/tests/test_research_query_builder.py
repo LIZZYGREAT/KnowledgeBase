@@ -64,6 +64,42 @@ def test_rejects_queries_that_collide_after_unicode_normalization():
         ResearchQueryBuilder().build(profile)
 
 
+def test_additional_queries_bind_to_first_selected_lens_and_get_stable_keys():
+    profile = _profile()
+    builder = ResearchQueryBuilder()
+    overrides = {"regularization": False, "replay": True}
+
+    first = builder.build(
+        profile,
+        lens_overrides=overrides,
+        additional_queries=("  Distillation  replay  ",),
+    )
+    repeated = builder.build(
+        profile,
+        lens_overrides=overrides,
+        additional_queries=("Distillation replay",),
+    )
+
+    assert first[-1].lens_id == "replay"
+    assert first[-1].text == "Distillation  replay"
+    assert first[-1].normalized_text == "distillation replay"
+    assert first[-1].query_key == repeated[-1].query_key
+
+
+def test_additional_queries_reject_duplicate_and_unselected_lens_runs():
+    profile = _profile()
+    builder = ResearchQueryBuilder()
+
+    with pytest.raises(ValueError, match="duplicate query"):
+        builder.build(profile, additional_queries=("Elastic Weight Consolidation",))
+    with pytest.raises(ValueError, match="at least one selected Lens"):
+        builder.build(
+            profile,
+            lens_overrides={"regularization": False, "replay": False},
+            additional_queries=("new query",),
+        )
+
+
 def _profile():
     return ResearchProfile.model_validate(_profile_data())
 
