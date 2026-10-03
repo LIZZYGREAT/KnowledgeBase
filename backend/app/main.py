@@ -88,6 +88,7 @@ async def lifespan(application: FastAPI):
             ImportRepository(connection),
             draft_service,
             git_manager,
+            canonical_target_resolver=canonical_target_resolver,
         )
         publisher = Publisher(
             repository_root,

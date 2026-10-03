@@ -21,6 +21,7 @@ from backend.app.repositories.import_repository import (
     ImportItemNotFoundError,
     ImportRepository,
 )
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
 from backend.app.services.legacy_import import (
@@ -46,6 +47,8 @@ class ImportService:
         repository: ImportRepository,
         draft_service: DraftService,
         git_manager: Optional[GitManager] = None,
+        *,
+        canonical_target_resolver: CanonicalTargetResolver,
     ):
         self.repository_root = Path(repository_root).resolve()
         self.knowledge_root = self.repository_root / "knowledge"
@@ -55,6 +58,7 @@ class ImportService:
         self.repository = repository
         self.draft_service = draft_service
         self.git = git_manager or GitManager(self.repository_root)
+        self.canonical_target_resolver = canonical_target_resolver
         self.standard = load_writing_standard(
             self.repository_root / "config" / "writing-standard.yaml"
         )
@@ -196,15 +200,12 @@ class ImportService:
             maintenance_status=(metadata.maintenance.status if metadata.maintenance else None),
         )
 
-        if entity_type == "document":
-            folder = {
-                "paper-note": "papers",
-                "learning-note": "learning",
-                "course-note": "courses",
-            }[metadata.type]
-            target = Path("knowledge") / "documents" / folder / "{}.md".format(metadata.id)
-        else:
-            target = Path("knowledge") / "terms" / "{}.md".format(metadata.id)
+        try:
+            target = self.canonical_target_resolver.resolve_target(
+                entity_type, metadata.id, content
+            ).path.relative_to(self.repository_root)
+        except (ValueError, ValidationError, yaml.YAMLError, TypeError) as error:
+            raise ImportValidationError("Canonical target is invalid: {}".format(error)) from error
         revision = self.git.current_revision()
         content_hash = self.git.content_hash(target)
         acquisition = self.draft_service.create_or_get(
@@ -332,6 +333,18 @@ class ImportService:
         except ValidationError as error:
             raise ImportValidationError("Source candidate is invalid: {}".format(error)) from error
 
+        source_content = yaml.safe_dump(
+            source.model_dump(mode="json", exclude_none=True),
+            allow_unicode=True,
+            sort_keys=False,
+        )
+        try:
+            canonical_path = self.canonical_target_resolver.resolve_target(
+                "source", source_id, source_content
+            ).path.relative_to(self.repository_root)
+        except (ValueError, ValidationError, yaml.YAMLError, TypeError) as error:
+            raise ImportValidationError("Canonical target is invalid: {}".format(error)) from error
+
         self.papers_root.mkdir(parents=True, exist_ok=True)
         copied_pdf = False
         if storage_path.is_symlink():
@@ -345,12 +358,6 @@ class ImportService:
             _atomic_copy(stage_path, storage_path)
             copied_pdf = True
 
-        source_content = yaml.safe_dump(
-            source.model_dump(mode="json", exclude_none=True),
-            allow_unicode=True,
-            sort_keys=False,
-        )
-        canonical_path = Path("knowledge") / "sources" / "{}.yaml".format(source_id)
         try:
             acquisition = self.draft_service.create_or_get(
                 "source",

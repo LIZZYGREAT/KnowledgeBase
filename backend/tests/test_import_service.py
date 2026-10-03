@@ -34,7 +34,12 @@ def import_context(tmp_path):
     connection = connect_database(":memory:")
     drafts = DraftService(DraftRepository(connection))
     imports = ImportRepository(connection)
-    service = ImportService(repository, imports, drafts)
+    service = ImportService(
+        repository,
+        imports,
+        drafts,
+        canonical_target_resolver=CanonicalTargetResolver(repository, connection),
+    )
     yield repository, connection, drafts, imports, service
     connection.close()
 
@@ -64,6 +69,53 @@ def test_import_jobs_with_same_timestamp_use_insertion_order(import_context):
     )
 
     assert [job.id for job in imports.list_jobs()] == ["job-z", "job-a"]
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "entity_id", "expected_path"),
+    [
+        (
+            "document",
+            "resolver-document",
+            "knowledge/documents/learning/resolver-document.md",
+        ),
+        (
+            "term",
+            "resolver-term",
+            "knowledge/terms/resolver-term.md",
+        ),
+    ],
+)
+def test_markdown_import_uses_canonical_target_resolver_path(
+    import_context, tmp_path, monkeypatch, entity_type, entity_id, expected_path
+):
+    repository, _, _, _, service = import_context
+    resolver = service.canonical_target_resolver
+    original_resolve = resolver.resolve_target
+    resolved = []
+
+    def record_resolution(requested_type, requested_id, requested_content):
+        target = original_resolve(requested_type, requested_id, requested_content)
+        resolved.append((requested_type, requested_id, target.path))
+        return target
+
+    monkeypatch.setattr(resolver, "resolve_target", record_resolution)
+    incoming = tmp_path / "resolver-candidate.md"
+    content = (
+        _document(entity_id, "Resolver Document")
+        if entity_type == "document"
+        else _term(entity_id, "Resolver Term")
+    )
+    incoming.write_text(content, encoding="utf-8")
+    job = service.stage_paths([incoming])
+    item = service.get_items(job.id)[0]
+
+    draft = service.create_draft(item.id)
+
+    assert draft.entity_type == entity_type
+    assert resolved == [(entity_type, entity_id, repository / expected_path)]
+    imported_item = service.repository.get_item(item.id)
+    assert imported_item.metadata["canonical_path"] == expected_path
 
 
 def test_directory_import_stages_markdown_and_pdf_as_manual_bundle(import_context, tmp_path):
@@ -644,6 +696,14 @@ def _document(entity_id, title, include_review=True):
         "---\nschema_version: 1\nid: {}\ntitle: {}\ntype: learning-note\n"
         "{}---\n# {}\n\nImported text.\n"
     ).format(entity_id, title, review, title)
+
+
+def _term(entity_id, title):
+    return (
+        "---\nschema_version: 1\nid: {}\ntitle: {}\ntype: concept\n"
+        "depth: standard\naliases: []\ndomains: [artificial-intelligence]\n"
+        "topics: []\ntags: []\nsources: []\n---\n# {}\n"
+    ).format(entity_id, title, title)
 
 
 def _frontmatter(content):

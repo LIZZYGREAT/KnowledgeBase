@@ -18,6 +18,7 @@ from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.import_repository import ImportRepository
 from backend.app.services.draft_service import DraftService
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.git_manager import GitManager
 from backend.app.services.import_service import ImportService
 from backend.app.domain.source import SourceMetadata
@@ -108,6 +109,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 ImportRepository(connection),
                 DraftService(DraftRepository(connection)),
                 GitManager(root),
+                canonical_target_resolver=CanonicalTargetResolver(root, connection),
             )
             job = service.stage_paths(args.paths, profile=args.profile)
             items = service.get_items(job.id)
