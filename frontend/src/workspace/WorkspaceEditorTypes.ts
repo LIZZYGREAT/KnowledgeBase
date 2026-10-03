@@ -7,5 +7,7 @@ export interface WorkspaceEditorContext {
   navigate: (path: string) => void;
   workspaceDraft: WorkspaceDraftController;
   batchCollectionId?: string;
+  additionalDraftIds?: string[];
+  researchGroupId?: string;
   returnCollectionId?: string;
 }

@@ -32,7 +32,7 @@ export function WorkspacePublishDrawer({
 
   return <WorkspaceDrawer
     title="发布变更"
-    description={batch ? "检查 Document 与 Collection 的 Draft，再由 Publisher 在一次 Git 提交中发布。" : "检查 Draft 与当前正式内容的差异，再由 Publisher 完成发布。"}
+    description={batch ? "检查本次关联的 Source、Document 与可选 Collection Draft，再由 Publisher 在一次 Git 提交中发布。" : "检查 Draft 与当前正式内容的差异，再由 Publisher 完成发布。"}
     wide
     onClose={onClose}
   >
@@ -55,7 +55,7 @@ export function WorkspacePublishDrawer({
         {busy && <p className="subtle-copy" role="status">正在保存 Draft 并检查 Canonical…</p>}
         {items.length > 0 && <ul className="publish-validation-list">
           {items.map((item) => <li key={item.comparison.draft.id}>
-            <span>{item.label} · Draft revision {item.draftRevision} · Publisher 预检（结构、Markdown 与引用）</span>
+            <span>{item.label} · Draft revision {item.draftRevision} · Publisher 预检（结构、引用与冲突）</span>
             <strong className={item.preflight.valid ? "publish-check-pass" : "publish-check-fail"}>{item.preflight.valid ? "通过" : "未通过"}</strong>
           </li>)}
           <li>
@@ -78,7 +78,7 @@ export function WorkspacePublishDrawer({
       </section>
 
       {error && <p className="error-copy" role="alert">{error}</p>}
-      <p className="trust-note">检查不会写入 Canonical。发布前 Publisher 会再次校验引用与冲突；成功后服务端更新正文和索引。</p>
+      <p className="trust-note">检查不会写入 Canonical。发布前 Publisher 会再次校验引用与冲突；成功后服务端写入 Canonical 并刷新索引。</p>
       <div className="drawer-footer">
         <button className="button button-secondary" type="button" disabled={busy || publishing} onClick={onClose}>取消</button>
         <button className="button button-secondary" type="button" disabled={busy || publishing} onClick={onRefresh}>重新检查</button>

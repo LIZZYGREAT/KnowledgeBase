@@ -173,6 +173,7 @@ class ResearchCreateNoteResultView(APIModel):
     source_draft_id: Optional[NonEmptyText] = None
     document_draft_id: NonEmptyText
     collection_draft_id: Optional[NonEmptyText] = None
+    collection_id: Optional[Slug] = None
     document_id: Slug
     source_id: Optional[Slug] = None
 

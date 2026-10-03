@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../errors";
 import { parseDocument } from "yaml";
 import {
-  compareDraft, discardDraft, getCollection, listAllEntities, listDrafts, listProposals,
+  compareDraft, discardDraft, getCollection, getDraft, listAllEntities, listDrafts, listProposals,
   preflightDraft, preflightDraftsBatch, requestAIProposal, rejectProposal, updateDraft,
-  type Draft, type EntitySummary, type Proposal,
+  type Draft, type EntitySummary, type EntityType, type Proposal,
 } from "../api";
 import { removeCollectionNode } from "../collectionEditing";
 import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel";
@@ -14,7 +14,16 @@ import type { PublishReviewItem } from "../publishReview";
 import type { WorkspaceEditorContext } from "./WorkspaceEditorTypes";
 import { entityWorkspaceUrl } from "../workspaceRoute";
 
-export function useWorkspaceEditorController({ type, id, navigate, workspaceDraft, batchCollectionId, returnCollectionId }: WorkspaceEditorContext) {
+export function useWorkspaceEditorController({
+  type,
+  id,
+  navigate,
+  workspaceDraft,
+  batchCollectionId,
+  additionalDraftIds = [],
+  researchGroupId,
+  returnCollectionId,
+}: WorkspaceEditorContext) {
   const {
     draft,
     content,
@@ -116,12 +125,23 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
         if (!collectionDraft) throw new Error("找不到此 Collection 的 Draft；请返回 Explorer 检查目录变更。");
         targets.push({ id: collectionDraft.id, entityType: collectionDraft.entity_type, label: "Collection" });
       }
+      const relatedIds = new Set(targets.map((target) => target.id));
+      for (const draftId of additionalDraftIds) {
+        if (relatedIds.has(draftId)) continue;
+        const relatedDraft = await getDraft(draftId);
+        relatedIds.add(relatedDraft.id);
+        targets.push({
+          id: relatedDraft.id,
+          entityType: relatedDraft.entity_type,
+          label: relatedDraft.entity_type === "source" ? "Source" : relatedDraft.entity_type,
+        });
+      }
       const comparisons = await Promise.all(targets.map((target) => compareDraft(target.id)));
       const currentComparison = comparisons.find(({ draft: comparedDraft }) => comparedDraft.id === currentDraft.id);
       if (currentComparison && currentComparison.draft.revision !== currentDraft.revision) {
         workspaceDraft.acceptLatestDraft(currentComparison.draft);
       }
-      const preflights = batchCollectionId
+      const preflights = targets.length > 1
         ? (await preflightDraftsBatch(comparisons.map(({ draft: reviewedDraft }) => ({
           draft_id: reviewedDraft.id,
           expected_revision: reviewedDraft.revision,
@@ -142,7 +162,7 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
       });
       setPublishReview(reviewed);
 
-      const documentConflict = reviewed.some((item) => item.entityType !== "collection" && (item.preflight.conflict || item.comparison.canonical_changed));
+      const documentConflict = reviewed.some((item) => item.entityType === "document" && (item.preflight.conflict || item.comparison.canonical_changed));
       const collectionConflict = reviewed.some((item) => item.entityType === "collection" && (item.preflight.conflict || item.comparison.canonical_changed));
       if (documentConflict) {
         await openComparison();
@@ -151,6 +171,28 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
       if (collectionConflict && batchCollectionId) {
         setActiveDrawer(null);
         navigate(`/explorer?collection=${encodeURIComponent(batchCollectionId)}`);
+        return false;
+      }
+      const relatedConflict = reviewed.find((item) =>
+        item.comparison.draft.id !== currentDraft.id
+        && item.entityType !== "collection"
+        && (item.preflight.conflict || item.comparison.canonical_changed)
+      );
+      if (relatedConflict) {
+        const remainingDraftIds = reviewed
+          .filter((item) => item.comparison.draft.id !== relatedConflict.comparison.draft.id && item.entityType !== "collection")
+          .map((item) => item.comparison.draft.id);
+        navigate(entityWorkspaceUrl(
+          relatedConflict.entityType as EntityType,
+          relatedConflict.comparison.draft.entity_id,
+          {
+            collectionId: batchCollectionId,
+            edit: true,
+            publishAll: remainingDraftIds.length > 0 || Boolean(batchCollectionId),
+            additionalDraftIds: remainingDraftIds,
+            researchGroupId,
+          },
+        ));
         return false;
       }
       return reviewed.every((item) => item.preflight.valid && !item.preflight.conflict && !item.comparison.canonical_changed);
@@ -221,7 +263,9 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
       }
       ensureDiscardAllowed();
       await workspaceDraft.discard();
-      navigate(batchCollectionId
+      navigate(researchGroupId
+        ? "/research"
+        : batchCollectionId
         ? `/explorer?collection=${encodeURIComponent(batchCollectionId)}`
         : canonicalEntity ? entityWorkspaceUrl(type, id, { collectionId: returnCollectionId }) : returnCollectionId ? `/explorer?collection=${encodeURIComponent(returnCollectionId)}` : "/");
     } catch (error) {
@@ -248,8 +292,15 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
       if (!result) throw new Error("还没有可发布的 Draft 变化。");
       setActiveDrawer(null);
       await refreshProposals();
-      if (batchCollectionId) {
-        navigate(entityWorkspaceUrl(type, id, { collectionId: batchCollectionId }));
+      if (batchCollectionId || additionalDraftIds.length) {
+        const noteDraft = researchGroupId
+          ? publishReview.find((item) => item.entityType === "document")?.comparison.draft
+          : undefined;
+        navigate(entityWorkspaceUrl(
+          noteDraft ? "document" : type,
+          noteDraft?.entity_id ?? id,
+          { collectionId: batchCollectionId },
+        ));
       }
     } catch (error) {
       if ((error as { status?: number })?.status === 409) {
@@ -337,7 +388,8 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
   }
 
   return {
-    type, id, navigate, workspaceDraft, batchCollectionId, returnCollectionId,
+    type, id, navigate, workspaceDraft, batchCollectionId, additionalDraftIds,
+    researchGroupId, returnCollectionId,
     draft, content, canonicalEntity, loading, loadError, draftError, setDraftError,
     saveState, comparison, mergeContent, setMergeContent, publishedRevision, publishedOutcome, isDirty,
     saveError, setSaveError, proposals, sourceEntries, sourceError, proposalError, proposalBusy,

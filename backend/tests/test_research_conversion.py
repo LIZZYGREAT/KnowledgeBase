@@ -253,6 +253,60 @@ def test_create_note_uses_existing_source_and_publishes_with_collection_in_one_b
         connection.close()
 
 
+def test_create_note_batches_new_source_document_and_collection_before_finalizing_candidate(tmp_path):
+    repository, connection, drafts, converter, candidate = _setup(tmp_path)
+    try:
+        collections = repository / "knowledge" / "collections"
+        collections.mkdir(parents=True, exist_ok=True)
+        (collections / "continual-learning.yaml").write_text(
+            "schema_version: 1\nid: continual-learning\ntitle: Continual Learning\n"
+            "status: active\nposition: 0\nnodes:\n  - id: regularization\n"
+            "    kind: section\n    title: Regularization\n    children: []\n",
+            encoding="utf-8",
+        )
+        _git(repository, "add", "knowledge/collections/continual-learning.yaml")
+        _git(repository, "commit", "-m", "Add Research Collection fixture")
+        Indexer(repository, connection).full_rebuild()
+
+        result = converter.create_note(
+            candidate.id,
+            "paper-note",
+            "structured",
+            collection_id="continual-learning",
+            section_id="regularization",
+        )
+        assert result.source_draft_id is not None
+        source_draft = drafts.get(result.source_draft_id)
+        document_draft = drafts.get(result.document_draft_id)
+        collection_draft = drafts.get(result.collection_draft_id)
+        assert ResearchCandidateRepository(connection).get(candidate.id).status == "new"
+
+        publisher = Publisher(
+            repository,
+            drafts,
+            Indexer(repository, connection),
+            git_manager=GitManager(repository),
+            canonical_target_resolver=CanonicalTargetResolver(repository, connection),
+        )
+        publisher.add_post_publish_hook(converter.finalize_published_drafts)
+        published = publisher.publish_batch(
+            [
+                (source_draft.id, source_draft.revision),
+                (document_draft.id, document_draft.revision),
+                (collection_draft.id, collection_draft.revision),
+            ]
+        )
+
+        assert len(published.results) == 3
+        assert ResearchCandidateRepository(connection).get(candidate.id).status == "note_created"
+        assert {link["relation_type"] for link in ResearchRepository(connection).list_entity_links(candidate.work_id)} == {"source", "note"}
+        assert ResearchRepository(connection).list_pending_links(candidate.id) == []
+        assert (repository / "knowledge" / "sources" / "a-new-research-method.yaml").is_file()
+        assert (repository / "knowledge" / "documents" / "papers" / f"{result.document_id}.md").is_file()
+    finally:
+        connection.close()
+
+
 def test_create_note_api_returns_draft_group_ids(tmp_path):
     _, connection, _, converter, candidate = _setup(tmp_path)
     try:
@@ -274,6 +328,7 @@ def test_create_note_api_returns_draft_group_ids(tmp_path):
         assert result["source_draft_id"]
         assert result["document_draft_id"]
         assert result["collection_draft_id"] is None
+        assert result["collection_id"] is None
         assert ResearchCandidateRepository(connection).get(candidate.id).status == "new"
     finally:
         connection.close()

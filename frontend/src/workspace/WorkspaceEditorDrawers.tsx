@@ -13,7 +13,7 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
     content, canonicalEntity, sourceEntries, sourceError, proposalError, proposalBusy,
     consent, setConsent, selection, setSelection, selectedText, saveError, setSaveError,
     proposals, publishing, activeDrawer, setActiveDrawer, publishReview, preflightBusy,
-    publishedRevision, publishedOutcome, batchCollectionId, comparison, mergeContent,
+    publishedRevision, publishedOutcome, batchCollectionId, additionalDraftIds, comparison, mergeContent,
     setMergeContent, saveNow, runPreflight, reloadCanonical, applyRebase, generateProposal,
     actOnProposal, applyProposalToDraft, updateFrontmatter, updateFrontmatterList, updateSourcePdf,
     isDirty, saveState, setSelectedText,
@@ -71,7 +71,7 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       publishing={publishing}
       published={Boolean(publishedRevision)}
       error={saveError}
-      batch={Boolean(batchCollectionId)}
+      batch={Boolean(batchCollectionId || additionalDraftIds.length)}
       onClose={() => setActiveDrawer(null)}
       onRefresh={() => void runPreflight()}
       onPublish={() => void controller.publishCurrentDraft()}

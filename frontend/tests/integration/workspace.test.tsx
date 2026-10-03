@@ -252,8 +252,10 @@ function renderWorkspace(
   navigate: (path: string) => void = () => undefined,
   registerBeforeNavigate?: RegisterBeforeNavigate,
   batchCollectionId?: string,
+  additionalDraftIds: string[] = [],
+  researchGroupId?: string,
 ) {
-  return render(<WorkspacePage type="document" id={id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} batchCollectionId={batchCollectionId} />);
+  return render(<WorkspacePage type="document" id={id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} batchCollectionId={batchCollectionId} additionalDraftIds={additionalDraftIds} researchGroupId={researchGroupId} />);
 }
 
 function renderGuardedWorkspace() {
@@ -650,6 +652,37 @@ describe("Workspace React integration", () => {
     ]);
     expect(api.preflightDraft).not.toHaveBeenCalled();
     await waitFor(() => expect((screen.getByRole("button", { name: /Publish All · 一个 Git 提交/ }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("preflights and publishes Research Source, Document, and Collection Drafts together", async () => {
+    const user = userEvent.setup();
+    const documentDraft = seedDraft(canonicalContent.replace("selected phrase", "research note"));
+    const sourceDraft = makeDraft("source", "research-paper", "schema_version: 1\nid: research-paper\ntype: paper\ntitle: Research Paper\n");
+    const collectionDraft = makeDraft("collection", "continual-learning", "schema_version: 1\nid: continual-learning\ntitle: Continual Learning\nstatus: active\nposition: 0\nnodes: []\n");
+    drafts.push(sourceDraft);
+    drafts.push(collectionDraft);
+    const navigate = vi.fn();
+    renderWorkspace("quick-start", navigate, undefined, "continual-learning", [sourceDraft.id], "research-group");
+    await screen.findByRole("heading", { name: "Quick Start" });
+
+    await user.click(screen.getByRole("button", { name: "Publish All" }));
+    await screen.findByRole("heading", { name: "变更摘要" });
+    expect(api.preflightDraftsBatch).toHaveBeenCalledWith([
+      { draft_id: documentDraft.id, expected_revision: documentDraft.revision },
+      { draft_id: collectionDraft.id, expected_revision: collectionDraft.revision },
+      { draft_id: sourceDraft.id, expected_revision: sourceDraft.revision },
+    ]);
+    await waitFor(() => expect((screen.getByRole("button", { name: /Publish All · 一个 Git 提交/ }) as HTMLButtonElement).disabled).toBe(false));
+    await user.click(screen.getByRole("button", { name: /Publish All · 一个 Git 提交/ }));
+
+    await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledOnce());
+    expect(api.publishDraftsBatch.mock.calls[0][0]).toEqual([
+      { draft_id: documentDraft.id, expected_revision: documentDraft.revision },
+      { draft_id: collectionDraft.id, expected_revision: collectionDraft.revision },
+      { draft_id: sourceDraft.id, expected_revision: sourceDraft.revision },
+    ]);
+    expect(api.publishDraft).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith("/documents/quick-start?collection=continual-learning");
   });
 
   it("refreshes Publish Review after a Draft-only stale revision and publishes the latest revision", async () => {

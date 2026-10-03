@@ -246,7 +246,9 @@ export default function App() {
     const query = new URLSearchParams(location.search);
     const collectionId = query.get("collection") ?? undefined;
     const batchCollectionId = query.get("publishAll") === "1" ? collectionId : undefined;
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} collectionId={collectionId} batchCollectionId={batchCollectionId} /></Suspense>;
+    const additionalDraftIds = query.get("publishAll") === "1" ? query.getAll("relatedDraft") : [];
+    const researchGroupId = query.get("researchGroup") ?? undefined;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} collectionId={collectionId} batchCollectionId={batchCollectionId} additionalDraftIds={additionalDraftIds} researchGroupId={researchGroupId} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;

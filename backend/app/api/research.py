@@ -291,6 +291,7 @@ async def create_candidate_note(
         "source_draft_id": result.source_draft_id,
         "document_draft_id": result.document_draft_id,
         "collection_draft_id": result.collection_draft_id,
+        "collection_id": result.collection_id,
         "document_id": result.document_id,
         "source_id": result.source_id,
     }

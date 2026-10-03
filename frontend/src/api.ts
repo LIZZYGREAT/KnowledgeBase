@@ -864,6 +864,30 @@ export function saveResearchSource(candidateId: string) {
   }>(`/api/research/candidates/${encodeURIComponent(candidateId)}/save-source`, { method: "POST" });
 }
 
+export interface CreateResearchNoteInput {
+  document_type: "paper-note" | "learning-note";
+  template: "structured" | "blank";
+  collection_id?: string;
+  section_id?: string;
+}
+
+export interface CreateResearchNoteResult {
+  group_id: string;
+  source_draft_id: string | null;
+  document_draft_id: string;
+  collection_draft_id: string | null;
+  collection_id: string | null;
+  document_id: string;
+  source_id: string | null;
+}
+
+export function createResearchNote(candidateId: string, body: CreateResearchNoteInput) {
+  return request<CreateResearchNoteResult>(
+    `/api/research/candidates/${encodeURIComponent(candidateId)}/create-note`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
 export function listResearchRuns(profileId?: string, offset = 0, limit = 50) {
   const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
   if (profileId) params.set("profile_id", profileId);

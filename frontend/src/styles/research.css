@@ -143,6 +143,7 @@
 .research-run-error { border-left: 2px solid #d89b8e; padding: 7px 9px; color: #9d554c !important; background: #fff8f7; overflow-wrap: anywhere; }
 .research-modal-overlay { z-index: 90; align-items: center; justify-content: center; padding: 16px; }
 .research-dismiss-dialog { display: grid; width: min(440px, 100%); gap: 15px; border: 1px solid #e6ece6; border-radius: 12px; padding: 22px; background: #fff; box-shadow: 0 18px 60px #17231c30; }
+.research-create-note-dialog { width: min(520px, 100%); }
 .research-dismiss-dialog h2 { margin: 0; color: #344b3c; font-size: 20px; }
 .research-dismiss-dialog p:not(.eyebrow) { margin: 5px 0 0; color: #89968d; font-size: var(--text-xs); }
 .research-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid #edf1ed; padding-top: 12px; }

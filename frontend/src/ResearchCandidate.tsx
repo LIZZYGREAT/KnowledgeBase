@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
-import type { ResearchCandidateDetail, ResearchCandidateListItem, ResearchProfile } from "./api";
+import { useEffect, useState, type ReactNode } from "react";
+import { getCollection, listCollections, listDrafts, type Collection, type CollectionNode, type CollectionSummary, type ResearchCandidateDetail, type ResearchCandidateListItem, type ResearchProfile } from "./api";
 import { Chip, formatDate } from "./ui";
+import { parseCollectionDraft } from "./collectionDraftModel";
 
 export function ResearchCandidateCard({
   item,
@@ -13,6 +14,7 @@ export function ResearchCandidateCard({
   onShortlist,
   onDismiss,
   onSaveSource,
+  onCreateNote,
 }: {
   item: ResearchCandidateListItem;
   profile: ResearchProfile;
@@ -24,6 +26,7 @@ export function ResearchCandidateCard({
   onShortlist: () => void;
   onDismiss: () => void;
   onSaveSource: () => void;
+  onCreateNote: () => void;
 }) {
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
   const relevance = item.analysis.profile_relevance;
@@ -51,11 +54,104 @@ export function ResearchCandidateCard({
       <div className="research-card-actions">
         {externalUrl && <a className="button button-quiet" href={externalUrl} target="_blank" rel="noreferrer">Open Paper ↗</a>}
         {(item.candidate.status === "new" || item.candidate.status === "shortlisted") && <button className="button button-secondary" disabled={busy} onClick={onSaveSource}>Save Source</button>}
+        {item.candidate.status !== "dismissed" && item.candidate.status !== "note_created" && <button className="button button-primary" disabled={busy} onClick={onCreateNote}>Create Note</button>}
         {item.candidate.status === "new" && <><button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button><button className="button button-secondary" disabled={busy} onClick={onShortlist}>Shortlist</button></>}
         {item.candidate.status === "shortlisted" && <><button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button><button className="button button-secondary" disabled>Shortlisted</button></>}
       </div>
     </div>
   </article>;
+}
+
+export interface ResearchNoteOptions {
+  document_type: "paper-note" | "learning-note";
+  template: "structured" | "blank";
+  collection_id?: string;
+  section_id?: string;
+}
+
+export function ResearchCreateNoteDialog({
+  title,
+  busy,
+  onClose,
+  onCreate,
+}: {
+  title: string;
+  busy: boolean;
+  onClose: () => void;
+  onCreate: (options: ResearchNoteOptions) => void;
+}) {
+  const [documentType, setDocumentType] = useState<ResearchNoteOptions["document_type"]>("paper-note");
+  const [template, setTemplate] = useState<ResearchNoteOptions["template"]>("structured");
+  const [collections, setCollections] = useState<CollectionSummary[]>([]);
+  const [collectionId, setCollectionId] = useState("");
+  const [sectionId, setSectionId] = useState("");
+  const [sections, setSections] = useState<Array<{ id: string; label: string }>>([]);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    void listCollections("active").then((values) => {
+      if (active) setCollections(values);
+    }).catch((reason: unknown) => {
+      if (active) setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection 列表。");
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!collectionId) {
+      setSections([]);
+      return () => { active = false; };
+    }
+    setSectionId("");
+    setLoadError("");
+    void getCollection(collectionId).then(async (collection) => {
+      const collectionDrafts = await listDrafts("collection", collectionId);
+      const current = collectionDrafts[0]
+        ? parseCollectionDraft(collectionDrafts[0].content, collection)
+        : collection;
+      if (active) setSections(flattenCollectionSections(current));
+    }).catch((reason: unknown) => {
+      if (active) setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection Sections。");
+    });
+    return () => { active = false; };
+  }, [collectionId]);
+
+  return <div className="research-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <form className="research-dismiss-dialog research-create-note-dialog" role="dialog" aria-modal="true" aria-labelledby="research-create-note-title" onSubmit={(event) => {
+      event.preventDefault();
+      onCreate({
+        document_type: documentType,
+        template,
+        ...(collectionId ? { collection_id: collectionId } : {}),
+      ...(collectionId && sectionId ? { section_id: sectionId } : {}),
+      });
+    }}>
+      <div><p className="eyebrow">RESEARCH CONVERSION</p><h2 id="research-create-note-title">Create Research Note</h2><p>{title}</p></div>
+      <label className="field-label">Type<select aria-label="Note type" value={documentType} onChange={(event) => setDocumentType(event.target.value as ResearchNoteOptions["document_type"])}><option value="paper-note">Paper Note</option><option value="learning-note">Learning Note</option></select></label>
+      <label className="field-label">Template<select aria-label="Note template" value={template} onChange={(event) => setTemplate(event.target.value as ResearchNoteOptions["template"])}><option value="structured">Structured skeleton</option><option value="blank">Blank</option></select></label>
+      <label className="field-label">Collection<select aria-label="Collection" value={collectionId} onChange={(event) => setCollectionId(event.target.value)}><option value="">No Collection</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}</select></label>
+      {collectionId && <label className="field-label">Section<select aria-label="Section" value={sectionId} onChange={(event) => setSectionId(event.target.value)}><option value="">Collection root</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}</select></label>}
+      {loadError && <p className="error-copy" role="alert">{loadError}</p>}
+      <p className="subtle-copy">只创建笔记骨架。Source、Document 与可选 Collection 会作为 Draft 进入 Workspace 批量审阅。</p>
+      <div className="editor-main-actions"><button className="button button-secondary" type="button" disabled={busy} onClick={onClose}>取消</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? "正在创建…" : "Create"}</button></div>
+    </form>
+  </div>;
+}
+
+function flattenCollectionSections(collection: Collection): Array<{ id: string; label: string }> {
+  const sections: Array<{ id: string; label: string }> = [];
+  function visit(nodes: CollectionNode[], parents: string[] = []) {
+    for (const node of nodes) {
+      if (node.kind !== "section") continue;
+      const path = [...parents, node.title];
+      sections.push({ id: node.id, label: path.join(" / ") });
+      visit(node.children, path);
+    }
+  }
+  visit(collection.nodes);
+  return sections;
 }
 
 export function ResearchCandidateDrawer({

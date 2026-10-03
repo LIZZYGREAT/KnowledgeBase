@@ -18,6 +18,8 @@ export function WorkspacePage({
   registerBeforeNavigate,
   collectionId,
   batchCollectionId,
+  additionalDraftIds = [],
+  researchGroupId,
 }: {
   type: EntityType;
   id: string;
@@ -25,6 +27,8 @@ export function WorkspacePage({
   registerBeforeNavigate?: RegisterBeforeNavigate;
   collectionId?: string;
   batchCollectionId?: string;
+  additionalDraftIds?: string[];
+  researchGroupId?: string;
 }) {
   const workspaceDraft = useWorkspaceDraft(type, id);
   useEffect(() => {
@@ -46,8 +50,11 @@ export function WorkspacePage({
     navigate,
     workspaceDraft,
     batchCollectionId,
+    additionalDraftIds,
+    researchGroupId,
     returnCollectionId: collectionId ?? batchCollectionId,
   });
+  const batchMode = Boolean(batchCollectionId || additionalDraftIds.length);
 
   return (
     <>
@@ -56,9 +63,9 @@ export function WorkspacePage({
         id={id}
         explorer={<Suspense fallback={<div className="workspace-explorer-loading">正在载入 Explorer…</div>}>
           <WorkspaceExplorer
-            key={`explorer:${collectionId ?? ""}:${batchCollectionId ? "batch" : "normal"}`}
+            key={`explorer:${collectionId ?? ""}:${batchMode ? "batch" : "normal"}`}
             embedded
-            readOnly={Boolean(batchCollectionId)}
+            readOnly={batchMode}
             selectedEntity={{ type, id }}
             onOpen={(entityType, entityId) => navigate(entityWorkspaceUrl(entityType, entityId))}
             navigate={navigate}

@@ -108,6 +108,7 @@ GET  /api/research/candidates/{candidate_id}
 POST /api/research/candidates/{candidate_id}/shortlist
 POST /api/research/candidates/{candidate_id}/dismiss
 POST /api/research/candidates/{candidate_id}/save-source
+POST /api/research/candidates/{candidate_id}/create-note
 ```
 
 Profile reads combine canonical YAML with Runtime pause state, Inbox capacity, and the latest Run. Pause accepts exactly one of `days` or a timezone-aware `until`. Resume accepts `catch_up` (optionally with `catchup_days`) or `from_now`; `from_now` records an audit event and advances the active search watermarks without contacting Providers.
@@ -117,6 +118,10 @@ Manual Run requests accept selected `lenses`, a temporary `breadth`, an optional
 Candidate list sort options are `recommended`, `newest`, `most_relevant`, and `most_novel`. Candidate reads expose Research Work, validated Analysis, Discovery provenance, and current/pending knowledge links. Opening Candidate detail records its first and latest view timestamps. Shortlist and Dismiss update Runtime Candidate state only; Dismiss reasons exposed by the API are `not_relevant`, `already_known`, `too_redundant`, `not_interested`, and `other`.
 
 `save-source` matches canonical Sources by DOI, arXiv ID, OpenAlex ID, then normalized title/year/first author. An existing Source is linked in Runtime and matching non-dismissed Candidates become `saved_source`. Otherwise the endpoint creates or reuses a Source Draft and a pending Research link; the Candidate stays in its current state until Publisher successfully publishes that Draft. Discarding the Draft removes its pending link without completing the Candidate.
+
+`create-note` accepts `document_type` (`paper-note` or `learning-note`), `template` (`structured` or `blank`), and optional `collection_id` plus `section_id`. Structured notes contain only the Phase 14 skeleton, with Chinese-numbered H2 headings to satisfy the repository writing standard; the endpoint does not generate long AI content. The service reuses a matching canonical Source or Source Draft, creates a Document Draft, and optionally creates or updates a Collection Draft. It returns `group_id`, `source_draft_id`, `document_draft_id`, `collection_draft_id`, `collection_id`, `document_id`, and `source_id`; absent Draft or Collection values are `null`. Pending links and Candidate status are finalized by the Publisher post-commit hook, so a successful batch publish marks the Work's Candidates `note_created`.
+
+The Research page opens the Document Draft in Unified Workspace. Its batch review includes the current Source and Collection Draft revisions when present; Publisher commits the set in one Git commit after all preflights pass. AI-generated note text remains a separate DeepSeek → Proposal → Preview → Human Apply flow.
 
 ## Errors
 

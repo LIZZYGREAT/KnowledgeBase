@@ -39,6 +39,7 @@ class ResearchNoteCreateResult:
     source_draft_id: Optional[str]
     document_draft_id: str
     collection_draft_id: Optional[str]
+    collection_id: Optional[str]
     document_id: str
     source_id: Optional[str]
 
@@ -217,7 +218,7 @@ class ResearchConversionService:
                         relation_type="source",
                         created_at=now,
                     )
-                self.work_repository.add_pending_link(
+                note_link = self.work_repository.add_pending_link(
                     group_id=group_id,
                     candidate_id=candidate.id,
                     work_id=work.id,
@@ -229,7 +230,7 @@ class ResearchConversionService:
                 )
                 if collection_draft is not None:
                     self.work_repository.add_pending_link(
-                        group_id=group_id,
+                        group_id=note_link["group_id"],
                         candidate_id=candidate.id,
                         work_id=work.id,
                         draft_id=collection_draft.id,
@@ -240,10 +241,11 @@ class ResearchConversionService:
                     )
 
             return ResearchNoteCreateResult(
-                group_id=group_id,
+                group_id=note_link["group_id"],
                 source_draft_id=source_draft.id if source_draft is not None else None,
                 document_draft_id=document_draft.id,
                 collection_draft_id=collection_draft.id if collection_draft is not None else None,
+                collection_id=collection_id if collection_draft is not None else None,
                 document_id=document_id,
                 source_id=source_id,
             )
@@ -413,6 +415,7 @@ class ResearchConversionService:
             source_draft_id=source_draft_id,
             document_draft_id=document_draft.id,
             collection_draft_id=collection_link["draft_id"] if collection_link else None,
+            collection_id=collection_link["intended_entity_id"] if collection_link else None,
             document_id=document_draft.entity_id,
             source_id=source_id,
         )
@@ -471,6 +474,8 @@ class ResearchConversionService:
             collection.model_dump(mode="json", exclude_none=True), allow_unicode=True, sort_keys=False
         )
         current = Collection.model_validate(yaml.safe_load(current_content))
+        if current.status != "active":
+            raise ValueError("Cannot add a Research Note to an archived Collection Draft")
         if section_id is not None and not any(
             isinstance(node, SectionNode) and node.id == section_id
             for node in _all_collection_nodes(current.nodes)
@@ -556,6 +561,7 @@ def _research_note_content(
     template: Literal["structured", "blank"],
     source_id: Optional[str],
 ) -> str:
+    title = " ".join(title.split())
     metadata = {
         "schema_version": 1,
         "id": document_id,

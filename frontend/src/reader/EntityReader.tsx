@@ -307,14 +307,14 @@ export function EntityPage({
             workspaceEditorController.setActiveDrawer("publish");
             void workspaceEditorController.runPreflight();
           }}
-        >{workspaceEditorController.batchCollectionId ? "Publish All" : "发布"}</button>
+        >{workspaceEditorController.batchCollectionId || workspaceEditorController.additionalDraftIds.length ? "Publish All" : "发布"}</button>
         {workspaceEditorController.draft && <button
           className="button button-danger"
           disabled={workspaceEditorController.publishing || discardBlocked}
           title={discardBlocked ? "请等待保存完成或先处理冲突" : undefined}
           aria-describedby={discardBlocked ? "reader-discard-disabled-reason" : undefined}
           onClick={() => void workspaceEditorController.discardCurrentDraft()}
-        >{workspaceEditorController.batchCollectionId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button>}
+        >{workspaceEditorController.batchCollectionId || workspaceEditorController.researchGroupId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button>}
         {discardBlocked && <span id="reader-discard-disabled-reason" className="subtle-copy" role="status">请等待保存完成或先处理冲突</span>}
         <span className={`workspace-reader-save-state ${hasDraftConflict ? "conflict" : workspaceDraft.saveState}`} role="status">{saveStateLabel}</span>
         {workspaceDraft.saveState === "canonical-conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}

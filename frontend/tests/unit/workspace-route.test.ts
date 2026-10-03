@@ -21,7 +21,16 @@ test("Workspace URLs retain Collection context and batch publishing state", () =
     entityWorkspaceUrl("document", "new-note", { collectionId: "learning/path", publishAll: true }),
     "/documents/new-note?collection=learning%2Fpath&publishAll=1",
   );
-  assert.throws(() => entityWorkspaceUrl("document", "note", { publishAll: true }), /requires a Collection ID/);
+  assert.throws(() => entityWorkspaceUrl("document", "note", { publishAll: true }), /requires related Drafts/);
+  assert.equal(
+    entityWorkspaceUrl("document", "note", {
+      edit: true,
+      publishAll: true,
+      additionalDraftIds: ["source-draft"],
+      researchGroupId: "research-group",
+    }),
+    "/documents/note?edit=1&publishAll=1&relatedDraft=source-draft&researchGroup=research-group",
+  );
 });
 
 test("entity editing stays in the Reader workspace and the full-page editor is gone", () => {

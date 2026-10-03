@@ -17,6 +17,9 @@ describe("Research workspace", () => {
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
+      if (path === "/api/collections?status=active") return jsonResponse([{ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, node_count: 1, entity_count: 0, document_count: 0 }]);
+      if (path === "/api/collections/continual-learning") return jsonResponse({ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] });
+      if (path === "/api/drafts?entity_type=collection&entity_id=continual-learning") return jsonResponse([]);
       if (path === "/api/research/profiles") return jsonResponse([profileSummary]);
       if (path === "/api/research/profiles/continual-learning") return jsonResponse(profileDetail);
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
@@ -25,6 +28,7 @@ describe("Research workspace", () => {
       if (path === "/api/research/profiles/continual-learning/runs" && init?.method === "POST") return jsonResponse({ request_id: runRequestId, status: "pending" }, 202);
       if (path === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST") return jsonResponse({ ...candidate, status: "shortlisted" });
       if (path === "/api/research/candidates/candidate-1/save-source" && init?.method === "POST") return jsonResponse({ action: "draft_created", source_id: "research-paper", draft_id: "source-draft-1", candidate });
+      if (path === "/api/research/candidates/candidate-1/create-note" && init?.method === "POST") return jsonResponse({ group_id: "group-1", source_draft_id: "source-draft-1", document_draft_id: "document-draft-1", collection_draft_id: "collection-draft-1", collection_id: "continual-learning", document_id: "research-note-1", source_id: "research-paper" });
       return jsonResponse({ detail: `Unexpected request: ${path}` }, 404);
     });
     vi.stubGlobal("fetch", mockFetch);
@@ -74,6 +78,22 @@ describe("Research workspace", () => {
     expect(await screen.findByText("Source Workspace")).toBeTruthy();
     expect(window.location.pathname).toBe("/sources/research-paper");
     expect(window.location.search).toBe("?edit=1");
+  });
+
+  it("creates a structured note group and enters batch Workspace review", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Create Note" }));
+    expect(await screen.findByRole("heading", { name: "Create Research Note" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Collection"), { target: { value: "continual-learning" } });
+    await screen.findByRole("option", { name: "Regularization" });
+    fireEvent.change(screen.getByLabelText("Section"), { target: { value: "regularization" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText("Source Workspace")).toBeTruthy();
+    expect(window.location.pathname).toBe("/documents/research-note-1");
+    expect(window.location.search).toBe("?collection=continual-learning&edit=1&publishAll=1&relatedDraft=source-draft-1&researchGroup=group-1");
+    const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/create-note" && init?.method === "POST");
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({ document_type: "paper-note", template: "structured", collection_id: "continual-learning", section_id: "regularization" });
   });
 });
 
