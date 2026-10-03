@@ -114,11 +114,9 @@ class Publisher:
     def publish(
         self,
         draft_id: str,
-        expected_revision: Optional[int] = None,
+        expected_revision: int,
         commit_message: Optional[str] = None,
     ) -> PublishedResult:
-        if expected_revision is None:
-            expected_revision = self.draft_service.get(draft_id).revision
         result = self.publish_batch(
             [draft_id], commit_message, {draft_id: expected_revision}
         )

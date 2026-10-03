@@ -56,7 +56,7 @@ def test_publish_writes_one_canonical_file_and_commit_only_includes_target(
 
     (repository / "README.md").write_text("staged unrelated change\n", encoding="utf-8")
     _git(repository, "add", "README.md")
-    result = publisher.publish(draft.id)
+    result = publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert (repository / target).read_text(encoding="utf-8") == content
     assert result.path == target
@@ -108,7 +108,7 @@ def test_publish_collection_and_remove_successful_draft(publish_context):
     content = _collection("reading", "Reading")
     draft = _create_draft(drafts, git, "collection", "reading", content, target)
 
-    result = publisher.publish(draft.id)
+    result = publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert result.entity_type == "collection"
     assert (repository / target).read_text(encoding="utf-8") == content
@@ -143,6 +143,22 @@ def test_publish_rejects_changed_draft_revision_without_writing_or_committing(
     assert not (repository / target).exists()
     assert git.current_revision() == current_commit
     assert drafts.get(draft.id).revision == draft.revision + 1
+
+
+def test_publish_requires_the_reviewed_revision(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "revision-required",
+        _document("revision-required"),
+        "knowledge/documents/learning/revision-required.md",
+    )
+
+    with pytest.raises(TypeError, match="expected_revision"):
+        publisher.publish(draft.id)
 
 
 def test_batch_publish_rejects_any_changed_reviewed_revision_atomically(publish_context):
@@ -203,11 +219,11 @@ def test_publish_collection_metadata_and_reorder_updates_the_derived_order(publi
     alpha_draft = _create_draft(
         drafts, git, "collection", "alpha", alpha_initial, alpha_path
     )
-    publisher.publish(alpha_draft.id)
+    publisher.publish(alpha_draft.id, expected_revision=alpha_draft.revision)
     beta_draft = _create_draft(
         drafts, git, "collection", "beta", beta_initial, beta_path
     )
-    publisher.publish(beta_draft.id)
+    publisher.publish(beta_draft.id, expected_revision=beta_draft.revision)
 
     alpha_updated = _collection("alpha", "Alpha Updated").replace(
         "status: active\nposition: 0",
@@ -375,7 +391,7 @@ def test_unrelated_commit_does_not_conflict_with_new_file_draft(publish_context)
     (repository / "README.md").write_text("another commit\n", encoding="utf-8")
     _git(repository, "add", "README.md")
     _git(repository, "commit", "-m", "unrelated change")
-    result = publisher.publish(draft.id)
+    result = publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert (repository / target).is_file()
     assert result.commit_revision == git.current_revision()
@@ -389,8 +405,8 @@ def test_other_document_publish_does_not_conflict_with_existing_draft(publish_co
     first = _create_draft(drafts, git, "document", "first-note", _document("first-note"), first_path)
     second = _create_draft(drafts, git, "document", "second-note", _document("second-note"), second_path)
 
-    publisher.publish(second.id)
-    result = publisher.publish(first.id)
+    publisher.publish(second.id, expected_revision=second.revision)
+    result = publisher.publish(first.id, expected_revision=first.revision)
 
     assert result.entity_id == "first-note"
     assert (repository / first_path).is_file()
@@ -410,7 +426,7 @@ def test_publish_rejects_changed_target_content_without_overwriting(publish_cont
     (repository / target).write_text("external unstaged edit\n", encoding="utf-8")
 
     with pytest.raises(PublishConflictError, match="Canonical file changed"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert (repository / target).read_text(encoding="utf-8") == "external unstaged edit\n"
     assert git.current_revision() == draft.base_git_revision
@@ -428,7 +444,7 @@ def test_creation_of_empty_target_conflicts_with_missing_target_base(publish_con
     (repository / target).write_bytes(b"")
 
     with pytest.raises(PublishConflictError, match="Canonical file changed"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
 
 
 def test_deleting_target_conflicts_with_existing_file_base(publish_context):
@@ -446,7 +462,7 @@ def test_deleting_target_conflicts_with_existing_file_base(publish_context):
     (repository / target).unlink()
 
     with pytest.raises(PublishConflictError, match="Canonical file changed"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
 
 
 def test_validation_failure_does_not_write_or_commit(publish_context):
@@ -460,7 +476,7 @@ def test_validation_failure_does_not_write_or_commit(publish_context):
     head = git.current_revision()
 
     with pytest.raises(PublishValidationError, match="Unknown topic"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert not (repository / target).exists()
     assert git.current_revision() == head
@@ -474,7 +490,7 @@ def test_current_document_style_issues_still_block_publish(publish_context):
     draft = _create_draft(drafts, git, "document", "current-style", content, target)
 
     with pytest.raises(PublishValidationError, match="heading.h2_numbering"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
     assert not (repository / target).exists()
 
 
@@ -487,7 +503,7 @@ def test_legacy_document_style_issues_publish_with_warnings(publish_context):
     ) + "\n## Old section numbering\n"
     draft = _create_draft(drafts, git, "document", "legacy-style", content, target)
 
-    result = publisher.publish(draft.id)
+    result = publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert (repository / target).is_file()
     assert any("heading.h2_numbering" in warning for warning in result.warnings)
@@ -504,7 +520,7 @@ def test_legacy_document_with_broken_frontmatter_cannot_publish(publish_context)
     draft = _create_draft(drafts, git, "document", "broken-legacy", content, target)
 
     with pytest.raises(PublishValidationError, match="frontmatter"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
     assert not (repository / target).exists()
 
 
@@ -518,7 +534,7 @@ def test_unrelated_malformed_markdown_does_not_block_publish(publish_context):
         drafts, git, "document", "local-validation", _document("local-validation"), target
     )
 
-    result = publisher.publish(draft.id)
+    result = publisher.publish(draft.id, expected_revision=draft.revision)
     assert (repository / target).is_file()
     assert result.commit_revision == git.current_revision()
     assert any("run `python tools/kb.py rebuild`" in warning for warning in result.warnings)
@@ -573,7 +589,7 @@ def test_proposal_survives_unrelated_document_publish(publish_context):
         drafts, git, "document", "other-target", _document("other-target"), other_target
     )
 
-    publisher.publish(other_draft.id)
+    publisher.publish(other_draft.id, expected_revision=other_draft.revision)
     result = publisher.publish(proposal_draft.id, expected_revision=proposal_draft.revision)
 
     assert result.entity_id == "proposal-target"
@@ -688,7 +704,7 @@ def test_restore_creates_a_new_commit_and_preserves_published_history(publish_co
     updated = _term("fisher-information", title="Updated Fisher Information")
     draft = _create_draft(drafts, git, "term", "fisher-information", updated, target)
 
-    published = publisher.publish(draft.id)
+    published = publisher.publish(draft.id, expected_revision=draft.revision)
     restore_result = publisher.restore(target, before_revision)
 
     assert restore_result.commit_revision != published.commit_revision
@@ -713,7 +729,7 @@ def test_restore_to_before_new_file_creation_records_deletion_commit(publish_con
         _document("new-note"),
         target,
     )
-    published = publisher.publish(draft.id)
+    published = publisher.publish(draft.id, expected_revision=draft.revision)
 
     restored = publisher.restore(target, before_creation)
 
@@ -873,7 +889,7 @@ def test_restore_commit_is_success_when_index_update_fails(publish_context, monk
     draft = _create_draft(
         drafts, git, "document", "restore-warning", _document("restore-warning"), target
     )
-    published = publisher.publish(draft.id)
+    published = publisher.publish(draft.id, expected_revision=draft.revision)
 
     def fail_update(*_args, **_kwargs):
         raise RuntimeError("index unavailable")
@@ -895,7 +911,7 @@ def test_taxonomy_removal_cannot_leave_dangling_canonical_references(publish_con
     draft = _create_draft(drafts, git, "taxonomy", "domains", content, target)
 
     with pytest.raises(PublishValidationError, match="removed domain"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert git.current_revision() == draft.base_git_revision
     assert "artificial-intelligence" in (repository / target).read_text(encoding="utf-8")
@@ -911,7 +927,7 @@ def test_unresolved_wiki_link_is_retained_but_ambiguous_link_blocks_publish(
     draft = _create_draft(
         drafts, git, "document", "unresolved-note", unresolved, unresolved_path
     )
-    publisher.publish(draft.id)
+    publisher.publish(draft.id, expected_revision=draft.revision)
     assert "[[not-created-yet]]" in (repository / unresolved_path).read_text(encoding="utf-8")
 
     duplicate_term = _term("fisher-variant", title="Fisher Information")
@@ -929,7 +945,7 @@ def test_unresolved_wiki_link_is_retained_but_ambiguous_link_blocks_publish(
     )
 
     with pytest.raises(PublishValidationError, match="Ambiguous wiki link"):
-        publisher.publish(ambiguous_draft.id)
+        publisher.publish(ambiguous_draft.id, expected_revision=ambiguous_draft.revision)
     assert not (repository / ambiguous_path).exists()
 
 
@@ -940,7 +956,7 @@ def test_publisher_supports_term_source_and_taxonomy_canonical_paths(publish_con
     term_path = "knowledge/terms/new-concept.md"
     term_content = _term("new-concept", title="New Concept")
     term_draft = _create_draft(drafts, git, "term", "new-concept", term_content, term_path)
-    publisher.publish(term_draft.id)
+    publisher.publish(term_draft.id, expected_revision=term_draft.revision)
 
     git = GitManager(repository)
     source_path = "knowledge/sources/new-source.yaml"
@@ -951,7 +967,7 @@ def test_publisher_supports_term_source_and_taxonomy_canonical_paths(publish_con
     source_draft = _create_draft(
         drafts, git, "source", "new-source", source_content, source_path
     )
-    publisher.publish(source_draft.id)
+    publisher.publish(source_draft.id, expected_revision=source_draft.revision)
 
     git = GitManager(repository)
     taxonomy_path = "knowledge/taxonomy/tags.yaml"
@@ -963,7 +979,7 @@ def test_publisher_supports_term_source_and_taxonomy_canonical_paths(publish_con
     taxonomy_draft = _create_draft(
         drafts, git, "taxonomy", "tags", taxonomy_content, taxonomy_path
     )
-    publisher.publish(taxonomy_draft.id)
+    publisher.publish(taxonomy_draft.id, expected_revision=taxonomy_draft.revision)
 
     assert (repository / term_path).is_file()
     assert (repository / source_path).is_file()
@@ -990,7 +1006,7 @@ def test_source_pdf_attachment_must_match_published_source_id(publish_context):
     )
 
     with pytest.raises(PublishValidationError, match="attachment ID must match"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert not (repository / "knowledge" / "sources" / "source-owner.yaml").exists()
 
@@ -1009,7 +1025,7 @@ def test_publisher_refreshes_incremental_index_after_publish_and_restore(publish
         target,
     )
 
-    published = publisher.publish(draft.id)
+    published = publisher.publish(draft.id, expected_revision=draft.revision)
     assert connection.execute(
         "SELECT title FROM document_index WHERE entity_id = ?", ("indexed-note",)
     ).fetchone()[0] == "Test Note"
@@ -1049,7 +1065,7 @@ def test_publish_new_file_uses_canonical_file_permissions(
         target,
     )
 
-    publisher.publish(draft.id)
+    publisher.publish(draft.id, expected_revision=draft.revision)
 
     file_stat = path.stat()
 
@@ -1084,7 +1100,7 @@ def test_publish_existing_file_preserves_permissions(
         relative_target,
     )
 
-    publisher.publish(draft.id)
+    publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert target.read_text(encoding="utf-8") == updated_content
     assert target.stat().st_mode & 0o777 == 0o640

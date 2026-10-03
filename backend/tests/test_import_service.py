@@ -224,7 +224,7 @@ def test_pdf_source_publish_commits_metadata_and_keeps_pdf_out_of_git(
         canonical_target_resolver=CanonicalTargetResolver(repository, connection),
     )
 
-    result = publisher.publish(draft.id)
+    result = publisher.publish(draft.id, expected_revision=draft.revision)
 
     assert result.path == "knowledge/sources/published-paper.yaml"
     assert (repository / "knowledge" / "sources" / "published-paper.yaml").is_file()
@@ -582,7 +582,7 @@ def test_import_draft_cannot_publish_over_a_changed_canonical_document(import_co
     )
 
     with pytest.raises(PublishConflictError):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
     assert "Version C" in target.read_text(encoding="utf-8")
     assert GitManager(repository).current_revision() != draft.base_git_revision
 
@@ -607,7 +607,7 @@ def test_source_draft_cannot_publish_when_staged_pdf_is_missing(import_context, 
     )
 
     with pytest.raises(PublishValidationError, match="attachment is missing"):
-        publisher.publish(draft.id)
+        publisher.publish(draft.id, expected_revision=draft.revision)
     assert not (repository / "knowledge" / "sources" / "source-attachment.yaml").exists()
 
 
