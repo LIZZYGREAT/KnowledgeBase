@@ -441,6 +441,25 @@ def test_preflight_batch_reports_stale_review_revision_as_conflict(publish_conte
     assert "expected revision 1, current revision 2" in " ".join(result.errors)
 
 
+def test_batch_preparation_preserves_no_op_preflight_and_publish_errors(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/papers/ewc-review.md"
+    content = (repository / target).read_bytes().decode("utf-8")
+    draft = _create_draft(drafts, git, "document", "ewc-review", content, target)
+    current_revision = git.current_revision()
+
+    result = publisher.preflight_batch([(draft.id, draft.revision)])[0]
+
+    assert result.valid is False
+    assert result.conflict is False
+    assert result.errors == ("Draft has no canonical changes to publish",)
+    with pytest.raises(PublishError, match="Draft .* has no canonical changes to publish"):
+        publisher.publish_batch([(draft.id, draft.revision)])
+    assert git.current_revision() == current_revision
+    assert drafts.get(draft.id).revision == draft.revision
+
+
 def test_publish_batch_validation_failure_restores_all_files_and_keeps_drafts(
     publish_context,
 ):
