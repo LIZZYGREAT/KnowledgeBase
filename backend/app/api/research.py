@@ -244,7 +244,9 @@ async def get_candidate(candidate_id: str, request: Request):
         "candidate": candidate,
         "work": work,
         "analysis": analysis,
-        "discoveries": service.work_repository.list_discoveries_for_work(work.id),
+        "discoveries": service.work_repository.list_discoveries_for_candidate_context(
+            work.id, candidate.profile_id
+        ),
         "knowledge_relations": analysis.analysis.existing_relations,
         "linked_entities": service.work_repository.list_entity_links(work.id),
         "pending_links": service.work_repository.list_pending_links(candidate.id),

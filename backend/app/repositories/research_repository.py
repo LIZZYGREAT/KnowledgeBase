@@ -194,6 +194,17 @@ class ResearchRepository:
         ).fetchall()
         return [_discovery_from_row(row) for row in rows]
 
+    def list_discoveries_for_candidate_context(
+        self, work_id: str, profile_id: str
+    ) -> list[ResearchDiscoveryRecord]:
+        rows = self.connection.execute(
+            """SELECT * FROM research_discoveries
+               WHERE work_id = ? AND profile_id = ?
+               ORDER BY discovered_at, id""",
+            (work_id, profile_id),
+        ).fetchall()
+        return [_discovery_from_row(row) for row in rows]
+
     def has_candidate_for_profile(self, work_id: str, profile_id: str) -> bool:
         row = self.connection.execute(
             """SELECT 1 FROM research_candidates

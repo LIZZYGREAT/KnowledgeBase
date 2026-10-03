@@ -129,20 +129,21 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
     service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
     profile = service.profile_registry.get("continual-learning")
     query = service.query_builder.build(profile)[0]
+    provider_work = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2501.01234",
+        title="A Research API Candidate",
+        abstract="A concrete abstract for the research candidate.",
+        authors=("Example Author",),
+        year=2026,
+        arxiv_id="2501.01234",
+    )
     ingested = service.deduplicator.record_discovery(
         profile.id,
         query.lens_id,
         query.query_key,
         query.text,
-        ProviderWork(
-            provider="arxiv",
-            provider_record_id="2501.01234",
-            title="A Research API Candidate",
-            abstract="A concrete abstract for the research candidate.",
-            authors=("Example Author",),
-            year=2026,
-            arxiv_id="2501.01234",
-        ),
+        provider_work,
         discovered_at=_NOW,
     )
     output = ResearchCandidateAnalysisOutput.model_validate(
@@ -175,6 +176,24 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
     )
     analysis, _ = service.work_repository.add_analysis_if_missing(analysis)
     generated = service.candidate_service.generate(analysis, profile, profile.lenses[0])
+    other_profile_discovery = service.deduplicator.record_discovery(
+        "another-profile",
+        "another-lens",
+        "another-query",
+        "a query from another Profile",
+        ProviderWork(
+            provider="openalex",
+            provider_record_id="W987654321",
+            title=provider_work.title,
+            abstract=provider_work.abstract,
+            authors=provider_work.authors,
+            year=provider_work.year,
+            arxiv_id=provider_work.arxiv_id,
+            openalex_id="W987654321",
+        ),
+        discovered_at=_NOW,
+    )
+    assert other_profile_discovery.work.id == ingested.work.id
     app = _app(service)
 
     async def exercise_routes():
@@ -194,6 +213,10 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             )
             assert details.status_code == 200, details.json()
             assert details.json()["candidate"]["first_viewed_at"] == _NOW.isoformat()
+            assert {
+                discovery["profile_id"] for discovery in details.json()["discoveries"]
+            } == {profile.id}
+            assert len(details.json()["discoveries"]) == 1
 
             shortlist = await client.post(
                 "/api/research/candidates/{}/shortlist".format(generated.candidate.id),
