@@ -125,6 +125,7 @@ class ResearchProviderSettings(CanonicalModel):
 class ResearchRuntimeSettings(CanonicalModel):
     slice_days: PositiveInt
     overlap_hours: NonNegativeInt
+    retry_cooldown_minutes: PositiveInt
 
 
 class ResearchAnalysisSettings(CanonicalModel):

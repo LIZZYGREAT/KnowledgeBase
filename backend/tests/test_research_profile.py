@@ -152,7 +152,11 @@ def _global_config() -> dict:
     return {
         "schema_version": 1,
         "providers": {"timeout_seconds": 20, "max_retries": 3},
-        "runtime": {"slice_days": 1, "overlap_hours": 48},
+        "runtime": {
+            "slice_days": 1,
+            "overlap_hours": 48,
+            "retry_cooldown_minutes": 60,
+        },
         "analysis": {"max_context_entities": 8, "timeout_seconds": 60},
         "ranking": {
             "strict": {

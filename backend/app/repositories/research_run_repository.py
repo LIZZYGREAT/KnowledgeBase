@@ -49,6 +49,17 @@ class ResearchRunRepository:
         ).fetchone()
         return _run_from_row(row) if row else None
 
+    def latest_scheduled_for_profile(
+        self, profile_id: str
+    ) -> Optional[ResearchRunRecord]:
+        row = self.connection.execute(
+            """SELECT * FROM research_runs
+               WHERE profile_id = ? AND trigger = 'scheduled'
+               ORDER BY started_at DESC, id DESC LIMIT 1""",
+            (profile_id,),
+        ).fetchone()
+        return _run_from_row(row) if row else None
+
     def list_for_profile(self, profile_id: str, limit: int = 50) -> list[ResearchRunRecord]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
             raise ValueError("Research Run list limit must be between 1 and 500")

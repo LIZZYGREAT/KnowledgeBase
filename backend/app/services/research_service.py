@@ -292,6 +292,23 @@ class ResearchService:
                     continue
             if self.candidate_service.remaining_capacity(profile) <= 0:
                 continue
+            latest_scheduled_run = self.run_repository.latest_scheduled_for_profile(
+                profile.id
+            )
+            if (
+                latest_scheduled_run is not None
+                and latest_scheduled_run.status
+                in {"failed", "partial", "interrupted"}
+            ):
+                last_attempt = _parse_timestamp(latest_scheduled_run.started_at)
+                cooldown = timedelta(
+                    minutes=(
+                        self.profile_registry.global_config.runtime.retry_cooldown_minutes
+                    )
+                )
+                retry_after = last_attempt + cooldown
+                if now < retry_after:
+                    continue
             interval = timedelta(days=1 if profile.schedule.mode == "daily" else 7)
             last_success = (
                 _parse_timestamp(state.last_successful_scheduled_run_at)

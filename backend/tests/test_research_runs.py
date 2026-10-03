@@ -415,6 +415,42 @@ def test_tick_selects_most_overdue_profile_and_skips_paused_profiles(tmp_path):
     connection.close()
 
 
+def test_scheduled_failures_wait_for_retry_cooldown_but_manual_runs_do_not(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([], error=True)
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    now = [_NOW]
+    service.clock = lambda: now[0]
+
+    first = service.tick()
+
+    assert first is not None and first.status == "partial"
+    assert first.trigger == "scheduled"
+    assert provider.calls == 1
+
+    now[0] = _NOW + timedelta(minutes=2)
+    assert service.tick() is None
+    assert provider.calls == 1
+
+    service.queue_manual_run("continual-learning")
+    manual = service.tick()
+    assert manual is not None and manual.trigger == "manual"
+    assert provider.calls == 2
+
+    now[0] = _NOW + timedelta(minutes=59)
+    assert service.tick() is None
+    assert provider.calls == 2
+
+    now[0] = _NOW + timedelta(minutes=60)
+    retry = service.tick()
+    assert retry is not None and retry.status == "partial"
+    assert retry.trigger == "scheduled"
+    assert provider.calls == 3
+    connection.close()
+
+
 def test_resume_catchup_days_are_applied_to_the_next_scheduled_run(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([ProviderPage(works=())])
@@ -536,7 +572,11 @@ def _profile_registry(profile):
         {
             "schema_version": 1,
             "providers": {"timeout_seconds": 20, "max_retries": 3},
-            "runtime": {"slice_days": 1, "overlap_hours": 0},
+            "runtime": {
+                "slice_days": 1,
+                "overlap_hours": 0,
+                "retry_cooldown_minutes": 60,
+            },
             "analysis": {"max_context_entities": 8, "timeout_seconds": 60},
             "ranking": {
                 "strict": {
