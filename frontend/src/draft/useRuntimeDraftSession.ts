@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   createDraft,
   discardDraft,
@@ -62,8 +62,7 @@ export function useRuntimeDraftSession({
   const initialContentReadyRef = useRef(initialContentReady);
   const baseContentRef = useRef("");
   const lastSavedRef = useRef("");
-  const draftsLoadedGenerationRef = useRef(0);
-  const initializedGenerationRef = useRef(0);
+  const loadStageRef = useRef<"loading" | "empty" | "ready">("loading");
   const savePromiseRef = useRef<Promise<Draft | DraftAcquireResult> | null>(null);
   const runtimeConflictRef = useRef<RuntimeDraftConflict | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,12 +71,12 @@ export function useRuntimeDraftSession({
   initialContentReadyRef.current = initialContentReady;
 
   const installDraft = useCallback((next: Draft, nextGeneration: number) => {
-    if (generationRef.current !== nextGeneration || identityRef.current !== identity) return;
+    if (generationRef.current !== nextGeneration) return;
     draftRef.current = next;
     contentRef.current = next.content;
     lastSavedRef.current = next.content;
     baseContentRef.current = initialContentRef.current ?? next.content;
-    initializedGenerationRef.current = nextGeneration;
+    loadStageRef.current = "ready";
     runtimeConflictRef.current = null;
     setDraft(next);
     setContent(next.content);
@@ -85,14 +84,12 @@ export function useRuntimeDraftSession({
     setRuntimeConflict(null);
     setError("");
     setState("saved");
-  }, [identity]);
+  }, []);
 
   const initializeFromSeed = useCallback((nextGeneration: number) => {
     if (!enabled
       || generationRef.current !== nextGeneration
-      || identityRef.current !== identity
-      || draftsLoadedGenerationRef.current !== nextGeneration
-      || initializedGenerationRef.current === nextGeneration
+      || loadStageRef.current !== "empty"
       || draftRef.current
       || !initialContentReadyRef.current) return;
     const seed = initialContentRef.current ?? "";
@@ -100,28 +97,26 @@ export function useRuntimeDraftSession({
     contentRef.current = seed;
     baseContentRef.current = seed;
     lastSavedRef.current = seed;
-    initializedGenerationRef.current = nextGeneration;
+    loadStageRef.current = "ready";
     setDraft(null);
     setContent(seed);
     setIsDirty(false);
     setRuntimeConflict(null);
     setError("");
     setState("clean");
-  }, [enabled, identity]);
+  }, [enabled]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     setLoadedIdentity(identity);
-    let active = true;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
     draftRef.current = null;
     contentRef.current = "";
     baseContentRef.current = "";
     lastSavedRef.current = "";
-    draftsLoadedGenerationRef.current = 0;
-    initializedGenerationRef.current = 0;
+    loadStageRef.current = enabled ? "loading" : "ready";
     savePromiseRef.current = null;
     runtimeConflictRef.current = null;
     setDraft(null);
@@ -134,21 +129,22 @@ export function useRuntimeDraftSession({
     if (enabled) {
       void listDrafts(entityType, entityId)
         .then((drafts) => {
-          if (!active || generationRef.current !== generation || identityRef.current !== identity) return;
-          draftsLoadedGenerationRef.current = generation;
+          if (generationRef.current !== generation) return;
           const existing = drafts[0] ?? null;
           if (existing) installDraft(existing, generation);
-          else initializeFromSeed(generation);
+          else {
+            loadStageRef.current = "empty";
+            initializeFromSeed(generation);
+          }
         })
         .catch((reason: unknown) => {
-          if (!active || generationRef.current !== generation || identityRef.current !== identity) return;
+          if (generationRef.current !== generation) return;
           setError(errorMessage(reason));
           setState("error");
         });
     }
 
     return () => {
-      active = false;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
       if (generationRef.current === generation) generationRef.current += 1;
@@ -176,7 +172,7 @@ export function useRuntimeDraftSession({
     knownLatest?: Draft,
   ) => {
     const latest = knownLatest ?? await getDraft(draftId);
-    if (generationRef.current !== activeGeneration || identityRef.current !== identity) return;
+    if (generationRef.current !== activeGeneration) return;
     const conflict = { existingDraft: latest, localContent };
     draftRef.current = latest;
     lastSavedRef.current = latest.content;
@@ -186,15 +182,15 @@ export function useRuntimeDraftSession({
     setRuntimeConflict(conflict);
     setState("runtime-conflict");
     setError("Runtime Draft 已在另一个会话中更新。本地修改已保留；请载入最新 Draft、保留本地内容或手动合并。");
-  }, [identity]);
+  }, []);
 
   const saveNow = useCallback(async (): Promise<Draft | null> => {
     if (!enabled || identityRef.current !== identity) return null;
     const activeGeneration = generationRef.current;
-    const isActive = () => generationRef.current === activeGeneration && identityRef.current === identity;
+    const isActive = () => generationRef.current === activeGeneration;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
-    if (state === "loading" && initializedGenerationRef.current !== activeGeneration) {
+    if (state === "loading" && loadStageRef.current !== "ready") {
       throw new Error("Runtime Draft 尚未载入。");
     }
     if (runtimeConflictRef.current) {
@@ -222,6 +218,7 @@ export function useRuntimeDraftSession({
       const saved = isDraftAcquireResult(result) ? result.draft : result;
       if (isDraftAcquireResult(result) && !result.created && saved.content !== snapshot) {
         await captureRuntimeConflict(saved.id, contentRef.current, activeGeneration, saved);
+        if (!isActive()) return null;
         setError("另一个标签页已为此内容创建 Draft。当前本地修改尚未保存；请载入已保存 Draft 或手动合并。");
         throw Object.assign(new Error("另一个会话已为此内容创建了不同的 Draft；本地修改仍保留。"), { status: 409 });
       }
@@ -240,6 +237,7 @@ export function useRuntimeDraftSession({
       if ((reason as ApiError)?.code === "draft_revision_conflict" && currentDraft) {
         try {
           await captureRuntimeConflict(currentDraft.id, contentRef.current, activeGeneration);
+          if (!isActive()) return null;
         } catch (refreshError) {
           if (!isActive()) return null;
           setState("error");
@@ -288,17 +286,20 @@ export function useRuntimeDraftSession({
     const activeGeneration = generationRef.current;
     if (!enabled || identityRef.current !== identity) throw new Error("Runtime Draft session 已结束。");
     const saved = await saveNow();
-    if (generationRef.current !== activeGeneration || identityRef.current !== identity) {
+    if (generationRef.current !== activeGeneration) {
       throw new Error("Runtime Draft session 已切换到其他 Entity。");
     }
     if (saved) return saved;
     const snapshot = contentRef.current;
     const result = await createDraft(entityType, entityId, snapshot);
-    if (generationRef.current !== activeGeneration || identityRef.current !== identity) {
+    if (generationRef.current !== activeGeneration) {
       throw new Error("Runtime Draft session 已切换到其他 Entity。");
     }
     if (!result.created && result.draft.content !== snapshot) {
       await captureRuntimeConflict(result.draft.id, snapshot, activeGeneration, result.draft);
+      if (generationRef.current !== activeGeneration) {
+        throw new Error("Runtime Draft session 已切换到其他 Entity。");
+      }
       setError("另一个标签页已为此内容创建 Draft。当前本地修改尚未保存；请载入已保存 Draft 或手动合并。");
       throw Object.assign(new Error("Draft 内容冲突。"), { status: 409 });
     }
@@ -312,10 +313,10 @@ export function useRuntimeDraftSession({
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
     if (savePromiseRef.current) await savePromiseRef.current.catch(() => undefined);
-    if (generationRef.current !== activeGeneration || identityRef.current !== identity) return;
+    if (generationRef.current !== activeGeneration) return;
     const currentDraft = draftRef.current;
     if (currentDraft) await discardDraft(currentDraft.id, currentDraft.revision);
-    if (generationRef.current !== activeGeneration || identityRef.current !== identity) return;
+    if (generationRef.current !== activeGeneration) return;
     reset(initialContentRef.current ?? baseContentRef.current);
   }, [enabled, identity]);
 
@@ -324,7 +325,7 @@ export function useRuntimeDraftSession({
     const conflict = runtimeConflictRef.current;
     if (!conflict || identityRef.current !== identity) return null;
     const latest = await getDraft(conflict.existingDraft.id);
-    if (generationRef.current !== activeGeneration || identityRef.current !== identity) return null;
+    if (generationRef.current !== activeGeneration) return null;
     installDraft(latest, activeGeneration);
     return latest;
   }, [identity, installDraft]);
@@ -339,7 +340,7 @@ export function useRuntimeDraftSession({
         value,
         conflict.existingDraft.revision,
       );
-      if (generationRef.current !== activeGeneration || identityRef.current !== identity) {
+      if (generationRef.current !== activeGeneration) {
         throw new Error("Runtime Draft session 已切换到其他 Entity。");
       }
       draftRef.current = updated;
@@ -354,9 +355,10 @@ export function useRuntimeDraftSession({
       setError("");
       return updated;
     } catch (reason) {
-      if (generationRef.current !== activeGeneration || identityRef.current !== identity) throw reason;
+      if (generationRef.current !== activeGeneration) throw reason;
       if ((reason as ApiError)?.code === "draft_revision_conflict") {
         await captureRuntimeConflict(conflict.existingDraft.id, value, activeGeneration);
+        if (generationRef.current !== activeGeneration) throw reason;
         setError("Draft 已在另一个会话中更新；合并内容没有覆盖新版本。请检查最新 Draft 后再次保存。");
       } else {
         setError(errorMessage(reason));
@@ -380,8 +382,7 @@ export function useRuntimeDraftSession({
       initialContentRef.current = nextBaseContent;
       initialContentReadyRef.current = true;
     }
-    initializedGenerationRef.current = nextGeneration;
-    draftsLoadedGenerationRef.current = nextGeneration;
+    loadStageRef.current = "ready";
     runtimeConflictRef.current = null;
     setDraft(nextDraft);
     setContent(nextDraft.content);
@@ -403,8 +404,7 @@ export function useRuntimeDraftSession({
     lastSavedRef.current = nextContent;
     initialContentRef.current = nextContent;
     initialContentReadyRef.current = true;
-    initializedGenerationRef.current = nextGeneration;
-    draftsLoadedGenerationRef.current = nextGeneration;
+    loadStageRef.current = "ready";
     runtimeConflictRef.current = null;
     setDraft(null);
     setContent(nextContent);

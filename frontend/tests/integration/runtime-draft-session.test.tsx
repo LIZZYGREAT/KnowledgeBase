@@ -199,4 +199,37 @@ describe("Runtime Draft session", () => {
     expect(result.current.content).toBe("Canonical second-note");
     expect(result.current.draft).toBeNull();
   });
+
+  it("ignores a save response from a session that has already been replaced", async () => {
+    let resolveFirst!: (result: { draft: Draft; created: boolean }) => void;
+    api.createDraft.mockImplementationOnce((_type: string, entityId: string, content: string) =>
+      new Promise((resolve) => { resolveFirst = resolve; }));
+    const { result, rerender } = renderHook(
+      ({ entityId }: { entityId: string }) => useRuntimeDraftSession(sessionOptions(entityId)),
+      { initialProps: { entityId: "first-note" } },
+    );
+    await waitFor(() => expect(result.current.state).toBe("clean"));
+
+    let pendingSave!: Promise<Draft | null>;
+    await act(async () => {
+      result.current.updateContent("First session edit");
+      pendingSave = result.current.saveNow();
+      await Promise.resolve();
+    });
+    expect(api.createDraft).toHaveBeenCalledOnce();
+
+    rerender({ entityId: "second-note" });
+    await waitFor(() => expect(result.current.state).toBe("clean"));
+    await act(async () => {
+      resolveFirst({
+        draft: makeDraft("First session edit", 1, "first-note"),
+        created: true,
+      });
+      await pendingSave;
+    });
+
+    expect(result.current.content).toBe("Canonical second-note");
+    expect(result.current.draft).toBeNull();
+    expect(result.current.state).toBe("clean");
+  });
 });
