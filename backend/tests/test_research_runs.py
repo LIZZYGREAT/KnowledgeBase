@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+import yaml
 
 from backend.app.db.connection import connect_database
 from backend.app.domain.research import ResearchGlobalConfig, ResearchProfile
@@ -1226,6 +1227,11 @@ def _profile_registry(profile):
         (profile,),
         {profile.id: Path("profile.yaml")},
         {profile.id: "a" * 64},
+        {
+            profile.id: yaml.safe_dump(
+                profile.model_dump(mode="json"), allow_unicode=True, sort_keys=False
+            )
+        },
     )
 
 

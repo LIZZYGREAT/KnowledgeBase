@@ -59,6 +59,7 @@ async def get_profile(profile_id: str, request: Request):
         resume_options.append("from_now")
     return {
         "profile": profile,
+        "canonical_content": service.profile_registry.canonical_content(profile_id),
         "runtime_state": state,
         "inbox": _inbox(service, profile),
         "latest_run": _run_summary(latest[0]) if latest else None,

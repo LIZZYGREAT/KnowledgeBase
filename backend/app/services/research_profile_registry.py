@@ -1,6 +1,6 @@
 """Load and validate canonical Research Profiles and global settings."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 from pathlib import Path
 from typing import Mapping, Optional
@@ -19,6 +19,7 @@ class ResearchProfileRegistry:
     profiles: tuple[ResearchProfile, ...]
     _profile_paths: Mapping[str, Path]
     _profile_hashes: Mapping[str, str]
+    _profile_contents: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def load(cls, repository_root: Path) -> "ResearchProfileRegistry":
@@ -33,6 +34,7 @@ class ResearchProfileRegistry:
         _reject_symlink(profiles_directory, root)
         profile_paths: dict[str, Path] = {}
         profile_hashes: dict[str, str] = {}
+        profile_contents: dict[str, str] = {}
         profiles: list[ResearchProfile] = []
         errors: list[str] = []
 
@@ -47,13 +49,16 @@ class ResearchProfileRegistry:
                     )
                     continue
                 try:
-                    profile = _load_model(path, ResearchProfile)
+                    profile, raw_content, raw_bytes = _load_model_with_content(
+                        path, ResearchProfile
+                    )
                 except ValueError as error:
                     errors.append(str(error))
                     continue
                 profiles.append(profile)
                 profile_paths[profile.id] = path
-                profile_hashes[profile.id] = hashlib.sha256(path.read_bytes()).hexdigest()
+                profile_hashes[profile.id] = hashlib.sha256(raw_bytes).hexdigest()
+                profile_contents[profile.id] = raw_content
 
             ids = [profile.id for profile in profiles]
             duplicates = sorted({profile_id for profile_id in ids if ids.count(profile_id) > 1})
@@ -73,7 +78,13 @@ class ResearchProfileRegistry:
 
         profiles.sort(key=lambda profile: profile.id)
         _validate_references(root, profiles, profile_paths)
-        return cls(global_config, tuple(profiles), profile_paths, profile_hashes)
+        return cls(
+            global_config,
+            tuple(profiles),
+            profile_paths,
+            profile_hashes,
+            profile_contents,
+        )
 
     @classmethod
     def validate_candidate(
@@ -106,6 +117,11 @@ class ResearchProfileRegistry:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
         return self._profile_hashes[profile_id]
 
+    def canonical_content(self, profile_id: str) -> str:
+        if profile_id not in self._profile_contents:
+            raise LookupError("Research Profile '{}' does not exist".format(profile_id))
+        return self._profile_contents[profile_id]
+
     def path_for(self, profile_id: str) -> Path:
         if profile_id not in self._profile_paths:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
@@ -113,10 +129,16 @@ class ResearchProfileRegistry:
 
 
 def _load_model(path: Path, model_type):
+    return _load_model_with_content(path, model_type)[0]
+
+
+def _load_model_with_content(path: Path, model_type):
     relative_name = path.as_posix()
     try:
-        value = parse_yaml(path.read_text(encoding="utf-8"))
-        return model_type.model_validate(value)
+        raw_bytes = path.read_bytes()
+        raw_content = raw_bytes.decode("utf-8")
+        value = parse_yaml(raw_content)
+        return model_type.model_validate(value), raw_content, raw_bytes
     except (OSError, UnicodeError, yaml.YAMLError, ValidationError) as error:
         raise ValueError("{}: {}".format(relative_name, error)) from error
 

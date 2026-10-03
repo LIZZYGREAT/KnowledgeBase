@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stringify } from "yaml";
 import App from "../../src/App";
 
 vi.mock("../../src/Workspace", async () => {
@@ -191,6 +192,7 @@ describe("Research workspace", () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: { ...profile, enabled: false },
+      canonical_content: stringify({ ...profile, enabled: false }, { lineWidth: 0 }),
     };
     render(<App />);
 
@@ -230,6 +232,10 @@ describe("Research workspace", () => {
   });
 
   it("edits Profile Defaults through autosaved Draft review and publish", async () => {
+    responseProfileDetail = {
+      ...profileDetail,
+      canonical_content: `# Keep this profile note.\n${stringify(profile, { lineWidth: 0 })}# Keep this trailing note.\n`,
+    };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Edit Defaults" }));
 
@@ -241,9 +247,13 @@ describe("Research workspace", () => {
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(true);
     }, { timeout: 3000 });
-    expect(String(researchProfileDraft?.content)).toContain("new incremental query");
-    expect(String(researchProfileDraft?.content)).toContain("scope: selected-context");
-    expect(String(researchProfileDraft?.content)).toContain("max_analyses_per_run: 30");
+    const draftContent = String(researchProfileDraft?.content);
+    expect(draftContent).toContain("new incremental query");
+    expect(draftContent).toContain("scope: selected-context");
+    expect(draftContent).toContain("max_analyses_per_run: 30");
+    expect(draftContent).toContain("# Keep this profile note.");
+    expect(draftContent).toContain("# Keep this trailing note.");
+    expect(draftContent.indexOf("schema_version:")).toBeLessThan(draftContent.indexOf("id:"));
 
     fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
     expect(await screen.findByText("Profile Draft preflight 通过。")).toBeTruthy();
@@ -260,6 +270,7 @@ describe("Research workspace", () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: { ...profile, enabled: false },
+      canonical_content: stringify({ ...profile, enabled: false }, { lineWidth: 0 }),
     };
     responseProfileSummary = { ...profileSummary, enabled: false };
     reactivationReviewResponse = {
@@ -353,6 +364,7 @@ const profileSummary = {
 
 const profileDetail = {
   profile,
+  canonical_content: stringify(profile, { lineWidth: 0 }),
   runtime_state: { profile_id: profile.id, paused_until: null, last_successful_scheduled_run_at: null, created_at: "2026-10-01T00:00:00+00:00", updated_at: "2026-10-01T00:00:00+00:00" },
   inbox: profileSummary.inbox,
   latest_run: null,

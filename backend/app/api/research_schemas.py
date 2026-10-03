@@ -52,6 +52,7 @@ class ResearchProfileSummaryView(APIModel):
 
 class ResearchProfileDetailView(APIModel):
     profile: ResearchProfile
+    canonical_content: str
     runtime_state: Optional[ResearchProfileStateRecord] = None
     inbox: ResearchInboxUsageView
     latest_run: Optional[ResearchRunSummaryView] = None

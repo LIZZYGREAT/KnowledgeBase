@@ -298,7 +298,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     {profileError && <ErrorState message={profileError} retry={refresh} />}
     {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={(id) => { setQueuedRequestId(id); setTab("new"); }} onEditDefaults={() => setEditingDefaults(true)} />}
     {profilePublishWarnings.length > 0 && <div className="notice research-queued-notice" role="status"><strong>Profile published with warnings</strong><ul>{profilePublishWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="text-button" onClick={() => setProfilePublishWarnings([])}>Dismiss</button></div>}
-    {editingDefaults && profile?.profile.id === selectedProfileId && <ResearchProfileDefaultsEditor profile={profile.profile} onClose={() => setEditingDefaults(false)} onPublished={(warnings) => { setEditingDefaults(false); setProfilePublishWarnings(warnings); refresh(); }} />}
+    {editingDefaults && profile?.profile.id === selectedProfileId && <ResearchProfileDefaultsEditor profile={profile.profile} canonicalContent={profile.canonical_content} onClose={() => setEditingDefaults(false)} onPublished={(warnings) => { setEditingDefaults(false); setProfilePublishWarnings(warnings); refresh(); }} />}
     {queuedRequestId && <div className="notice research-queued-notice" role="status"><strong>Search queued</strong><span>Request {queuedRequestId.slice(0, 10)} 已加入本地队列；将在下次 Research tick 执行。</span><button className="text-button" onClick={() => setQueuedRequestId("")}>Dismiss</button></div>}
 
     <section className="surface research-inbox-section">

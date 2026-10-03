@@ -30,6 +30,24 @@ def test_repository_research_configuration_loads_profiles_without_network():
     assert research_main(["check", "--root", str(root)]) == 0
 
 
+def test_profile_registry_keeps_exact_canonical_yaml_content(tmp_path):
+    root = _valid_repository(tmp_path)
+    path = root / "config" / "research" / "profiles" / "research-profile.yaml"
+    raw_content = (
+        "# Preserve this profile note.\n"
+        + path.read_bytes().decode("utf-8")
+        + "\n# Preserve this trailing note.\n"
+    )
+    path.write_bytes(raw_content.encode("utf-8"))
+
+    registry = ResearchProfileRegistry.load(root)
+
+    assert registry.canonical_content("research-profile") == raw_content
+    assert registry.content_hash("research-profile") == hashlib.sha256(
+        raw_content.encode("utf-8")
+    ).hexdigest()
+
+
 def test_profile_registry_rejects_duplicate_lens_ids(tmp_path):
     root = _valid_repository(tmp_path)
     profile = _profile()

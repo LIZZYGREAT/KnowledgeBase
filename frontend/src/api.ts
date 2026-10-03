@@ -312,6 +312,7 @@ export interface ResearchProfileSummary {
 }
 export interface ResearchProfileDetail {
   profile: ResearchProfile;
+  canonical_content: string;
   runtime_state: { profile_id: string; paused_until: string | null; last_successful_scheduled_run_at: string | null; created_at: string; updated_at: string } | null;
   inbox: ResearchInboxUsage;
   latest_run: ResearchRunSummary | null;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { parse, stringify } from "yaml";
+import { parse, parseDocument } from "yaml";
 import {
   compareDraft,
   listAllEntities,
@@ -22,6 +22,7 @@ import { createLineDiff } from "./publishReview";
 
 interface ResearchProfileDefaultsEditorProps {
   profile: ResearchProfile;
+  canonicalContent: string;
   onClose: () => void;
   onPublished: (warnings: string[]) => void;
 }
@@ -32,8 +33,8 @@ interface ProfileReview {
   reactivation: ResearchReactivationReview | null;
 }
 
-export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
-  const initialContent = useMemo(() => stringify(profile, { lineWidth: 0 }), [profile]);
+export function ResearchProfileDefaultsEditor({ profile, canonicalContent, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
+  const initialContent = useMemo(() => canonicalContent, [canonicalContent]);
   const session = useRuntimeDraftSession({
     entityType: "research_profile",
     entityId: profile.id,
@@ -90,7 +91,11 @@ export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }:
     setReactivationStrategy("");
     setError("");
     setNotice("");
-    session.updateContent(stringify(transform(editableProfile), { lineWidth: 0 }));
+    const document = parseDocument(session.content);
+    const currentValue = document.toJS();
+    const nextValue = transform(editableProfile);
+    applyYamlDiff(document, [], currentValue, nextValue);
+    session.updateContent(document.toString({ lineWidth: 0 }));
   }
 
   async function closeEditor() {
@@ -273,6 +278,34 @@ function SelectionList({ label, items, selected, onChange }: { label: string; it
 
 function updateLens(profile: ResearchProfile, index: number, patch: Partial<ResearchProfile["lenses"][number]>): ResearchProfile {
   return { ...profile, lenses: profile.lenses.map((lens, lensIndex) => lensIndex === index ? { ...lens, ...patch } : lens) };
+}
+
+function applyYamlDiff(document: ReturnType<typeof parseDocument>, path: Array<string | number>, current: unknown, next: unknown) {
+  if (Object.is(current, next)) return;
+  if (Array.isArray(current) && Array.isArray(next)) {
+    const sharedLength = Math.min(current.length, next.length);
+    for (let index = 0; index < sharedLength; index += 1) {
+      applyYamlDiff(document, [...path, index], current[index], next[index]);
+    }
+    for (let index = current.length - 1; index >= next.length; index -= 1) {
+      document.deleteIn([...path, index]);
+    }
+    for (let index = current.length; index < next.length; index += 1) {
+      document.addIn(path, next[index]);
+    }
+    return;
+  }
+  if (isRecord(current) && isRecord(next)) {
+    for (const key of Object.keys(current)) {
+      if (!(key in next)) document.deleteIn([...path, key]);
+    }
+    for (const [key, value] of Object.entries(next)) {
+      if (key in current) applyYamlDiff(document, [...path, key], current[key], value);
+      else document.setIn([...path, key], value);
+    }
+    return;
+  }
+  document.setIn(path, next);
 }
 
 function parseLines(value: string): string[] {
