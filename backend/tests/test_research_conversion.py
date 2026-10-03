@@ -32,6 +32,9 @@ _NOW = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
 def test_save_source_creates_a_draft_and_only_publishing_completes_candidate(tmp_path):
     repository, connection, drafts, converter, candidate = _setup(tmp_path)
     try:
+        other_profile_candidate = _insert_other_profile_candidate(
+            connection, candidate, status="shortlisted"
+        )
         result = converter.save_source(candidate.id)
 
         assert result.action == "draft_created"
@@ -63,6 +66,9 @@ def test_save_source_creates_a_draft_and_only_publishing_completes_candidate(tmp
 
         updated = ResearchCandidateRepository(connection).get(candidate.id)
         assert updated.status == "saved_source"
+        assert ResearchCandidateRepository(connection).get(
+            other_profile_candidate.id
+        ).status == "shortlisted"
         assert ResearchRepository(connection).list_pending_links(candidate.id) == []
         assert ResearchRepository(connection).list_entity_links(candidate.work_id) == [
             {
@@ -110,6 +116,7 @@ def test_discarding_a_research_source_draft_clears_pending_link_without_completi
 def test_save_source_links_existing_canonical_source_by_identifier_priority(tmp_path):
     repository, connection, _, converter, candidate = _setup(tmp_path)
     try:
+        other_profile_candidate = _insert_other_profile_candidate(connection, candidate)
         existing = {
             "schema_version": 1,
             "id": "existing-openalex-source",
@@ -129,6 +136,9 @@ def test_save_source_links_existing_canonical_source_by_identifier_priority(tmp_
         assert result.source_id == "existing-openalex-source"
         assert result.draft_id is None
         assert result.candidate.status == "saved_source"
+        assert ResearchCandidateRepository(connection).get(
+            other_profile_candidate.id
+        ).status == "new"
         assert ResearchRepository(connection).list_pending_links(candidate.id) == []
         assert ResearchRepository(connection).list_entity_links(candidate.work_id)[0]["entity_id"] == "existing-openalex-source"
     finally:
@@ -414,3 +424,21 @@ def _insert_candidate(connection):
     )
     assert created and not full and persisted is not None
     return work, candidate
+
+
+def _insert_other_profile_candidate(connection, candidate, status="new"):
+    other = ResearchCandidateRecord(
+        id="candidate-other-profile",
+        work_id=candidate.work_id,
+        profile_id="other-profile",
+        status=status,
+        primary_lens_id="regularization",
+        analysis_id=candidate.analysis_id,
+        created_at=_NOW.isoformat(),
+        updated_at=_NOW.isoformat(),
+    )
+    persisted, created, full = ResearchCandidateRepository(connection).create_if_capacity(
+        other, max_new_candidates=20
+    )
+    assert created and not full and persisted is not None
+    return persisted

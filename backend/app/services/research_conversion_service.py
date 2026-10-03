@@ -89,13 +89,13 @@ class ResearchConversionService:
             None,
         )
         if linked_source is not None:
-            self._link_existing_source(work.id, linked_source)
+            self._link_existing_source(candidate.id, work.id, linked_source)
             updated = self.candidate_repository.get(candidate.id)
             return ResearchSourceSaveResult("linked_existing", linked_source, None, updated or candidate)
 
         source = self._find_canonical_source(work)
         if source is not None:
-            self._link_existing_source(work.id, source.id)
+            self._link_existing_source(candidate.id, work.id, source.id)
             updated = self.candidate_repository.get(candidate.id)
             return ResearchSourceSaveResult("linked_existing", source.id, None, updated or candidate)
 
@@ -282,7 +282,7 @@ class ResearchConversionService:
         now = self._now().isoformat()
         with self.work_repository.write_transaction():
             pending = self.work_repository.pending_links_for_drafts(draft_ids)
-            status_by_work: dict[str, str] = {}
+            status_by_candidate: dict[str, str] = {}
             for link in pending:
                 entity_type = link["intended_entity_type"]
                 entity_id = link["intended_entity_id"]
@@ -296,14 +296,19 @@ class ResearchConversionService:
                         created_at=now,
                     )
                     next_status = "note_created" if relation == "note" else "saved_source"
-                    prior_status = status_by_work.get(link["work_id"])
+                    candidate_id = link["candidate_id"]
+                    prior_status = status_by_candidate.get(candidate_id)
                     if next_status == "note_created" or prior_status is None:
-                        status_by_work[link["work_id"]] = next_status
-            for work_id, status in status_by_work.items():
-                self.candidate_repository.mark_work_converted(work_id, status, now)
+                        status_by_candidate[candidate_id] = next_status
+            for candidate_id, status in status_by_candidate.items():
+                self.candidate_repository.mark_candidate_converted(
+                    candidate_id, status, now
+                )
             self.work_repository.delete_pending_links_for_drafts(draft_ids)
 
-    def _link_existing_source(self, work_id: str, source_id: str) -> None:
+    def _link_existing_source(
+        self, candidate_id: str, work_id: str, source_id: str
+    ) -> None:
         now = self._now().isoformat()
         with self.work_repository.write_transaction():
             self.work_repository.add_entity_link(
@@ -313,7 +318,9 @@ class ResearchConversionService:
                 relation_type="source",
                 created_at=now,
             )
-            self.candidate_repository.mark_work_converted(work_id, "saved_source", now)
+            self.candidate_repository.mark_candidate_converted(
+                candidate_id, "saved_source", now
+            )
 
     def _find_canonical_source(self, work: ResearchWorkRecord) -> Optional[SourceMetadata]:
         sources = SourceRegistry.load(self.sources_root).sources

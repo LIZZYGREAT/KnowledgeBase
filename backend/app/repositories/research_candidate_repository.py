@@ -149,8 +149,8 @@ class ResearchCandidateRepository:
         ).fetchone()
         return int(row["count"])
 
-    def mark_work_converted(
-        self, work_id: str, status: str, updated_at: str
+    def mark_candidate_converted(
+        self, candidate_id: str, status: str, updated_at: str
     ) -> int:
         allowed = {
             "saved_source": ("new", "shortlisted"),
@@ -162,8 +162,8 @@ class ResearchCandidateRepository:
         cursor = self.connection.execute(
             """UPDATE research_candidates
                SET status = ?, updated_at = ?, decided_at = ?
-               WHERE work_id = ? AND status IN ({})""".format(placeholders),
-            (status, updated_at, updated_at, work_id, *allowed[status]),
+               WHERE id = ? AND status IN ({})""".format(placeholders),
+            (status, updated_at, updated_at, candidate_id, *allowed[status]),
         )
         return cursor.rowcount
 
