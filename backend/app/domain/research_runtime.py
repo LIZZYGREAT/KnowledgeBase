@@ -2,7 +2,7 @@
 
 from typing import Any, Literal, Optional
 
-from pydantic import ConfigDict, StrictInt
+from pydantic import ConfigDict, StrictBool, StrictFloat, StrictInt
 
 from backend.app.domain.common import CanonicalModel, NonEmptyText, Slug
 from backend.app.domain.research import ResearchProvider as ResearchProviderName
@@ -75,3 +75,34 @@ class ResearchSearchStateRecord(CanonicalModel):
     last_success_at: Optional[NonEmptyText] = None
     created_at: NonEmptyText
     updated_at: NonEmptyText
+
+
+class ResearchContextSection(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    heading: NonEmptyText
+    excerpt: NonEmptyText
+
+
+class ResearchContextCard(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity_type: Literal["document", "term", "source", "collection"]
+    entity_id: NonEmptyText
+    title: NonEmptyText
+    review_status: NonEmptyText
+    topics: tuple[NonEmptyText, ...] = ()
+    domains: tuple[NonEmptyText, ...] = ()
+    relevant_sections: tuple[ResearchContextSection, ...] = ()
+    metadata: dict[str, Any]
+    pinned: StrictBool
+    retrieval_score: StrictFloat
+
+
+class ResearchContextPack(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    focus_query: NonEmptyText
+    cards: tuple[ResearchContextCard, ...]
+    budget: StrictInt
+    omitted_count: StrictInt
