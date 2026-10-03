@@ -18,7 +18,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     connection = connect_database(database_path)
     try:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
         ).fetchone() is not None
@@ -68,7 +68,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     reopened = connect_database(database_path)
     try:
-        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 4
         assert reopened.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 5
         assert reopened.execute("SELECT COUNT(*) FROM collection_progress").fetchone()[0] == 1
     finally:
@@ -77,12 +77,130 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
 def test_migration_rejects_a_database_from_a_newer_schema_version():
     connection = sqlite3.connect(":memory:")
-    connection.execute("PRAGMA user_version = 4")
+    connection.execute("PRAGMA user_version = 5")
 
     with pytest.raises(RuntimeError, match="newer than supported"):
         migrate_database(connection)
 
     connection.close()
+
+
+def test_version_three_database_migrates_research_tables_and_preserves_drafts():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.executescript(
+        """CREATE TABLE drafts (
+               id TEXT PRIMARY KEY,
+               entity_type TEXT NOT NULL CHECK (
+                   entity_type IN ('document', 'term', 'source', 'taxonomy', 'collection')
+               ),
+               entity_id TEXT NOT NULL,
+               base_git_revision TEXT NOT NULL,
+               base_content_hash TEXT NOT NULL,
+               content TEXT NOT NULL,
+               revision INTEGER NOT NULL CHECK (revision > 0),
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL
+           );
+           CREATE INDEX drafts_target_updated_idx
+               ON drafts (entity_type, entity_id, updated_at DESC);
+           CREATE UNIQUE INDEX drafts_target_unique_idx
+               ON drafts (entity_type, entity_id);
+           INSERT INTO drafts VALUES (
+               'existing-draft', 'document', 'note', 'revision', 'hash',
+               'preserved draft content', 2, 'created', 'updated'
+           );
+           PRAGMA user_version = 3;"""
+    )
+
+    migrate_database(connection)
+
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert connection.execute(
+        "SELECT content, revision FROM drafts WHERE id = 'existing-draft'"
+    ).fetchone() == ("preserved draft content", 2)
+    connection.execute(
+        """INSERT INTO drafts VALUES (
+               'profile-draft', 'research_profile', 'continual-learning',
+               'revision', 'hash', 'profile draft', 1, 'created', 'updated'
+           )"""
+    )
+
+    expected_tables = {
+        "research_profile_state",
+        "research_control_events",
+        "research_works",
+        "research_discoveries",
+        "research_work_analyses",
+        "research_candidates",
+        "research_search_state",
+        "research_runs",
+        "research_run_requests",
+        "research_entity_links",
+        "research_pending_links",
+    }
+    actual_tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    assert expected_tables <= actual_tables
+    assert connection.execute(
+        "SELECT entity_id FROM drafts WHERE id = 'profile-draft'"
+    ).fetchone()[0] == "continual-learning"
+    connection.close()
+
+
+def test_research_schema_enforces_identity_capacity_and_control_values():
+    connection = connect_database(":memory:")
+    try:
+        connection.execute(
+            """INSERT INTO research_works (
+                   id, canonical_key, title, normalized_title, authors_json,
+                   doi, created_at, updated_at
+               ) VALUES ('work-1', 'doi:10/example', 'Title', 'title', '[]',
+                         '10/example', 'created', 'updated')"""
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """INSERT INTO research_works (
+                       id, canonical_key, title, normalized_title, authors_json,
+                       doi, created_at, updated_at
+                   ) VALUES ('work-2', 'doi:10/example', 'Other', 'other', '[]',
+                             '10/example', 'created', 'updated')"""
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """INSERT INTO research_control_events
+                   (id, profile_id, event_type, payload_json, created_at)
+                   VALUES ('event', 'profile', 'skip', '{}', 'created')"""
+            )
+    finally:
+        connection.close()
+
+
+def test_file_database_uses_wal_and_configurable_busy_timeout(tmp_path):
+    database_path = tmp_path / "runtime" / "knowledge.db"
+    connection = connect_database(database_path, busy_timeout_ms=1500)
+    try:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+        assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == 1500
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+def test_memory_database_keeps_memory_journal_and_validates_busy_timeout():
+    connection = connect_database(":memory:", busy_timeout_ms=250)
+    try:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0].lower() == "memory"
+        assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == 250
+    finally:
+        connection.close()
+
+    with pytest.raises(ValueError, match="busy_timeout_ms"):
+        connect_database(":memory:", busy_timeout_ms=-1)
 
 
 def test_approved_proposals_migrate_to_stale_and_cannot_be_reinserted():

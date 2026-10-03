@@ -24,7 +24,7 @@ These commands use a local `.venv`; Docker Compose and server deployments contin
 
 `rebuild` recreates the local search and relationship indexes in the ignored `runtime/knowledge.db` database from canonical files under `knowledge/`.
 
-Runtime SQLite is disposable during this development phase. Recreate the ignored database after Runtime schema changes; no migration layer is maintained yet.
+Runtime SQLite holds Drafts, import state, annotations, and usage history alongside rebuildable indexes. Versioned schema migrations preserve existing Runtime records during upgrades; keep the ignored local database in place when updating the schema.
 
 Production backups must include the Runtime SQLite database because it holds Drafts, Import Jobs, usage events, and reader-only presentation annotations. The production backup command also archives the canonical Git history and ignored `storage/` files.
 

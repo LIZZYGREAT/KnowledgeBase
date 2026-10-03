@@ -59,8 +59,19 @@ def test_runtime_schema_contains_runtime_and_derived_index_tables(runtime_connec
         "term_fts",
         "source_fts",
         "evidence_fts",
+        "research_profile_state",
+        "research_control_events",
+        "research_works",
+        "research_discoveries",
+        "research_work_analyses",
+        "research_candidates",
+        "research_search_state",
+        "research_runs",
+        "research_run_requests",
+        "research_entity_links",
+        "research_pending_links",
     } <= tables
-    assert runtime_connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert runtime_connection.execute("PRAGMA user_version").fetchone()[0] == 4
     assert runtime_connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
     ).fetchone() is not None
@@ -81,6 +92,19 @@ def test_runtime_data_persists_when_database_is_reopened(tmp_path):
         assert loaded.revision == 1
     finally:
         reopened.close()
+
+
+def test_research_profile_uses_the_shared_runtime_draft_lifecycle(runtime_connection):
+    draft = DraftService(DraftRepository(runtime_connection)).create(
+        "research_profile",
+        "continual-learning",
+        "schema_version: 1\nid: continual-learning\n",
+        "git-revision",
+        "content-hash",
+    )
+
+    assert draft.entity_type == "research_profile"
+    assert draft.entity_id == "continual-learning"
 
 
 def test_draft_create_and_autosave_keep_canonical_file_untouched(tmp_path, runtime_connection):

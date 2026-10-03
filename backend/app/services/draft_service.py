@@ -7,7 +7,14 @@ from backend.app.domain.runtime import Draft, DraftAcquireResult, DraftEntityTyp
 from backend.app.repositories.draft_repository import DraftNotFoundError, DraftRepository
 
 
-_DRAFT_ENTITY_TYPES = {"document", "term", "source", "taxonomy", "collection"}
+_DRAFT_ENTITY_TYPES = {
+    "document",
+    "term",
+    "source",
+    "taxonomy",
+    "collection",
+    "research_profile",
+}
 
 
 class DraftService:

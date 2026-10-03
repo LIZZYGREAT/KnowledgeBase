@@ -1,6 +1,8 @@
 CREATE TABLE IF NOT EXISTS drafts (
     id TEXT PRIMARY KEY,
-    entity_type TEXT NOT NULL CHECK (entity_type IN ('document', 'term', 'source', 'taxonomy', 'collection')),
+    entity_type TEXT NOT NULL CHECK (entity_type IN (
+        'document', 'term', 'source', 'taxonomy', 'collection', 'research_profile'
+    )),
     entity_id TEXT NOT NULL,
     base_git_revision TEXT NOT NULL,
     base_content_hash TEXT NOT NULL,
@@ -251,3 +253,194 @@ CREATE INDEX IF NOT EXISTS import_items_job_status_idx
     ON import_items (job_id, status, path);
 CREATE INDEX IF NOT EXISTS import_items_hash_idx
     ON import_items (sha256, file_type, status);
+
+CREATE TABLE IF NOT EXISTS research_profile_state (
+    profile_id TEXT PRIMARY KEY,
+    paused_until TEXT,
+    last_successful_scheduled_run_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS research_control_events (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK (
+        event_type IN ('pause', 'resume', 'watermark_skip')
+    ),
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS research_control_events_profile_idx
+    ON research_control_events (profile_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_works (
+    id TEXT PRIMARY KEY,
+    canonical_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    normalized_title TEXT NOT NULL,
+    abstract TEXT,
+    authors_json TEXT NOT NULL,
+    year INTEGER,
+    published_at TEXT,
+    venue TEXT,
+    doi TEXT,
+    arxiv_id TEXT,
+    openalex_id TEXT,
+    semantic_scholar_id TEXT,
+    url TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS research_works_doi_unique
+    ON research_works (doi) WHERE doi IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS research_works_arxiv_unique
+    ON research_works (arxiv_id) WHERE arxiv_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS research_works_openalex_unique
+    ON research_works (openalex_id) WHERE openalex_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS research_works_semantic_scholar_unique
+    ON research_works (semantic_scholar_id) WHERE semantic_scholar_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS research_works_normalized_title_idx
+    ON research_works (normalized_title, year);
+
+CREATE TABLE IF NOT EXISTS research_discoveries (
+    id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    lens_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_record_id TEXT NOT NULL,
+    query_key TEXT NOT NULL,
+    query_text TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    discovered_at TEXT NOT NULL,
+    FOREIGN KEY (work_id) REFERENCES research_works(id) ON DELETE CASCADE,
+    UNIQUE (profile_id, lens_id, provider, provider_record_id, query_key)
+);
+CREATE INDEX IF NOT EXISTS research_discoveries_work_idx
+    ON research_discoveries (work_id, discovered_at DESC);
+CREATE INDEX IF NOT EXISTS research_discoveries_profile_idx
+    ON research_discoveries (profile_id, discovered_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_work_analyses (
+    id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('surface', 'filtered')),
+    analysis_json TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    analysis_version INTEGER NOT NULL,
+    context_entity_ids_json TEXT NOT NULL,
+    analyzed_at TEXT NOT NULL,
+    FOREIGN KEY (work_id) REFERENCES research_works(id) ON DELETE CASCADE,
+    UNIQUE (work_id, profile_id, input_hash)
+);
+CREATE INDEX IF NOT EXISTS research_work_analyses_profile_idx
+    ON research_work_analyses (profile_id, analyzed_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_candidates (
+    id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN ('new', 'shortlisted', 'dismissed', 'saved_source', 'note_created')
+    ),
+    primary_lens_id TEXT,
+    analysis_id TEXT NOT NULL,
+    user_note TEXT,
+    dismiss_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    first_viewed_at TEXT,
+    last_viewed_at TEXT,
+    decided_at TEXT,
+    FOREIGN KEY (work_id) REFERENCES research_works(id) ON DELETE CASCADE,
+    UNIQUE (work_id, profile_id)
+);
+CREATE INDEX IF NOT EXISTS research_candidates_inbox_idx
+    ON research_candidates (profile_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_search_state (
+    profile_id TEXT NOT NULL,
+    lens_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    query_key TEXT NOT NULL,
+    query_text TEXT NOT NULL,
+    completed_through TEXT,
+    last_attempt_at TEXT,
+    last_success_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (profile_id, lens_id, provider, query_key)
+);
+
+CREATE TABLE IF NOT EXISTS research_runs (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    request_id TEXT,
+    trigger TEXT NOT NULL CHECK (trigger IN ('scheduled', 'manual')),
+    status TEXT NOT NULL CHECK (
+        status IN (
+            'running', 'success', 'partial', 'failed', 'interrupted',
+            'skipped_paused', 'skipped_disabled', 'skipped_inbox_full',
+            'capacity_reached'
+        )
+    ),
+    profile_content_hash TEXT NOT NULL,
+    effective_config_json TEXT NOT NULL,
+    fetched_count INTEGER NOT NULL DEFAULT 0,
+    new_work_count INTEGER NOT NULL DEFAULT 0,
+    duplicate_count INTEGER NOT NULL DEFAULT 0,
+    deterministic_filtered_count INTEGER NOT NULL DEFAULT 0,
+    analyzed_count INTEGER NOT NULL DEFAULT 0,
+    surfaced_count INTEGER NOT NULL DEFAULT 0,
+    provider_summary_json TEXT NOT NULL,
+    error_summary TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS research_runs_profile_idx
+    ON research_runs (profile_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_run_requests (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    trigger TEXT NOT NULL CHECK (trigger = 'manual'),
+    override_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'claimed', 'completed', 'failed')),
+    created_at TEXT NOT NULL,
+    claimed_at TEXT,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS research_run_requests_pending_idx
+    ON research_run_requests (status, created_at);
+
+CREATE TABLE IF NOT EXISTS research_entity_links (
+    id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('source', 'document')),
+    entity_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL CHECK (relation_type IN ('source', 'note')),
+    created_at TEXT NOT NULL,
+    UNIQUE (work_id, entity_type, entity_id, relation_type)
+);
+CREATE INDEX IF NOT EXISTS research_entity_links_work_idx
+    ON research_entity_links (work_id);
+
+CREATE TABLE IF NOT EXISTS research_pending_links (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    work_id TEXT NOT NULL,
+    draft_id TEXT NOT NULL,
+    intended_entity_type TEXT NOT NULL,
+    intended_entity_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL CHECK (relation_type IN ('source', 'note', 'collection')),
+    created_at TEXT NOT NULL,
+    UNIQUE (draft_id, relation_type)
+);
+CREATE INDEX IF NOT EXISTS research_pending_links_group_idx
+    ON research_pending_links (group_id);

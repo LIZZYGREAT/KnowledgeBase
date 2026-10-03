@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional
 
 
-DraftEntityType = Literal["document", "term", "source", "taxonomy", "collection"]
+DraftEntityType = Literal[
+    "document", "term", "source", "taxonomy", "collection", "research_profile"
+]
 ProposalTargetType = Literal["document", "term", "source", "taxonomy"]
 ProposalKind = Literal[
     "metadata",
