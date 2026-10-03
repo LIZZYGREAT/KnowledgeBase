@@ -6,12 +6,15 @@ import {
   listCollections,
   preflightDraft,
   publishDraft,
+  reviewResearchReactivation,
   type CollectionSummary,
   type DraftComparison,
   type DraftPreflight,
   type EntitySummary,
   type ResearchBreadth,
   type ResearchProfile,
+  type ResearchReactivationReview,
+  type ResearchReactivationStrategy,
 } from "./api";
 import { useRuntimeDraftSession } from "./draft/useRuntimeDraftSession";
 import { errorMessage } from "./errors";
@@ -20,12 +23,13 @@ import { createLineDiff } from "./publishReview";
 interface ResearchProfileDefaultsEditorProps {
   profile: ResearchProfile;
   onClose: () => void;
-  onPublished: () => void;
+  onPublished: (warnings: string[]) => void;
 }
 
 interface ProfileReview {
   comparison: DraftComparison;
   preflight: DraftPreflight;
+  reactivation: ResearchReactivationReview | null;
 }
 
 export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
@@ -45,6 +49,7 @@ export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }:
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState<ProfileReview | null>(null);
+  const [reactivationStrategy, setReactivationStrategy] = useState<ResearchReactivationStrategy | "">("");
 
   useEffect(() => {
     let active = true;
@@ -82,6 +87,7 @@ export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }:
   function updateProfile(transform: (current: ResearchProfile) => ResearchProfile) {
     if (!editableProfile) return;
     setReview(null);
+    setReactivationStrategy("");
     setError("");
     setNotice("");
     session.updateContent(stringify(transform(editableProfile), { lineWidth: 0 }));
@@ -120,7 +126,11 @@ export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }:
         compareDraft(saved.id),
         preflightDraft(saved.id),
       ]);
-      setReview({ comparison, preflight });
+      const reactivation = preflight.valid
+        ? await reviewResearchReactivation(profile.id, saved.id)
+        : null;
+      setReactivationStrategy("");
+      setReview({ comparison, preflight, reactivation });
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -130,11 +140,19 @@ export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }:
 
   async function publishChanges() {
     if (!review || !session.draft || review.comparison.canonical_changed || !review.preflight.valid) return;
+    const strategy = review.reactivation?.required
+      ? reactivationStrategy || undefined
+      : undefined;
+    if (review.reactivation?.required && !strategy) return;
     setBusy(true);
     setError("");
     try {
-      await publishDraft(session.draft.id, session.draft.revision);
-      onPublished();
+      const published = await publishDraft(
+        session.draft.id,
+        session.draft.revision,
+        strategy,
+      );
+      onPublished(published.warnings);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -189,6 +207,7 @@ export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }:
           <section className="research-defaults-section">
             <div className="research-section-heading"><div><h3>Search defaults</h3><p>这些值用于后续运行；单次 Search Now 可以另行覆盖 breadth 和日期。</p></div></div>
             <div className="research-defaults-grid research-defaults-fields">
+              <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.enabled} onChange={(event) => updateProfile((current) => ({ ...current, enabled: event.target.checked }))} /><span>Enable Research Profile</span></label>
               <label className="field-label">Default breadth<select value={editableProfile.search.breadth} onChange={(event) => updateProfile((current) => ({ ...current, search: { ...current.search, breadth: event.target.value as ResearchBreadth } }))}><option value="strict">Strict · 高相关</option><option value="balanced">Balanced · 均衡</option><option value="explore">Explore · 新颖性</option></select></label>
               <label className="field-label">Schedule<select value={editableProfile.schedule.mode} onChange={(event) => updateProfile((current) => ({ ...current, schedule: { mode: event.target.value as ResearchProfile["schedule"]["mode"] } }))}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="manual">Manual only</option></select></label>
               <NumberField label="Initial lookback days" value={editableProfile.search.initial_lookback_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, initial_lookback_days: value } }))} />
@@ -214,17 +233,25 @@ export function ResearchProfileDefaultsEditor({ profile, onClose, onPublished }:
         </>}
 
         {review && <section className="research-default-review" aria-label="Profile Draft review">
-          <div className="research-section-heading"><div><h3>Review Draft diff</h3><p>左侧移除的是当前 canonical 内容，右侧新增的是待发布 Draft。</p></div><button className="button button-quiet" type="button" disabled={busy} onClick={() => setReview(null)}>返回编辑</button></div>
+          <div className="research-section-heading"><div><h3>Review Draft diff</h3><p>左侧移除的是当前 canonical 内容，右侧新增的是待发布 Draft。</p></div><button className="button button-quiet" type="button" disabled={busy} onClick={() => { setReview(null); setReactivationStrategy(""); }}>返回编辑</button></div>
           {review.comparison.canonical_changed && <p className="error-copy" role="alert">Canonical Profile 在 Draft 创建后已变化。请关闭并重新载入后再编辑。</p>}
           <div className="research-profile-diff" role="region" aria-label="Profile changes">{diffLines.map((line, index) => <div className={`research-profile-diff-line ${line.kind}`} key={`${index}-${line.kind}`}><span>{line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}</span><code>{line.text || " "}</code></div>)}</div>
           <div className="research-profile-preflight" aria-live="polite">
             {review.preflight.valid ? <p className="notice">Profile Draft preflight 通过。</p> : <ul className="error-copy">{review.preflight.errors.map((item) => <li key={item}>{item}</li>)}</ul>}
             {review.preflight.warnings.map((item) => <p className="field-hint" key={item}>{item}</p>)}
           </div>
+          {review.reactivation?.required && <fieldset className="research-profile-reactivation" aria-label="Reactivation Review">
+            <legend>Reactivation Review</legend>
+            <p>这些设置将恢复自动发现，当前水位线已超过追赶上限。请选择本次如何处理旧水位线。</p>
+            <ul>{review.reactivation.triggers.map((trigger) => <li key={trigger}>{reactivationTriggerLabel(trigger)}</li>)}</ul>
+            <label><input type="radio" name="reactivation-strategy" value="last_window" checked={reactivationStrategy === "last_window"} onChange={() => setReactivationStrategy("last_window")} />Catch up last {review.reactivation.max_catchup_days} days</label>
+            <label><input type="radio" name="reactivation-strategy" value="all" checked={reactivationStrategy === "all"} onChange={() => setReactivationStrategy("all")} />Catch up all</label>
+            <label><input type="radio" name="reactivation-strategy" value="from_now" checked={reactivationStrategy === "from_now"} onChange={() => setReactivationStrategy("from_now")} />Start from now</label>
+          </fieldset>}
         </section>}
       </div>
       <footer className="research-dialog-actions research-profile-editor-footer">
-        {review ? <button className="button button-primary" type="button" disabled={busy || !review.preflight.valid || review.comparison.canonical_changed} onClick={() => void publishChanges()}>{busy ? "正在发布…" : "Publish Defaults"}</button>
+        {review ? <button className="button button-primary" type="button" disabled={busy || !review.preflight.valid || review.comparison.canonical_changed || Boolean(review.reactivation?.required && !reactivationStrategy)} onClick={() => void publishChanges()}>{busy ? "正在发布…" : "Publish Defaults"}</button>
           : <button className="button button-primary" type="button" disabled={!canReview || busy || (!session.draft && !session.isDirty)} onClick={() => void reviewChanges()}>{busy ? "正在保存并审查…" : "Review Diff"}</button>}
         <span>发布通过 Publisher 校验，并提交到 Git。</span>
       </footer>
@@ -250,6 +277,14 @@ function updateLens(profile: ResearchProfile, index: number, patch: Partial<Rese
 
 function parseLines(value: string): string[] {
   return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+}
+
+function reactivationTriggerLabel(trigger: string): string {
+  if (trigger === "profile_enabled") return "启用 Research Profile";
+  if (trigger === "ai_analysis_enabled") return "启用 AI Analysis";
+  if (trigger === "schedule_enabled") return "将 Schedule 从 Manual 改为自动运行";
+  if (trigger.startsWith("lens_enabled:")) return `启用 Lens：${trigger.slice("lens_enabled:".length)}`;
+  return trigger;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

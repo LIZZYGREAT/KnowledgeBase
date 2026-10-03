@@ -68,6 +68,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [runsLoading, setRunsLoading] = useState(false);
   const [runDetail, setRunDetail] = useState<ResearchRun | null>(null);
   const [editingDefaults, setEditingDefaults] = useState(false);
+  const [profilePublishWarnings, setProfilePublishWarnings] = useState<string[]>([]);
 
   const currentSummary = useMemo(() => profiles.find((item) => item.id === selectedProfileId) ?? null, [profiles, selectedProfileId]);
 
@@ -296,7 +297,8 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     <PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<label className="research-profile-select"><span>Profile</span><select aria-label="Research Profile" value={selectedProfileId} onChange={(event) => { setEditingDefaults(false); setSelectedProfileId(event.target.value); setTab("new"); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>Select a Profile</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>} />
     {profileError && <ErrorState message={profileError} retry={refresh} />}
     {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={(id) => { setQueuedRequestId(id); setTab("new"); }} onEditDefaults={() => setEditingDefaults(true)} />}
-    {editingDefaults && profile?.profile.id === selectedProfileId && <ResearchProfileDefaultsEditor profile={profile.profile} onClose={() => setEditingDefaults(false)} onPublished={() => { setEditingDefaults(false); refresh(); }} />}
+    {profilePublishWarnings.length > 0 && <div className="notice research-queued-notice" role="status"><strong>Profile published with warnings</strong><ul>{profilePublishWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="text-button" onClick={() => setProfilePublishWarnings([])}>Dismiss</button></div>}
+    {editingDefaults && profile?.profile.id === selectedProfileId && <ResearchProfileDefaultsEditor profile={profile.profile} onClose={() => setEditingDefaults(false)} onPublished={(warnings) => { setEditingDefaults(false); setProfilePublishWarnings(warnings); refresh(); }} />}
     {queuedRequestId && <div className="notice research-queued-notice" role="status"><strong>Search queued</strong><span>Request {queuedRequestId.slice(0, 10)} 已加入本地队列；将在下次 Research tick 执行。</span><button className="text-button" onClick={() => setQueuedRequestId("")}>Dismiss</button></div>}
 
     <section className="surface research-inbox-section">

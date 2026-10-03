@@ -50,6 +50,7 @@ from backend.app.services.research_watermark import (
 )
 from backend.app.services.research_lock import GlobalResearchLock
 from backend.app.services.source_registry import SourceRegistry
+from backend.app.services.markdown_parser import parse_yaml
 
 
 class ResearchService:
@@ -172,6 +173,111 @@ class ResearchService:
 
     def now(self) -> datetime:
         return self._now()
+
+    def parse_profile_candidate(self, profile_id: str, content: str) -> ResearchProfile:
+        if not isinstance(content, str):
+            raise ValueError("Research Profile Draft content must be text")
+        candidate = ResearchProfile.model_validate(parse_yaml(content))
+        if candidate.id != profile_id:
+            raise ValueError("Research Profile Draft id does not match its target")
+        profile_path = self.profile_registry.path_for(profile_id)
+        ResearchProfileRegistry.validate_candidate(
+            self.repository_root, candidate, profile_path
+        )
+        return candidate
+
+    def reactivation_review(self, candidate: ResearchProfile) -> dict:
+        current = self.profile_registry.get(candidate.id)
+        if current is None:
+            raise LookupError(
+                "Research Profile '{}' does not exist".format(candidate.id)
+            )
+
+        triggers = []
+        if not current.enabled and candidate.enabled:
+            triggers.append("profile_enabled")
+        if not current.ai_analysis.enabled and candidate.ai_analysis.enabled:
+            triggers.append("ai_analysis_enabled")
+        current_lenses = {lens.id: lens for lens in current.lenses}
+        for lens in candidate.lenses:
+            previous = current_lenses.get(lens.id)
+            if previous is not None and not previous.enabled and lens.enabled:
+                triggers.append("lens_enabled:{}".format(lens.id))
+        if current.schedule.mode == "manual" and candidate.schedule.mode != "manual":
+            triggers.append("schedule_enabled")
+
+        reactivation_can_run = bool(triggers) and _profile_can_discover(candidate)
+        catchup_required = (
+            reactivation_can_run
+            and "last_window"
+            in self.watermarks.resume_options(candidate, None, self._now())
+        )
+        return {
+            "required": catchup_required,
+            "triggers": triggers if catchup_required else [],
+            "max_catchup_days": candidate.search.max_catchup_days,
+            "strategies": (
+                ["last_window", "all", "from_now"] if catchup_required else []
+            ),
+        }
+
+    def apply_reactivation_strategy(
+        self,
+        profile_id: str,
+        strategy: str,
+        catchup_days: Optional[int] = None,
+        now: Optional[datetime] = None,
+    ):
+        profile = self.profile_registry.get(profile_id)
+        if profile is None:
+            raise LookupError("Research Profile '{}' does not exist".format(profile_id))
+        if strategy not in {"last_window", "all", "from_now"}:
+            raise ValueError("Unknown Research reactivation strategy")
+        timestamp = self._now() if now is None else _aware_utc(now, "now")
+        state = self.profile_state_repository.get(profile_id)
+        paused_until = (
+            _parse_timestamp(state.paused_until)
+            if state is not None and state.paused_until is not None
+            else None
+        )
+        if paused_until is None or paused_until <= timestamp:
+            if strategy == "last_window":
+                days = (
+                    profile.search.max_catchup_days
+                    if catchup_days is None
+                    else catchup_days
+                )
+                return self.resume_profile(
+                    profile_id, strategy="catch_up", catchup_days=days, now=timestamp
+                )
+            if strategy == "all":
+                return self.resume_profile(
+                    profile_id, strategy="catch_up", now=timestamp
+                )
+            return self.resume_profile(profile_id, strategy="from_now", now=timestamp)
+
+        # Keep an explicit user pause intact while recording the selected strategy
+        # for the first scheduled run after that pause expires.
+        event_strategy = "catch_up" if strategy in {"last_window", "all"} else "from_now"
+        event_days = (
+            profile.search.max_catchup_days
+            if catchup_days is None and strategy == "last_window"
+            else catchup_days
+        )
+        with self.work_repository.write_transaction():
+            if strategy == "from_now":
+                queries = self.query_builder.build(profile)
+                self.watermarks.skip_profile_to_now(profile, timestamp, queries)
+                self.control_event_repository.create(
+                    profile_id, "watermark_skip", {"strategy": "from_now"}, timestamp
+                )
+            self.control_event_repository.create(
+                profile_id,
+                "resume",
+                {"strategy": event_strategy, "catchup_days": event_days},
+                timestamp,
+            )
+        return state
 
     def pause_profile(
         self, profile_id: str, paused_until: datetime, now: Optional[datetime] = None
@@ -1162,3 +1268,13 @@ def _parse_override_datetime(value) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("Manual Research Run timestamps must include a timezone")
     return parsed.astimezone(timezone.utc)
+
+
+def _profile_can_discover(profile: ResearchProfile) -> bool:
+    return (
+        profile.enabled
+        and profile.ai_analysis.enabled
+        and profile.schedule.mode != "manual"
+        and any(lens.enabled for lens in profile.lenses)
+        and bool(profile.providers.discovery)
+    )

@@ -643,6 +643,147 @@ def test_global_research_lock_allows_only_one_owner(tmp_path):
     second.release()
 
 
+def test_global_research_lock_exclusive_acquire_rejects_existing_owner(tmp_path):
+    lock = GlobalResearchLock(tmp_path / "runtime" / "research.lock")
+    assert lock.acquire() is True
+    try:
+        assert lock.acquire_exclusive() is False
+    finally:
+        lock.release()
+
+
+def test_reactivation_review_requires_a_choice_for_stale_watermarks(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile().model_copy(update={"enabled": False})
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=profile
+    )
+    query = service.query_builder.build(profile)[0]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        profile.id, query.lens_id, "arxiv", query.query_key, query.text, stale.isoformat()
+    )
+    search_repository.complete_slice(
+        profile.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    candidate = profile.model_copy(update={"enabled": True})
+    review = service.reactivation_review(candidate)
+
+    assert review == {
+        "required": True,
+        "triggers": ["profile_enabled"],
+        "max_catchup_days": profile.search.max_catchup_days,
+        "strategies": ["last_window", "all", "from_now"],
+    }
+
+    service.pause_profile(profile.id, _NOW + timedelta(days=5), _NOW)
+    state_before = service.profile_state_repository.get(profile.id)
+    service.apply_reactivation_strategy(
+        profile.id, "last_window", now=_NOW
+    )
+    state_after = service.profile_state_repository.get(profile.id)
+    assert state_after.paused_until == state_before.paused_until
+    assert service.control_event_repository.latest_resume(profile.id)["payload"] == {
+        "strategy": "catch_up",
+        "catchup_days": profile.search.max_catchup_days,
+    }
+    connection.close()
+
+
+def test_reactivation_review_covers_a_lens_enabled_on_an_active_profile(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    disabled_lens = profile.lenses[0].model_copy(
+        update={"id": "replay", "title": "Replay", "enabled": False, "queries": ["experience replay"]}
+    )
+    current = profile.model_copy(update={"lenses": [*profile.lenses, disabled_lens]})
+    candidate = current.model_copy(
+        update={
+            "lenses": [
+                profile.lenses[0],
+                disabled_lens.model_copy(update={"enabled": True}),
+            ]
+        }
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=current
+    )
+    query = service.query_builder.build(candidate)[1]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        candidate.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        query.text,
+        stale.isoformat(),
+    )
+    search_repository.complete_slice(
+        candidate.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is True
+    assert review["triggers"] == ["lens_enabled:replay"]
+    connection.close()
+
+
+def test_reactivation_review_covers_a_lens_enabled_on_an_active_profile(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    disabled_lens = profile.lenses[0].model_copy(
+        update={"id": "replay", "title": "Replay", "enabled": False, "queries": ["experience replay"]}
+    )
+    current = profile.model_copy(update={"lenses": [*profile.lenses, disabled_lens]})
+    candidate = current.model_copy(
+        update={
+            "lenses": [
+                profile.lenses[0],
+                disabled_lens.model_copy(update={"enabled": True}),
+            ]
+        }
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=current
+    )
+    query = service.query_builder.build(candidate)[1]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        candidate.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        query.text,
+        stale.isoformat(),
+    )
+    search_repository.complete_slice(
+        candidate.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is True
+    assert review["triggers"] == ["lens_enabled:replay"]
+    connection.close()
+
+
 def test_provider_failures_open_a_run_local_circuit_and_other_provider_continues(tmp_path):
     connection = connect_database(":memory:")
     profile = _profile(

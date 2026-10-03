@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -7,9 +8,12 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.app.domain.ai import ResearchCandidateAnalysisOutput
 from backend.app.domain.research import ResearchLens
+from backend.app.domain.runtime import Draft
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.services.research_providers.base import ProviderWork
 from backend.app.api.research import router
+from backend.app.api.publishing import router as publishing_router
+from backend.app.services.publisher import PublishedResult
 from backend.tests.test_research_runs import (
     _NOW,
     _profile,
@@ -119,6 +123,94 @@ def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_pa
             assert (await client.get("/api/research/runs")).json()["count"] == 0
             assert (await client.get("/api/research/candidates")).json()["count"] == 0
             assert (await client.get("/api/research/runs/missing")).status_code == 404
+
+    asyncio.run(exercise_routes())
+    connection.close()
+
+
+def test_profile_reactivation_review_and_publish_require_a_selected_strategy(tmp_path):
+    connection = _connection()
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
+    profile = service.profile_registry.get("continual-learning")
+    draft = Draft(
+        id="profile-draft",
+        entity_type="research_profile",
+        entity_id=profile.id,
+        base_git_revision="revision",
+        base_content_hash="hash",
+        content="profile draft",
+        revision=1,
+        created_at=_NOW.isoformat(),
+        updated_at=_NOW.isoformat(),
+    )
+    publish_calls = []
+
+    def publish(*args, **kwargs):
+        publish_calls.append((args, kwargs))
+        return PublishedResult(
+            draft_id=draft.id,
+            entity_type="research_profile",
+            entity_id=profile.id,
+            path="config/research/profiles/continual-learning.yaml",
+            commit_revision="commit",
+        )
+
+    publisher = SimpleNamespace(
+        preflight=lambda draft_id: SimpleNamespace(valid=True),
+        publish=publish,
+    )
+    service.parse_profile_candidate = lambda profile_id, content: profile
+    review = {
+        "required": True,
+        "triggers": ["profile_enabled"],
+        "max_catchup_days": profile.search.max_catchup_days,
+        "strategies": ["last_window", "all", "from_now"],
+    }
+    service.reactivation_review = lambda candidate: review
+    applied = []
+    service.apply_reactivation_strategy = lambda profile_id, strategy, **kwargs: applied.append(
+        (profile_id, strategy, kwargs)
+    )
+
+    application = FastAPI()
+    application.include_router(router)
+    application.include_router(publishing_router)
+    application.state.research_service = service
+    application.state.draft_service = SimpleNamespace(get=lambda draft_id: draft)
+    application.state.publisher = publisher
+
+    async def exercise_routes():
+        async with AsyncClient(
+            transport=ASGITransport(app=application), base_url="http://test"
+        ) as client:
+            reviewed = await client.post(
+                "/api/research/profiles/{}/reactivation-review".format(profile.id),
+                json={"draft_id": draft.id},
+            )
+            assert reviewed.status_code == 200
+            assert reviewed.json() == review
+
+            blocked = await client.post(
+                "/api/publish",
+                json={"draft_id": draft.id, "expected_revision": draft.revision},
+            )
+            assert blocked.status_code == 409
+            assert publish_calls == []
+            assert applied == []
+
+            published = await client.post(
+                "/api/publish",
+                json={
+                    "draft_id": draft.id,
+                    "expected_revision": draft.revision,
+                    "reactivation_strategy": "last_window",
+                },
+            )
+            assert published.status_code == 200, published.json()
+            assert published.json()["commit_revision"] == "commit"
+            assert len(publish_calls) == 1
+            assert applied[0][0:2] == (profile.id, "last_window")
+            assert applied[0][2]["catchup_days"] == profile.search.max_catchup_days
 
     asyncio.run(exercise_routes())
     connection.close()

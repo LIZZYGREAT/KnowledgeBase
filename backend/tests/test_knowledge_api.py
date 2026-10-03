@@ -1,5 +1,7 @@
 import hashlib
 import json
+from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 import shutil
 import subprocess
@@ -471,6 +473,12 @@ def test_research_profile_draft_publish_validates_and_refreshes_runtime_registry
     preflight = api_client.get("/api/drafts/{}/preflight".format(draft["id"]))
     assert preflight.status_code == 200
     assert preflight.json()["valid"] is True
+    reactivation_review = api_client.post(
+        "/api/research/profiles/continual-learning/reactivation-review",
+        json={"draft_id": draft["id"]},
+    )
+    assert reactivation_review.status_code == 200, reactivation_review.json()
+    assert reactivation_review.json()["required"] is False
 
     published = api_client.post(
         "/api/publish",
@@ -490,6 +498,67 @@ def test_research_profile_draft_publish_validates_and_refreshes_runtime_registry
         capture_output=True,
         text=True,
     ).stdout.strip() == "research(continual-learning): update research profile"
+
+
+def test_research_profile_publish_rejects_missing_reactivation_strategy(api_client):
+    service = api_client.app.state.research_service
+    repository = api_client.app.state.repository_root
+    profile = service.profile_registry.get("continual-learning")
+    disabled = profile.model_copy(update={"enabled": False})
+    service.profile_registry = replace(
+        service.profile_registry,
+        profiles=tuple(
+            disabled if item.id == profile.id else item
+            for item in service.profile_registry.profiles
+        ),
+    )
+    query = service.query_builder.build(disabled)[0]
+    stale = service.now() - timedelta(days=90)
+    service.search_repository.record_attempt(
+        profile.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        query.text,
+        stale.isoformat(),
+    )
+    service.search_repository.complete_slice(
+        profile.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    profile_path = repository / "config" / "research" / "profiles" / "continual-learning.yaml"
+    candidate = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    candidate["title"] = "Reactivation Gate Test"
+    created = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "research_profile",
+            "entity_id": profile.id,
+            "content": yaml.safe_dump(candidate, sort_keys=False, allow_unicode=True),
+        },
+    )
+    assert created.status_code == 201, created.json()
+    draft = created.json()["draft"]
+
+    review = api_client.post(
+        "/api/research/profiles/{}/reactivation-review".format(profile.id),
+        json={"draft_id": draft["id"]},
+    )
+    assert review.status_code == 200, review.json()
+    assert review.json()["required"] is True
+    assert review.json()["triggers"] == ["profile_enabled"]
+
+    published = api_client.post(
+        "/api/publish",
+        json={"draft_id": draft["id"], "expected_revision": draft["revision"]},
+    )
+    assert published.status_code == 409, published.json()
+    assert "requires Reactivation Review" in published.json()["detail"]
 
 
 def test_publishing_source_refreshes_research_screening_registry(api_client):

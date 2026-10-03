@@ -58,6 +58,19 @@ class ResearchProfileDetailView(APIModel):
     resume_options: list[Literal["catch_up", "from_now"]]
 
 
+class ResearchReactivationReviewRequest(APIModel):
+    draft_id: NonEmptyText
+
+
+class ResearchReactivationReviewView(APIModel):
+    required: bool
+    triggers: list[str] = Field(default_factory=list)
+    max_catchup_days: StrictInt = Field(ge=1)
+    strategies: list[Literal["last_window", "all", "from_now"]] = Field(
+        default_factory=list
+    )
+
+
 class ResearchPauseRequest(APIModel):
     days: Optional[StrictInt] = Field(default=None, ge=1, le=3650)
     until: Optional[datetime] = None

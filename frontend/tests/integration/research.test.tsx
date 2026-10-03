@@ -15,12 +15,14 @@ describe("Research workspace", () => {
   let responseProfileSummary = profileSummary;
   let responseCandidateDetail = candidateDetail;
   let researchProfileDraft: Record<string, unknown> | null = null;
+  let reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
 
   beforeEach(() => {
     responseProfileDetail = profileDetail;
     responseProfileSummary = profileSummary;
     responseCandidateDetail = candidateDetail;
     researchProfileDraft = null;
+    reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
     window.history.replaceState({}, "", "/research");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -42,6 +44,7 @@ describe("Research workspace", () => {
         return jsonResponse({ draft: researchProfileDraft, base_content: canonical, current_content: canonical, current_git_revision: "abc123", current_content_hash: "a".repeat(64), canonical_changed: false });
       }
       if (path === "/api/drafts/profile-draft-1/preflight") return jsonResponse({ draft_id: "profile-draft-1", valid: true, conflict: false, errors: [], warnings: [] });
+      if (path === "/api/research/profiles/continual-learning/reactivation-review" && init?.method === "POST") return jsonResponse(reactivationReviewResponse);
       if (path === "/api/publish" && init?.method === "POST") return jsonResponse({ draft_id: "profile-draft-1", entity_type: "research_profile", entity_id: "continual-learning", commit_revision: "def456", warnings: [] });
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
       if (path === "/api/research/candidates/candidate-1") return jsonResponse(responseCandidateDetail);
@@ -227,6 +230,40 @@ describe("Research workspace", () => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
     });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑 Continual Learning" })).toBeNull());
+  });
+
+  it("requires a reactivation choice before publishing an enabled Profile with an old watermark", async () => {
+    responseProfileDetail = {
+      ...profileDetail,
+      profile: { ...profile, enabled: false },
+    };
+    responseProfileSummary = { ...profileSummary, enabled: false };
+    reactivationReviewResponse = {
+      required: true,
+      triggers: ["profile_enabled"],
+      max_catchup_days: 30,
+      strategies: ["last_window", "all", "from_now"],
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Defaults" }));
+    fireEvent.click(await screen.findByLabelText("Enable Research Profile"));
+    fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
+
+    expect(await screen.findByRole("group", { name: "Reactivation Review" })).toBeTruthy();
+    const publishButton = screen.getByRole("button", { name: "Publish Defaults" });
+    expect(publishButton.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByLabelText("Catch up last 30 days"));
+    expect(publishButton.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(publishButton);
+
+    await waitFor(() => {
+      const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/publish" && init?.method === "POST");
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        draft_id: "profile-draft-1",
+        expected_revision: 1,
+        reactivation_strategy: "last_window",
+      });
+    });
   });
 
   it("opens the Source Draft in the Unified Workspace", async () => {
