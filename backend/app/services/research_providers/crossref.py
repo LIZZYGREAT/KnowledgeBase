@@ -3,6 +3,7 @@
 from datetime import datetime
 from html.parser import HTMLParser
 from typing import Any, Optional
+from urllib.parse import quote
 
 from pydantic import ValidationError
 
@@ -81,6 +82,17 @@ class CrossrefProvider:
             next_cursor=next_cursor,
             total_count=total_count,
         )
+
+    def enrich(self, work) -> Optional[ProviderWork]:
+        if not work.doi:
+            return None
+        payload = self.client.get_json(
+            "{}/{}".format(_WORKS_ENDPOINT, quote(work.doi, safe=""))
+        )
+        message = payload.get("message")
+        if not isinstance(message, dict):
+            raise ProviderResponseError(self.name, "singleton response is missing message")
+        return _parse_work(message)
 
 
 def _parse_work(value: Any) -> ProviderWork:

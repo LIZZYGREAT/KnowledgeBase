@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import quote
 
 from pydantic import ValidationError
 
@@ -71,6 +72,19 @@ class OpenAlexProvider:
             next_cursor=next_cursor,
             total_count=total_count,
         )
+
+    def enrich(self, work) -> Optional[ProviderWork]:
+        identifier = (work.openalex_id or "").strip()
+        if identifier.startswith("https://openalex.org/"):
+            identifier = identifier.rsplit("/", 1)[-1]
+        if not identifier and work.doi:
+            identifier = "https://doi.org/{}".format(work.doi)
+        if not identifier:
+            return None
+        payload = self.client.get_json(
+            "{}/{}".format(_WORKS_ENDPOINT, quote(identifier, safe=""))
+        )
+        return _parse_work(payload)
 
 
 def _parse_work(value: Any) -> ProviderWork:

@@ -1,6 +1,8 @@
 """Shared provider result contract and bounded HTTP transport."""
 
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from math import isfinite
 import json
 import re
 import threading
@@ -132,7 +134,8 @@ class ResearchHttpClient:
             except HTTPError as error:
                 retryable = error.code in {408, 425, 429} or 500 <= error.code <= 599
                 if retryable and attempt < self.max_retries:
-                    self.sleeper(_retry_delay(attempt))
+                    delay = _retry_after_delay(error.headers)
+                    self.sleeper(_retry_delay(attempt) if delay is None else delay)
                     continue
                 raise ResearchProviderError(
                     self.provider,
@@ -205,3 +208,25 @@ def parse_nonnegative_cursor(cursor: Optional[str], provider: str) -> int:
 
 def _retry_delay(attempt: int) -> float:
     return min(0.25 * (2**attempt), 2.0)
+
+
+def _retry_after_delay(headers) -> Optional[float]:
+    if headers is None:
+        return None
+    value = headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        seconds = float(value)
+        return max(0.0, seconds) if isfinite(seconds) else None
+    except (TypeError, ValueError):
+        try:
+            retry_at = parsedate_to_datetime(str(value))
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if retry_at.tzinfo is None or retry_at.utcoffset() is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        # HTTP-date values use wall time; the transport clock is monotonic and is
+        # intentionally used only for request pacing.
+        now = datetime.now(timezone.utc)
+        return max(0.0, (retry_at.astimezone(timezone.utc) - now).total_seconds())

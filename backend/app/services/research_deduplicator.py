@@ -41,6 +41,55 @@ class ResearchDeduplicator:
         self.clock = clock
         self.id_factory = id_factory
 
+    def enrich_existing_work(
+        self, work_id: str, provider_work: ProviderWork
+    ) -> ResearchWorkRecord:
+        """Fill missing Work metadata without recording enrichment as a Discovery."""
+        if not isinstance(provider_work, ProviderWork):
+            raise ValueError("provider_work must be a ProviderWork")
+        incoming = normalize_identifiers(provider_work)
+        with self.repository.write_transaction():
+            existing = self.repository.get_work(work_id)
+            if existing is None:
+                raise LookupError("Research Work '{}' does not exist".format(work_id))
+            if not any(
+                value is not None and value == getattr(existing, column)
+                for column, value in incoming.items()
+            ):
+                raise ValueError("Enrichment result does not identify the requested Research Work")
+
+            identifiers = {
+                column: getattr(existing, column) or incoming[column]
+                for column in incoming
+            }
+            title = existing.title or provider_work.title
+            abstract = existing.abstract or provider_work.abstract
+            authors = existing.authors or provider_work.authors
+            year = existing.year or provider_work.year
+            normalized_title = normalize_title(title) or existing.normalized_title
+            updated = ResearchWorkRecord(
+                id=existing.id,
+                canonical_key=_canonical_key(
+                    identifiers, normalized_title, year, authors
+                ),
+                title=title,
+                normalized_title=normalized_title,
+                abstract=abstract,
+                authors=authors,
+                year=year,
+                published_at=existing.published_at or provider_work.published_at,
+                venue=existing.venue or provider_work.venue,
+                doi=identifiers["doi"],
+                arxiv_id=identifiers["arxiv_id"],
+                openalex_id=identifiers["openalex_id"],
+                semantic_scholar_id=identifiers["semantic_scholar_id"],
+                url=existing.url or provider_work.url,
+                created_at=existing.created_at,
+                updated_at=_utc_timestamp(self.clock()),
+            )
+            self.repository.update_work(updated)
+        return updated
+
     def record_discovery(
         self,
         profile_id: str,

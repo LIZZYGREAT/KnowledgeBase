@@ -181,13 +181,16 @@ class ResearchWatermarkService:
         )
 
     def skip_profile_to_now(
-        self, profile: ResearchProfile, now: datetime
+        self,
+        profile: ResearchProfile,
+        now: datetime,
+        queries: Optional[tuple[ResearchQuery, ...]] = None,
     ) -> tuple[ResearchSearchStateRecord, ...]:
         timestamp = _timestamp(now, "now")
-        queries = self.query_builder.build(profile)
+        active_queries = queries if queries is not None else self.query_builder.build(profile)
         specs = tuple(
             (query.lens_id, provider, query.query_key, query.text)
-            for query in queries
+            for query in active_queries
             for provider in profile.providers.discovery
         )
         return self.repository.skip_profile_to_now(profile.id, specs, timestamp)

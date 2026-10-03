@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from backend.app.domain.research_runtime import ResearchWorkRecord
 from backend.app.services.research_providers import (
     ArxivProvider,
     CrossrefProvider,
@@ -114,6 +115,43 @@ def test_crossref_adapter_normalizes_record_and_pagination():
     assert parameters["offset"] == ["0"]
 
 
+def test_openalex_enrichment_fetches_one_work_by_provider_id():
+    payload = json.loads(_fixture_bytes("openalex.json"))
+    client = _FakeClient(json.dumps(payload["results"][0]).encode("utf-8"))
+    provider = OpenAlexProvider(client=client)
+    work = _research_work(openalex_id="W1234567890")
+
+    enriched = provider.enrich(work)
+
+    assert enriched is not None
+    assert enriched.provider == "openalex"
+    assert enriched.openalex_id == "W1234567890"
+    assert client.urls == ["https://api.openalex.org/works/W1234567890"]
+
+
+def test_crossref_enrichment_fetches_one_work_by_escaped_doi():
+    payload = json.loads(_fixture_bytes("crossref.json"))
+    client = _FakeClient(
+        json.dumps({"message": payload["message"]["items"][0]}).encode("utf-8")
+    )
+    provider = CrossrefProvider(client=client)
+    work = _research_work(doi="10.1000/xyz123")
+
+    enriched = provider.enrich(work)
+
+    assert enriched is not None
+    assert enriched.provider == "crossref"
+    assert enriched.doi == "10.1000/xyz123"
+    assert client.urls == ["https://api.crossref.org/works/10.1000%2Fxyz123"]
+
+
+def test_enrichment_without_a_lookup_identifier_skips_the_provider_request():
+    client = _FakeClient(b"{}")
+    assert OpenAlexProvider(client=client).enrich(_research_work()) is None
+    assert CrossrefProvider(client=client).enrich(_research_work()) is None
+    assert client.urls == []
+
+
 def test_http_client_retries_transient_status_with_timeout_and_bounded_delay():
     calls = []
     delays = []
@@ -142,6 +180,30 @@ def test_http_client_retries_transient_status_with_timeout_and_bounded_delay():
     assert len(calls) == 2
     assert all(timeout == 7 for _, timeout in calls)
     assert delays == [0.25]
+
+
+def test_http_client_respects_retry_after_for_rate_limited_requests():
+    calls = []
+    delays = []
+
+    def opener(request, timeout):
+        calls.append(request)
+        if len(calls) == 1:
+            headers = Message()
+            headers["Retry-After"] = "3"
+            raise HTTPError(request.full_url, 429, "rate limited", headers, BytesIO())
+        return _Response(b"ok")
+
+    client = ResearchHttpClient(
+        "openalex",
+        max_retries=1,
+        opener=opener,
+        sleeper=delays.append,
+    )
+
+    assert client.get("https://example.test/works", "application/json") == b"ok"
+    assert len(calls) == 2
+    assert delays == [3.0]
 
 
 def test_http_client_does_not_retry_nontransient_status():
@@ -202,6 +264,19 @@ class _Response:
 
 def _fixture_bytes(name: str) -> bytes:
     return (_FIXTURES / name).read_bytes()
+
+
+def _research_work(doi=None, openalex_id=None):
+    return ResearchWorkRecord(
+        id="work-id",
+        canonical_key="title:work:2024:author",
+        title="A Work",
+        normalized_title="a work",
+        doi=doi,
+        openalex_id=openalex_id,
+        created_at="2024-01-01T00:00:00+00:00",
+        updated_at="2024-01-01T00:00:00+00:00",
+    )
 
 
 def _query_parameters(url: str) -> dict[str, list[str]]:

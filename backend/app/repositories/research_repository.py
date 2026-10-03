@@ -96,6 +96,12 @@ class ResearchRepository:
             _work_values(work),
         )
 
+    def get_work(self, work_id: str) -> Optional[ResearchWorkRecord]:
+        row = self.connection.execute(
+            "SELECT * FROM research_works WHERE id = ?", (work_id,)
+        ).fetchone()
+        return _work_from_row(row) if row else None
+
     def update_work(self, work: ResearchWorkRecord) -> None:
         self.connection.execute(
             """UPDATE research_works SET

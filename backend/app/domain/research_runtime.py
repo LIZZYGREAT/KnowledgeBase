@@ -95,6 +95,51 @@ class ResearchCandidateRecord(CanonicalModel):
     decided_at: Optional[NonEmptyText] = None
 
 
+ResearchRunStatus = Literal[
+    "running",
+    "success",
+    "partial",
+    "failed",
+    "interrupted",
+    "skipped_paused",
+    "skipped_disabled",
+    "skipped_inbox_full",
+    "capacity_reached",
+]
+
+
+class ResearchRunRecord(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: NonEmptyText
+    profile_id: Slug
+    request_id: Optional[NonEmptyText] = None
+    trigger: Literal["scheduled", "manual"]
+    status: ResearchRunStatus
+    profile_content_hash: NonEmptyText
+    effective_config: dict[str, Any]
+    fetched_count: StrictInt = 0
+    new_work_count: StrictInt = 0
+    duplicate_count: StrictInt = 0
+    deterministic_filtered_count: StrictInt = 0
+    analyzed_count: StrictInt = 0
+    surfaced_count: StrictInt = 0
+    provider_summary: dict[str, Any]
+    error_summary: Optional[NonEmptyText] = None
+    started_at: NonEmptyText
+    finished_at: Optional[NonEmptyText] = None
+
+
+class ResearchProfileStateRecord(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    profile_id: Slug
+    paused_until: Optional[NonEmptyText] = None
+    last_successful_scheduled_run_at: Optional[NonEmptyText] = None
+    created_at: NonEmptyText
+    updated_at: NonEmptyText
+
+
 class ResearchIngestResult(CanonicalModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 

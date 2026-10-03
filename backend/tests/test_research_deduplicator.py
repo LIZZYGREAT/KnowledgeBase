@@ -244,6 +244,73 @@ def test_discovery_provenance_is_idempotent_for_same_query_and_provider_record()
         connection.close()
 
 
+def test_enrichment_fills_missing_work_metadata_without_creating_a_discovery():
+    connection, repository, deduplicator = _setup()
+    try:
+        discovered = _record(
+            deduplicator,
+            _provider_work(
+                "arxiv",
+                "2401.12345v1",
+                "A Method for Continual Learning",
+                ("Ada Lovelace",),
+                2024,
+                arxiv_id="2401.12345",
+            ),
+            "query-a",
+        )
+
+        enriched = deduplicator.enrich_existing_work(
+            discovered.work.id,
+            _provider_work(
+                "openalex",
+                "W123456",
+                "A corrected provider title",
+                ("Ada Lovelace", "Alan Turing"),
+                2024,
+                abstract="Additional metadata from OpenAlex.",
+                doi="10.1000/xyz123",
+                arxiv_id="2401.12345",
+                openalex_id="W123456",
+                venue="Journal of Learning",
+            ),
+        )
+
+        assert enriched.id == discovered.work.id
+        assert enriched.canonical_key == "doi:10.1000/xyz123"
+        assert enriched.title == "A Method for Continual Learning"
+        assert enriched.abstract == "Additional metadata from OpenAlex."
+        assert enriched.authors == ("Ada Lovelace",)
+        assert enriched.openalex_id == "w123456"
+        assert enriched.venue == "Journal of Learning"
+        assert len(repository.list_discoveries_for_work(enriched.id)) == 1
+    finally:
+        connection.close()
+
+
+def test_enrichment_refuses_a_record_that_cannot_be_linked_to_the_work():
+    connection, _, deduplicator = _setup()
+    try:
+        discovered = _record(
+            deduplicator,
+            _provider_work(
+                "arxiv", "2401.12345v1", "A Method", ("Ada Lovelace",), 2024,
+                arxiv_id="2401.12345",
+            ),
+            "query-a",
+        )
+        with pytest.raises(ValueError, match="does not identify"):
+            deduplicator.enrich_existing_work(
+                discovered.work.id,
+                _provider_work(
+                    "crossref", "10.1000/other", "Other", ("Ada Lovelace",), 2024,
+                    doi="10.1000/other",
+                ),
+            )
+    finally:
+        connection.close()
+
+
 def test_conflicting_strong_ids_cannot_join_two_existing_works():
     connection, _, deduplicator = _setup()
     try:
