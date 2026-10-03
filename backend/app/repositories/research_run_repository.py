@@ -141,6 +141,27 @@ class ResearchRunRepository:
             recovered = tuple(self.get(row["id"]) for row in rows)
         return tuple(run for run in recovered if run is not None)
 
+    def interrupt_for_request(
+        self, request_id: str, interrupted_at: datetime
+    ) -> tuple[ResearchRunRecord, ...]:
+        finished = _timestamp(interrupted_at)
+        with self.transactions.write_transaction():
+            rows = self.connection.execute(
+                """SELECT id FROM research_runs
+                   WHERE request_id = ? AND status = 'running'
+                   ORDER BY started_at, id""",
+                (request_id,),
+            ).fetchall()
+            if rows:
+                self.connection.executemany(
+                    """UPDATE research_runs SET status = 'interrupted',
+                           error_summary = 'Run was abandoned with its stale request',
+                           finished_at = ? WHERE id = ? AND status = 'running'""",
+                    [(finished, row["id"]) for row in rows],
+                )
+            recovered = tuple(self.get(row["id"]) for row in rows)
+        return tuple(run for run in recovered if run is not None)
+
 
 class ResearchProfileStateRepository:
     def __init__(self, connection: sqlite3.Connection):

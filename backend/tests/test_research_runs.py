@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from backend.app.db.connection import connect_database
 from backend.app.domain.research import ResearchGlobalConfig, ResearchProfile
 from backend.app.domain.research_runtime import (
@@ -14,6 +16,9 @@ from backend.app.repositories.research_candidate_repository import (
 )
 from backend.app.repositories.research_repository import ResearchRepository
 from backend.app.repositories.research_run_repository import ResearchRunRepository
+from backend.app.repositories.research_run_request_repository import (
+    ResearchRunRequestRepository,
+)
 from backend.app.repositories.research_search_repository import ResearchSearchRepository
 from backend.app.services.ai_client import MockDeepSeekClient
 from backend.app.services.ai_gateway import AIGateway
@@ -244,6 +249,149 @@ def test_provider_failures_open_a_run_local_circuit_and_other_provider_continues
         _query_key(service, query_index=0),
     )
     assert arxiv_state is not None and arxiv_state.completed_through is None
+    connection.close()
+
+
+def test_manual_run_request_is_atomically_claimed_and_finished_by_tick(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=())])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    request = service.queue_manual_run(
+        "continual-learning",
+        {"lens_overrides": {"regularization": True}},
+    )
+
+    run = service.tick()
+
+    stored = service.run_request_repository.get(request.id)
+    assert run is not None
+    assert run.trigger == "manual"
+    assert run.request_id == request.id
+    assert run.status == "success"
+    assert stored is not None and stored.status == "completed"
+    assert stored.claimed_at == _NOW.isoformat()
+    assert stored.completed_at == _NOW.isoformat()
+    assert provider.calls == 1
+    connection.close()
+
+
+def test_tick_does_not_claim_request_when_another_process_holds_global_lock(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=())])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    request = service.queue_manual_run("continual-learning")
+    competing_lock = GlobalResearchLock(service.global_lock.path)
+    assert competing_lock.acquire() is True
+    try:
+        assert service.tick() is None
+    finally:
+        competing_lock.release()
+
+    stored = service.run_request_repository.get(request.id)
+    assert stored is not None and stored.status == "pending"
+    assert provider.calls == 0
+    connection.close()
+
+
+def test_manual_run_queue_rejects_unknown_lenses_and_invalid_ranges(tmp_path):
+    connection = connect_database(":memory:")
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
+
+    with pytest.raises(ValueError, match="unknown Lens"):
+        service.queue_manual_run(
+            "continual-learning", {"lens_overrides": {"missing": True}}
+        )
+    with pytest.raises(ValueError, match="timezone"):
+        service.queue_manual_run(
+            "continual-learning", {"manual_range": ["2026-10-01T00:00:00", "2026-10-02"]}
+        )
+    assert connection.execute("SELECT COUNT(*) FROM research_run_requests").fetchone()[0] == 0
+    connection.close()
+
+
+def test_manual_run_queue_claims_oldest_request_once(tmp_path):
+    connection = connect_database(":memory:")
+    repository = ResearchRunRequestRepository(connection)
+    older = repository.enqueue(
+        "continual-learning", {}, _NOW - timedelta(minutes=2), request_id="older"
+    )
+    repository.enqueue(
+        "continual-learning", {}, _NOW - timedelta(minutes=1), request_id="newer"
+    )
+
+    claimed = repository.claim_next(_NOW)
+    second_claim = repository.claim_next(_NOW)
+
+    assert older.status == "pending"
+    assert claimed is not None and claimed.id == "older" and claimed.status == "claimed"
+    assert second_claim is not None and second_claim.id == "newer"
+    assert repository.get("older").status == "claimed"
+    connection.close()
+
+
+def test_stale_claim_is_requeued_and_old_running_attempt_is_interrupted(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=())])
+    service, run_repository, _, _ = _service(tmp_path, connection, provider)
+    old_time = _NOW - timedelta(hours=2)
+    request = service.run_request_repository.enqueue(
+        "continual-learning", {}, old_time, request_id="stale-request"
+    )
+    service.run_request_repository.claim_next(old_time)
+    old_run = ResearchRunRecord(
+        id="stale-manual-run",
+        profile_id="continual-learning",
+        request_id=request.id,
+        trigger="manual",
+        status="running",
+        profile_content_hash="profile-hash",
+        effective_config={},
+        provider_summary={},
+        started_at=old_time.isoformat(),
+    )
+    run_repository.create(old_run)
+
+    replacement = service.tick()
+
+    assert replacement is not None and replacement.request_id == request.id
+    assert run_repository.get(old_run.id).status == "interrupted"
+    assert service.run_request_repository.get(request.id).status == "completed"
+    assert provider.calls == 1
+    connection.close()
+
+
+def test_tick_selects_most_overdue_profile_and_skips_paused_profiles(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=())])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    first = _profile().model_copy(update={"id": "first-profile"})
+    second = _profile().model_copy(update={"id": "second-profile"})
+    registry = service.profile_registry
+    service.profile_registry = type(registry)(
+        registry.global_config,
+        (first, second),
+        {first.id: Path("first-profile.yaml"), second.id: Path("second-profile.yaml")},
+        {first.id: "a" * 64, second.id: "b" * 64},
+    )
+    service.profile_state_repository.record_successful_scheduled_run(
+        first.id, _NOW - timedelta(days=2)
+    )
+    service.profile_state_repository.record_successful_scheduled_run(
+        second.id, _NOW - timedelta(days=5)
+    )
+
+    run = service.tick()
+
+    assert run is not None and run.profile_id == second.id
+    assert provider.calls == 1
+    service.profile_state_repository.pause_until(
+        first.id, _NOW + timedelta(days=1), _NOW
+    )
+    service.profile_state_repository.pause_until(
+        second.id, _NOW + timedelta(days=1), _NOW
+    )
+    assert service.tick() is None
+    assert provider.calls == 1
     connection.close()
 
 

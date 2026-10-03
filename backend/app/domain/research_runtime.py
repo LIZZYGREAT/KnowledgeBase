@@ -107,6 +107,21 @@ ResearchRunStatus = Literal[
     "capacity_reached",
 ]
 
+ResearchRunRequestStatus = Literal["pending", "claimed", "completed", "failed"]
+
+
+class ResearchRunRequestRecord(CanonicalModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: NonEmptyText
+    profile_id: Slug
+    trigger: Literal["manual"] = "manual"
+    override: dict[str, Any]
+    status: ResearchRunRequestStatus
+    created_at: NonEmptyText
+    claimed_at: Optional[NonEmptyText] = None
+    completed_at: Optional[NonEmptyText] = None
+
 
 class ResearchRunRecord(CanonicalModel):
     model_config = ConfigDict(extra="forbid", frozen=True)

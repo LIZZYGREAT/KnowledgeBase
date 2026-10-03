@@ -59,5 +59,3 @@ class GlobalResearchLock:
         finally:
             handle.close()
             self._file = None
-
-\n

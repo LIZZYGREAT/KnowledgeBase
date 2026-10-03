@@ -8,6 +8,7 @@ import uuid
 from backend.app.domain.research import ResearchProfile
 from backend.app.domain.research_runtime import (
     ResearchContextPack,
+    ResearchRunRequestRecord,
     ResearchRunRecord,
     ResearchRunStatus,
     ResearchWorkRecord,
@@ -16,6 +17,9 @@ from backend.app.repositories.research_repository import ResearchRepository
 from backend.app.repositories.research_run_repository import (
     ResearchProfileStateRepository,
     ResearchRunRepository,
+)
+from backend.app.repositories.research_run_request_repository import (
+    ResearchRunRequestRepository,
 )
 from backend.app.repositories.research_search_repository import ResearchSearchRepository
 from backend.app.services.ai_client import AIGatewayError
@@ -77,6 +81,7 @@ class ResearchService:
         self.work_repository = ResearchRepository(connection)
         self.search_repository = ResearchSearchRepository(connection)
         self.run_repository = ResearchRunRepository(connection)
+        self.run_request_repository = ResearchRunRequestRepository(connection)
         self.profile_state_repository = ResearchProfileStateRepository(connection)
         self.candidate_repository = candidate_service.repository
         self.query_builder = ResearchQueryBuilder()
@@ -128,6 +133,100 @@ class ResearchService:
             )
         finally:
             self.global_lock.release()
+
+    def queue_manual_run(
+        self, profile_id: str, override: Optional[Mapping] = None
+    ) -> ResearchRunRequestRecord:
+        profile = self.profile_registry.get(profile_id)
+        if profile is None:
+            raise LookupError("Research Profile '{}' does not exist".format(profile_id))
+        normalized_override = dict(override or {})
+        _manual_request_options(normalized_override, profile)
+        return self.run_request_repository.enqueue(
+            profile_id,
+            normalized_override,
+            self._now(),
+            request_id=self.id_factory(),
+        )
+
+    def tick(self) -> Optional[ResearchRunRecord]:
+        """Run one queued manual request, otherwise one most-overdue scheduled Profile."""
+        if not self.global_lock.acquire():
+            return None
+        try:
+            now = self._now()
+            stale_before = now - self.stale_run_after
+            self.run_repository.mark_stale_interrupted(stale_before, now)
+            stale_requests = self.run_request_repository.list_stale_claims(stale_before)
+            for stale_request in stale_requests:
+                self.run_repository.interrupt_for_request(stale_request.id, now)
+            self.run_request_repository.recover_stale_claims(stale_before)
+
+            request = self.run_request_repository.claim_next(now)
+            if request is not None:
+                try:
+                    profile = self.profile_registry.get(request.profile_id)
+                    if profile is None:
+                        raise LookupError(
+                            "Research Profile '{}' does not exist".format(request.profile_id)
+                        )
+                    options = _manual_request_options(request.override, profile)
+                    run = self._run_profile_locked(
+                        profile_id=request.profile_id,
+                        trigger="manual",
+                        request_id=request.id,
+                        now=now,
+                        **options,
+                    )
+                    if run is None:
+                        raise RuntimeError("Manual Research Run did not produce a Run record")
+                except Exception:
+                    self.run_request_repository.finish(request.id, "failed", self._now())
+                    raise
+                status = "failed" if run.status in {"failed", "interrupted"} else "completed"
+                self.run_request_repository.finish(request.id, status, self._now())
+                return run
+
+            profile = self._most_overdue_profile(now)
+            if profile is None:
+                return None
+            return self._run_profile_locked(
+                profile_id=profile.id,
+                trigger="scheduled",
+                request_id=None,
+                manual_range=None,
+                lens_overrides=None,
+                resume_strategy="all",
+                now=now,
+            )
+        finally:
+            self.global_lock.release()
+
+    def _most_overdue_profile(self, now: datetime) -> Optional[ResearchProfile]:
+        eligible = []
+        for profile in self.profile_registry.profiles:
+            if not profile.enabled or profile.schedule.mode == "manual":
+                continue
+            state = self.profile_state_repository.get(profile.id)
+            if state is not None and state.paused_until is not None:
+                if _parse_timestamp(state.paused_until) > now:
+                    continue
+            if self.candidate_service.remaining_capacity(profile) <= 0:
+                continue
+            interval = timedelta(days=1 if profile.schedule.mode == "daily" else 7)
+            last_success = (
+                _parse_timestamp(state.last_successful_scheduled_run_at)
+                if state is not None and state.last_successful_scheduled_run_at is not None
+                else None
+            )
+            due_at = last_success + interval if last_success is not None else datetime.min.replace(
+                tzinfo=timezone.utc
+            )
+            if due_at <= now:
+                eligible.append((due_at, profile.id, profile))
+        if not eligible:
+            return None
+        return min(eligible, key=lambda item: (item[0], item[1]))[2]
 
     def _run_profile_locked(
         self,
@@ -586,4 +685,63 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-\n
+def _manual_request_options(override: Mapping, profile: ResearchProfile) -> dict:
+    if not isinstance(override, Mapping):
+        raise ValueError("Manual Research Run override must be an object")
+    allowed = {"lens_overrides", "manual_range", "resume_strategy"}
+    unexpected = set(override) - allowed
+    if unexpected:
+        raise ValueError(
+            "Unsupported Manual Research Run override field(s): {}".format(
+                ", ".join(sorted(str(key) for key in unexpected))
+            )
+        )
+
+    lens_overrides = override.get("lens_overrides")
+    if lens_overrides is not None:
+        if not isinstance(lens_overrides, Mapping):
+            raise ValueError("lens_overrides must map Lens ids to booleans")
+        known_lenses = {lens.id for lens in profile.lenses}
+        if set(lens_overrides) - known_lenses:
+            raise ValueError("Manual Research Run contains an unknown Lens id")
+        if any(type(enabled) is not bool for enabled in lens_overrides.values()):
+            raise ValueError("lens_overrides values must be booleans")
+        lens_overrides = dict(lens_overrides)
+
+    manual_range_value = override.get("manual_range")
+    manual_range = None
+    if manual_range_value is not None:
+        if not isinstance(manual_range_value, (tuple, list)) or len(manual_range_value) != 2:
+            raise ValueError("manual_range must contain start and end timestamps")
+        manual_range = tuple(
+            _parse_override_datetime(value) for value in manual_range_value
+        )
+        if manual_range[0] >= manual_range[1]:
+            raise ValueError("Manual Research Run range must end after it starts")
+
+    resume_strategy = override.get("resume_strategy", "all")
+    if resume_strategy not in {"all", "from_now"}:
+        raise ValueError("resume_strategy must be 'all' or 'from_now'")
+    return {
+        "manual_range": manual_range,
+        "lens_overrides": lens_overrides,
+        "resume_strategy": resume_strategy,
+    }
+
+
+def _parse_override_datetime(value) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Manual Research Run timestamps must be non-empty text")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        # Date-only values represent UTC midnight for API clients.
+        try:
+            parsed = datetime.combine(
+                datetime.strptime(value, "%Y-%m-%d").date(), datetime.min.time(), timezone.utc
+            )
+        except ValueError:
+            raise ValueError("Manual Research Run range contains an invalid timestamp") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("Manual Research Run timestamps must include a timezone")
+    return parsed.astimezone(timezone.utc)
