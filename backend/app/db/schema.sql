@@ -440,7 +440,7 @@ CREATE TABLE IF NOT EXISTS research_pending_links (
     intended_entity_id TEXT NOT NULL,
     relation_type TEXT NOT NULL CHECK (relation_type IN ('source', 'note', 'collection')),
     created_at TEXT NOT NULL,
-    UNIQUE (draft_id, relation_type)
+    UNIQUE (candidate_id, draft_id, relation_type)
 );
 CREATE INDEX IF NOT EXISTS research_pending_links_group_idx
     ON research_pending_links (group_id);

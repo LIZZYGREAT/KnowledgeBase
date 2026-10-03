@@ -295,11 +295,15 @@ class ResearchRepository:
         created_at: str,
     ) -> dict:
         self.connection.execute(
-            """INSERT OR IGNORE INTO research_pending_links (
+            """INSERT INTO research_pending_links (
                    id, group_id, candidate_id, work_id, draft_id,
                    intended_entity_type, intended_entity_id, relation_type,
                    created_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(candidate_id, draft_id, relation_type) DO UPDATE SET
+                   group_id = excluded.group_id,
+                   intended_entity_type = excluded.intended_entity_type,
+                   intended_entity_id = excluded.intended_entity_id""",
             (
                 uuid.uuid4().hex,
                 group_id,
@@ -314,8 +318,8 @@ class ResearchRepository:
         )
         row = self.connection.execute(
             """SELECT * FROM research_pending_links
-               WHERE draft_id = ? AND relation_type = ?""",
-            (draft_id, relation_type),
+               WHERE candidate_id = ? AND draft_id = ? AND relation_type = ?""",
+            (candidate_id, draft_id, relation_type),
         ).fetchone()
         if row is None:
             raise RuntimeError("Research pending link was not persisted")

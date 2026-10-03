@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -27,6 +27,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_research_runtime
         elif target_version == 5:
             migration = _migrate_to_research_run_ai_disabled_status
+        elif target_version == 6:
+            migration = _migrate_to_shared_research_source_draft_intents
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -39,6 +41,44 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             connection.rollback()
             raise
         version = target_version
+
+
+def _migrate_to_shared_research_source_draft_intents(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute("DROP INDEX IF EXISTS research_pending_links_group_idx")
+    connection.execute(
+        "ALTER TABLE research_pending_links RENAME TO research_pending_links_before_shared_drafts"
+    )
+    connection.execute(
+        """CREATE TABLE research_pending_links (
+               id TEXT PRIMARY KEY,
+               group_id TEXT NOT NULL,
+               candidate_id TEXT NOT NULL,
+               work_id TEXT NOT NULL,
+               draft_id TEXT NOT NULL,
+               intended_entity_type TEXT NOT NULL,
+               intended_entity_id TEXT NOT NULL,
+               relation_type TEXT NOT NULL CHECK (
+                   relation_type IN ('source', 'note', 'collection')
+               ),
+               created_at TEXT NOT NULL,
+               UNIQUE (candidate_id, draft_id, relation_type)
+           )"""
+    )
+    connection.execute(
+        """INSERT INTO research_pending_links (
+               id, group_id, candidate_id, work_id, draft_id,
+               intended_entity_type, intended_entity_id, relation_type, created_at
+           ) SELECT id, group_id, candidate_id, work_id, draft_id,
+                    intended_entity_type, intended_entity_id, relation_type, created_at
+             FROM research_pending_links_before_shared_drafts"""
+    )
+    connection.execute("DROP TABLE research_pending_links_before_shared_drafts")
+    connection.execute(
+        """CREATE INDEX research_pending_links_group_idx
+           ON research_pending_links (group_id)"""
+    )
 
 
 def _migrate_to_research_run_ai_disabled_status(connection: sqlite3.Connection) -> None:

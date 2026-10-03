@@ -172,6 +172,44 @@ def test_save_source_api_returns_a_runtime_draft_without_completing_candidate(tm
         connection.close()
 
 
+def test_multiple_candidates_reuse_and_publish_the_same_source_draft(tmp_path):
+    repository, connection, drafts, converter, first_candidate = _setup(tmp_path)
+    try:
+        second_candidate = _insert_other_profile_candidate(connection, first_candidate)
+        first_result = converter.save_source(first_candidate.id)
+        second_result = converter.save_source(second_candidate.id)
+
+        assert first_result.action == "draft_created"
+        assert second_result.action == "draft_reused"
+        assert second_result.draft_id == first_result.draft_id
+        pending = ResearchRepository(connection)
+        first_intent = pending.list_pending_links(first_candidate.id)
+        second_intent = pending.list_pending_links(second_candidate.id)
+        assert len(first_intent) == len(second_intent) == 1
+        assert first_intent[0]["draft_id"] == second_intent[0]["draft_id"]
+        assert first_intent[0]["group_id"] != second_intent[0]["group_id"]
+
+        publisher = Publisher(
+            repository,
+            drafts,
+            Indexer(repository, connection),
+            git_manager=GitManager(repository),
+            canonical_target_resolver=CanonicalTargetResolver(repository, connection),
+        )
+        publisher.add_post_publish_hook(converter.finalize_published_drafts)
+        source_draft = drafts.get(first_result.draft_id)
+        publisher.publish(source_draft.id, expected_revision=source_draft.revision)
+
+        candidates = ResearchCandidateRepository(connection)
+        assert candidates.get(first_candidate.id).status == "saved_source"
+        assert candidates.get(second_candidate.id).status == "saved_source"
+        assert pending.list_pending_links(first_candidate.id) == []
+        assert pending.list_pending_links(second_candidate.id) == []
+        assert len(pending.list_entity_links(first_candidate.work_id)) == 1
+    finally:
+        connection.close()
+
+
 def test_create_note_builds_source_and_paper_note_drafts_without_completing_candidate(tmp_path):
     _, connection, drafts, converter, candidate = _setup(tmp_path)
     try:
@@ -198,16 +236,18 @@ def test_create_note_builds_source_and_paper_note_drafts_without_completing_cand
         connection.close()
 
 
-def test_reused_source_group_returns_source_draft_owned_by_another_candidate(tmp_path):
+def test_reused_source_draft_keeps_each_candidate_conversion_group_independent(tmp_path):
     _, connection, _, converter, source_candidate = _setup(tmp_path)
     try:
         source_result = converter.save_source(source_candidate.id)
         note_candidate = _insert_other_profile_candidate(connection, source_candidate)
+        note_source_result = converter.save_source(note_candidate.id)
 
         result = converter.create_note(note_candidate.id, "paper-note", "structured")
         repeated = converter.create_note(note_candidate.id, "learning-note", "blank")
 
         assert source_result.draft_id is not None
+        assert note_source_result.action == "draft_reused"
         assert result.source_draft_id == source_result.draft_id
         assert repeated == result
         group_links = ResearchRepository(connection).list_pending_links_for_group(
@@ -216,8 +256,17 @@ def test_reused_source_group_returns_source_draft_owned_by_another_candidate(tmp
         assert {link["relation_type"] for link in group_links} == {"source", "note"}
         source_link = next(link for link in group_links if link["relation_type"] == "source")
         note_link = next(link for link in group_links if link["relation_type"] == "note")
-        assert source_link["candidate_id"] == source_candidate.id
+        assert source_link["candidate_id"] == note_candidate.id
         assert note_link["candidate_id"] == note_candidate.id
+        source_candidate_link = ResearchRepository(connection).list_pending_links(
+            source_candidate.id
+        )[0]
+        assert source_candidate_link["group_id"] != result.group_id
+        source_candidate_group = ResearchRepository(connection).list_pending_links_for_group(
+            source_candidate_link["group_id"]
+        )
+        assert len(source_candidate_group) == 1
+        assert source_candidate_group[0]["candidate_id"] == source_candidate.id
     finally:
         connection.close()
 

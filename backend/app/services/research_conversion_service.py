@@ -107,6 +107,12 @@ class ResearchConversionService:
         if pending_for_work is not None:
             draft = self._get_or_clear_pending_draft(pending_for_work)
             if draft is not None:
+                self._add_source_intent(
+                    candidate.id,
+                    work.id,
+                    draft.id,
+                    pending_for_work["intended_entity_id"],
+                )
                 return ResearchSourceSaveResult(
                     "draft_reused", pending_for_work["intended_entity_id"], draft.id, candidate
                 )
@@ -139,6 +145,7 @@ class ResearchConversionService:
                 return self.save_source(candidate.id)
             draft = existing_draft
             source_id = existing_pending["intended_entity_id"]
+            self._add_source_intent(candidate.id, work.id, draft.id, source_id)
             action = "draft_reused"
 
         return ResearchSourceSaveResult(action, source_id, draft.id, candidate)
@@ -191,7 +198,6 @@ class ResearchConversionService:
                 source_draft = self._get_or_clear_pending_draft(pending_source)
                 if source_draft is not None:
                     source_id = pending_source["intended_entity_id"]
-                    group_id = pending_source["group_id"]
             if source_draft is None and source_id is None:
                 source_draft, source_id, source_created = self._create_or_get_source_draft(work)
 
@@ -353,6 +359,22 @@ class ResearchConversionService:
                 candidate_id, "saved_source", now
             )
 
+    def _add_source_intent(
+        self, candidate_id: str, work_id: str, draft_id: str, source_id: str
+    ) -> dict:
+        now = self._now().isoformat()
+        with self.work_repository.write_transaction():
+            return self.work_repository.add_pending_link(
+                group_id=uuid.uuid4().hex,
+                candidate_id=candidate_id,
+                work_id=work_id,
+                draft_id=draft_id,
+                intended_entity_type="source",
+                intended_entity_id=source_id,
+                relation_type="source",
+                created_at=now,
+            )
+
     def _find_canonical_source(self, work: ResearchWorkRecord) -> Optional[SourceMetadata]:
         sources = SourceRegistry.load(self.sources_root).sources
         for field in ("doi", "arxiv_id", "openalex_id"):
@@ -457,6 +479,18 @@ class ResearchConversionService:
                         "Research Source link does not reference its Source Draft"
                     )
                 source_draft_id = source_draft.id
+        else:
+            source_id = next(
+                (
+                    link["entity_id"]
+                    for link in self.work_repository.list_entity_links(
+                        note_link["work_id"]
+                    )
+                    if link["entity_type"] == "source"
+                    and link["relation_type"] == "source"
+                ),
+                None,
+            )
         collection_draft_id = None
         collection_id = None
         if collection_link is not None:
