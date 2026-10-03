@@ -382,7 +382,7 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
                 json={"reason": "too_redundant", "note": "Already covered."},
             )
             assert dismiss.status_code == 200
-            assert dismiss.json()["dismiss_reason"] == "too_similar"
+            assert dismiss.json()["dismiss_reason"] == "too_redundant"
             assert dismiss.json()["status"] == "dismissed"
 
     asyncio.run(exercise_routes())

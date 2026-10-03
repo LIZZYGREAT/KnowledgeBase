@@ -99,9 +99,9 @@ def test_shortlist_and_dismiss_manage_notes_views_and_inbox_capacity():
     assert viewed_twice.first_viewed_at == viewed_once.first_viewed_at
     assert viewed_twice.last_viewed_at == "2026-10-03T06:00:00+00:00"
 
-    dismissed = service.dismiss(first.id, "too_similar")
+    dismissed = service.dismiss(first.id, "too_redundant")
     assert dismissed.status == "dismissed"
-    assert dismissed.dismiss_reason == "too_similar"
+    assert dismissed.dismiss_reason == "too_redundant"
     assert dismissed.user_note == "Update the comparison section."
     assert dismissed.decided_at == "2026-10-03T07:00:00+00:00"
     repeated = service.generate(analysis_one, profile, profile.lenses[0])

@@ -1265,7 +1265,7 @@ def test_research_profile_controls_manual_queue_runs_and_candidate_actions(
     )
     assert dismissed.status_code == 200
     assert dismissed.json()["status"] == "dismissed"
-    assert dismissed.json()["dismiss_reason"] == "too_similar"
+    assert dismissed.json()["dismiss_reason"] == "too_redundant"
 
 
 def _create_repository(root: Path) -> Path:

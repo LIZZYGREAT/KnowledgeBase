@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getCollection, listCollections, listDrafts, type Collection, type CollectionNode, type CollectionSummary, type ResearchCandidateDetail, type ResearchCandidateListItem, type ResearchProfile } from "./api";
+import { getCollection, listCollections, listDrafts, type Collection, type CollectionNode, type CollectionSummary, type ResearchCandidateDetail, type ResearchCandidateListItem, type ResearchDismissReason, type ResearchProfile } from "./api";
 import { Chip, formatDate } from "./ui";
 import { parseCollectionDraft } from "./collectionDraftModel";
 
@@ -266,9 +266,9 @@ export function ResearchDismissDialog({
   count: number;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (reason: "not_relevant" | "already_known" | "too_redundant" | "not_interested" | "other", note: string) => void;
+  onSubmit: (reason: ResearchDismissReason, note: string) => void;
 }) {
-  const [reason, setReason] = useState<"not_relevant" | "already_known" | "too_redundant" | "not_interested" | "other">("not_relevant");
+  const [reason, setReason] = useState<ResearchDismissReason>("not_relevant");
   const [note, setNote] = useState("");
   return <div className="research-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="research-dismiss-dialog" role="dialog" aria-modal="true" aria-labelledby="dismiss-dialog-title" onSubmit={(event) => { event.preventDefault(); onSubmit(reason, note.trim()); }}>

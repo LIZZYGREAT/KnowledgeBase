@@ -74,7 +74,7 @@ ResearchCandidateStatus = Literal[
     "new", "shortlisted", "dismissed", "saved_source", "note_created"
 ]
 ResearchDismissReason = Literal[
-    "not_relevant", "already_known", "too_similar", "not_following_subfield", "other"
+    "not_relevant", "already_known", "too_redundant", "not_interested", "other"
 ]
 
 

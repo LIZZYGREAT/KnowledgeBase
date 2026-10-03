@@ -257,6 +257,7 @@ export interface SearchFilters {
 
 export type ResearchBreadth = "strict" | "balanced" | "explore";
 export type ResearchCandidateStatus = "new" | "shortlisted" | "dismissed" | "saved_source" | "note_created";
+export type ResearchDismissReason = "not_relevant" | "already_known" | "too_redundant" | "not_interested" | "other";
 export type ResearchSort = "recommended" | "newest" | "most_relevant" | "most_novel";
 
 export interface ResearchLens {
@@ -366,7 +367,7 @@ export interface ResearchCandidate {
   primary_lens_id: string | null;
   analysis_id: string;
   user_note: string | null;
-  dismiss_reason: string | null;
+  dismiss_reason: ResearchDismissReason | null;
   created_at: string;
   updated_at: string;
   first_viewed_at: string | null;
@@ -915,7 +916,7 @@ export function updateResearchCandidateNote(candidateId: string, note: string) {
   });
 }
 
-export function dismissResearchCandidate(candidateId: string, reason: "not_relevant" | "already_known" | "too_redundant" | "not_interested" | "other", note?: string) {
+export function dismissResearchCandidate(candidateId: string, reason: ResearchDismissReason, note?: string) {
   return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/dismiss`, {
     method: "POST", body: JSON.stringify({ reason, ...(note ? { note } : {}) }),
   });

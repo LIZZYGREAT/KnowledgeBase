@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -33,6 +33,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_persist_research_analysis_input_context
         elif target_version == 8:
             migration = _migrate_to_record_research_analysis_attempts
+        elif target_version == 9:
+            migration = _migrate_to_normalize_research_dismiss_reasons
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -114,6 +116,22 @@ def _migrate_to_record_research_analysis_attempts(
             """ALTER TABLE research_runs ADD COLUMN analysis_counts_known
                INTEGER NOT NULL DEFAULT 0"""
         )
+
+
+def _migrate_to_normalize_research_dismiss_reasons(
+    connection: sqlite3.Connection,
+) -> None:
+    if not _table_exists(connection, "research_candidates"):
+        return
+    connection.execute(
+        """UPDATE research_candidates
+           SET dismiss_reason = CASE dismiss_reason
+               WHEN 'too_similar' THEN 'too_redundant'
+               WHEN 'not_following_subfield' THEN 'not_interested'
+               ELSE dismiss_reason
+           END
+           WHERE dismiss_reason IN ('too_similar', 'not_following_subfield')"""
+    )
 
 
 def _migrate_to_research_run_ai_disabled_status(connection: sqlite3.Connection) -> None:

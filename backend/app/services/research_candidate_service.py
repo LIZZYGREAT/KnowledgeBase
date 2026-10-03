@@ -100,8 +100,8 @@ class ResearchCandidateService:
             None,
             "not_relevant",
             "already_known",
-            "too_similar",
-            "not_following_subfield",
+            "too_redundant",
+            "not_interested",
             "other",
         }:
             raise ValueError("Unsupported Research Candidate dismiss reason")

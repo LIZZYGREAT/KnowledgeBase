@@ -355,16 +355,9 @@ async def create_candidate_note(
 async def dismiss_candidate(
     candidate_id: str, body: ResearchDismissRequest, request: Request
 ):
-    reason_map = {
-        "not_relevant": "not_relevant",
-        "already_known": "already_known",
-        "too_redundant": "too_similar",
-        "not_interested": "not_following_subfield",
-        "other": "other",
-    }
     return request.app.state.research_service.candidate_service.dismiss(
         candidate_id,
-        reason=reason_map[body.reason],
+        reason=body.reason,
         user_note=body.note,
     )
 

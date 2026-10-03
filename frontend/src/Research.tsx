@@ -15,6 +15,7 @@ import {
   type ResearchCandidateDetail,
   type ResearchCandidateListItem,
   type ResearchCandidateStatus,
+  type ResearchDismissReason,
   type ResearchProfileDetail,
   type ResearchProfileSummary,
   type ResearchRun,
@@ -262,7 +263,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     }
   }
 
-  async function dismiss(reason: "not_relevant" | "already_known" | "too_redundant" | "not_interested" | "other", note: string) {
+  async function dismiss(reason: ResearchDismissReason, note: string) {
     const ids = dismissTargets ?? [];
     setActionBusy(true);
     setActionError("");
