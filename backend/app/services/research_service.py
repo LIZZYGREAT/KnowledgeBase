@@ -452,10 +452,13 @@ class ResearchService:
             )
         )
         stats = _new_stats(all_provider_names)
-        provider_failures = {name: 0 for name in all_provider_names}
-        unavailable_providers: set[str] = set()
+        discovery_provider_failures = {name: 0 for name in all_provider_names}
+        enrichment_provider_failures = {name: 0 for name in all_provider_names}
+        unavailable_discovery_providers: set[str] = set()
+        unavailable_enrichment_providers: set[str] = set()
         analysis_breaker = ResearchAnalysisCircuitBreaker()
         errors: list[str] = []
+        warnings: list[str] = []
         terminal_status: Optional[ResearchRunStatus] = None
 
         try:
@@ -464,11 +467,11 @@ class ResearchService:
                 for provider_name in profile.providers.discovery:
                     if terminal_status is not None:
                         break
-                    if provider_name in unavailable_providers:
+                    if provider_name in unavailable_discovery_providers:
                         continue
                     provider = self.providers.get(provider_name)
                     if provider is None:
-                        unavailable_providers.add(provider_name)
+                        unavailable_discovery_providers.add(provider_name)
                         errors.append("{}: adapter is not configured".format(provider_name))
                         _provider_stats(stats, provider_name)["errors"] += 1
                         continue
@@ -504,8 +507,11 @@ class ResearchService:
                             search_slice,
                             stats,
                             errors,
-                            provider_failures,
-                            unavailable_providers,
+                            warnings,
+                            discovery_provider_failures,
+                            unavailable_discovery_providers,
+                            enrichment_provider_failures,
+                            unavailable_enrichment_providers,
                             analysis_breaker,
                         )
                         if slice_status is not None:
@@ -523,11 +529,12 @@ class ResearchService:
             status = "failed"
 
         summary = _freeze_stats(stats)
+        run_issues = errors + ["Warning: {}".format(warning) for warning in warnings]
         finished = self.run_repository.finish(
             run.id,
             status,
             summary,
-            "; ".join(errors)[:1_000] or None,
+            "; ".join(run_issues)[:1_000] or None,
             self._now(),
         )
         if trigger == "scheduled" and status == "success":
@@ -548,8 +555,11 @@ class ResearchService:
         search_slice,
         stats: dict,
         errors: list[str],
-        provider_failures: dict[str, int],
-        unavailable_providers: set[str],
+        warnings: list[str],
+        discovery_provider_failures: dict[str, int],
+        unavailable_discovery_providers: set[str],
+        enrichment_provider_failures: dict[str, int],
+        unavailable_enrichment_providers: set[str],
         analysis_breaker: ResearchAnalysisCircuitBreaker,
     ) -> tuple[bool, Optional[ResearchRunStatus]]:
         provider_summary = _provider_stats(stats, provider_name)
@@ -569,14 +579,17 @@ class ResearchService:
                 )
             except ResearchProviderError as error:
                 provider_summary["errors"] += 1
-                provider_failures[provider_name] += 1
+                discovery_provider_failures[provider_name] += 1
                 errors.append("{}: {}".format(provider_name, str(error)[:240]))
-                if provider_failures[provider_name] >= self.provider_failure_threshold:
-                    unavailable_providers.add(provider_name)
+                if (
+                    discovery_provider_failures[provider_name]
+                    >= self.provider_failure_threshold
+                ):
+                    unavailable_discovery_providers.add(provider_name)
                     provider_summary["circuit_open"] = True
                 return False, None
 
-            provider_failures[provider_name] = 0
+            discovery_provider_failures[provider_name] = 0
             provider_summary["pages"] += 1
             if not isinstance(page, ProviderPage):
                 errors.append("{}: adapter returned an invalid page".format(provider_name))
@@ -604,17 +617,15 @@ class ResearchService:
                     self.run_repository.update_progress(run.id, new_work_count=1)
                 else:
                     self.run_repository.update_progress(run.id, duplicate_count=1)
-                work, enrichment_failed = self._enrich_work(
+                work = self._enrich_work(
                     ingested.work,
                     profile,
                     stats,
-                    errors,
-                    provider_failures,
-                    unavailable_providers,
+                    provider_work.provider,
+                    warnings,
+                    enrichment_provider_failures,
+                    unavailable_enrichment_providers,
                 )
-                if enrichment_failed:
-                    complete_page = False
-                    break
 
                 screened = self.screening.screen(
                     work,
@@ -622,7 +633,6 @@ class ResearchService:
                     query,
                     search_slice,
                     self._now(),
-                    analysis_input_hash="",
                 )
                 if not screened.eligible:
                     self.run_repository.update_progress(
@@ -728,25 +738,33 @@ class ResearchService:
         work: ResearchWorkRecord,
         profile: ResearchProfile,
         stats: dict,
-        errors: list[str],
+        discovery_provider: str,
+        warnings: list[str],
         provider_failures: dict[str, int],
         unavailable_providers: set[str],
-    ) -> tuple[ResearchWorkRecord, bool]:
-        failed = False
+    ) -> ResearchWorkRecord:
         enriched_work = work
         for provider_name in profile.providers.enrichment:
             if provider_name in unavailable_providers:
-                failed = True
+                continue
+            if provider_name == discovery_provider:
+                continue
+            if provider_name == "crossref" and not enriched_work.doi:
+                continue
+            if provider_name == "openalex" and not _needs_openalex_enrichment(
+                enriched_work
+            ):
                 continue
             provider = self.providers.get(provider_name)
             enrich = getattr(provider, "enrich", None) if provider is not None else None
             summary = _provider_stats(stats, provider_name)
             if not callable(enrich):
                 summary["errors"] += 1
-                errors.append("{}: enrichment adapter is not configured".format(provider_name))
+                warnings.append(
+                    "{} enrichment adapter is not configured".format(provider_name)
+                )
                 provider_failures[provider_name] = self.provider_failure_threshold
                 unavailable_providers.add(provider_name)
-                failed = True
                 continue
             summary["requests"] += 1
             try:
@@ -754,22 +772,42 @@ class ResearchService:
             except ResearchProviderError as error:
                 summary["errors"] += 1
                 provider_failures[provider_name] += 1
-                errors.append("{} enrichment: {}".format(provider_name, str(error)[:220]))
+                detail = str(error)
+                prefix = "{}: ".format(provider_name)
+                if detail.startswith(prefix):
+                    detail = detail[len(prefix) :]
+                warnings.append(
+                    "{} enrichment: {}".format(provider_name, detail[:220])
+                )
                 if provider_failures[provider_name] >= self.provider_failure_threshold:
                     summary["circuit_open"] = True
                     unavailable_providers.add(provider_name)
-                failed = True
                 continue
             provider_failures[provider_name] = 0
             if enriched is None:
                 continue
             if not isinstance(enriched, ProviderWork):
-                raise ValueError("{} enrichment returned an invalid Work".format(provider_name))
-            enriched_work = self.deduplicator.enrich_existing_work(
-                enriched_work.id, enriched
-            )
+                summary["errors"] += 1
+                warnings.append(
+                    "{} enrichment returned an invalid Work".format(provider_name)
+                )
+                unavailable_providers.add(provider_name)
+                continue
+            try:
+                enriched_work = self.deduplicator.enrich_existing_work(
+                    enriched_work.id, enriched
+                )
+            except (LookupError, ValueError) as error:
+                summary["errors"] += 1
+                warnings.append(
+                    "{} enrichment could not be applied: {}".format(
+                        provider_name, str(error)[:220]
+                    )
+                )
+                unavailable_providers.add(provider_name)
+                continue
             summary["works"] += 1
-        return enriched_work, failed
+        return enriched_work
 
     def _create_finished_run(
         self,
@@ -847,6 +885,20 @@ def _provider_stats(stats: dict, provider: str) -> dict:
     return stats.setdefault(
         provider,
         {"requests": 0, "pages": 0, "works": 0, "errors": 0, "circuit_open": False},
+    )
+
+
+def _needs_openalex_enrichment(work: ResearchWorkRecord) -> bool:
+    if not (work.openalex_id or work.doi):
+        return False
+    return any(
+        (
+            not (work.abstract and work.abstract.strip()),
+            not work.authors,
+            work.year is None and work.published_at is None,
+            not work.venue,
+            not work.url,
+        )
     )
 
 

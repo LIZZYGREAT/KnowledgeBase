@@ -312,6 +312,7 @@ def test_configured_enrichment_fills_work_metadata_before_analysis(tmp_path):
         authors=("Ada Lovelace",),
         year=2026,
         published_at="2026-10-02",
+        doi="10.1000/enriched",
         arxiv_id="2401.12345",
     )
     discovery = FakeProvider([ProviderPage(works=(discovery_work,))])
@@ -335,6 +336,99 @@ def test_configured_enrichment_fills_work_metadata_before_analysis(tmp_path):
     assert enriched_work.abstract == "Enriched abstract with more detail."
     assert enriched_work.doi == "10.1000/enriched"
     assert ai_client.calls == ["research_candidate_analysis"]
+    connection.close()
+
+
+def test_optional_enrichment_failure_warns_but_completes_discovery_slice(tmp_path):
+    connection = connect_database(":memory:")
+    discovery_work = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2401.12345",
+        title="Fisher Information for Continual Learning",
+        abstract=None,
+        authors=("Ada Lovelace",),
+        year=2026,
+        published_at="2026-10-02",
+        doi="10.1000/enrichment-failure",
+        arxiv_id="2401.12345",
+    )
+    discovery = FakeProvider([ProviderPage(works=(discovery_work,))])
+    enrichment = FakeEnrichmentProvider(fail=True, name="crossref")
+    profile = _profile(enrichment=("crossref",))
+    service, _, search_repository, ai_client = _service(
+        tmp_path,
+        connection,
+        discovery,
+        profile=profile,
+        additional_providers={"crossref": enrichment},
+    )
+    query = service.query_builder.build(profile)[0]
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert "Warning: crossref enrichment: enrichment failed" in run.error_summary
+    assert run.provider_summary["crossref"]["requests"] == 1
+    assert run.provider_summary["crossref"]["errors"] == 1
+    assert enrichment.enrichment_calls == 1
+    assert run.analyzed_count == 1
+    assert ai_client.calls == ["research_candidate_analysis"]
+    state = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert state is not None and state.completed_through == _NOW.isoformat()
+    connection.close()
+
+
+def test_crossref_enrichment_is_skipped_when_work_has_no_doi(tmp_path):
+    connection = connect_database(":memory:")
+    discovery = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    enrichment = FakeEnrichmentProvider(fail=True, name="crossref")
+    profile = _profile(enrichment=("crossref",))
+    service, _, _, _ = _service(
+        tmp_path,
+        connection,
+        discovery,
+        profile=profile,
+        additional_providers={"crossref": enrichment},
+    )
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert enrichment.enrichment_calls == 0
+    assert run.provider_summary["crossref"]["requests"] == 0
+    assert run.provider_summary["crossref"]["errors"] == 0
+    assert run.error_summary is None
+    connection.close()
+
+
+def test_openalex_discovery_does_not_repeat_openalex_enrichment(tmp_path):
+    connection = connect_database(":memory:")
+    discovery_work = ProviderWork(
+        provider="openalex",
+        provider_record_id="W123456",
+        title="Fisher Information for Continual Learning",
+        abstract="Fisher information measures parameter importance.",
+        authors=("Ada Lovelace",),
+        year=2026,
+        published_at="2026-10-02",
+        venue="Journal of Learning",
+        doi="10.1000/openalex-work",
+        openalex_id="W123456",
+        url="https://openalex.org/W123456",
+    )
+    profile = _profile(discovery=("openalex",), enrichment=("openalex",))
+    provider = FakeProvider(
+        [ProviderPage(works=(discovery_work,))], name="openalex"
+    )
+    service, _, _, _ = _service(tmp_path, connection, provider, profile=profile)
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert run.provider_summary["openalex"]["requests"] == 1
+    assert run.provider_summary["openalex"]["errors"] == 0
     connection.close()
 
 
@@ -646,8 +740,8 @@ class FakeProvider:
 
 
 class FakeEnrichmentProvider(FakeProvider):
-    def __init__(self, fail=False):
-        super().__init__([], name="openalex")
+    def __init__(self, fail=False, name="openalex"):
+        super().__init__([], name=name)
         self.fail_enrichment = fail
         self.enrichment_calls = 0
 

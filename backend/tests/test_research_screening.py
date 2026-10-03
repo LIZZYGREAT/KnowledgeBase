@@ -184,7 +184,7 @@ def test_existing_source_matches_by_strong_identifier_or_conservative_title_rule
         connection.close()
 
 
-def test_existing_candidate_and_matching_analysis_are_filtered():
+def test_screening_ignores_cached_analysis_but_filters_existing_candidate():
     connection, repository, service, profile, query = _setup()
     try:
         work = _work(
@@ -196,12 +196,6 @@ def test_existing_candidate_and_matching_analysis_are_filtered():
         )
         with repository.write_transaction():
             repository.insert_work(work)
-            connection.execute(
-                """INSERT INTO research_candidates (
-                       id, work_id, profile_id, status, analysis_id, created_at, updated_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                ("candidate-1", work.id, profile.id, "dismissed", "analysis-1", "now", "now"),
-            )
             connection.execute(
                 """INSERT INTO research_work_analyses (
                        id, work_id, profile_id, input_hash, outcome, analysis_json,
@@ -224,16 +218,21 @@ def test_existing_candidate_and_matching_analysis_are_filtered():
                 ),
             )
 
-        decision = service.screen(
-            work, profile, query, _RANGE, _NOW, analysis_input_hash="input-hash-a"
-        )
-        different_input = service.screen(
-            work, profile, query, _RANGE, _NOW, analysis_input_hash="input-hash-b"
-        )
-
-        assert decision.filtered_reasons == ("existing_candidate", "existing_analysis")
-        assert different_input.filtered_reasons == ("existing_candidate",)
+        cached_analysis = service.screen(work, profile, query, _RANGE, _NOW)
+        assert cached_analysis.eligible is True
+        assert cached_analysis.filtered_reasons == ()
+        assert cached_analysis.pre_rank is not None
         assert repository.has_analysis_for_profile(work.id, profile.id) is True
+
+        with repository.write_transaction():
+            connection.execute(
+                """INSERT INTO research_candidates (
+                       id, work_id, profile_id, status, analysis_id, created_at, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                ("candidate-1", work.id, profile.id, "dismissed", "analysis-1", "now", "now"),
+            )
+        existing_candidate = service.screen(work, profile, query, _RANGE, _NOW)
+        assert existing_candidate.filtered_reasons == ("existing_candidate",)
     finally:
         connection.close()
 

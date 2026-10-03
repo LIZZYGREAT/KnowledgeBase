@@ -57,7 +57,6 @@ class ResearchScreeningService:
         query: ResearchQuery,
         search_slice: ResearchSearchSlice,
         now: datetime,
-        analysis_input_hash: Optional[str] = None,
     ) -> ScreeningDecision:
         if query.profile_id != profile.id:
             raise ValueError("Research Query belongs to a different Profile")
@@ -110,11 +109,6 @@ class ResearchScreeningService:
             reasons.append("existing_source")
         if self.repository.has_candidate_for_profile(work.id, profile.id):
             reasons.append("existing_candidate")
-        if self.repository.has_analysis_for_profile(
-            work.id, profile.id, analysis_input_hash
-        ):
-            reasons.append("existing_analysis")
-
         if reasons:
             return ScreeningDecision(
                 eligible=False,
