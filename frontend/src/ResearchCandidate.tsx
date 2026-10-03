@@ -30,7 +30,6 @@ export function ResearchCandidateCard({
 }) {
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
   const relevance = item.analysis.profile_relevance;
-  const relevanceLabel = relevance >= 0.8 ? "Highly relevant" : relevance >= 0.6 ? "Relevant" : "Related";
   const externalUrl = safeExternalUrl(item.work.url);
 
   return <article className="research-candidate-card">
@@ -43,14 +42,14 @@ export function ResearchCandidateCard({
       <button className="text-button" onClick={onDetails}>Why this candidate <span aria-hidden="true">↗</span></button>
     </div>
     <div className="research-candidate-tags">{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
-    <div className="research-candidate-summary"><p>{item.analysis.summary}</p><div className="research-score-pills"><Chip tone="green">{relevanceLabel}</Chip><Chip tone="blue">{Math.round(item.analysis.novelty_to_library * 100)}% library novelty</Chip></div></div>
+    <div className="research-candidate-summary"><p>{item.analysis.summary}</p><div className="research-score-pills"><Chip tone="green">Relevance: {signalLevel(relevance)}</Chip><Chip tone="blue">Library novelty: {signalLevel(item.analysis.novelty_to_library)}</Chip></div></div>
     <div className="research-candidate-insight-grid">
       <div><span>Why shown</span><p>{item.analysis.why_relevant}</p></div>
       <div><span>Related knowledge</span>{item.analysis.existing_relations.length ? <ul>{item.analysis.existing_relations.slice(0, 2).map((relation) => <li key={`${relation.entity_type}:${relation.entity_id}`}><strong>{relation.entity_id}</strong><small>{relation.reason}</small></li>)}</ul> : <p>尚未找到明确的已有知识关联。</p>}</div>
       <div><span>What may be new</span><p>{item.analysis.reading_reason}</p></div>
     </div>
     <div className="research-candidate-footer">
-      <span>推荐分 {Math.round(item.recommended_score * 100)} · 收录于 {formatDate(item.candidate.created_at)}</span>
+      <span>排序信号 {Math.round(item.recommended_score * 100)} · 收录于 {formatDate(item.candidate.created_at)}</span>
       <div className="research-card-actions">
         {externalUrl && <a className="button button-quiet" href={externalUrl} target="_blank" rel="noreferrer">Open Paper ↗</a>}
         {(item.candidate.status === "new" || item.candidate.status === "shortlisted") && <button className="button button-secondary" disabled={busy} onClick={onSaveSource}>Save Source</button>}
@@ -183,7 +182,7 @@ export function ResearchCandidateDrawer({
     <aside className="research-drawer" role="dialog" aria-modal="true" aria-labelledby="research-drawer-title">
       <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">Why this candidate</h2><p>{work.title}</p></div><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></header>
       <div className="research-drawer-body">
-        <section className="research-detail-section"><h3>Recommendation</h3><p>{analysis.analysis.why_relevant}</p><div className="research-detail-score-grid"><Score label="Profile relevance" value={analysis.analysis.profile_relevance} /><Score label="Knowledge relevance" value={analysis.analysis.knowledge_relevance} /><Score label="Novelty to library" value={analysis.analysis.novelty_to_library} /></div></section>
+        <section className="research-detail-section"><h3>Recommendation</h3><p>{analysis.analysis.why_relevant}</p><p className="field-hint">以下为模型语义信号（0–1），未经概率校准，也不代表论文质量或学术原创性。</p><div className="research-detail-score-grid"><Score label="Profile relevance" value={analysis.analysis.profile_relevance} /><Score label="Knowledge relevance" value={analysis.analysis.knowledge_relevance} /><Score label="Novelty to library" value={analysis.analysis.novelty_to_library} /></div></section>
         <section className="research-detail-section"><h3>Discovery</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Lens" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} />
           {detail.discoveries.map((discovery) => <div className="research-provenance-card" key={discovery.id}><div><Chip tone="blue">{discovery.provider}</Chip><span>{formatDate(discovery.discovered_at)}</span></div><DetailRow label="Matched query" value={discovery.query_text} /><DetailRow label="Provider record" value={discovery.provider_record_id} /><DetailRow label="Lens" value={profile.lenses.find((lens) => lens.id === discovery.lens_id)?.title ?? discovery.lens_id} /></div>)}
         </section>
@@ -305,7 +304,11 @@ export function ResearchShortlistDialog({
 }
 
 function Score({ label, value }: { label: string; value: number }) {
-  return <div className="research-score"><span>{label}</span><strong>{Math.round(value * 100)}%</strong><div><span style={{ width: `${value * 100}%` }} /></div></div>;
+  return <div className="research-score"><span>{label}</span><strong>{value.toFixed(2)}</strong><div><span style={{ width: `${value * 100}%` }} /></div></div>;
+}
+
+function signalLevel(value: number): "High" | "Medium" | "Low" {
+  return value >= 0.8 ? "High" : value >= 0.6 ? "Medium" : "Low";
 }
 
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {

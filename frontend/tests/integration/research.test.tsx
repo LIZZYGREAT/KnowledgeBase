@@ -76,9 +76,15 @@ describe("Research workspace", () => {
     expect(await screen.findByText("Discoveries", {}, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText("Related knowledge")).toBeTruthy();
+    expect(screen.getByText("Relevance: High")).toBeTruthy();
+    expect(screen.getByText("Library novelty: Medium")).toBeTruthy();
+    expect(screen.getByText(/排序信号/)).toBeTruthy();
+    expect(screen.queryByText("73% library novelty")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Why this candidate/ }));
     expect(await screen.findByRole("heading", { name: "Why this candidate" })).toBeTruthy();
+    expect(screen.getByText(/模型语义信号（0–1）/)).toBeTruthy();
+    expect(screen.getByText("0.91")).toBeTruthy();
     expect(screen.getByText("Matched query")).toBeTruthy();
     expect(screen.getByText("research-candidate-analysis-v1")).toBeTruthy();
     expect(screen.getAllByText("fisher information catastrophic forgetting").length).toBeGreaterThan(1);
