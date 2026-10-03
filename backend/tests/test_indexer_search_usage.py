@@ -308,6 +308,58 @@ def test_failed_rebuild_leaves_the_previous_index_intact(tmp_path):
     connection.close()
 
 
+@pytest.mark.parametrize(
+    ("entity_type", "source_relative", "duplicate_relative", "label"),
+    [
+        (
+            "document",
+            "knowledge/documents/learning/neural-indexing.md",
+            "knowledge/documents/learning/archive/neural-indexing.md",
+            "Document",
+        ),
+        (
+            "term",
+            "knowledge/terms/neural-indexing.md",
+            "knowledge/terms/archive/neural-indexing.md",
+            "Term",
+        ),
+        (
+            "source",
+            "knowledge/sources/source-alpha.yaml",
+            "knowledge/sources/archive/source-alpha.yaml",
+            "Source",
+        ),
+        (
+            "collection",
+            "knowledge/collections/collection-one.yaml",
+            "knowledge/collections/archive/collection-one.yaml",
+            "Collection",
+        ),
+    ],
+)
+def test_rebuild_fails_for_duplicate_canonical_entity_ids(
+    tmp_path, entity_type, source_relative, duplicate_relative, label
+):
+    repository = _create_knowledge_tree(tmp_path / entity_type)
+    source = repository / source_relative
+    if entity_type == "collection":
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "schema_version: 1\nid: collection-one\ntitle: Collection One\n"
+            "status: active\nposition: 0\nnodes: []\n",
+            encoding="utf-8",
+        )
+    duplicate = repository / duplicate_relative
+    duplicate.parent.mkdir(parents=True, exist_ok=True)
+    duplicate.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    connection = connect_database(":memory:")
+
+    with pytest.raises(IndexBuildError, match="Duplicate {} id".format(label)):
+        Indexer(repository, connection).full_rebuild()
+
+    connection.close()
+
+
 def test_incremental_indexer_rejects_noncanonical_paths(tmp_path):
     repository = _create_knowledge_tree(tmp_path / "repo")
     connection = connect_database(":memory:")

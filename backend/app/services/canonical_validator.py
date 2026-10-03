@@ -9,8 +9,8 @@ import yaml
 from backend.app.domain.collection import Collection, EntityNode, SectionNode
 from backend.app.domain.document import DocumentMetadata
 from backend.app.domain.term import TermMetadata
-from backend.app.services.markdown_parser import MarkdownDocument, parse_markdown
 from backend.app.services.collection_registry import CollectionRegistry
+from backend.app.services.markdown_parser import MarkdownDocument, parse_markdown, parse_yaml
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.taxonomy_registry import TaxonomyKind, TaxonomyRegistry
 from backend.app.services.term_registry import TermRegistry
@@ -91,6 +91,9 @@ def validate_markdown_references(
 def validate_repository_references(repository_root: Path) -> list[CanonicalReferenceIssue]:
     """Check cross-file IDs and ambiguous links across canonical Markdown."""
     repository_root = Path(repository_root).resolve()
+    duplicate_issues = find_duplicate_entity_id_issues(repository_root)
+    if duplicate_issues:
+        return duplicate_issues
     knowledge_root = repository_root / "knowledge"
     try:
         taxonomy = TaxonomyRegistry.load(knowledge_root / "taxonomy")
@@ -136,6 +139,55 @@ def validate_repository_references(repository_root: Path) -> list[CanonicalRefer
             issues.extend(
                 validate_markdown_references(
                     path, repository_root, metadata, parsed, taxonomy, sources, term_resolver
+                )
+            )
+    return issues
+
+
+def find_duplicate_entity_id_issues(
+    repository_root: Path,
+) -> list[CanonicalReferenceIssue]:
+    """Find repeated canonical IDs, including files stored outside indexed paths."""
+    repository_root = Path(repository_root).resolve()
+    knowledge_root = repository_root / "knowledge"
+    entity_roots = (
+        ("document", "Document", knowledge_root / "documents", "*.md"),
+        ("term", "Term", knowledge_root / "terms", "*.md"),
+        ("source", "Source", knowledge_root / "sources", "*.yaml"),
+        ("collection", "Collection", knowledge_root / "collections", "*.yaml"),
+    )
+    issues = []
+    for entity_type, label, root, pattern in entity_roots:
+        identifiers: dict[str, list[str]] = {}
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob(pattern)):
+            try:
+                content = path.read_text(encoding="utf-8")
+                metadata = (
+                    parse_markdown(content).frontmatter
+                    if pattern == "*.md"
+                    else parse_yaml(content)
+                )
+            except (OSError, UnicodeError, ValueError, yaml.YAMLError):
+                continue
+            if not isinstance(metadata, dict):
+                continue
+            entity_id = metadata.get("id")
+            if isinstance(entity_id, str) and entity_id:
+                identifiers.setdefault(entity_id, []).append(
+                    path.relative_to(repository_root).as_posix()
+                )
+        for entity_id, paths in sorted(identifiers.items()):
+            if len(paths) < 2:
+                continue
+            issues.append(
+                CanonicalReferenceIssue(
+                    paths[-1],
+                    "canonical.duplicate.{}_id".format(entity_type),
+                    "Duplicate {} id '{}' found at {}".format(
+                        label, entity_id, ", ".join(paths)
+                    ),
                 )
             )
     return issues

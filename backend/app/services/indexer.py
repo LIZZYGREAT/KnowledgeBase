@@ -11,6 +11,7 @@ from backend.app.domain.collection import Collection, EntityNode, SectionNode
 from backend.app.domain.document import DocumentMetadata
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.term import TermMetadata
+from backend.app.services.canonical_validator import find_duplicate_entity_id_issues
 from backend.app.services.collection_registry import CollectionRegistry
 from backend.app.services.markdown_parser import MarkdownDocument, parse_markdown, parse_yaml
 from backend.app.services.resolution import normalize_key
@@ -58,6 +59,13 @@ class Indexer:
         self.connection = connection
 
     def full_rebuild(self) -> IndexBuildSummary:
+        duplicate_issues = find_duplicate_entity_id_issues(self.repository_root)
+        if duplicate_issues:
+            details = "; ".join(
+                "{}: {}".format(issue.path, issue.message)
+                for issue in duplicate_issues
+            )
+            raise IndexBuildError("Canonical repository contains duplicate entity IDs: {}".format(details))
         documents, terms, sources, taxonomy, collections, collection_nodes, markdown = self._snapshot()
         term_records = [record for record in markdown if record.entity_type == "term"]
         backlinks, evidence = self._relations(markdown, term_records)

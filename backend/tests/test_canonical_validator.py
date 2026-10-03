@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from backend.app.services.canonical_validator import validate_repository_references
 from tools import kb
 
@@ -28,6 +30,59 @@ def test_kb_check_fails_for_repository_wide_reference_errors(tmp_path, monkeypat
     assert "reference.taxonomy.topic" in output
     assert "reference.citation.source" in output
     assert "reference.wiki.ambiguous" in output
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "source_relative", "duplicate_relative", "expected_code"),
+    [
+        (
+            "document",
+            "knowledge/documents/learning/note.md",
+            "knowledge/documents/learning/archive/note.md",
+            "canonical.duplicate.document_id",
+        ),
+        (
+            "term",
+            "knowledge/terms/term-a.md",
+            "knowledge/terms/archive/term-a.md",
+            "canonical.duplicate.term_id",
+        ),
+        (
+            "source",
+            "knowledge/sources/known-source.yaml",
+            "knowledge/sources/archive/known-source.yaml",
+            "canonical.duplicate.source_id",
+        ),
+        (
+            "collection",
+            "knowledge/collections/collection-one.yaml",
+            "knowledge/collections/archive/collection-one.yaml",
+            "canonical.duplicate.collection_id",
+        ),
+    ],
+)
+def test_kb_check_fails_for_duplicate_canonical_entity_ids(
+    tmp_path, monkeypatch, capsys, entity_type, source_relative, duplicate_relative, expected_code
+):
+    repository = _write_reference_fixture(tmp_path / entity_type)
+    source = repository / source_relative
+    if entity_type == "collection":
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "schema_version: 1\nid: collection-one\ntitle: Collection One\n"
+            "status: active\nposition: 0\nnodes: []\n",
+            encoding="utf-8",
+        )
+    duplicate = repository / duplicate_relative
+    duplicate.parent.mkdir(parents=True, exist_ok=True)
+    duplicate.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(kb, "ROOT", repository)
+
+    result = kb.check_paths([repository / "knowledge"])
+
+    output = capsys.readouterr().out
+    assert result == 1
+    assert expected_code in output
 
 
 def _write_reference_fixture(repository: Path) -> Path:
