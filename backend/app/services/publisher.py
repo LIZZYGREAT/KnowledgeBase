@@ -281,7 +281,57 @@ class Publisher:
                     errors=("Draft has no canonical changes to publish",),
                 )
                 continue
+            prepared.append(item)
+            results[draft_id] = DraftPreflightResult(
+                draft_id, True
+            )
 
+        source_items = [
+            item for item in prepared if item.draft.entity_type == "source"
+        ]
+        valid_source_items = []
+        for item in source_items:
+            try:
+                item.warnings = tuple(
+                    self._validate_candidate(
+                        item.draft,
+                        item.content,
+                        item.path,
+                        item.metadata,
+                        validate_references=True,
+                    )
+                )
+            except (
+                PublishValidationError,
+                ValueError,
+                OSError,
+                yaml.YAMLError,
+                TypeError,
+            ) as error:
+                results[item.draft.id] = DraftPreflightResult(
+                    item.draft.id, False, errors=(str(error),)
+                )
+                continue
+            valid_source_items.append(item)
+            results[item.draft.id] = DraftPreflightResult(
+                item.draft.id, True, warnings=item.warnings
+            )
+
+        prospective_sources = None
+        source_registry_error = None
+        try:
+            prospective_sources = self._load_batch_sources(valid_source_items)
+        except (PublishValidationError, ValueError, OSError, yaml.YAMLError, TypeError) as error:
+            source_registry_error = str(error)
+
+        for item in prepared:
+            if item.draft.entity_type == "source":
+                continue
+            if source_registry_error is not None:
+                results[item.draft.id] = DraftPreflightResult(
+                    item.draft.id, False, errors=(source_registry_error,)
+                )
+                continue
             try:
                 warnings = self._validate_candidate(
                     item.draft,
@@ -289,17 +339,23 @@ class Publisher:
                     item.path,
                     item.metadata,
                     validate_references=True,
+                    sources_override=prospective_sources,
                 )
-            except (PublishValidationError, ValueError, OSError, yaml.YAMLError, TypeError) as error:
-                results[draft_id] = DraftPreflightResult(
-                    draft_id, False, errors=(str(error),)
+            except (
+                PublishValidationError,
+                ValueError,
+                OSError,
+                yaml.YAMLError,
+                TypeError,
+            ) as error:
+                results[item.draft.id] = DraftPreflightResult(
+                    item.draft.id, False, errors=(str(error),)
                 )
                 continue
 
             item.warnings = tuple(warnings)
-            prepared.append(item)
-            results[draft_id] = DraftPreflightResult(
-                draft_id, True, warnings=tuple(warnings)
+            results[item.draft.id] = DraftPreflightResult(
+                item.draft.id, True, warnings=item.warnings
             )
 
         collection_items = [
@@ -653,6 +709,7 @@ class Publisher:
         metadata,
         allow_style_warnings: bool = False,
         validate_references: bool = True,
+        sources_override: Optional[SourceRegistry] = None,
     ) -> list[str]:
         if draft.entity_type == "source":
             self._validate_source_attachment(metadata)
@@ -712,7 +769,9 @@ class Publisher:
             return warnings
 
         terms = self._load_terms_override(draft, content, path, metadata)
-        sources = self._load_sources_override(draft, content, path, metadata)
+        sources = sources_override or self._load_sources_override(
+            draft, content, path, metadata
+        )
         taxonomy = self._load_taxonomy_override(draft, content, metadata)
         parsed = parse_markdown(content)
         references = validate_markdown_references(
@@ -796,6 +855,17 @@ class Publisher:
                 sources[source.id] = source
         if draft.entity_type == "source":
             sources[metadata.id] = metadata
+        return SourceRegistry(tuple(sources[key] for key in sorted(sources)))
+
+    def _load_batch_sources(
+        self, source_drafts: Sequence[_PreparedDraft]
+    ) -> SourceRegistry:
+        sources = {
+            source.id: source
+            for source in SourceRegistry.load(self.knowledge_root / "sources").sources
+        }
+        for item in source_drafts:
+            sources[item.metadata.id] = item.metadata
         return SourceRegistry(tuple(sources[key] for key in sorted(sources)))
 
     def _load_taxonomy_override(self, draft: Draft, content: str, metadata) -> TaxonomyRegistry:

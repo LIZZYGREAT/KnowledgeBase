@@ -393,6 +393,138 @@ def test_preflight_batch_accepts_collection_reference_to_new_document(publish_co
     assert not (repository / "knowledge/collections/preflight-batch-reading.yaml").exists()
 
 
+def test_preflight_and_publish_accept_source_document_collection_batch(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    source_path = "knowledge/sources/preflight-new-source.yaml"
+    document_path = "knowledge/documents/learning/preflight-source-note.md"
+    collection_path = "knowledge/collections/preflight-source-reading.yaml"
+    source_content = (
+        "schema_version: 1\nid: preflight-new-source\ntype: web\n"
+        "title: A New Batch Source\nurl: https://example.com/new-source\n"
+    )
+    document_content = _document("preflight-source-note").replace(
+        "ewc-2017", "preflight-new-source"
+    )
+    collection_content = _collection(
+        "preflight-source-reading",
+        "Preflight Source Reading",
+        "  - id: preflight-source-note\n    kind: entity\n"
+        "    entity_type: document\n    entity_id: preflight-source-note\n",
+    )
+    source_draft = _create_draft(
+        drafts,
+        git,
+        "source",
+        "preflight-new-source",
+        source_content,
+        source_path,
+    )
+    document_draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "preflight-source-note",
+        document_content,
+        document_path,
+    )
+    collection_draft = _create_draft(
+        drafts,
+        git,
+        "collection",
+        "preflight-source-reading",
+        collection_content,
+        collection_path,
+    )
+    reviewed = [
+        (source_draft.id, source_draft.revision),
+        (document_draft.id, document_draft.revision),
+        (collection_draft.id, collection_draft.revision),
+    ]
+    base_revision = git.current_revision()
+
+    preflight = publisher.preflight_batch(reviewed)
+
+    assert [result.valid for result in preflight] == [True, True, True]
+    assert all(not result.conflict and not result.errors for result in preflight)
+    assert git.current_revision() == base_revision
+    assert git.status() == ""
+    assert not (repository / source_path).exists()
+    assert not (repository / document_path).exists()
+    assert not (repository / collection_path).exists()
+
+    published = publisher.publish_batch(reviewed)
+
+    changed_paths = _git(
+        repository, "show", "--pretty=format:", "--name-only", published.commit_revision
+    ).splitlines()
+    assert set(changed_paths) == {source_path, document_path, collection_path}
+    assert all((repository / path).is_file() for path in changed_paths)
+    assert published.commit_revision == git.current_revision()
+
+
+def test_preflight_batch_rejects_unknown_source_reference(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "preflight-unknown-source",
+        _document("preflight-unknown-source").replace("ewc-2017", "missing-source"),
+        "knowledge/documents/learning/preflight-unknown-source.md",
+    )
+
+    result = publisher.preflight_batch([(draft.id, draft.revision)])[0]
+
+    assert result.valid is False
+    assert result.conflict is False
+    assert "Unknown Source id(s): missing-source" in " ".join(result.errors)
+    assert not (repository / "knowledge/documents/learning/preflight-unknown-source.md").exists()
+
+
+def test_preflight_batch_rejects_invalid_source_draft_and_dependent_document(
+    publish_context,
+):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    source_draft = _create_draft(
+        drafts,
+        git,
+        "source",
+        "preflight-invalid-source",
+        "schema_version: 2\nid: preflight-invalid-source\ntype: web\n"
+        "title: Invalid Source\nurl: https://example.com/invalid-source\n",
+        "knowledge/sources/preflight-invalid-source.yaml",
+    )
+    document_draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "preflight-source-dependent-note",
+        _document("preflight-source-dependent-note").replace(
+            "ewc-2017", "preflight-invalid-source"
+        ),
+        "knowledge/documents/learning/preflight-source-dependent-note.md",
+    )
+
+    results = publisher.preflight_batch(
+        [
+            (source_draft.id, source_draft.revision),
+            (document_draft.id, document_draft.revision),
+        ]
+    )
+
+    assert [result.valid for result in results] == [False, False]
+    assert "schema_version" in " ".join(results[0].errors)
+    assert "Unknown Source id(s): preflight-invalid-source" in " ".join(
+        results[1].errors
+    )
+    assert not (
+        repository / "knowledge/sources/preflight-invalid-source.yaml"
+    ).exists()
+
+
 def test_preflight_batch_rejects_unknown_document_reference(publish_context):
     repository, _, drafts, _, publisher = publish_context
     git = GitManager(repository)
