@@ -47,7 +47,13 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
   const [publishReview, setPublishReview] = useState<PublishReviewItem[] | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
   useEffect(() => { if (comparison) setActiveDrawer("conflict"); }, [comparison]);
-  useEffect(() => { setPublishReview(null); }, [draft?.revision, isDirty]);
+  useEffect(() => {
+    setPublishReview((current) => {
+      if (!current || isDirty) return null;
+      const currentDraftReview = current.find((item) => item.comparison.draft.id === draft?.id);
+      return currentDraftReview?.draftRevision === draft?.revision ? current : null;
+    });
+  }, [draft?.id, draft?.revision, isDirty]);
 
   async function refreshProposals() {
     try {
@@ -111,6 +117,10 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
         targets.push({ id: collectionDraft.id, entityType: collectionDraft.entity_type, label: "Collection" });
       }
       const comparisons = await Promise.all(targets.map((target) => compareDraft(target.id)));
+      const currentComparison = comparisons.find(({ draft: comparedDraft }) => comparedDraft.id === currentDraft.id);
+      if (currentComparison && currentComparison.draft.revision !== currentDraft.revision) {
+        workspaceDraft.acceptLatestDraft(currentComparison.draft);
+      }
       const preflights = batchCollectionId
         ? (await preflightDraftsBatch(comparisons.map(({ draft: reviewedDraft }) => ({
           draft_id: reviewedDraft.id,
@@ -242,8 +252,12 @@ export function useWorkspaceEditorController({ type, id, navigate, workspaceDraf
         navigate(entityWorkspaceUrl(type, id, { collectionId: batchCollectionId }));
       }
     } catch (error) {
-      setSaveError(errorMessage(error));
-      if ((error as { status?: number })?.status === 409) await openComparison();
+      if ((error as { status?: number })?.status === 409) {
+        setPublishReview(null);
+        await runPreflight();
+      } else {
+        setSaveError(errorMessage(error));
+      }
     } finally {
       setPublishing(false);
     }

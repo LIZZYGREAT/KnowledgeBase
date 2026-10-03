@@ -256,6 +256,14 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setRuntimeError("");
   }, [reloadLatestDraft, setRuntimeError]);
 
+  const acceptLatestDraft = useCallback((latest: NonNullable<typeof runtimeDraft>) => {
+    const activeIdentity = identity;
+    if (identityRef.current !== activeIdentity || latest.entity_type !== type || latest.entity_id !== id) return;
+    acceptDraft(latest);
+    setComparison(null);
+    setRuntimeError("");
+  }, [acceptDraft, id, identity, setRuntimeError, type]);
+
   const applyRuntimeMerge = useCallback(async (contentOverride?: string) => {
     await updateLatestDraft(contentOverride ?? runtimeMergeContent);
     setComparison(null);
@@ -318,6 +326,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     ensureDraft,
     applyProposalToDraft,
     reloadExistingDraft,
+    acceptLatestDraft,
     applyRuntimeMerge,
   };
 }

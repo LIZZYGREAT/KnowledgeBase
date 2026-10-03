@@ -652,7 +652,7 @@ describe("Workspace React integration", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: /Publish All · 一个 Git 提交/ }) as HTMLButtonElement).disabled).toBe(false));
   });
 
-  it("publishes only the Draft revision captured by Publish Review", async () => {
+  it("refreshes Publish Review after a Draft-only stale revision and publishes the latest revision", async () => {
     const user = userEvent.setup();
     const reviewedDraft = seedDraft(canonicalContent.replace("selected phrase", "reviewed phrase"));
     api.publishDraft.mockImplementationOnce(async (id: string, expectedRevision: number) => {
@@ -677,8 +677,36 @@ describe("Workspace React integration", () => {
     await user.click(publishButton);
 
     await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith(reviewedDraft.id, 1));
-    await screen.findByRole("heading", { name: "版本比较" });
-    expect(screen.queryByText("发布成功")).toBeNull();
+    await screen.findByRole("heading", { name: "变更摘要" });
+    expect(screen.getByText(/Draft revision 2/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "查看完整差异" }));
+    expect(screen.getByText(/later revision/)).toBeTruthy();
+    const refreshedPublishButton = screen.getByRole("button", { name: "确认发布" });
+    await waitFor(() => expect((refreshedPublishButton as HTMLButtonElement).disabled).toBe(false));
+    await user.click(refreshedPublishButton);
+
+    await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith(reviewedDraft.id, 2));
+    expect(await screen.findByText("发布成功")).toBeTruthy();
+  });
+
+  it("opens Version Comparison when a fresh preflight finds a canonical conflict after 409", async () => {
+    const user = userEvent.setup();
+    const draft = seedDraft(canonicalContent.replace("selected phrase", "reviewed phrase"));
+    api.publishDraft.mockImplementationOnce(async () => {
+      conflictOnPreflight = true;
+      throw Object.assign(new Error("Draft changed before publish."), { status: 409 });
+    });
+    renderWorkspace();
+
+    await user.click(await screen.findByRole("button", { name: "发布" }));
+    await screen.findByRole("heading", { name: "变更摘要" });
+    const publishButton = await screen.findByRole("button", { name: "确认发布" });
+    await waitFor(() => expect((publishButton as HTMLButtonElement).disabled).toBe(false));
+    await user.click(publishButton);
+
+    await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith(draft.id, 1));
+    await screen.findByRole("heading", { name: "解决版本冲突" });
+    expect(screen.queryByRole("heading", { name: "变更摘要" })).toBeNull();
   });
 
   it("formats a Reader text selection and autosaves the Markdown source change", async () => {
