@@ -493,10 +493,44 @@ class Publisher:
         revision: str,
         commit_message: Optional[str] = None,
     ) -> RestoredResult:
-        """Restore a canonical file by creating a new commit through GitManager."""
+        """Restore a canonical file only when the prospective repository stays valid."""
         historical_content = self.git.read_at_revision(path, revision)
         restore_warnings = self._validate_restore_candidate(path, historical_content)
-        commit_revision = self.git.restore(path, revision, commit_message)
+        relative_path = self.git._relative_knowledge_path(path)
+        target = self.repository_root / relative_path
+        previous = target.read_bytes() if target.is_file() else None
+        prepared = [{"path": target, "previous": previous}]
+        try:
+            if historical_content is not None:
+                _atomic_write(target, historical_content)
+            elif target.exists():
+                if not target.is_file():
+                    raise PublishValidationError("Restore target is not a regular file")
+                target.unlink()
+
+            reference_issues = validate_repository_references(self.repository_root)
+            if reference_issues:
+                raise PublishValidationError(
+                    "; ".join(
+                        "{}: {}".format(issue.path, issue.message)
+                        for issue in reference_issues
+                    )
+                )
+
+            message = commit_message or "restore: {} to {}".format(
+                relative_path, revision[:12]
+            )
+            commit_revision = self.git.commit(relative_path, message)
+        except Exception as error:
+            rollback_errors = self._restore_prepared_files(prepared)
+            if rollback_errors:
+                raise PublishError(
+                    "Restore failed and canonical rollback was incomplete: {}".format(
+                        "; ".join(rollback_errors)
+                    )
+                ) from error
+            raise
+
         warnings = list(restore_warnings)
         try:
             self.indexer.update_path(path)

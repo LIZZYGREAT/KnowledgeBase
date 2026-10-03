@@ -894,6 +894,198 @@ def test_restore_to_before_new_file_creation_records_deletion_commit(publish_con
     assert _git(repository, "show", "-s", "--format=%s", restored_again.commit_revision).startswith("restore:")
 
 
+def test_restore_rejects_deleting_a_referenced_document(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    before_creation = git.current_revision()
+    document_path = "knowledge/documents/learning/restore-referenced-document.md"
+    collection_path = "knowledge/collections/restore-document-path.yaml"
+    document_content = _document("restore-referenced-document")
+    document_draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "restore-referenced-document",
+        document_content,
+        document_path,
+    )
+    collection_draft = _create_draft(
+        drafts,
+        git,
+        "collection",
+        "restore-document-path",
+        _collection(
+            "restore-document-path",
+            "Restore Document Path",
+            "  - id: referenced-document\n    kind: entity\n    entity_type: document\n    entity_id: restore-referenced-document\n",
+        ),
+        collection_path,
+    )
+    publisher.publish_batch(
+        [
+            (document_draft.id, document_draft.revision),
+            (collection_draft.id, collection_draft.revision),
+        ]
+    )
+    head = git.current_revision()
+
+    with pytest.raises(
+        PublishValidationError,
+        match="Unknown document entity 'restore-referenced-document'",
+    ):
+        publisher.restore(document_path, before_creation)
+
+    assert (repository / document_path).read_text(encoding="utf-8") == document_content
+    assert git.current_revision() == head
+    assert git.status() == ""
+
+
+def test_restore_rejects_deleting_a_term_referenced_by_a_collection(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    before_creation = git.current_revision()
+    term_path = "knowledge/terms/restore-referenced-term.md"
+    collection_path = "knowledge/collections/restore-term-path.yaml"
+    term_content = _term("restore-referenced-term", title="Restore Referenced Term")
+    term_draft = _create_draft(
+        drafts, git, "term", "restore-referenced-term", term_content, term_path
+    )
+    collection_draft = _create_draft(
+        drafts,
+        git,
+        "collection",
+        "restore-term-path",
+        _collection(
+            "restore-term-path",
+            "Restore Term Path",
+            "  - id: referenced-term\n    kind: entity\n    entity_type: term\n    entity_id: restore-referenced-term\n",
+        ),
+        collection_path,
+    )
+    publisher.publish_batch(
+        [
+            (term_draft.id, term_draft.revision),
+            (collection_draft.id, collection_draft.revision),
+        ]
+    )
+    head = git.current_revision()
+
+    with pytest.raises(
+        PublishValidationError,
+        match="Unknown term entity 'restore-referenced-term'",
+    ):
+        publisher.restore(term_path, before_creation)
+
+    assert (repository / term_path).read_text(encoding="utf-8") == term_content
+    assert git.current_revision() == head
+    assert git.status() == ""
+
+
+def test_restore_rejects_historical_term_alias_that_ambiguates_existing_wiki_link(
+    publish_context,
+):
+    repository, _, _, _, publisher = publish_context
+    git = GitManager(repository)
+    term_a_path = repository / "knowledge" / "terms" / "restore-term-a.md"
+    term_b_path = repository / "knowledge" / "terms" / "restore-term-b.md"
+    document_path = repository / "knowledge" / "documents" / "learning" / "restore-alias-link.md"
+    shared_alias = "shared-restore-alias"
+
+    term_a_path.write_text(
+        _term("restore-term-a", title="Restore Term A", aliases=(shared_alias,)),
+        encoding="utf-8",
+    )
+    term_b_path.write_text(
+        _term("restore-term-b", title="Restore Term B", aliases=(shared_alias,)),
+        encoding="utf-8",
+    )
+    document_path.write_text(
+        _document("restore-alias-link", body="See [[{}]].\n".format(shared_alias)),
+        encoding="utf-8",
+    )
+    _git(
+        repository,
+        "add",
+        "knowledge/terms/restore-term-a.md",
+        "knowledge/terms/restore-term-b.md",
+        "knowledge/documents/learning/restore-alias-link.md",
+    )
+    _git(repository, "commit", "-m", "record historical ambiguous alias")
+    historical_revision = git.current_revision()
+    current_content = _term("restore-term-a", title="Restore Term A")
+    term_a_path.write_text(current_content, encoding="utf-8")
+    _git(repository, "add", "knowledge/terms/restore-term-a.md")
+    _git(repository, "commit", "-m", "remove duplicate alias")
+    head = git.current_revision()
+
+    with pytest.raises(PublishValidationError, match="Ambiguous wiki link 'shared-restore-alias'"):
+        publisher.restore(term_a_path, historical_revision)
+
+    assert term_a_path.read_text(encoding="utf-8") == current_content
+    assert git.current_revision() == head
+    assert git.status() == ""
+
+
+def test_restore_accepts_a_safe_historical_document(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/restore-safe-document.md"
+    historical_content = _document("restore-safe-document", title="Historical Document")
+    historical_draft = _create_draft(
+        drafts, git, "document", "restore-safe-document", historical_content, target
+    )
+    historical_publish = publisher.publish(
+        historical_draft.id, expected_revision=historical_draft.revision
+    )
+    current_content = _document("restore-safe-document", title="Current Document")
+    current_draft = _create_draft(
+        drafts,
+        git,
+        "document",
+        "restore-safe-document",
+        current_content,
+        target,
+    )
+    current_publish = publisher.publish(current_draft.id, expected_revision=current_draft.revision)
+
+    restored = publisher.restore(target, historical_publish.commit_revision)
+
+    assert restored.commit_revision not in {
+        historical_publish.commit_revision,
+        current_publish.commit_revision,
+    }
+    assert (repository / target).read_text(encoding="utf-8") == historical_content
+    assert GitManager(repository).current_revision() == restored.commit_revision
+
+
+def test_restore_commit_failure_rolls_back_canonical_content(publish_context, monkeypatch):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/restore-commit-failure.md"
+    historical_content = _document("restore-commit-failure", title="Historical")
+    draft = _create_draft(
+        drafts, git, "document", "restore-commit-failure", historical_content, target
+    )
+    historical = publisher.publish(draft.id, expected_revision=draft.revision)
+    current_content = _document("restore-commit-failure", title="Current")
+    current_draft = _create_draft(
+        drafts, git, "document", "restore-commit-failure", current_content, target
+    )
+    publisher.publish(current_draft.id, expected_revision=current_draft.revision)
+    head = git.current_revision()
+
+    def fail_commit(*_args, **_kwargs):
+        raise GitOperationError("simulated restore commit failure")
+
+    monkeypatch.setattr(publisher.git, "commit", fail_commit)
+    with pytest.raises(GitOperationError, match="simulated restore commit failure"):
+        publisher.restore(target, historical.commit_revision)
+
+    assert (repository / target).read_text(encoding="utf-8") == current_content
+    assert git.current_revision() == head
+    assert git.status() == ""
+
+
 def test_restore_rejects_deleting_a_referenced_source(publish_context):
     repository, _, _, _, publisher = publish_context
     git = GitManager(repository)

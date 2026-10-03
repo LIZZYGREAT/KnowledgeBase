@@ -127,41 +127,6 @@ class GitManager:
                 )
             raise
 
-    def restore(
-        self,
-        path: Union[str, Path],
-        revision: str,
-        message: Optional[str] = None,
-    ) -> str:
-        """Restore a canonical path from history and record it as a new commit."""
-        target_revision = _validate_revision(revision)
-        self._run(
-            ["cat-file", "-e", "{}^{{commit}}".format(target_revision)]
-        )
-        target, relative_path = self._resolve_knowledge_path(path)
-        historical_content = self.read_at_revision(relative_path, target_revision)
-        previous = target.read_bytes() if target.is_file() else None
-        try:
-            if historical_content is not None:
-                _atomic_write(target, historical_content)
-            else:
-                if target.exists():
-                    if not target.is_file():
-                        raise GitOperationError("Restore target is not a regular file")
-                    target.unlink()
-
-            commit_message = message or "restore: {} to {}".format(
-                relative_path, target_revision[:12]
-            )
-            return self.commit(relative_path, commit_message)
-        except Exception:
-            if previous is None:
-                if target.exists() and target.is_file():
-                    target.unlink()
-            else:
-                _atomic_write(target, previous)
-            raise
-
     def _relative_knowledge_path(self, path: Union[str, Path]) -> str:
         _, relative = self._resolve_knowledge_path(path)
         return relative
