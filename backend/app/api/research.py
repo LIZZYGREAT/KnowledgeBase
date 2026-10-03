@@ -29,6 +29,7 @@ from backend.app.api.research_schemas import (
 )
 from backend.app.domain.research_runtime import ResearchCandidateStatus
 from backend.app.domain.research_runtime import ResearchCandidateRecord, ResearchRunRecord
+from backend.app.services.research_conversion_service import ResearchConversionError
 
 
 router = APIRouter(prefix="/api/research", tags=["Research"])
@@ -279,13 +280,16 @@ async def save_candidate_source(candidate_id: str, request: Request):
 async def create_candidate_note(
     candidate_id: str, body: ResearchCreateNoteRequest, request: Request
 ):
-    result = request.app.state.research_conversion_service.create_note(
-        candidate_id,
-        document_type=body.document_type,
-        template=body.template,
-        collection_id=body.collection_id,
-        section_id=body.section_id,
-    )
+    try:
+        result = request.app.state.research_conversion_service.create_note(
+            candidate_id,
+            document_type=body.document_type,
+            template=body.template,
+            collection_id=body.collection_id,
+            section_id=body.section_id,
+        )
+    except ResearchConversionError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
     return {
         "group_id": result.group_id,
         "source_draft_id": result.source_draft_id,

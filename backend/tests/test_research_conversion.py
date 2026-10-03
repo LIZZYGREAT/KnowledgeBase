@@ -198,6 +198,115 @@ def test_create_note_builds_source_and_paper_note_drafts_without_completing_cand
         connection.close()
 
 
+def test_reused_source_group_returns_source_draft_owned_by_another_candidate(tmp_path):
+    _, connection, _, converter, source_candidate = _setup(tmp_path)
+    try:
+        source_result = converter.save_source(source_candidate.id)
+        note_candidate = _insert_other_profile_candidate(connection, source_candidate)
+
+        result = converter.create_note(note_candidate.id, "paper-note", "structured")
+        repeated = converter.create_note(note_candidate.id, "learning-note", "blank")
+
+        assert source_result.draft_id is not None
+        assert result.source_draft_id == source_result.draft_id
+        assert repeated == result
+        group_links = ResearchRepository(connection).list_pending_links_for_group(
+            result.group_id
+        )
+        assert {link["relation_type"] for link in group_links} == {"source", "note"}
+        source_link = next(link for link in group_links if link["relation_type"] == "source")
+        note_link = next(link for link in group_links if link["relation_type"] == "note")
+        assert source_link["candidate_id"] == source_candidate.id
+        assert note_link["candidate_id"] == note_candidate.id
+    finally:
+        connection.close()
+
+
+def test_create_note_reports_incomplete_rollback_to_the_api(tmp_path, monkeypatch):
+    repository, connection, drafts, converter, candidate = _setup(tmp_path)
+    try:
+        collection_path = repository / "knowledge" / "collections" / "continual-learning.yaml"
+        collection_path.parent.mkdir(parents=True, exist_ok=True)
+        collection_content = (
+            "schema_version: 1\nid: continual-learning\ntitle: Continual Learning\n"
+            "status: active\nposition: 0\nnodes:\n  - id: regularization\n"
+            "    kind: section\n    title: Regularization\n    children: []\n"
+        )
+        collection_path.write_text(collection_content, encoding="utf-8")
+        _git(repository, "add", "knowledge/collections/continual-learning.yaml")
+        _git(repository, "commit", "-m", "Add rollback Collection fixture")
+        Indexer(repository, connection).full_rebuild()
+        target = converter.canonical_target_resolver.resolve_target(
+            "collection", "continual-learning", collection_content
+        )
+        collection_draft = drafts.create(
+            "collection",
+            "continual-learning",
+            collection_content,
+            converter.git.current_revision(),
+            converter.git.content_hash(target.path),
+        )
+
+        original_save = drafts.save
+        save_calls = 0
+
+        def fail_restore(draft_id, content, expected_revision):
+            nonlocal save_calls
+            save_calls += 1
+            if save_calls == 2:
+                raise RuntimeError("restore blocked")
+            return original_save(draft_id, content, expected_revision)
+
+        discard_attempts = []
+
+        def fail_discard(draft_id, expected_revision):
+            discard_attempts.append(draft_id)
+            raise RuntimeError("discard blocked")
+
+        def fail_pending_link(**_kwargs):
+            raise RuntimeError("pending link write failed")
+
+        monkeypatch.setattr(drafts, "save", fail_restore)
+        monkeypatch.setattr(drafts, "discard", fail_discard)
+        monkeypatch.setattr(converter.work_repository, "add_pending_link", fail_pending_link)
+
+        app = FastAPI()
+        app.include_router(research_router)
+        app.state.research_conversion_service = converter
+
+        async def create_via_api():
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                return await client.post(
+                    "/api/research/candidates/{}/create-note".format(candidate.id),
+                    json={
+                        "document_type": "paper-note",
+                        "template": "structured",
+                        "collection_id": "continual-learning",
+                        "section_id": "regularization",
+                    },
+                )
+
+        response = asyncio.run(create_via_api())
+
+        assert response.status_code == 500
+        detail = response.json()["detail"]
+        assert "rollback was incomplete" in detail
+        assert "inspect related Source, Document, and Collection Drafts" in detail
+        assert "Original error: pending link write failed" in detail
+        assert "restore Collection Draft failed: restore blocked" in detail
+        assert "discard Document Draft failed: discard blocked" in detail
+        assert "discard Source Draft failed: discard blocked" in detail
+        assert len(discard_attempts) == 2
+        updated_collection = drafts.get(collection_draft.id)
+        assert updated_collection.content != collection_content
+        assert len(drafts.list_for_target("source", "a-new-research-method")) == 1
+        assert not ResearchRepository(connection).list_pending_links(candidate.id)
+    finally:
+        connection.close()
+
+
 def test_create_note_uses_existing_source_and_publishes_with_collection_in_one_batch(tmp_path):
     repository, connection, drafts, converter, candidate = _setup(tmp_path)
     try:

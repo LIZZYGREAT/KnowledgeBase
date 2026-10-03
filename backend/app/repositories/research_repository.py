@@ -254,6 +254,14 @@ class ResearchRepository:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_pending_links_for_group(self, group_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            """SELECT * FROM research_pending_links WHERE group_id = ?
+               ORDER BY created_at, relation_type, id""",
+            (group_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def get_pending_link_for_candidate(
         self, candidate_id: str, relation_type: str
     ) -> Optional[dict]:

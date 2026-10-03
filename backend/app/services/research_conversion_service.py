@@ -44,6 +44,10 @@ class ResearchNoteCreateResult:
     source_id: Optional[str]
 
 
+class ResearchConversionError(RuntimeError):
+    """A Create Note operation failed and left one or more drafts unreverted."""
+
+
 class ResearchConversionService:
     def __init__(
         self,
@@ -158,7 +162,7 @@ class ResearchConversionService:
 
         existing_note = self.work_repository.get_pending_link_for_candidate(candidate.id, "note")
         if existing_note is not None:
-            return self._existing_note_group(candidate.id, existing_note)
+            return self._existing_note_group(existing_note)
 
         group_id = uuid.uuid4().hex
         source_id: Optional[str] = None
@@ -249,26 +253,53 @@ class ResearchConversionService:
                 document_id=document_id,
                 source_id=source_id,
             )
-        except Exception:
+        except Exception as original_error:
+            cleanup_errors: list[str] = []
+
+            def attempt_cleanup(label: str, cleanup: Callable[[], object]) -> None:
+                try:
+                    cleanup()
+                except Exception as cleanup_error:
+                    cleanup_errors.append(
+                        "{} failed: {}".format(label, cleanup_error)
+                    )
+
             if collection_draft is not None and collection_created:
-                self._discard_created_draft(collection_draft)
+                attempt_cleanup(
+                    "discard Collection Draft",
+                    lambda: self._discard_created_draft(collection_draft),
+                )
             elif (
                 collection_draft is not None
                 and prior_collection_content is not None
                 and prior_collection_revision is not None
             ):
-                try:
-                    self.draft_service.save(
+                attempt_cleanup(
+                    "restore Collection Draft",
+                    lambda: self.draft_service.save(
                         collection_draft.id,
                         prior_collection_content,
                         collection_draft.revision,
-                    )
-                except Exception:
-                    pass
+                    ),
+                )
             if document_draft is not None and document_created:
-                self._discard_created_draft(document_draft)
+                attempt_cleanup(
+                    "discard Document Draft",
+                    lambda: self._discard_created_draft(document_draft),
+                )
             if source_draft is not None and source_created:
-                self._discard_created_draft(source_draft)
+                attempt_cleanup(
+                    "discard Source Draft",
+                    lambda: self._discard_created_draft(source_draft),
+                )
+            if cleanup_errors:
+                raise ResearchConversionError(
+                    "Create Note failed and rollback was incomplete; inspect related "
+                    "Source, Document, and Collection Drafts before retrying. "
+                    "Original error: {}. Cleanup failures: {}".format(
+                        original_error, "; ".join(cleanup_errors)
+                    )
+                ) from original_error
             raise
 
     def cancel_pending_for_draft(self, draft_id: str) -> int:
@@ -393,9 +424,7 @@ class ResearchConversionService:
             raise ValueError("Research pending link does not match its Source Draft")
         return draft
 
-    def _existing_note_group(
-        self, candidate_id: str, note_link: dict
-    ) -> ResearchNoteCreateResult:
+    def _existing_note_group(self, note_link: dict) -> ResearchNoteCreateResult:
         try:
             document_draft = self.draft_service.get(note_link["draft_id"])
         except LookupError:
@@ -403,26 +432,56 @@ class ResearchConversionService:
             raise ValueError("Pending Research Note Draft no longer exists")
         if document_draft.entity_type != "document":
             raise ValueError("Research note link does not reference a Document Draft")
-        links = self.work_repository.list_pending_links(candidate_id)
-        group_links = [link for link in links if link["group_id"] == note_link["group_id"]]
+        group_links = self.work_repository.list_pending_links_for_group(
+            note_link["group_id"]
+        )
         source_link = next((link for link in group_links if link["relation_type"] == "source"), None)
         collection_link = next((link for link in group_links if link["relation_type"] == "collection"), None)
         source_draft_id = None
         source_id = None
         if source_link is not None:
             source_id = source_link["intended_entity_id"]
+            if source_link["draft_id"] != document_draft.id:
+                try:
+                    source_draft = self.draft_service.get(source_link["draft_id"])
+                except LookupError as error:
+                    self.cancel_pending_for_draft(source_link["draft_id"])
+                    raise ValueError(
+                        "Pending Research Source Draft no longer exists"
+                    ) from error
+                if (
+                    source_draft.entity_type != "source"
+                    or source_draft.entity_id != source_id
+                ):
+                    raise ValueError(
+                        "Research Source link does not reference its Source Draft"
+                    )
+                source_draft_id = source_draft.id
+        collection_draft_id = None
+        collection_id = None
+        if collection_link is not None:
+            collection_id = collection_link["intended_entity_id"]
             try:
-                source_draft = self.draft_service.get(source_link["draft_id"])
-                if source_draft.entity_type == "source":
-                    source_draft_id = source_draft.id
-            except LookupError:
-                pass
+                collection_draft = self.draft_service.get(collection_link["draft_id"])
+            except LookupError as error:
+                self.cancel_pending_for_draft(collection_link["draft_id"])
+                raise ValueError(
+                    "Pending Research Collection Draft no longer exists"
+                ) from error
+            if (
+                collection_draft.entity_type != "collection"
+                or collection_draft.entity_id != collection_id
+            ):
+                raise ValueError(
+                    "Research Collection link does not reference its Collection Draft"
+                )
+            collection_draft_id = collection_draft.id
         return ResearchNoteCreateResult(
             group_id=note_link["group_id"],
             source_draft_id=source_draft_id,
             document_draft_id=document_draft.id,
-            collection_draft_id=collection_link["draft_id"] if collection_link else None,
-            collection_id=collection_link["intended_entity_id"] if collection_link else None,
+            collection_draft_id=collection_draft_id,
+            collection_id=collection_id,
             document_id=document_draft.entity_id,
             source_id=source_id,
         )
@@ -521,11 +580,12 @@ class ResearchConversionService:
         return updated, False, collection_draft.content, collection_draft.revision
 
     def _discard_created_draft(self, draft: Draft) -> None:
+        self.cancel_pending_for_draft(draft.id)
         try:
-            self.cancel_pending_for_draft(draft.id)
             self.draft_service.discard(draft.id, draft.revision)
         except LookupError:
-            pass
+            # The Draft is already absent, so there is nothing left to discard.
+            return
 
     def _now(self) -> datetime:
         value = self.clock()
