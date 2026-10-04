@@ -272,8 +272,10 @@ class ResearchService:
         self, profile_id: str, profile_hash: str
     ) -> Optional[tuple[ResumeStrategy, Optional[int], Optional[datetime]]]:
         """Resolve a published reactivation choice for scheduled or incremental work."""
-        choice = self.control_event_repository.latest_reactivation_choice(profile_id)
-        if choice is None or choice["payload"].get("profile_content_hash") != profile_hash:
+        choice = self.control_event_repository.latest_reactivation_choice_for_hash(
+            profile_id, profile_hash
+        )
+        if choice is None:
             return None
 
         chosen_at = _parse_timestamp(choice["created_at"])
@@ -283,11 +285,11 @@ class ResearchService:
             if state is not None and state.last_successful_scheduled_run_at is not None
             else None
         )
-        if last_success is not None and last_success > chosen_at:
+        if last_success is not None and last_success >= chosen_at:
             return None
 
         latest_resume = self.control_event_repository.latest_resume(profile_id)
-        if latest_resume is not None and _parse_timestamp(latest_resume["created_at"]) > chosen_at:
+        if latest_resume is not None and _parse_timestamp(latest_resume["created_at"]) >= chosen_at:
             return None
 
         strategy = choice["payload"].get("strategy")

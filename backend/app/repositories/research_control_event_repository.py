@@ -69,6 +69,21 @@ class ResearchControlEventRepository:
         ).fetchone()
         return _event_from_row(row) if row else None
 
+    def latest_reactivation_choice_for_hash(
+        self, profile_id: str, profile_content_hash: str
+    ) -> Optional[dict[str, Any]]:
+        rows = self.connection.execute(
+            """SELECT * FROM research_control_events
+               WHERE profile_id = ? AND event_type = 'reactivation_choice'
+               ORDER BY created_at DESC, id DESC""",
+            (profile_id,),
+        ).fetchall()
+        for row in rows:
+            event = _event_from_row(row)
+            if event["payload"].get("profile_content_hash") == profile_content_hash:
+                return event
+        return None
+
     def list_for_profile(
         self, profile_id: str, limit: int = 50
     ) -> list[dict[str, Any]]:

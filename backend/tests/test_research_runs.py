@@ -890,6 +890,49 @@ def test_reactivation_choice_is_ignored_for_a_different_profile_hash(tmp_path):
     connection.close()
 
 
+def test_failed_newer_profile_choice_does_not_mask_choice_for_canonical_hash(tmp_path):
+    connection = connect_database(":memory:")
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
+    profile = service.profile_registry.get("continual-learning")
+    canonical_hash = service.profile_registry.content_hash(profile.id)
+    chosen_at = _NOW
+    service.record_reactivation_choice(
+        profile.id, canonical_hash, "from_now", now=chosen_at
+    )
+    service.record_reactivation_choice(
+        profile.id, "b" * 64, "all", now=chosen_at + timedelta(seconds=1)
+    )
+
+    policy = service.resolve_effective_resume_policy(profile.id, canonical_hash)
+
+    assert policy == ("from_now", None, chosen_at)
+    connection.close()
+
+
+@pytest.mark.parametrize("invalidator", ["success", "resume"])
+def test_reactivation_choice_is_invalidated_at_equal_timestamp(
+    tmp_path, invalidator
+):
+    connection = connect_database(":memory:")
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
+    profile = service.profile_registry.get("continual-learning")
+    profile_hash = service.profile_registry.content_hash(profile.id)
+    service.record_reactivation_choice(
+        profile.id, profile_hash, "all", now=_NOW
+    )
+    if invalidator == "success":
+        service.profile_state_repository.record_successful_scheduled_run(
+            profile.id, _NOW
+        )
+    else:
+        service.control_event_repository.create(
+            profile.id, "resume", {"strategy": "catch_up"}, _NOW
+        )
+
+    assert service.resolve_effective_resume_policy(profile.id, profile_hash) is None
+    connection.close()
+
+
 def test_reactivation_review_covers_a_lens_enabled_on_an_active_profile(tmp_path):
     connection = connect_database(":memory:")
     profile = _profile()
