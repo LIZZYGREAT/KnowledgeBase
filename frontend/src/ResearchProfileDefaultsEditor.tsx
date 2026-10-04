@@ -51,6 +51,8 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, onClo
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState<ProfileReview | null>(null);
   const [reactivationStrategy, setReactivationStrategy] = useState<ResearchReactivationStrategy | "">("");
+  const [newLensId, setNewLensId] = useState("");
+  const [newLensTitle, setNewLensTitle] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -87,15 +89,59 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, onClo
 
   function updateProfile(transform: (current: ResearchProfile) => ResearchProfile) {
     if (!editableProfile) return;
-    setReview(null);
-    setReactivationStrategy("");
-    setError("");
-    setNotice("");
     const document = parseDocument(session.content);
     const currentValue = document.toJS();
     const nextValue = transform(editableProfile);
     applyYamlDiff(document, [], currentValue, nextValue);
+    saveYamlEdit(document);
+  }
+
+  function updateYamlDocument(change: (document: ReturnType<typeof parseDocument>) => void) {
+    if (!editableProfile) return;
+    const document = parseDocument(session.content);
+    change(document);
+    saveYamlEdit(document);
+  }
+
+  function saveYamlEdit(document: ReturnType<typeof parseDocument>) {
+    setReview(null);
+    setReactivationStrategy("");
+    setError("");
+    setNotice("");
     session.updateContent(document.toString({ lineWidth: 0 }));
+  }
+
+  function addLens() {
+    if (!editableProfile) return;
+    const id = newLensId.trim();
+    const title = newLensTitle.trim();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
+      setError("Lens ID 只能使用小写字母、数字和连字符。");
+      return;
+    }
+    if (editableProfile.lenses.some((lens) => lens.id === id)) {
+      setError("Lens ID 必须唯一。");
+      return;
+    }
+    if (!title) {
+      setError("Lens title 不能为空。");
+      return;
+    }
+    updateYamlDocument((document) => document.addIn(["lenses"], {
+      id,
+      title,
+      enabled: true,
+      priority: "medium",
+      queries: [title],
+      include_terms: [],
+      exclude_terms: [],
+    }));
+    setNewLensId("");
+    setNewLensTitle("");
+  }
+
+  function removeLens(index: number) {
+    updateYamlDocument((document) => document.deleteIn(["lenses", index]));
   }
 
   async function closeEditor() {
@@ -197,15 +243,32 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, onClo
 
         {editableProfile && <>
           <section className="research-defaults-section">
+            <div className="research-section-heading"><div><h3>Profile identity</h3><p>Profile ID 固定；标题和描述会随 Defaults 发布。</p></div></div>
+            <div className="research-defaults-grid">
+              <label className="field-label">Profile title<input aria-label="Profile title" value={editableProfile.title} onChange={(event) => updateProfile((current) => ({ ...current, title: event.target.value }))} /></label>
+              <label className="field-label">Profile description<textarea aria-label="Profile description" rows={2} value={editableProfile.description ?? ""} onChange={(event) => updateProfile((current) => ({ ...current, description: event.target.value.trim() ? event.target.value : null }))} /></label>
+            </div>
+          </section>
+
+          <section className="research-defaults-section">
             <div className="research-section-heading"><div><h3>Search lenses</h3><p>启用状态、优先级和查询词将作为后续搜索默认值。</p></div></div>
             {editableProfile.lenses.map((lens, index) => <article className="research-default-lens" key={lens.id}>
-              <div className="research-default-lens-heading"><label><input type="checkbox" checked={lens.enabled} onChange={(event) => updateProfile((current) => updateLens(current, index, { enabled: event.target.checked }))} /><span><strong>{lens.title}</strong><small>{lens.id}</small></span></label><label className="field-label">优先级<select value={lens.priority} onChange={(event) => updateProfile((current) => updateLens(current, index, { priority: event.target.value as typeof lens.priority }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
+              <div className="research-default-lens-heading"><label><input type="checkbox" checked={lens.enabled} onChange={(event) => updateProfile((current) => updateLens(current, index, { enabled: event.target.checked }))} /><span><strong>{lens.id}</strong><small>Lens ID is fixed after creation</small></span></label><button className="button button-quiet" type="button" aria-label={`Remove Lens ${lens.id}`} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>Remove Lens</button></div>
+              <div className="research-defaults-grid research-defaults-fields">
+                <label className="field-label">Lens title<input aria-label={`Lens ${lens.id} title`} value={lens.title} onChange={(event) => updateProfile((current) => updateLens(current, index, { title: event.target.value }))} /></label>
+                <label className="field-label">优先级<select value={lens.priority} onChange={(event) => updateProfile((current) => updateLens(current, index, { priority: event.target.value as typeof lens.priority }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+              </div>
               <div className="research-defaults-grid">
                 <TextListField label="Queries" value={lens.queries} onChange={(value) => updateProfile((current) => updateLens(current, index, { queries: value }))} />
                 <TextListField label="Include terms" value={lens.include_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { include_terms: value }))} />
                 <TextListField label="Lens exclude terms" value={lens.exclude_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { exclude_terms: value }))} />
               </div>
             </article>)}
+            <div className="research-default-add-lens">
+              <label className="field-label">New Lens ID<input aria-label="New Lens ID" value={newLensId} onChange={(event) => setNewLensId(event.target.value)} placeholder="e.g. retrieval-augmented" /><span className="field-hint">小写字母、数字和连字符；创建后固定。</span></label>
+              <label className="field-label">New Lens title<input aria-label="New Lens title" value={newLensTitle} onChange={(event) => setNewLensTitle(event.target.value)} /></label>
+              <button className="button button-secondary" type="button" onClick={addLens}>Add Lens</button>
+            </div>
             <TextListField label="Profile exclude terms" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
           </section>
 

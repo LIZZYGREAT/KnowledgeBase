@@ -2,8 +2,9 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stringify } from "yaml";
 import App from "../../src/App";
+import { ResearchProfileDefaultsEditor } from "../../src/ResearchProfileDefaultsEditor";
 import { ResearchRunDrawer } from "../../src/ResearchRun";
-import type { ResearchRun } from "../../src/api";
+import type { ResearchProfile, ResearchRun } from "../../src/api";
 
 vi.mock("../../src/Workspace", async () => {
   const React = await import("react");
@@ -278,15 +279,22 @@ describe("Research workspace", () => {
   });
 
   it("edits Profile Defaults through autosaved Draft review and publish", async () => {
-    responseProfileDetail = {
-      ...profileDetail,
-      canonical_content: `# Keep this profile note.\n${stringify(profile, { lineWidth: 0 })}# Keep this trailing note.\n`,
-    };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Defaults" }));
+    const published = vi.fn();
+    render(<ResearchProfileDefaultsEditor
+      profile={profile as unknown as ResearchProfile}
+      canonicalContent={`# Keep this profile note.\n${stringify(profile, { lineWidth: 0 })}# Keep this trailing note.\n`}
+      onClose={() => undefined}
+      onPublished={published}
+    />);
 
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/Queries/), { target: { value: "fisher information catastrophic forgetting\nnew incremental query" } });
+    fireEvent.change(screen.getByLabelText("Profile title"), { target: { value: "Continual Learning Research" } });
+    fireEvent.change(screen.getByLabelText("Profile description"), { target: { value: "Updated research direction." } });
+    fireEvent.change(screen.getByLabelText("New Lens ID"), { target: { value: "replay-methods" } });
+    fireEvent.change(screen.getByLabelText("New Lens title"), { target: { value: "Replay Methods" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add Lens" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Lens regularization" }));
+    fireEvent.change(screen.getByLabelText(/Queries/), { target: { value: "replay methods\nnew incremental query" } });
     expect(screen.getByRole("option", { name: "Selected Collections and Documents" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Dynamic Retrieval scope"), { target: { value: "selected-context" } });
 
@@ -294,6 +302,11 @@ describe("Research workspace", () => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(true);
     }, { timeout: 3000 });
     const draftContent = String(researchProfileDraft?.content);
+    expect(draftContent).toContain("title: Continual Learning Research");
+    expect(draftContent).toContain("description: Updated research direction.");
+    expect(draftContent).toContain("id: replay-methods");
+    expect(draftContent).toContain("title: Replay Methods");
+    expect(draftContent).not.toContain("id: regularization");
     expect(draftContent).toContain("new incremental query");
     expect(draftContent).toContain("scope: selected-context");
     expect(draftContent).toContain("max_analyses_per_run: 30");
@@ -309,7 +322,7 @@ describe("Research workspace", () => {
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
     });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑 Continual Learning" })).toBeNull());
+    expect(published).toHaveBeenCalledWith([]);
   });
 
   it("requires a reactivation choice before publishing an enabled Profile with an old watermark", async () => {

@@ -172,6 +172,7 @@
 .research-default-lens-heading > label:first-child span { display: grid; gap: 2px; }
 .research-default-lens-heading small { color: #9ba69e; font-size: var(--text-xs); }
 .research-default-lens-heading .field-label { min-width: 150px; }
+.research-default-add-lens { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 11px; border-top: 1px solid #edf1ed; padding-top: 12px; }
 .research-defaults-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .research-defaults-fields { align-items: start; }
 .research-default-list-field { display: grid; gap: 5px; }
@@ -250,7 +251,7 @@
   .research-detail-score-grid { grid-template-columns: 1fr; }
   .research-run-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .research-run-row > .chip { display: none; }
-  .research-defaults-grid, .research-defaults-context-grid { grid-template-columns: 1fr; }
+  .research-defaults-grid, .research-defaults-context-grid, .research-default-add-lens { grid-template-columns: 1fr; }
   .research-default-lens-heading { align-items: flex-start; flex-direction: column; }
   .research-default-lens-heading .field-label { width: 100%; }
   .research-profile-draft-status, .research-profile-editor-footer { align-items: flex-start; flex-direction: column; }
