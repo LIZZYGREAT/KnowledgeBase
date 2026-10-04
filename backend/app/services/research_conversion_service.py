@@ -22,6 +22,7 @@ from backend.app.services.canonical_target_resolver import CanonicalTargetResolv
 from backend.app.services.collection_registry import CollectionRegistry
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
+from backend.app.services.research_source_match import find_matching_source
 from backend.app.services.source_registry import SourceRegistry
 
 
@@ -472,33 +473,7 @@ class ResearchConversionService:
 
     def _find_canonical_source(self, work: ResearchWorkRecord) -> Optional[SourceMetadata]:
         sources = SourceRegistry.load(self.sources_root).sources
-        for field in ("doi", "arxiv_id", "openalex_id"):
-            work_identifier = getattr(work, field)
-            normalized = _normalize_identifier(field, work_identifier)
-            if normalized is None:
-                continue
-            for source in sources:
-                source_identifier = _normalize_identifier(
-                    field, getattr(source.identifiers, field)
-                )
-                if source_identifier == normalized:
-                    return source
-
-        if work.year is None or not work.authors:
-            return None
-        title = _normalize_title(work.title)
-        author = _normalize_author(work.authors[0])
-        if not title or not author:
-            return None
-        for source in sources:
-            if (
-                source.year == work.year
-                and _normalize_title(source.title) == title
-                and source.authors
-                and _normalize_author(source.authors[0]) == author
-            ):
-                return source
-        return None
+        return find_matching_source(sources, work)
 
     def _create_or_get_source_draft(self, work: ResearchWorkRecord) -> tuple[Draft, str, bool]:
         for source_id in _source_id_candidates(work):
@@ -834,18 +809,7 @@ def _draft_matches_work(content: str, work: ResearchWorkRecord) -> bool:
         metadata = SourceMetadata.model_validate(yaml.safe_load(content))
     except (ValidationError, yaml.YAMLError, TypeError):
         return False
-    for field in ("doi", "arxiv_id", "openalex_id"):
-        work_identifier = _normalize_identifier(field, getattr(work, field))
-        if work_identifier and work_identifier == _normalize_identifier(field, getattr(metadata.identifiers, field)):
-            return True
-    return bool(
-        work.year is not None
-        and metadata.year == work.year
-        and work.authors
-        and metadata.authors
-        and _normalize_title(metadata.title) == _normalize_title(work.title)
-        and _normalize_author(metadata.authors[0]) == _normalize_author(work.authors[0])
-    )
+    return find_matching_source((metadata,), work) is not None
 
 
 def _source_id_candidates(work: ResearchWorkRecord):
@@ -872,30 +836,3 @@ def _source_id_candidates(work: ResearchWorkRecord):
 
 def _slugify(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
-
-
-def _normalize_identifier(field: str, value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-    normalized = value.strip().casefold()
-    if field == "doi":
-        for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
-            if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
-                break
-    elif field == "arxiv_id":
-        for prefix in ("https://arxiv.org/abs/", "http://arxiv.org/abs/", "arxiv:"):
-            if normalized.startswith(prefix):
-                normalized = normalized[len(prefix):]
-                break
-    elif field == "openalex_id":
-        normalized = normalized.rstrip("/").rsplit("/", 1)[-1]
-    return normalized or None
-
-
-def _normalize_title(value: str) -> str:
-    return " ".join(re.findall(r"\w+", value.casefold(), flags=re.UNICODE))
-
-
-def _normalize_author(value: str) -> str:
-    return " ".join(re.findall(r"\w+", value.casefold(), flags=re.UNICODE))

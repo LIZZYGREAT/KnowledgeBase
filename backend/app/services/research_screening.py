@@ -7,14 +7,10 @@ from typing import Optional
 
 from backend.app.domain.research import ResearchProfile
 from backend.app.domain.research_runtime import ResearchWorkRecord
-from backend.app.services.research_deduplicator import (
-    normalize_arxiv_id,
-    normalize_author,
-    normalize_doi,
-    normalize_title,
-)
+from backend.app.services.research_deduplicator import normalize_title
 from backend.app.services.research_providers.base import validate_search_request
 from backend.app.services.research_query_builder import ResearchQuery
+from backend.app.services.research_source_match import find_matching_source
 from backend.app.services.research_watermark import ResearchSearchSlice
 from backend.app.repositories.research_repository import ResearchRepository
 from backend.app.services.source_registry import SourceRegistry
@@ -131,30 +127,7 @@ class ResearchScreeningService:
         )
 
     def _matches_canonical_source(self, work: ResearchWorkRecord) -> bool:
-        doi = normalize_doi(work.doi)
-        arxiv_id = normalize_arxiv_id(work.arxiv_id)
-        normalized_title = normalize_title(work.title)
-        first_author = normalize_author(work.authors[0]) if work.authors else ""
-
-        for source in self.sources.sources:
-            source_doi = normalize_doi(source.identifiers.doi)
-            source_arxiv_id = normalize_arxiv_id(source.identifiers.arxiv_id)
-            if doi and source_doi == doi:
-                return True
-            if arxiv_id and source_arxiv_id == arxiv_id:
-                return True
-            if (
-                normalized_title
-                and source.year is not None
-                and work.year is not None
-                and abs(source.year - work.year) <= 1
-                and normalize_title(source.title) == normalized_title
-                and source.authors
-                and first_author
-                and normalize_author(source.authors[0]) == first_author
-            ):
-                return True
-        return False
+        return find_matching_source(self.sources.sources, work) is not None
 
 
 def _pre_rank(

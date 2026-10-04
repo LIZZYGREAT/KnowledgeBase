@@ -146,6 +146,35 @@ def test_save_source_links_existing_canonical_source_by_identifier_priority(tmp_
         connection.close()
 
 
+def test_save_source_uses_shared_title_author_year_tolerance(tmp_path):
+    repository, connection, _, converter, candidate = _setup(tmp_path)
+    try:
+        existing = {
+            "schema_version": 1,
+            "id": "existing-title-source",
+            "type": "paper",
+            "title": "A New Research Method",
+            "authors": ["A. Researcher"],
+            "year": 2025,
+            "identifiers": {
+                "doi": "10.9999/different",
+                "arxiv_id": "2401.00001",
+                "openalex_id": "W0000000000",
+            },
+        }
+        (repository / "knowledge" / "sources" / "existing-title-source.yaml").write_text(
+            yaml.safe_dump(existing, sort_keys=False), encoding="utf-8"
+        )
+
+        result = converter.save_source(candidate.id)
+
+        assert result.action == "linked_existing"
+        assert result.source_id == "existing-title-source"
+        assert result.draft_id is None
+    finally:
+        connection.close()
+
+
 def test_save_source_api_returns_a_runtime_draft_without_completing_candidate(tmp_path):
     _, connection, _, converter, candidate = _setup(tmp_path)
     try:

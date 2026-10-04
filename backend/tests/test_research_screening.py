@@ -180,6 +180,32 @@ def test_existing_source_matches_by_strong_identifier_or_conservative_title_rule
             _NOW,
         )
         assert weak_match.filtered_reasons == ("existing_source",)
+
+        openalex_source = _source(
+            "saved-openalex",
+            "Unrelated display title",
+            2020,
+            ("Another Author",),
+            openalex_id="https://openalex.org/W900000001",
+        )
+        openalex_service = ResearchScreeningService(
+            ResearchRepository(connection), SourceRegistry((openalex_source,))
+        )
+        openalex_match = openalex_service.screen(
+            _work(
+                title="OpenAlex identified work",
+                abstract="Replay research method.",
+                published_at="2026-10-02",
+                doi=None,
+                arxiv_id=None,
+                openalex_id="W900000001",
+            ),
+            profile,
+            query,
+            _RANGE,
+            _NOW,
+        )
+        assert openalex_match.filtered_reasons == ("existing_source",)
     finally:
         connection.close()
 
@@ -321,7 +347,7 @@ def _work(
     )
 
 
-def _source(source_id, title, year, authors, doi=None):
+def _source(source_id, title, year, authors, doi=None, arxiv_id=None, openalex_id=None):
     return SourceMetadata.model_validate(
         {
             "schema_version": 1,
@@ -330,7 +356,11 @@ def _source(source_id, title, year, authors, doi=None):
             "title": title,
             "authors": list(authors),
             "year": year,
-            "identifiers": {"doi": doi},
+            "identifiers": {
+                "doi": doi,
+                "arxiv_id": arxiv_id,
+                "openalex_id": openalex_id,
+            },
         }
     )
 
