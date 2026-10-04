@@ -81,6 +81,7 @@ async def publish(body: PublishRequest, request: Request):
                     if body.reactivation_strategy == "last_window"
                     else None
                 ),
+                streams=review.get("streams", []),
                 now=service.now(),
             )
         result = publisher.publish(

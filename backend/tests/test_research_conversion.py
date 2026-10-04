@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 
+import pytest
 import yaml
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -114,7 +115,7 @@ def test_discarding_a_research_source_draft_clears_pending_link_without_completi
         connection.close()
 
 
-def test_save_source_links_existing_canonical_source_by_identifier_priority(tmp_path):
+def test_save_source_rejects_a_strong_identifier_match_with_conflicting_identifiers(tmp_path):
     repository, connection, _, converter, candidate = _setup(tmp_path)
     try:
         other_profile_candidate = _insert_other_profile_candidate(connection, candidate)
@@ -131,17 +132,18 @@ def test_save_source_links_existing_canonical_source_by_identifier_priority(tmp_
             yaml.safe_dump(existing, sort_keys=False), encoding="utf-8"
         )
 
-        result = converter.save_source(candidate.id)
+        with pytest.raises(
+            ValueError,
+            match="Canonical Source identity is ambiguous",
+        ):
+            converter.save_source(candidate.id)
 
-        assert result.action == "linked_existing"
-        assert result.source_id == "existing-openalex-source"
-        assert result.draft_id is None
-        assert result.candidate.status == "saved_source"
+        assert ResearchCandidateRepository(connection).get(candidate.id).status == "new"
         assert ResearchCandidateRepository(connection).get(
             other_profile_candidate.id
         ).status == "new"
         assert ResearchRepository(connection).list_pending_links(candidate.id) == []
-        assert ResearchRepository(connection).list_entity_links(candidate.work_id)[0]["entity_id"] == "existing-openalex-source"
+        assert ResearchRepository(connection).list_entity_links(candidate.work_id) == []
     finally:
         connection.close()
 
@@ -156,11 +158,7 @@ def test_save_source_uses_shared_title_author_year_tolerance(tmp_path):
             "title": "A New Research Method",
             "authors": ["A. Researcher"],
             "year": 2025,
-            "identifiers": {
-                "doi": "10.9999/different",
-                "arxiv_id": "2401.00001",
-                "openalex_id": "W0000000000",
-            },
+            "identifiers": {},
         }
         (repository / "knowledge" / "sources" / "existing-title-source.yaml").write_text(
             yaml.safe_dump(existing, sort_keys=False), encoding="utf-8"
@@ -171,6 +169,49 @@ def test_save_source_uses_shared_title_author_year_tolerance(tmp_path):
         assert result.action == "linked_existing"
         assert result.source_id == "existing-title-source"
         assert result.draft_id is None
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("action", ["save_source", "create_note"])
+def test_ambiguous_canonical_source_matching_blocks_research_conversion(
+    tmp_path, action
+):
+    repository, connection, drafts, converter, candidate = _setup(tmp_path)
+    try:
+        for source_id, year in (("matching-source-one", 2025), ("matching-source-two", 2026)):
+            source = {
+                "schema_version": 1,
+                "id": source_id,
+                "type": "paper",
+                "title": "A New Research Method",
+                "authors": ["A. Researcher"],
+                "year": year,
+                "identifiers": {},
+            }
+            (repository / "knowledge" / "sources" / f"{source_id}.yaml").write_text(
+                yaml.safe_dump(source, sort_keys=False), encoding="utf-8"
+            )
+
+        drafts_before = connection.execute("SELECT COUNT(*) FROM drafts").fetchone()[0]
+        message = (
+            "Canonical Source identity is ambiguous. Resolve the existing Source metadata before conversion."
+        )
+        with pytest.raises(ValueError, match=message):
+            if action == "save_source":
+                converter.save_source(candidate.id)
+            else:
+                converter.create_note(
+                    candidate.id,
+                    document_type="paper-note",
+                    template="blank",
+                )
+
+        drafts_after = connection.execute("SELECT COUNT(*) FROM drafts").fetchone()[0]
+        assert drafts_after == drafts_before
+        assert ResearchRepository(connection).list_pending_links(candidate.id) == []
+        assert ResearchRepository(connection).list_entity_links(candidate.work_id) == []
+        assert drafts.list_for_target("source", "a-new-research-method") == []
     finally:
         connection.close()
 

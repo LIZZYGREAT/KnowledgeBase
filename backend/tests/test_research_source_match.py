@@ -27,7 +27,10 @@ def test_find_matching_source_uses_normalized_identifiers(
     work = _work(**{field: work_identifier})
     source = _source(**{field: source_identifier})
 
-    assert find_matching_source((source,), work) is source
+    result = find_matching_source((source,), work)
+
+    assert result.source is source
+    assert result.ambiguous is False
 
 
 def test_find_matching_source_uses_title_author_and_year_with_one_year_tolerance():
@@ -36,7 +39,10 @@ def test_find_matching_source_uses_title_author_and_year_with_one_year_tolerance
         title="a study on research!", authors=("Ada Lovelace",), year=2025
     )
 
-    assert find_matching_source((source,), work) is source
+    result = find_matching_source((source,), work)
+
+    assert result.source is source
+    assert result.ambiguous is False
 
 
 @pytest.mark.parametrize(
@@ -51,7 +57,71 @@ def test_find_matching_source_rejects_weak_identity_mismatches(title, authors, y
     work = _work(title="A Study on Research", authors=("Ada Lovelace",), year=2026)
     source = _source(title=title, authors=authors, year=year)
 
-    assert find_matching_source((source,), work) is None
+    result = find_matching_source((source,), work)
+
+    assert result.source is None
+    assert result.ambiguous is False
+
+
+@pytest.mark.parametrize(
+    ("field", "work_identifier", "source_identifier"),
+    [
+        ("doi", "10.1234/work-a", "10.1234/work-b"),
+        ("arxiv_id", "2401.12345", "2401.99999"),
+    ],
+)
+def test_weak_identity_does_not_override_conflicting_strong_identifiers(
+    field, work_identifier, source_identifier
+):
+    work = _work(
+        title="Same Research Paper",
+        authors=("Ada Lovelace",),
+        year=2026,
+        **{field: work_identifier},
+    )
+    source = _source(
+        title="Same Research Paper",
+        authors=("Ada Lovelace",),
+        year=2026,
+        **{field: source_identifier},
+    )
+
+    result = find_matching_source((source,), work)
+
+    assert result.source is None
+    assert result.ambiguous is False
+
+
+def test_strong_identifiers_pointing_to_different_sources_are_ambiguous():
+    work = _work(doi="10.1234/work", arxiv_id="2401.12345")
+    doi_source = _source(source_id="doi-source", doi="10.1234/work")
+    arxiv_source = _source(source_id="arxiv-source", arxiv_id="2401.12345")
+
+    result = find_matching_source((doi_source, arxiv_source), work)
+
+    assert result.source is None
+    assert result.ambiguous is True
+
+
+def test_multiple_weak_source_candidates_are_ambiguous():
+    work = _work(title="Same Research Paper", authors=("Ada Lovelace",), year=2026)
+    first = _source(
+        source_id="first-source",
+        title="Same Research Paper",
+        authors=("Ada Lovelace",),
+        year=2025,
+    )
+    second = _source(
+        source_id="second-source",
+        title="Same Research Paper",
+        authors=("Ada Lovelace",),
+        year=2026,
+    )
+
+    result = find_matching_source((first, second), work)
+
+    assert result.source is None
+    assert result.ambiguous is True
 
 
 def _work(**overrides):
@@ -70,6 +140,7 @@ def _work(**overrides):
 
 
 def _source(
+    source_id="source-1",
     title="Unrelated Source",
     authors=("Another Author",),
     year=2020,
@@ -80,7 +151,7 @@ def _source(
     return SourceMetadata.model_validate(
         {
             "schema_version": 1,
-            "id": "source-1",
+            "id": source_id,
             "type": "paper",
             "title": title,
             "authors": list(authors),

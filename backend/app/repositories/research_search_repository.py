@@ -111,16 +111,25 @@ class ResearchSearchRepository:
                 raise RuntimeError("Research search state disappeared during completion")
             return updated
 
-    def skip_profile_to_now(
+    def advance_streams_to_floor(
         self,
         profile_id: str,
         state_specs: tuple[tuple[str, str, str, str], ...],
-        skipped_at: str,
+        floor: str,
+        audit_strategy: Optional[str] = None,
+        recorded_at: Optional[str] = None,
     ) -> tuple[ResearchSearchStateRecord, ...]:
-        """Explicitly skip catch-up with one auditable, atomic profile-level action."""
+        """Advance only the selected search streams to a durable lower boundary."""
         with self.write_transaction():
             previous = []
             updated_states = []
+            requested = _parse_timestamp(floor)
+            if requested is None:
+                raise ValueError("Research watermark floor must be a valid timestamp")
+            recorded_timestamp = floor if recorded_at is None else recorded_at
+            recorded = _parse_timestamp(recorded_timestamp)
+            if recorded is None:
+                raise ValueError("Research watermark update time must be a valid timestamp")
             for lens_id, provider, query_key, query_text in state_specs:
                 state = self.get_state(profile_id, lens_id, provider, query_key)
                 previous.append(
@@ -131,24 +140,20 @@ class ResearchSearchRepository:
                         "completed_through": state.completed_through if state else None,
                     }
                 )
-                watermark = skipped_at
+                watermark = floor
+                overlap_floor = floor
                 if state is not None:
                     old_watermark = _parse_timestamp(state.completed_through)
-                    requested = _parse_timestamp(skipped_at)
                     if old_watermark is not None and old_watermark > requested:
                         watermark = state.completed_through
                     old_overlap_floor = _parse_timestamp(state.overlap_floor)
-                    overlap_floor = (
-                        skipped_at
-                        if old_overlap_floor is None or requested > old_overlap_floor
-                        else state.overlap_floor
-                    )
+                    if old_overlap_floor is not None and old_overlap_floor > requested:
+                        overlap_floor = state.overlap_floor
                     old_updated = _parse_timestamp(state.updated_at)
-                    requested_update = _parse_timestamp(skipped_at)
                     updated_at = (
                         state.updated_at
-                        if old_updated is not None and old_updated > requested_update
-                        else skipped_at
+                        if old_updated is not None and old_updated > recorded
+                        else recorded_timestamp
                     )
                     self.connection.execute(
                         """UPDATE research_search_state SET query_text = ?,
@@ -179,32 +184,48 @@ class ResearchSearchRepository:
                             query_key,
                             query_text,
                             watermark,
-                            skipped_at,
-                            skipped_at,
-                            skipped_at,
+                            overlap_floor,
+                            recorded_timestamp,
+                            recorded_timestamp,
                         ),
                     )
                 updated = self.get_state(profile_id, lens_id, provider, query_key)
                 if updated is not None:
                     updated_states.append(updated)
 
-            payload = json.dumps(
-                {
-                    "strategy": "from_now",
-                    "previous_watermarks": previous,
-                    "new_watermark": skipped_at,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                allow_nan=False,
-            )
-            self.connection.execute(
-                """INSERT INTO research_control_events (
-                       id, profile_id, event_type, payload_json, created_at
-                   ) VALUES (?, ?, 'watermark_skip', ?, ?)""",
-                (str(uuid.uuid4()), profile_id, payload, skipped_at),
-            )
+            if audit_strategy is not None:
+                payload = json.dumps(
+                    {
+                        "strategy": audit_strategy,
+                        "previous_watermarks": previous,
+                        "new_watermark": floor,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    allow_nan=False,
+                )
+                self.connection.execute(
+                    """INSERT INTO research_control_events (
+                           id, profile_id, event_type, payload_json, created_at
+                       ) VALUES (?, ?, 'watermark_skip', ?, ?)""",
+                    (str(uuid.uuid4()), profile_id, payload, recorded_timestamp),
+                )
             return tuple(updated_states)
+
+    def skip_profile_to_now(
+        self,
+        profile_id: str,
+        state_specs: tuple[tuple[str, str, str, str], ...],
+        skipped_at: str,
+    ) -> tuple[ResearchSearchStateRecord, ...]:
+        """Compatibility wrapper for the explicit from-now watermark action."""
+        return self.advance_streams_to_floor(
+            profile_id,
+            state_specs,
+            skipped_at,
+            audit_strategy="from_now",
+            recorded_at=skipped_at,
+        )
 
     def list_control_events(self, profile_id: str) -> list[dict]:
         rows = self.connection.execute(

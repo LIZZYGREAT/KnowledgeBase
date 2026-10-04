@@ -101,8 +101,11 @@ class ResearchScreeningService:
         ):
             reasons.append("include_term_not_matched")
 
-        if self._matches_canonical_source(work):
+        source_match = find_matching_source(self.sources.sources, work)
+        if source_match.source is not None:
             reasons.append("existing_source")
+        elif source_match.ambiguous:
+            warnings.append("ambiguous_existing_source")
         if self.repository.has_candidate_for_profile(work.id, profile.id):
             reasons.append("existing_candidate")
         if reasons:
@@ -125,10 +128,6 @@ class ResearchScreeningService:
             metadata_warnings=tuple(dict.fromkeys(warnings)),
             pre_rank=score,
         )
-
-    def _matches_canonical_source(self, work: ResearchWorkRecord) -> bool:
-        return find_matching_source(self.sources.sources, work) is not None
-
 
 def _pre_rank(
     work: ResearchWorkRecord,

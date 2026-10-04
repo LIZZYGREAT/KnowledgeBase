@@ -473,7 +473,12 @@ class ResearchConversionService:
 
     def _find_canonical_source(self, work: ResearchWorkRecord) -> Optional[SourceMetadata]:
         sources = SourceRegistry.load(self.sources_root).sources
-        return find_matching_source(sources, work)
+        match = find_matching_source(sources, work)
+        if match.ambiguous:
+            raise ValueError(
+                "Canonical Source identity is ambiguous. Resolve the existing Source metadata before conversion."
+            )
+        return match.source
 
     def _create_or_get_source_draft(self, work: ResearchWorkRecord) -> tuple[Draft, str, bool]:
         for source_id in _source_id_candidates(work):
@@ -809,7 +814,7 @@ def _draft_matches_work(content: str, work: ResearchWorkRecord) -> bool:
         metadata = SourceMetadata.model_validate(yaml.safe_load(content))
     except (ValidationError, yaml.YAMLError, TypeError):
         return False
-    return find_matching_source((metadata,), work) is not None
+    return find_matching_source((metadata,), work).source is not None
 
 
 def _source_id_candidates(work: ResearchWorkRecord):

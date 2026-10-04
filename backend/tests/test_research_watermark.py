@@ -221,6 +221,43 @@ def test_last_window_and_all_catchup_options_and_audited_from_now_skip():
         connection.close()
 
 
+def test_last_window_uses_the_choice_time_and_keeps_its_floor_after_an_incomplete_run():
+    connection, repository, service, profile, query, global_config = _setup()
+    try:
+        chosen_at = _NOW
+        floor = chosen_at - timedelta(days=30)
+        service.advance_streams_to_floor(profile, floor, queries=(query,))
+        run_at = chosen_at + timedelta(days=3)
+
+        first_plan = service.build_plan(
+            profile,
+            query,
+            "arxiv",
+            run_at,
+            global_config,
+            resume_strategy="last_window",
+            catchup_days_override=30,
+            catchup_effective_at=chosen_at,
+        )
+
+        assert first_plan.slices[0].start_at == floor
+        service.mark_attempt(first_plan, first_plan.slices[0], run_at)
+        state_after_incomplete_slice = repository.get_state(
+            profile.id, query.lens_id, "arxiv", query.query_key
+        )
+        assert state_after_incomplete_slice.completed_through == floor.isoformat()
+        assert state_after_incomplete_slice.overlap_floor == floor.isoformat()
+
+        retry_at = chosen_at + timedelta(days=4)
+        retry_plan = service.build_plan(
+            profile, query, "arxiv", retry_at, global_config
+        )
+
+        assert retry_plan.slices[0].start_at == floor
+    finally:
+        connection.close()
+
+
 def test_provider_watermarks_are_independent_and_future_watermarks_never_move_back():
     connection, repository, service, profile, query, global_config = _setup()
     try:

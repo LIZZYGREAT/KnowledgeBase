@@ -51,6 +51,7 @@ class ResearchWatermarkService:
         manual_range: Optional[tuple[datetime, datetime]] = None,
         resume_strategy: ResumeStrategy = "all",
         catchup_days_override: Optional[int] = None,
+        catchup_effective_at: Optional[datetime] = None,
         manual_incremental: bool = False,
     ) -> ResearchSearchPlan:
         now_utc = _as_utc(now, "now")
@@ -70,6 +71,8 @@ class ResearchWatermarkService:
             raise ValueError("Research catchup_days override must be a positive integer")
         if catchup_days_override is not None and resume_strategy != "last_window":
             raise ValueError("catchup_days override requires the last_window strategy")
+        if catchup_effective_at is not None and resume_strategy != "last_window":
+            raise ValueError("catchup_effective_at requires the last_window strategy")
         if manual_incremental and manual_range is not None:
             raise ValueError("Manual incremental and historical ranges cannot be combined")
         state = self.repository.get_state(
@@ -133,7 +136,12 @@ class ResearchWatermarkService:
                 if catchup_days_override is not None
                 else profile.search.max_catchup_days
             )
-            catchup_start = now_utc - timedelta(days=catchup_days)
+            catchup_anchor = (
+                _as_utc(catchup_effective_at, "catchup_effective_at")
+                if catchup_effective_at is not None
+                else now_utc
+            )
+            catchup_start = catchup_anchor - timedelta(days=catchup_days)
             start = max(start, catchup_start)
         return ResearchSearchPlan(
             profile_id=profile.id,
@@ -206,15 +214,45 @@ class ResearchWatermarkService:
         profile: ResearchProfile,
         now: datetime,
         queries: Optional[tuple[ResearchQuery, ...]] = None,
+        stream_keys: Optional[set[tuple[str, str, str]]] = None,
     ) -> tuple[ResearchSearchStateRecord, ...]:
-        timestamp = _timestamp(now, "now")
+        return self.advance_streams_to_floor(
+            profile,
+            now,
+            queries=queries,
+            stream_keys=stream_keys,
+            audit_strategy="from_now",
+        )
+
+    def advance_streams_to_floor(
+        self,
+        profile: ResearchProfile,
+        floor: datetime,
+        queries: Optional[tuple[ResearchQuery, ...]] = None,
+        stream_keys: Optional[set[tuple[str, str, str]]] = None,
+        audit_strategy: Optional[str] = None,
+        recorded_at: Optional[datetime] = None,
+    ) -> tuple[ResearchSearchStateRecord, ...]:
+        timestamp = _timestamp(floor, "floor")
         active_queries = queries if queries is not None else self.query_builder.build(profile)
         specs = tuple(
             (query.lens_id, provider, query.query_key, query.text)
             for query in active_queries
             for provider in profile.providers.discovery
+            if stream_keys is None
+            or (query.lens_id, provider, query.query_key) in stream_keys
         )
-        return self.repository.skip_profile_to_now(profile.id, specs, timestamp)
+        return self.repository.advance_streams_to_floor(
+            profile.id,
+            specs,
+            timestamp,
+            audit_strategy=audit_strategy,
+            recorded_at=(
+                _timestamp(recorded_at, "recorded_at")
+                if recorded_at is not None
+                else None
+            ),
+        )
 
 
 def _slice_range(

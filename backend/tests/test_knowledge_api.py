@@ -635,10 +635,28 @@ def test_research_profile_publish_persists_hash_bound_reactivation_choice(api_cl
         )
 
     assert choice is not None
+    expected_streams = sorted(
+        [
+            {
+                "lens_id": active_query.lens_id,
+                "provider": provider,
+                "query_key": active_query.query_key,
+                "query_text": active_query.text,
+            }
+            for active_query in service.query_builder.build(disabled.model_copy(update={"enabled": True}))
+            for provider in disabled.providers.discovery
+        ],
+        key=lambda stream: (
+            stream["lens_id"],
+            stream["provider"],
+            stream["query_key"],
+        ),
+    )
     assert choice["payload"] == {
         "profile_content_hash": canonical_hash,
         "strategy": "last_window",
         "catchup_days": candidate["search"]["max_catchup_days"],
+        "streams": expected_streams,
     }
     assert state is not None and state.completed_through == stale.isoformat()
 

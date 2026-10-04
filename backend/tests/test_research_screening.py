@@ -210,6 +210,32 @@ def test_existing_source_matches_by_strong_identifier_or_conservative_title_rule
         connection.close()
 
 
+def test_ambiguous_weak_source_identity_warns_and_keeps_work_eligible():
+    connection, _, _, profile, query = _setup()
+    try:
+        sources = (
+            _source("first-match", "Replay for Continual Learning", 2025, ("Ada Lovelace",)),
+            _source("second-match", "Replay for Continual Learning", 2026, ("Ada Lovelace",)),
+        )
+        service = ResearchScreeningService(
+            ResearchRepository(connection), SourceRegistry(sources)
+        )
+
+        decision = service.screen(
+            _work(doi="10.1000/work-doi"),
+            profile,
+            query,
+            _RANGE,
+            _NOW,
+        )
+
+        assert decision.eligible is True
+        assert "existing_source" not in decision.filtered_reasons
+        assert "ambiguous_existing_source" in decision.metadata_warnings
+    finally:
+        connection.close()
+
+
 def test_screening_ignores_cached_analysis_but_filters_existing_candidate():
     connection, repository, service, profile, query = _setup()
     try:

@@ -220,6 +220,7 @@ def test_profile_reactivation_review_and_publish_require_a_selected_strategy(tmp
     review = {
         "required": True,
         "triggers": ["profile_enabled"],
+        "streams": [],
         "max_catchup_days": profile.search.max_catchup_days,
         "strategies": ["last_window", "all", "from_now"],
     }
@@ -270,6 +271,7 @@ def test_profile_reactivation_review_and_publish_require_a_selected_strategy(tmp
             assert recorded[0][1] == hashlib.sha256(b"profile draft").hexdigest()
             assert recorded[0][2] == "last_window"
             assert recorded[0][3]["catchup_days"] == profile.search.max_catchup_days
+            assert recorded[0][3]["streams"] == []
 
     asyncio.run(exercise_routes())
     connection.close()

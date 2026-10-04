@@ -13,6 +13,7 @@ from backend.app.domain.research_runtime import (
     ResearchRunRecord,
     ResearchWorkRecord,
 )
+from backend.app.domain.source import SourceMetadata
 from backend.app.repositories.research_candidate_repository import (
     ResearchCandidateRepository,
 )
@@ -297,7 +298,9 @@ def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
     tmp_path,
 ):
     connection = connect_database(":memory:")
-    first_work = _provider_work()
+    first_work = _provider_work().model_copy(
+        update={"published_at": (_NOW - timedelta(days=7)).date().isoformat()}
+    )
     second_work = ProviderWork(
         provider="arxiv",
         provider_record_id="2402.00001",
@@ -305,7 +308,7 @@ def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
         abstract="Fisher information offers a distinct measure of parameter importance.",
         authors=("Grace Hopper",),
         year=2026,
-        published_at="2026-10-03",
+        published_at=(_NOW - timedelta(days=7)).date().isoformat(),
         arxiv_id="2402.00001",
         url="https://arxiv.org/abs/2402.00001",
     )
@@ -328,6 +331,14 @@ def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
     )
     now = [_NOW]
     service.clock = lambda: now[0]
+    service.record_reactivation_choice(
+        profile.id,
+        service.profile_registry.content_hash(profile.id),
+        "last_window",
+        catchup_days=7,
+        now=_NOW,
+    )
+    floor = _NOW - timedelta(days=7)
 
     first_run = service.tick()
 
@@ -339,11 +350,14 @@ def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
     state = search_repository.get_state(
         profile.id, "regularization", "arxiv", _query_key(service)
     )
-    assert state is not None and state.completed_through is None
+    assert state is not None and state.completed_through == floor.isoformat()
+    assert state.overlap_floor == floor.isoformat()
+    assert provider.search_ranges[0][0] == floor
     assert service.tick() is None
     assert provider.calls == 1
 
     now[0] = _NOW + timedelta(days=1)
+    second_run_start_index = len(provider.search_ranges)
     second_run = service.tick()
 
     assert second_run is not None and second_run.status == "success"
@@ -352,7 +366,8 @@ def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
     state = search_repository.get_state(
         profile.id, "regularization", "arxiv", _query_key(service)
     )
-    assert state is not None and state.completed_through is None
+    assert state is not None and state.completed_through == floor.isoformat()
+    assert provider.search_ranges[second_run_start_index][0] == floor
     connection.close()
 
 
@@ -382,6 +397,34 @@ def test_page_pre_rank_orders_eligible_work_before_analysis(tmp_path):
     assert recording_context.work_titles == [higher_ranked.title, lower_ranked.title]
     assert run.analysis_attempt_count == 2
     assert run.analyzed_count == 2
+    connection.close()
+
+
+def test_ambiguous_source_identity_is_reported_in_run_warning_and_work_is_retained(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    source_values = [
+        {
+            "schema_version": 1,
+            "id": source_id,
+            "type": "paper",
+            "title": "Fisher Information for Continual Learning",
+            "authors": ["Ada Lovelace"],
+            "year": year,
+            "identifiers": {},
+        }
+        for source_id, year in (("fisher-source-one", 2025), ("fisher-source-two", 2026))
+    ]
+    service.screening.sources = SourceRegistry(
+        tuple(SourceMetadata.model_validate(value) for value in source_values)
+    )
+
+    run = service.run_profile("continual-learning")
+
+    assert run is not None and run.status == "success"
+    assert run.surfaced_count == 1
+    assert "Warning: ambiguous_existing_source" in (run.error_summary or "")
     connection.close()
 
 
@@ -751,6 +794,14 @@ def test_reactivation_review_requires_a_choice_for_stale_watermarks(tmp_path):
     assert review == {
         "required": True,
         "triggers": ["profile_enabled"],
+        "streams": [
+            {
+                "lens_id": query.lens_id,
+                "provider": "arxiv",
+                "query_key": query.query_key,
+                "query_text": query.text,
+            }
+        ],
         "max_catchup_days": profile.search.max_catchup_days,
         "strategies": ["last_window", "all", "from_now"],
     }
@@ -761,6 +812,7 @@ def test_reactivation_review_requires_a_choice_for_stale_watermarks(tmp_path):
         profile.id,
         service.profile_registry.content_hash(profile.id),
         "last_window",
+        streams=review["streams"],
         now=_NOW,
     )
     state_after = service.profile_state_repository.get(profile.id)
@@ -772,6 +824,7 @@ def test_reactivation_review_requires_a_choice_for_stale_watermarks(tmp_path):
         "profile_content_hash": "a" * 64,
         "strategy": "last_window",
         "catchup_days": profile.search.max_catchup_days,
+        "streams": review["streams"],
     }
     connection.close()
 
@@ -809,6 +862,7 @@ def test_new_profile_candidate_uses_its_canonical_path_and_skips_reactivation(
     assert service.reactivation_review(parsed) == {
         "required": False,
         "triggers": [],
+        "streams": [],
         "max_catchup_days": candidate.search.max_catchup_days,
         "strategies": [],
     }
@@ -859,7 +913,9 @@ def test_scheduled_and_manual_incremental_runs_use_reactivation_policy(
         profile.id, query.lens_id, "arxiv", query.query_key
     )
     if manual_incremental:
-        assert current == previous
+        assert previous.completed_through == stale.isoformat()
+        assert current.completed_through == (_NOW - timedelta(days=7)).isoformat()
+        assert current.overlap_floor == (_NOW - timedelta(days=7)).isoformat()
     else:
         assert current.completed_through == _NOW.isoformat()
     connection.close()
@@ -1060,6 +1116,49 @@ def test_new_lens_without_a_stale_watermark_does_not_require_reactivation_review
 
     assert review["required"] is False
     assert review["triggers"] == []
+    assert review["streams"] == []
+    connection.close()
+
+
+def test_new_lens_does_not_inherit_an_unrelated_stale_stream(tmp_path):
+    connection = connect_database(":memory:")
+    current = _profile()
+    candidate = current.model_copy(
+        update={
+            "lenses": [
+                *current.lenses,
+                current.lenses[0].model_copy(
+                    update={"id": "replay", "title": "Replay", "queries": ["experience replay"]}
+                ),
+            ]
+        }
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=current
+    )
+    existing_query = service.query_builder.build(current)[0]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        current.id,
+        existing_query.lens_id,
+        "arxiv",
+        existing_query.query_key,
+        existing_query.text,
+        stale.isoformat(),
+    )
+    search_repository.complete_slice(
+        current.id,
+        existing_query.lens_id,
+        "arxiv",
+        existing_query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is False
+    assert review["streams"] == []
     connection.close()
 
 
@@ -1109,6 +1208,157 @@ def test_first_time_discovery_provider_without_old_watermark_needs_no_review(tmp
 
     assert review["required"] is False
     assert review["triggers"] == []
+    assert review["streams"] == []
+    connection.close()
+
+
+def test_first_time_provider_does_not_inherit_another_providers_stale_stream(tmp_path):
+    connection = connect_database(":memory:")
+    current = _profile(discovery=("arxiv",))
+    candidate = current.model_copy(
+        update={"providers": current.providers.model_copy(update={"discovery": ["arxiv", "openalex"]})}
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path,
+        connection,
+        FakeProvider([], name="arxiv"),
+        profile=current,
+        additional_providers={"openalex": FakeProvider([], name="openalex")},
+    )
+    query = service.query_builder.build(current)[0]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        current.id, query.lens_id, "arxiv", query.query_key, query.text, stale.isoformat()
+    )
+    search_repository.complete_slice(
+        current.id, query.lens_id, "arxiv", query.query_key, stale.isoformat(), stale.isoformat()
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is False
+    assert review["streams"] == []
+    connection.close()
+
+
+def test_removed_and_readded_query_with_old_watermark_requires_review(tmp_path):
+    connection = connect_database(":memory:")
+    current = _profile(queries=("fisher information",))
+    candidate = current.model_copy(
+        update={
+            "lenses": [
+                current.lenses[0].model_copy(
+                    update={"queries": ["fisher information", "parameter importance"]}
+                )
+            ]
+        }
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=current
+    )
+    readded_query = service.query_builder.build(candidate)[1]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        candidate.id,
+        readded_query.lens_id,
+        "arxiv",
+        readded_query.query_key,
+        readded_query.text,
+        stale.isoformat(),
+    )
+    search_repository.complete_slice(
+        candidate.id,
+        readded_query.lens_id,
+        "arxiv",
+        readded_query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is True
+    assert review["triggers"] == [
+        "query_enabled:{}:{}".format(readded_query.lens_id, readded_query.query_key)
+    ]
+    assert review["streams"] == [
+        {
+            "lens_id": readded_query.lens_id,
+            "provider": "arxiv",
+            "query_key": readded_query.query_key,
+            "query_text": readded_query.text,
+        }
+    ]
+    connection.close()
+
+
+@pytest.mark.parametrize("strategy", ["from_now", "last_window"])
+def test_reactivation_choice_floors_only_the_affected_search_streams(
+    tmp_path, strategy
+):
+    connection = connect_database(":memory:")
+    current = _profile()
+    replay = current.lenses[0].model_copy(
+        update={
+            "id": "replay",
+            "title": "Replay",
+            "enabled": False,
+            "queries": ["experience replay"],
+        }
+    )
+    current = current.model_copy(update={"lenses": [*current.lenses, replay]})
+    candidate = current.model_copy(
+        update={
+            "lenses": [current.lenses[0], replay.model_copy(update={"enabled": True})]
+        }
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=current
+    )
+    current_query = service.query_builder.build(current)[0]
+    reactivated_query = service.query_builder.build(candidate)[1]
+    recent = _NOW - timedelta(days=1)
+    stale = _NOW - timedelta(days=90)
+    for query, watermark in ((current_query, recent), (reactivated_query, stale)):
+        search_repository.record_attempt(
+            current.id, query.lens_id, "arxiv", query.query_key, query.text, watermark.isoformat()
+        )
+        search_repository.complete_slice(
+            current.id,
+            query.lens_id,
+            "arxiv",
+            query.query_key,
+            watermark.isoformat(),
+            watermark.isoformat(),
+        )
+
+    review = service.reactivation_review(candidate)
+    assert review["required"] is True
+    assert [stream["lens_id"] for stream in review["streams"]] == ["replay"]
+    service.record_reactivation_choice(
+        current.id,
+        service.profile_registry.content_hash(current.id),
+        strategy,
+        catchup_days=30 if strategy == "last_window" else None,
+        streams=review["streams"],
+        now=_NOW,
+    )
+    service.profile_registry = _profile_registry(candidate)
+
+    policy = service.resolve_effective_resume_policy(current.id, "a" * 64)
+
+    expected_floor = _NOW if strategy == "from_now" else _NOW - timedelta(days=30)
+    assert policy == (strategy, 30 if strategy == "last_window" else None, _NOW)
+    unchanged = search_repository.get_state(
+        current.id, current_query.lens_id, "arxiv", current_query.query_key
+    )
+    advanced = search_repository.get_state(
+        current.id, reactivated_query.lens_id, "arxiv", reactivated_query.query_key
+    )
+    assert unchanged.completed_through == recent.isoformat()
+    assert unchanged.overlap_floor is None
+    assert advanced.completed_through == expected_floor.isoformat()
+    assert advanced.overlap_floor == expected_floor.isoformat()
     connection.close()
 
 
@@ -1451,11 +1701,13 @@ class FakeProvider:
         self.error = error
         self.calls = 0
         self.limit_requests = []
+        self.search_ranges = []
         self.before_search = None
 
     def search(self, query, start_at, end_at, cursor=None, limit=None):
         self.calls += 1
         self.limit_requests.append(limit)
+        self.search_ranges.append((start_at, end_at))
         if self.before_search is not None:
             self.before_search()
         if self.error:
