@@ -972,7 +972,7 @@ def test_reactivation_choice_is_invalidated_at_equal_timestamp(
     connection.close()
 
 
-def test_reactivation_review_covers_a_lens_enabled_on_an_active_profile(tmp_path):
+def test_reactivation_review_covers_a_disabled_lens_reenabled_with_stale_watermark(tmp_path):
     connection = connect_database(":memory:")
     profile = _profile()
     disabled_lens = profile.lenses[0].model_copy(
@@ -1109,50 +1109,6 @@ def test_first_time_discovery_provider_without_old_watermark_needs_no_review(tmp
 
     assert review["required"] is False
     assert review["triggers"] == []
-    connection.close()
-
-
-def test_reactivation_review_covers_a_lens_enabled_on_an_active_profile(tmp_path):
-    connection = connect_database(":memory:")
-    profile = _profile()
-    disabled_lens = profile.lenses[0].model_copy(
-        update={"id": "replay", "title": "Replay", "enabled": False, "queries": ["experience replay"]}
-    )
-    current = profile.model_copy(update={"lenses": [*profile.lenses, disabled_lens]})
-    candidate = current.model_copy(
-        update={
-            "lenses": [
-                profile.lenses[0],
-                disabled_lens.model_copy(update={"enabled": True}),
-            ]
-        }
-    )
-    service, _, search_repository, _ = _service(
-        tmp_path, connection, FakeProvider([]), profile=current
-    )
-    query = service.query_builder.build(candidate)[1]
-    stale = _NOW - timedelta(days=90)
-    search_repository.record_attempt(
-        candidate.id,
-        query.lens_id,
-        "arxiv",
-        query.query_key,
-        query.text,
-        stale.isoformat(),
-    )
-    search_repository.complete_slice(
-        candidate.id,
-        query.lens_id,
-        "arxiv",
-        query.query_key,
-        stale.isoformat(),
-        stale.isoformat(),
-    )
-
-    review = service.reactivation_review(candidate)
-
-    assert review["required"] is True
-    assert review["triggers"] == ["lens_enabled:replay"]
     connection.close()
 
 
