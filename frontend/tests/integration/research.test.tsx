@@ -1,7 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stringify } from "yaml";
 import App from "../../src/App";
+import { ResearchRunDrawer } from "../../src/ResearchRun";
+import type { ResearchRun } from "../../src/api";
 
 vi.mock("../../src/Workspace", async () => {
   const React = await import("react");
@@ -121,6 +123,44 @@ describe("Research workspace", () => {
     const body = JSON.parse(String(call?.[1]?.body));
     expect(body).toMatchObject({ lenses: ["regularization"], breadth: "balanced", additional_queries: ["dynamic fisher continual learning"], additional_query_lens: "regularization" });
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
+  });
+
+  it("shows the Lens configuration captured by the Run, including per-run overrides", async () => {
+    const snapshot = {
+      ...profile,
+      lenses: [
+        { id: "lens-a", title: "Lens A", enabled: true },
+        { id: "lens-b", title: "Lens B", enabled: true },
+        { id: "lens-c", title: "Lens C", enabled: true },
+      ],
+    };
+    const run = {
+      id: "run-lens-override",
+      trigger: "manual",
+      status: "success",
+      started_at: "2026-10-04T00:00:00+00:00",
+      finished_at: "2026-10-04T00:01:00+00:00",
+      fetched_count: 3,
+      surfaced_count: 2,
+      profile_id: profile.id,
+      request_id: null,
+      profile_content_hash: "sha256:abc",
+      effective_config: { profile: snapshot, lens_overrides: { "lens-a": false, "lens-b": true, "lens-c": false }, additional_queries: [], manual_incremental: false },
+      new_work_count: 3,
+      duplicate_count: 0,
+      deterministic_filtered_count: 0,
+      analysis_attempt_count: 3,
+      analyzed_count: 2,
+      analysis_counts_known: true,
+      provider_summary: {},
+      error_summary: null,
+    } satisfies ResearchRun;
+    render(<ResearchRunDrawer run={run} onClose={() => undefined} />);
+
+    const inspector = screen.getByRole("dialog", { name: "Research Run" });
+    expect(within(inspector).getByText("Lens B")).toBeTruthy();
+    expect(within(inspector).queryByText("Lens A")).toBeNull();
+    expect(within(inspector).queryByText("Lens C")).toBeNull();
   });
 
   it("queues custom Research dates as local calendar boundaries", async () => {

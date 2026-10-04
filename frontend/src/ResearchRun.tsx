@@ -28,8 +28,12 @@ export function ResearchRunList({
 export function ResearchRunDrawer({ run, onClose }: { run: ResearchRun; onClose: () => void }) {
   const effective = run.effective_config;
   const profileSnapshot = isRecord(effective.profile) ? effective.profile : {};
+  const lensOverrides = isRecord(effective.lens_overrides) ? effective.lens_overrides : {};
   const lensIds = Array.isArray(profileSnapshot.lenses)
-    ? profileSnapshot.lenses.filter(isRecord).filter((lens) => lens.enabled === true).map((lens) => String(lens.title ?? lens.id))
+    ? profileSnapshot.lenses
+      .filter(isRecord)
+      .filter((lens) => (typeof lensOverrides[lens.id as string] === "boolean" ? lensOverrides[lens.id as string] : lens.enabled) === true)
+      .map((lens) => String(lens.title ?? lens.id))
     : [];
   const additionalQueryLensId = stringValue(effective.additional_query_lens);
   const additionalQueryLensTitle = additionalQueryLensId && Array.isArray(profileSnapshot.lenses)
