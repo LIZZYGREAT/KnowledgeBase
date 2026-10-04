@@ -1,5 +1,6 @@
-"""Shared composition root for the Research Agent runtime."""
+"""Shared Research composition root for the API and command-line tools."""
 
+from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
 
@@ -25,68 +26,46 @@ from backend.app.services.research_service import ResearchService
 from backend.app.services.source_registry import SourceRegistry
 
 
-def assemble_research_service(
+@dataclass(frozen=True)
+class ResearchComponents:
+    repository_root: Path
+    profile_registry: ResearchProfileRegistry
+    deepseek_config: DeepSeekConfig
+    ai_gateway: AIGateway
+    knowledge_read_service: KnowledgeReadService
+    collection_service: CollectionService
+    context_export_service: ContextExportService
+    research_service: ResearchService
+
+
+def load_research_configuration(
     repository_root: Path,
-    connection: sqlite3.Connection,
-    *,
-    gateway: AIGateway,
-    knowledge: KnowledgeReadService,
-    collections: CollectionService,
-    context_export: ContextExportService,
-) -> ResearchService:
-    """Assemble Research around services already owned by the API lifespan."""
-    root = Path(repository_root).expanduser().resolve()
-    registry = ResearchProfileRegistry.load(root)
-    return _assemble_research_service(
-        root,
-        connection,
-        registry=registry,
-        gateway=gateway,
-        knowledge=knowledge,
-        collections=collections,
-        context_export=context_export,
-    )
-
-
-def build_research_service_for_cli(
-    repository_root: Path, connection: sqlite3.Connection
-) -> ResearchService:
-    """Build standalone dependencies for the Research CLI process."""
+) -> tuple[ResearchProfileRegistry, DeepSeekConfig]:
+    """Load canonical Research settings and normalize DeepSeek runtime settings."""
     root = Path(repository_root).expanduser().resolve()
     registry = ResearchProfileRegistry.load(root)
     configured_ai = DeepSeekConfig.from_environment(root)
-    deepseek = DeepSeekConfig(
+    deepseek_config = DeepSeekConfig(
         api_key=configured_ai.api_key,
         model=configured_ai.model,
         base_url=configured_ai.base_url,
         timeout_seconds=registry.global_config.analysis.timeout_seconds,
         max_retries=configured_ai.max_retries,
     )
-    gateway = AIGateway(DeepSeekClient(deepseek))
+    return registry, deepseek_config
+
+
+def build_research_components(
+    repository_root: Path, connection: sqlite3.Connection
+) -> ResearchComponents:
+    """Create the same Research services for FastAPI and standalone commands."""
+    root = Path(repository_root).expanduser().resolve()
+    registry, deepseek_config = load_research_configuration(root)
+    gateway = AIGateway(DeepSeekClient(deepseek_config))
     knowledge = KnowledgeReadService(root, connection)
     collections = CollectionService(root, connection)
     context_export = ContextExportService(knowledge, connection)
-    return _assemble_research_service(
-        root,
-        connection,
-        registry=registry,
-        gateway=gateway,
-        knowledge=knowledge,
-        collections=collections,
-        context_export=context_export,
-    )
 
-
-def _assemble_research_service(
-    root: Path,
-    connection: sqlite3.Connection,
-    *,
-    registry: ResearchProfileRegistry,
-    gateway: AIGateway,
-    knowledge: KnowledgeReadService,
-    collections: CollectionService,
-    context_export: ContextExportService,
-) -> ResearchService:
     provider_settings = registry.global_config.providers
     provider_options = {
         "timeout_seconds": provider_settings.timeout_seconds,
@@ -97,7 +76,6 @@ def _assemble_research_service(
         "openalex": OpenAlexProvider(**provider_options),
         "crossref": CrossrefProvider(**provider_options),
     }
-
     work_repository = ResearchRepository(connection)
     candidate_service = ResearchCandidateService(
         ResearchCandidateRepository(connection)
@@ -110,7 +88,7 @@ def _assemble_research_service(
     )
     analysis_service = ResearchAnalysisService(work_repository, gateway)
     source_registry = SourceRegistry.load(root / "knowledge" / "sources")
-    return ResearchService(
+    research_service = ResearchService(
         repository_root=root,
         connection=connection,
         profile_registry=registry,
@@ -119,4 +97,14 @@ def _assemble_research_service(
         analysis_service=analysis_service,
         candidate_service=candidate_service,
         source_registry=source_registry,
+    )
+    return ResearchComponents(
+        repository_root=root,
+        profile_registry=registry,
+        deepseek_config=deepseek_config,
+        ai_gateway=gateway,
+        knowledge_read_service=knowledge,
+        collection_service=collections,
+        context_export_service=context_export,
+        research_service=research_service,
     )

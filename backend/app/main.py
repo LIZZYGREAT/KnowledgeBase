@@ -22,19 +22,14 @@ from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.ai_client import (
     AIConfigurationError,
     AIGatewayError,
-    DeepSeekClient,
-    DeepSeekConfig,
 )
-from backend.app.services.ai_gateway import AIGateway
+from backend.app.bootstrap import build_research_components
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
-from backend.app.services.collection_service import CollectionService
-from backend.app.services.context_export_service import ContextExportService
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
 from backend.app.services.import_service import ImportService
 from backend.app.services.indexer import Indexer
-from backend.app.services.knowledge_read_service import KnowledgeReadService
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.publisher import (
     PublishConflictError,
@@ -46,7 +41,6 @@ from backend.app.services.import_service import ImportValidationError
 from backend.app.services.proposal_service import StaleProposalError
 from backend.app.repositories.proposal_repository import ProposalTransitionError
 from backend.app.services.usage_service import UsageService
-from backend.app.services.research_wiring import assemble_research_service
 from backend.app.services.research_conversion_service import ResearchConversionService
 from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
@@ -74,9 +68,8 @@ async def lifespan(application: FastAPI):
         git_manager = GitManager(repository_root)
         draft_service = DraftService(DraftRepository(connection))
         proposal_service = ProposalService(ProposalRepository(connection))
-        ai_gateway = AIGateway(
-            DeepSeekClient(DeepSeekConfig.from_environment(repository_root))
-        )
+        research_components = build_research_components(repository_root, connection)
+        ai_gateway = research_components.ai_gateway
         ai_proposal_service = AIProposalService(
             repository_root, draft_service, proposal_service, ai_gateway
         )
@@ -84,9 +77,9 @@ async def lifespan(application: FastAPI):
         annotation_service = PresentationAnnotationService(AnnotationRepository(connection))
         indexer = Indexer(repository_root, connection)
         canonical_target_resolver = CanonicalTargetResolver(repository_root, connection)
-        knowledge_read_service = KnowledgeReadService(repository_root, connection)
-        collection_service = CollectionService(repository_root, connection)
-        context_export_service = ContextExportService(knowledge_read_service, connection)
+        knowledge_read_service = research_components.knowledge_read_service
+        collection_service = research_components.collection_service
+        context_export_service = research_components.context_export_service
         import_service = ImportService(
             repository_root,
             ImportRepository(connection),
@@ -102,14 +95,7 @@ async def lifespan(application: FastAPI):
             git_manager,
             canonical_target_resolver=canonical_target_resolver,
         )
-        research_service = assemble_research_service(
-            repository_root,
-            connection,
-            gateway=ai_gateway,
-            knowledge=knowledge_read_service,
-            collections=collection_service,
-            context_export=context_export_service,
-        )
+        research_service = research_components.research_service
         research_conversion_service = ResearchConversionService(
             repository_root,
             connection,

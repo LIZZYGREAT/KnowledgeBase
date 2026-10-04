@@ -17,6 +17,14 @@ def test_application_initializes_phase_services_from_configured_paths(
     repository = tmp_path / "repository"
     repository.mkdir()
     shutil.copytree(_ROOT / "config", repository / "config")
+    research_config_path = repository / "config" / "research" / "research.yaml"
+    research_config = yaml.safe_load(
+        research_config_path.read_text(encoding="utf-8")
+    )
+    research_config["analysis"]["timeout_seconds"] = 37
+    research_config_path.write_text(
+        yaml.safe_dump(research_config, sort_keys=False), encoding="utf-8"
+    )
     profile_path = (
         repository / "config" / "research" / "profiles" / "continual-learning.yaml"
     )
@@ -49,6 +57,7 @@ def test_application_initializes_phase_services_from_configured_paths(
             assert app.state.publisher.repository_root == repository.resolve()
             assert app.state.import_service.repository_root == repository.resolve()
             assert app.state.ai_gateway.provider == "deepseek"
+            assert app.state.ai_gateway.client.config.timeout_seconds == 37
             assert app.state.ai_proposal_service.repository_root == repository.resolve()
             assert app.state.knowledge_read_service.repository_root == repository.resolve()
             assert app.state.context_export_service.knowledge is app.state.knowledge_read_service

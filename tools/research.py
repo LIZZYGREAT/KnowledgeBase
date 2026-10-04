@@ -23,13 +23,15 @@ from backend.app.repositories.research_run_repository import (
 from backend.app.repositories.research_run_request_repository import (
     ResearchRunRequestRepository,
 )
-from backend.app.services.ai_client import DeepSeekConfig
+from backend.app.bootstrap import (
+    build_research_components,
+    load_research_configuration,
+)
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
 from backend.app.services.research_conversion_service import ResearchConversionService
 from backend.app.services.research_profile_registry import ResearchProfileRegistry
-from backend.app.services.research_wiring import build_research_service_for_cli
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -108,10 +110,7 @@ def _resolve_database(root: Path, configured: Optional[Path]) -> Path:
 
 def _check(root: Path) -> int:
     try:
-        registry = ResearchProfileRegistry.load(root)
-        # This validates AI model, URL, timeout, and retry settings without requiring
-        # credentials or making an external request.
-        DeepSeekConfig.from_environment(root)
+        registry, _ = load_research_configuration(root)
     except Exception as error:
         print("ERROR research check: {}".format(error))
         return 1
@@ -207,7 +206,7 @@ def _execute(root: Path, database_path: Path, args) -> int:
     connection = None
     try:
         connection = connect_database(database_path)
-        service = build_research_service_for_cli(root, connection)
+        service = build_research_components(root, connection).research_service
         if args.command == "tick":
             run = service.tick()
             if run is None:
