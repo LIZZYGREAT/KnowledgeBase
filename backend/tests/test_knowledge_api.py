@@ -15,12 +15,14 @@ from backend.app.domain.ai import ResearchCandidateAnalysisOutput
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.main import app
 from backend.app.repositories.proposal_repository import ProposalRepository
+from backend.app.repositories.research_search_repository import ResearchSearchRepository
 from backend.app.services.ai_client import MockDeepSeekClient
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.research_providers.base import ProviderWork
+from backend.tests.runtime_db import open_test_runtime
 from backend.tests.test_research_runs import FakeProvider, _service
 
 
@@ -514,22 +516,24 @@ def test_research_profile_publish_rejects_missing_reactivation_strategy(api_clie
     )
     query = service.query_builder.build(disabled)[0]
     stale = service.now() - timedelta(days=90)
-    service.search_repository.record_attempt(
-        profile.id,
-        query.lens_id,
-        "arxiv",
-        query.query_key,
-        query.text,
-        stale.isoformat(),
-    )
-    service.search_repository.complete_slice(
-        profile.id,
-        query.lens_id,
-        "arxiv",
-        query.query_key,
-        stale.isoformat(),
-        stale.isoformat(),
-    )
+    with open_test_runtime(api_client) as connection:
+        search_repository = ResearchSearchRepository(connection)
+        search_repository.record_attempt(
+            profile.id,
+            query.lens_id,
+            "arxiv",
+            query.query_key,
+            query.text,
+            stale.isoformat(),
+        )
+        search_repository.complete_slice(
+            profile.id,
+            query.lens_id,
+            "arxiv",
+            query.query_key,
+            stale.isoformat(),
+            stale.isoformat(),
+        )
 
     profile_path = repository / "config" / "research" / "profiles" / "continual-learning.yaml"
     candidate = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
