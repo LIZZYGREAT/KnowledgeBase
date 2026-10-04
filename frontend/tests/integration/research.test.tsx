@@ -26,7 +26,7 @@ describe("Research workspace", () => {
   let responseDocuments: Array<{ id: string; title: string }> = [];
   let researchProfileDraft: Record<string, unknown> | null = null;
   let createDraftCreatedInThisFlow = true;
-  let reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
+  let reactivationReviewResponse = { required: false, triggers: [], streams: [], max_catchup_days: 30, strategies: [] };
 
   beforeEach(() => {
     responseProfileDetail = profileDetail;
@@ -36,7 +36,7 @@ describe("Research workspace", () => {
     responseDocuments = [];
     researchProfileDraft = null;
     createDraftCreatedInThisFlow = true;
-    reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
+    reactivationReviewResponse = { required: false, triggers: [], streams: [], max_catchup_days: 30, strategies: [] };
     window.history.replaceState({}, "", "/research");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -486,7 +486,7 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(await screen.findByText(
-      "AI Analysis disabled · 自动发现已暂停；启用后会从原 Watermark 继续。",
+      "Research discovery and DeepSeek analysis are disabled · 自动与手动 Research Run 均已暂停；启用后从原 Watermark 继续。",
     )).toBeTruthy();
     expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
   });
@@ -590,8 +590,8 @@ describe("Research workspace", () => {
     />);
 
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
-    expect(screen.getByLabelText("Enable unattended DeepSeek analysis")).toBeTruthy();
-    expect(screen.getByText(/Scheduled \/ Manual Research Run/)).toBeTruthy();
+    expect(screen.getByLabelText("Enable Research discovery + unattended DeepSeek analysis")).toBeTruthy();
+    expect(screen.getByText(/Scheduled \/ Manual Run/)).toBeTruthy();
     expect(screen.getByText(/持续授权/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
     fireEvent.click(screen.getByLabelText("Discovery Provider arxiv"));
@@ -606,9 +606,11 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("Profile description"), { target: { value: "Updated research direction." } });
     fireEvent.change(screen.getByLabelText("New Lens ID"), { target: { value: "replay-methods" } });
     fireEvent.change(screen.getByLabelText("New Lens title"), { target: { value: "Replay Methods" } });
+    fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "replay continual learning" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Lens" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove Lens regularization" }));
     const queriesField = screen.getByLabelText(/Queries/) as HTMLTextAreaElement;
+    expect(queriesField.value).toBe("replay continual learning");
     await user.clear(queriesField);
     await user.type(queriesField, "query one");
     await user.keyboard("{Enter}");
@@ -682,6 +684,7 @@ describe("Research workspace", () => {
     reactivationReviewResponse = {
       required: true,
       triggers: ["profile_enabled"],
+      streams: [{ lens_id: "regularization", provider: "arxiv", query_key: "a".repeat(64), query_text: "fisher information" }],
       max_catchup_days: 30,
       strategies: ["last_window", "all", "from_now"],
     };
@@ -711,6 +714,7 @@ describe("Research workspace", () => {
     reactivationReviewResponse = {
       required: true,
       triggers: ["provider_enabled:openalex"],
+      streams: [{ lens_id: "regularization", provider: "openalex", query_key: "b".repeat(64), query_text: "fisher information" }],
       max_catchup_days: 30,
       strategies: ["last_window", "all", "from_now"],
     };

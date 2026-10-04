@@ -207,7 +207,7 @@ export function ResearchProfilePanel({
     });
   }
 
-  const scheduledText = !profile.ai_analysis.enabled ? "自动发现已暂停" : !hasActiveDefaultLens ? "No active default Lens · 自动发现当前不会执行" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
+  const scheduledText = !profile.ai_analysis.enabled ? "自动和手动 Research Run 已暂停" : !hasActiveDefaultLens ? "No active default Lens · 自动发现当前不会执行" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
   const capacityPercent = summary.inbox.capacity === 0 ? 100 : Math.min(100, summary.inbox.new_count / summary.inbox.capacity * 100);
 
   return <section className="surface research-profile-panel">
@@ -215,7 +215,7 @@ export function ResearchProfilePanel({
       <div>
         <div className="research-status-line">
           <Chip tone={isPaused ? "amber" : summary.enabled ? "green" : "rose"}>{isPaused ? "Paused" : summary.enabled ? "Active" : "Disabled"}</Chip>
-          {!profile.ai_analysis.enabled && <Chip tone="amber">AI Analysis disabled</Chip>}
+          {!profile.ai_analysis.enabled && <Chip tone="amber">Research Run disabled</Chip>}
           <span>{scheduledText}</span>
         </div>
         <h2>{profile.title}</h2>
@@ -231,7 +231,7 @@ export function ResearchProfilePanel({
 
     {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 Search Now。</p>}
     {isPaused && <p className="research-search-block-note" role="status">Research paused · Resume Profile 后才能运行 Search Now。</p>}
-    {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">AI Analysis disabled · 自动发现已暂停；启用后会从原 Watermark 继续。</p>}
+    {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">Research discovery and DeepSeek analysis are disabled · 自动与手动 Research Run 均已暂停；启用后从原 Watermark 继续。</p>}
     {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Lens。</p>}
 
     {isPaused && <div className="research-resume-bar">

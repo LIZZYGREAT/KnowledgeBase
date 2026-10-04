@@ -64,6 +64,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
   const [reactivationStrategy, setReactivationStrategy] = useState<ResearchReactivationStrategy | "">("");
   const [newLensId, setNewLensId] = useState("");
   const [newLensTitle, setNewLensTitle] = useState("");
+  const [newLensQuery, setNewLensQuery] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -149,6 +150,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
     if (!editableProfile) return;
     const id = newLensId.trim();
     const title = newLensTitle.trim();
+    const query = newLensQuery.trim();
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
       setError("Lens ID 只能使用小写字母、数字和连字符。");
       return;
@@ -161,17 +163,22 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
       setError("Lens title 不能为空。");
       return;
     }
+    if (!query) {
+      setError("Initial Query 不能为空。");
+      return;
+    }
     updateYamlDocument((document) => document.addIn(["lenses"], {
       id,
       title,
       enabled: true,
       priority: "medium",
-      queries: [title],
+      queries: [query],
       include_terms: [],
       exclude_terms: [],
     }));
     setNewLensId("");
     setNewLensTitle("");
+    setNewLensQuery("");
   }
 
   function removeLens(index: number) {
@@ -315,6 +322,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
             <div className="research-default-add-lens">
               <label className="field-label">New Lens ID<input aria-label="New Lens ID" value={newLensId} onChange={(event) => setNewLensId(event.target.value)} placeholder="e.g. retrieval-augmented" /><span className="field-hint">小写字母、数字和连字符；创建后固定。</span></label>
               <label className="field-label">New Lens title<input aria-label="New Lens title" value={newLensTitle} onChange={(event) => setNewLensTitle(event.target.value)} /></label>
+              <label className="field-label">Initial Query<input aria-label="Initial Query" value={newLensQuery} onChange={(event) => setNewLensQuery(event.target.value)} placeholder="e.g. retrieval augmented generation" /></label>
               <button className="button button-secondary" type="button" onClick={addLens}>Add Lens</button>
             </div>
             <TextListField label="Profile exclude terms" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
@@ -362,8 +370,8 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
               <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.context.dynamic_retrieval.enabled} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, enabled: event.target.checked } } }))} /><span>Enable dynamic retrieval</span></label>
               <label className="field-label">Dynamic Retrieval scope<select aria-label="Dynamic Retrieval scope" value={editableProfile.context.dynamic_retrieval.scope} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, scope: event.target.value as ResearchProfile["context"]["dynamic_retrieval"]["scope"] } } }))}><option value="entire-library">Entire library</option><option value="selected-context">Selected Collections and Documents</option></select><span className="field-hint">Selected context limits retrieved and analyzed material to pinned Documents and Collection members.</span></label>
               <div className="research-default-ai-analysis">
-                <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.ai_analysis.enabled} onChange={(event) => updateProfile((current) => ({ ...current, ai_analysis: { ...current.ai_analysis, enabled: event.target.checked } }))} /><span>Enable unattended DeepSeek analysis</span></label>
-                <p className="field-hint">启用后，Scheduled / Manual Research Run 可将论文元数据、摘要，以及受 Context Budget 限制的已选/检索知识片段发送给 DeepSeek。勾选表示该 Profile 的持续授权。</p>
+                <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.ai_analysis.enabled} onChange={(event) => updateProfile((current) => ({ ...current, ai_analysis: { ...current.ai_analysis, enabled: event.target.checked } }))} /><span>Enable Research discovery + unattended DeepSeek analysis</span></label>
+                <p className="field-hint">这是 Phase 14 V1 的整条 Research Run 持续授权。关闭会暂停该 Profile 的自动发现和手动 Research Run；V1 不会保留等待 DeepSeek 的隐藏候选队列。启用后，Scheduled / Manual Run 可将论文元数据、摘要，以及受 Context Budget 限制的已选/检索知识片段发送给 DeepSeek。</p>
               </div>
             </div>
           </section>
@@ -379,8 +387,9 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
           </div>
           {review.reactivation?.required && <fieldset className="research-profile-reactivation" aria-label="Reactivation Review">
             <legend>Reactivation Review</legend>
-            <p>这些设置将恢复自动发现，当前水位线已超过追赶上限。请选择本次如何处理旧水位线。</p>
-            <ul>{review.reactivation.triggers.map((trigger) => <li key={trigger}>{reactivationTriggerLabel(trigger)}</li>)}</ul>
+            <p>这些 Search Stream 中至少一个水位线已超过追赶上限。策略只作用于下列受影响 Stream。</p>
+            <ul>{review.reactivation.triggers.map((trigger) => <li key={trigger}>{reactivationTriggerLabel(trigger, review.reactivation?.streams ?? [])}</li>)}</ul>
+            <ul aria-label="Affected Search Streams">{review.reactivation.streams.map((stream) => <li key={`${stream.lens_id}:${stream.provider}:${stream.query_key}`}>{stream.lens_id} · {stream.provider} · {stream.query_text}</li>)}</ul>
             <label><input type="radio" name="reactivation-strategy" value="last_window" checked={reactivationStrategy === "last_window"} onChange={() => setReactivationStrategy("last_window")} />Catch up last {review.reactivation.max_catchup_days} days</label>
             <label><input type="radio" name="reactivation-strategy" value="all" checked={reactivationStrategy === "all"} onChange={() => setReactivationStrategy("all")} />Catch up all</label>
             <label><input type="radio" name="reactivation-strategy" value="from_now" checked={reactivationStrategy === "from_now"} onChange={() => setReactivationStrategy("from_now")} />Start from now</label>
@@ -470,13 +479,19 @@ function parseLines(value: string): string[] {
   return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
 }
 
-function reactivationTriggerLabel(trigger: string): string {
+function reactivationTriggerLabel(trigger: string, streams: ResearchReactivationReview["streams"]): string {
   if (trigger === "profile_enabled") return "启用 Research Profile";
   if (trigger === "ai_analysis_enabled") return "启用 AI Analysis";
   if (trigger === "schedule_enabled") return "将 Schedule 从 Manual 改为自动运行";
   if (trigger.startsWith("lens_enabled:")) return `启用 Lens：${trigger.slice("lens_enabled:".length)}`;
   if (trigger === "provider_enabled:arxiv") return "启用 Discovery Provider：arXiv";
   if (trigger === "provider_enabled:openalex") return "启用 Discovery Provider：OpenAlex";
+  if (trigger.startsWith("query_enabled:")) {
+    const [, lensId, queryKey] = trigger.split(":");
+    const stream = streams.find((item) => item.lens_id === lensId && item.query_key === queryKey);
+    return `重新加入搜索 Query：${stream?.query_text ?? lensId}`;
+  }
+  if (trigger === "stream_enabled") return "重新启用 Search Stream";
   return trigger;
 }
 

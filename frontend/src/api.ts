@@ -324,6 +324,7 @@ export type ResearchReactivationStrategy = "last_window" | "all" | "from_now";
 export interface ResearchReactivationReview {
   required: boolean;
   triggers: string[];
+  streams: Array<{ lens_id: string; provider: string; query_key: string; query_text: string }>;
   max_catchup_days: number;
   strategies: ResearchReactivationStrategy[];
 }
