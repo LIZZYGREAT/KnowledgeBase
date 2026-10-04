@@ -445,6 +445,7 @@ export interface ResearchCandidateDetail {
   candidate: ResearchCandidate;
   work: ResearchWork;
   analysis: ResearchWorkAnalysis;
+  conversion_blocker: "ambiguous_source" | null;
   discoveries: ResearchDiscovery[];
   knowledge_relations: ResearchRelation[];
   linked_entities: Array<{ entity_type: "source" | "document"; entity_id: string; relation_type: "source" | "note"; created_at: string }>;

@@ -93,6 +93,7 @@ describe("Research workspace", () => {
     responseCandidateDetail = {
       ...candidateDetail,
       candidate: { ...candidateDetail.candidate, status: "shortlisted", user_note: "Read after the current batch." },
+      conversion_blocker: "ambiguous_source",
     };
     render(<App />);
 
@@ -109,6 +110,7 @@ describe("Research workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Why this candidate/ }));
     expect(await screen.findByRole("heading", { name: "Why this candidate" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Canonical Source metadata is ambiguous");
     expect(screen.getByText(/模型语义信号（0–1）/)).toBeTruthy();
     expect(screen.getByText("0.91")).toBeTruthy();
     expect(screen.getByText("Matched query")).toBeTruthy();

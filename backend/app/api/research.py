@@ -34,6 +34,7 @@ from backend.app.api.research_schemas import (
 from backend.app.domain.research_runtime import ResearchCandidateStatus
 from backend.app.domain.research_runtime import ResearchCandidateRecord, ResearchRunRecord
 from backend.app.services.research_conversion_service import ResearchConversionError
+from backend.app.services.research_source_match import find_matching_source
 
 
 router = APIRouter(prefix="/api/research", tags=["Research"])
@@ -269,10 +270,12 @@ async def get_candidate(candidate_id: str, request: Request):
     analysis = service.work_repository.get_analysis_by_id(candidate.analysis_id)
     if work is None or analysis is None:
         raise RuntimeError("Research Candidate is missing its Work or Analysis")
+    source_match = find_matching_source(service.screening.sources.sources, work)
     return {
         "candidate": candidate,
         "work": work,
         "analysis": analysis,
+        "conversion_blocker": "ambiguous_source" if source_match.ambiguous else None,
         "discoveries": service.work_repository.list_discoveries_for_candidate_context(
             work.id, candidate.profile_id
         ),

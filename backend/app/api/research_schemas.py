@@ -234,6 +234,7 @@ class ResearchCandidateDetailView(APIModel):
     candidate: ResearchCandidateRecord
     work: ResearchWorkRecord
     analysis: ResearchWorkAnalysisRecord
+    conversion_blocker: Optional[Literal["ambiguous_source"]] = None
     discoveries: list[ResearchDiscoveryRecord]
     knowledge_relations: list[ResearchRelation]
     linked_entities: list[ResearchLinkedEntityView]

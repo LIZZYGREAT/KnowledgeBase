@@ -9,9 +9,11 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.app.domain.ai import ResearchCandidateAnalysisOutput
 from backend.app.domain.research import ResearchLens
+from backend.app.domain.source import SourceMetadata
 from backend.app.domain.runtime import Draft
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.services.research_providers.base import ProviderWork
+from backend.app.services.source_registry import SourceRegistry
 from backend.app.api.research import router
 from backend.app.api.publishing import router as publishing_router
 from backend.app.services.publisher import PublishedResult
@@ -399,6 +401,21 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
         discovered_at=_NOW,
     )
     assert other_profile_discovery.work.id == ingested.work.id
+    service.screening.sources = SourceRegistry(
+        tuple(
+            SourceMetadata.model_validate(
+                {
+                    "schema_version": 1,
+                    "id": source_id,
+                    "type": "paper",
+                    "title": provider_work.title,
+                    "authors": list(provider_work.authors),
+                    "year": provider_work.year,
+                }
+            )
+            for source_id in ("candidate-match-one", "candidate-match-two")
+        )
+    )
     app = _app(service)
 
     async def exercise_routes():
@@ -418,10 +435,18 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             )
             assert details.status_code == 200, details.json()
             assert details.json()["candidate"]["first_viewed_at"] == _NOW.isoformat()
+            assert details.json()["conversion_blocker"] == "ambiguous_source"
             assert {
                 discovery["profile_id"] for discovery in details.json()["discoveries"]
             } == {profile.id}
             assert len(details.json()["discoveries"]) == 1
+
+            service.screening.sources = SourceRegistry(service.screening.sources.sources[:1])
+            details = await client.get(
+                "/api/research/candidates/{}".format(generated.candidate.id)
+            )
+            assert details.status_code == 200, details.json()
+            assert details.json()["conversion_blocker"] is None
 
             shortlist = await client.post(
                 "/api/research/candidates/{}/shortlist".format(generated.candidate.id),
