@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse, stringify } from "yaml";
 import App from "../../src/App";
@@ -452,6 +453,7 @@ describe("Research workspace", () => {
 
   it("edits Profile Defaults through autosaved Draft review and publish", async () => {
     const published = vi.fn();
+    const user = userEvent.setup();
     render(<ResearchProfileDefaultsEditor
       profile={profile as unknown as ResearchProfile}
       canonicalContent={`# Keep this profile note.\n${stringify(profile, { lineWidth: 0 })}# Keep this trailing note.\n`}
@@ -475,7 +477,13 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("New Lens title"), { target: { value: "Replay Methods" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Lens" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove Lens regularization" }));
-    fireEvent.change(screen.getByLabelText(/Queries/), { target: { value: "replay methods\nnew incremental query" } });
+    const queriesField = screen.getByLabelText(/Queries/) as HTMLTextAreaElement;
+    await user.clear(queriesField);
+    await user.type(queriesField, "query one");
+    await user.keyboard("{Enter}");
+    expect(queriesField.value).toBe("query one\n");
+    await user.type(queriesField, "query two");
+    await user.tab();
     expect(screen.getByRole("option", { name: "Selected Collections and Documents" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Dynamic Retrieval scope"), { target: { value: "selected-context" } });
 
@@ -488,7 +496,7 @@ describe("Research workspace", () => {
     expect(draftContent).toContain("id: replay-methods");
     expect(draftContent).toContain("title: Replay Methods");
     expect(draftContent).not.toContain("id: regularization");
-    expect(draftContent).toContain("new incremental query");
+    expect(parse(draftContent)).toMatchObject({ lenses: [{ queries: ["query one", "query two"] }] });
     expect(draftContent).toContain("scope: selected-context");
     expect(draftContent).toContain("max_analyses_per_run: 30");
     expect(parse(draftContent)).toMatchObject({
@@ -500,7 +508,7 @@ describe("Research workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
     expect(await screen.findByText("Profile Draft preflight 通过。")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Profile changes" }).textContent).toContain("new incremental query");
+    expect(screen.getByRole("region", { name: "Profile changes" }).textContent).toContain("query two");
     fireEvent.click(screen.getByRole("button", { name: "Publish Defaults" }));
 
     await waitFor(() => {

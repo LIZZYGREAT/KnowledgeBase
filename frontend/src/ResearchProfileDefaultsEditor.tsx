@@ -392,7 +392,21 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, isNew
 }
 
 function TextListField({ label, value, onChange }: { label: string; value: string[]; onChange: (value: string[]) => void }) {
-  return <label className="field-label research-default-list-field">{label}<span className="field-hint">每行一项</span><textarea rows={3} value={value.join("\n")} onChange={(event) => onChange(parseLines(event.target.value))} /></label>;
+  const committedValue = value.join("\n");
+  const [rawValue, setRawValue] = useState(committedValue);
+
+  useEffect(() => {
+    setRawValue(committedValue);
+  }, [committedValue]);
+
+  function commitValue() {
+    const nextValue = parseLines(rawValue);
+    const normalizedValue = nextValue.join("\n");
+    setRawValue(normalizedValue);
+    if (normalizedValue !== committedValue) onChange(nextValue);
+  }
+
+  return <label className="field-label research-default-list-field">{label}<span className="field-hint">每行一项</span><textarea rows={3} value={rawValue} onChange={(event) => setRawValue(event.target.value)} onBlur={commitValue} /></label>;
 }
 
 function NumberField({ label, value, min, onChange }: { label: string; value: number; min: number; onChange: (value: number) => void }) {
