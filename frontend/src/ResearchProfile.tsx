@@ -50,8 +50,7 @@ export function ResearchProfilePanel({
   const isPaused = Boolean(pausedUntil && new Date(pausedUntil).getTime() > Date.now());
   const canSearch = summary.enabled
     && !isPaused
-    && profile.ai_analysis.enabled
-    && summary.inbox.remaining > 0;
+    && (!profile.ai_analysis.enabled || summary.inbox.remaining > 0);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pauseUntil, setPauseUntil] = useState("");
@@ -207,7 +206,7 @@ export function ResearchProfilePanel({
     });
   }
 
-  const scheduledText = !profile.ai_analysis.enabled ? "自动和手动 Research Run 已暂停" : !hasActiveDefaultLens ? "No active default Lens · 自动发现当前不会执行" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
+  const scheduledText = !hasActiveDefaultLens ? "No active default Lens · 自动发现当前不会执行" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
   const capacityPercent = summary.inbox.capacity === 0 ? 100 : Math.min(100, summary.inbox.new_count / summary.inbox.capacity * 100);
 
   return <section className="surface research-profile-panel">
@@ -215,7 +214,7 @@ export function ResearchProfilePanel({
       <div>
         <div className="research-status-line">
           <Chip tone={isPaused ? "amber" : summary.enabled ? "green" : "rose"}>{isPaused ? "Paused" : summary.enabled ? "Active" : "Disabled"}</Chip>
-          {!profile.ai_analysis.enabled && <Chip tone="amber">Research Run disabled</Chip>}
+          {!profile.ai_analysis.enabled && <Chip tone="amber">DeepSeek analysis off</Chip>}
           <span>{scheduledText}</span>
         </div>
         <h2>{profile.title}</h2>
@@ -231,7 +230,7 @@ export function ResearchProfilePanel({
 
     {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 Search Now。</p>}
     {isPaused && <p className="research-search-block-note" role="status">Research paused · Resume Profile 后才能运行 Search Now。</p>}
-    {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">Research discovery and DeepSeek analysis are disabled · 自动与手动 Research Run 均已暂停；启用后从原 Watermark 继续。</p>}
+    {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">DeepSeek analysis is off · 检索、确定性筛选和元数据补全仍会运行并保存 Discovery；不会构建或发送 Context，也不会生成 Candidate。重新启用后，每次 Run 最多分析 10 条符合当前 Lens 和 Query 的未分析 Discovery。</p>}
     {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Lens。</p>}
 
     {isPaused && <div className="research-resume-bar">
@@ -251,7 +250,7 @@ export function ResearchProfilePanel({
     <div className="research-inbox-meter">
       <div className="research-meter-copy"><div><strong>Inbox</strong><span>{summary.inbox.new_count} / {summary.inbox.capacity}</span></div><small>{summary.inbox.remaining} 个新候选名额</small></div>
       <div className="research-meter-track" role="progressbar" aria-label="Inbox 使用量" aria-valuemin={0} aria-valuemax={summary.inbox.capacity} aria-valuenow={summary.inbox.new_count}><span style={{ width: `${capacityPercent}%` }} /></div>
-      {summary.inbox.remaining === 0 && <p className="research-capacity-note" role="status"><strong>Inbox Full</strong> · 处理候选后才能运行 Search Now。</p>}
+      {summary.inbox.remaining === 0 && profile.ai_analysis.enabled && <p className="research-capacity-note" role="status"><strong>Inbox Full</strong> · 处理候选后才能运行 Search Now。</p>}
     </div>
     {(summary.manual_queue.pending > 0 || summary.manual_queue.claimed > 0) && <p className="research-search-block-note" role="status">
       {summary.manual_queue.pending > 0 && `${summary.manual_queue.pending} manual ${summary.manual_queue.pending === 1 ? "search" : "searches"} queued`}

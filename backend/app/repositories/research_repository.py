@@ -205,6 +205,41 @@ class ResearchRepository:
         ).fetchall()
         return [_discovery_from_row(row) for row in rows]
 
+    def list_unanalyzed_discoveries(
+        self, profile_id: str, query_keys: tuple[str, ...], limit: int
+    ) -> list[ResearchDiscoveryRecord]:
+        if not query_keys or limit <= 0:
+            return []
+        placeholders = ", ".join("?" for _ in query_keys)
+        rows = self.connection.execute(
+            """SELECT discovery.* FROM research_discoveries AS discovery
+               WHERE discovery.profile_id = ?
+                 AND discovery.query_key IN ({})
+                 AND NOT EXISTS (
+                     SELECT 1 FROM research_work_analyses AS analysis
+                     WHERE analysis.work_id = discovery.work_id
+                       AND analysis.profile_id = discovery.profile_id
+                 )
+                 AND NOT EXISTS (
+                     SELECT 1 FROM research_candidates AS candidate
+                     WHERE candidate.work_id = discovery.work_id
+                       AND candidate.profile_id = discovery.profile_id
+                 )
+                 AND NOT EXISTS (
+                     SELECT 1 FROM research_discoveries AS earlier
+                     WHERE earlier.profile_id = discovery.profile_id
+                       AND earlier.work_id = discovery.work_id
+                       AND earlier.query_key IN ({})
+                       AND (earlier.discovered_at < discovery.discovered_at
+                            OR (earlier.discovered_at = discovery.discovered_at
+                                AND earlier.id < discovery.id))
+                 )
+               ORDER BY discovery.discovered_at, discovery.id
+               LIMIT ?""".format(placeholders, placeholders),
+            (profile_id, *query_keys, *query_keys, limit),
+        ).fetchall()
+        return [_discovery_from_row(row) for row in rows]
+
     def has_candidate_for_profile(self, work_id: str, profile_id: str) -> bool:
         row = self.connection.execute(
             """SELECT 1 FROM research_candidates

@@ -45,12 +45,21 @@ from backend.app.services.research_screening import ResearchScreeningService
 from backend.app.services.research_query_builder import ResearchQuery, ResearchQueryBuilder
 from backend.app.services.research_watermark import (
     ResearchSearchPlan,
+    ResearchSearchSlice,
     ResearchWatermarkService,
     ResumeStrategy,
 )
 from backend.app.services.research_lock import GlobalResearchLock
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.markdown_parser import parse_yaml
+
+
+MAX_ANALYSIS_BACKLOG_PER_RUN = 10
+MAX_ANALYSIS_BACKLOG_SCAN_PER_RUN = 100
+_BACKLOG_SEARCH_SLICE = ResearchSearchSlice(
+    datetime.min.replace(tzinfo=timezone.utc),
+    datetime.max.replace(tzinfo=timezone.utc),
+)
 
 
 class ResearchService:
@@ -266,8 +275,6 @@ class ResearchService:
         queued_at = self._now()
         if not profile.enabled:
             raise ValueError("Research Profile is disabled")
-        if not profile.ai_analysis.enabled:
-            raise ValueError("Research AI Analysis is disabled")
         profile_state = self.profile_state_repository.get(profile_id)
         if (
             profile_state is not None
@@ -275,7 +282,10 @@ class ResearchService:
             and _parse_timestamp(profile_state.paused_until) > queued_at
         ):
             raise ValueError("Research Profile is paused")
-        if self.candidate_service.remaining_capacity(profile) <= 0:
+        if (
+            profile.ai_analysis.enabled
+            and self.candidate_service.remaining_capacity(profile) <= 0
+        ):
             raise ValueError("Research Inbox is full")
         if options["additional_query_lens"] is not None:
             normalized_override["additional_query_lens"] = options[
@@ -356,7 +366,6 @@ class ResearchService:
         for profile in self.profile_registry.profiles:
             if (
                 not profile.enabled
-                or not profile.ai_analysis.enabled
                 or profile.schedule.mode == "manual"
             ):
                 continue
@@ -366,7 +375,10 @@ class ResearchService:
             if state is not None and state.paused_until is not None:
                 if _parse_timestamp(state.paused_until) > now:
                     continue
-            if self.candidate_service.remaining_capacity(profile) <= 0:
+            if (
+                profile.ai_analysis.enabled
+                and self.candidate_service.remaining_capacity(profile) <= 0
+            ):
                 continue
             latest_scheduled_run = self.run_repository.latest_scheduled_for_profile(
                 profile.id
@@ -491,17 +503,6 @@ class ResearchService:
             )
         if trigger == "scheduled" and not self._schedule_due(profile, now):
             return None
-        if not profile.ai_analysis.enabled:
-            return self._create_finished_run(
-                profile,
-                profile_hash,
-                effective_config,
-                trigger,
-                request_id,
-                "skipped_ai_disabled",
-                now,
-            )
-
         profile_state = self.profile_state_repository.get_or_create(profile.id, now)
         if (
             profile_state.paused_until is not None
@@ -516,7 +517,10 @@ class ResearchService:
                 "skipped_paused",
                 now,
             )
-        if self.candidate_service.remaining_capacity(profile) <= 0:
+        if (
+            profile.ai_analysis.enabled
+            and self.candidate_service.remaining_capacity(profile) <= 0
+        ):
             return self._create_finished_run(
                 profile,
                 profile_hash,
@@ -583,7 +587,24 @@ class ResearchService:
         terminal_status: Optional[ResearchRunStatus] = None
 
         try:
+            if profile.ai_analysis.enabled:
+                backlog_status = self._process_analysis_backlog(
+                    run,
+                    profile,
+                    queries,
+                    stats,
+                    errors,
+                    warnings,
+                    enrichment_provider_failures,
+                    unavailable_enrichment_providers,
+                    analysis_breaker,
+                )
+                if backlog_status is not None:
+                    terminal_status = backlog_status
+
             for query in queries:
+                if terminal_status is not None:
+                    break
                 lens = _lens_for(profile, query)
                 for provider_name in profile.providers.discovery:
                     if terminal_status is not None:
@@ -614,7 +635,10 @@ class ResearchService:
                     for search_slice in plan.slices:
                         if terminal_status is not None or provider_incomplete:
                             break
-                        if self.candidate_service.remaining_capacity(profile) <= 0:
+                        if (
+                            profile.ai_analysis.enabled
+                            and self.candidate_service.remaining_capacity(profile) <= 0
+                        ):
                             terminal_status = "capacity_reached"
                             break
                         if not plan.manual:
@@ -694,22 +718,29 @@ class ResearchService:
             remaining_analysis_budget = (
                 profile.search.max_analyses_per_run
                 - current_run.analysis_attempt_count
+                if profile.ai_analysis.enabled
+                else None
             )
             remaining_candidate_budget = (
                 profile.search.max_candidates_per_run - current_run.surfaced_count
+                if profile.ai_analysis.enabled
+                else None
             )
-            if remaining_inbox <= 0:
+            if profile.ai_analysis.enabled and remaining_inbox <= 0:
                 errors.append("Inbox capacity reached before the slice completed")
                 return False, "capacity_reached"
-            if remaining_analysis_budget <= 0:
+            if remaining_analysis_budget is not None and remaining_analysis_budget <= 0:
                 warnings.append(
                     "Analysis budget reached; the current search slice remains incomplete and its watermark was not advanced."
                 )
-            if remaining_candidate_budget <= 0:
+            if remaining_candidate_budget is not None and remaining_candidate_budget <= 0:
                 warnings.append(
                     "Candidate budget reached; the current search slice remains incomplete and its watermark was not advanced."
                 )
-            if remaining_analysis_budget <= 0 or remaining_candidate_budget <= 0:
+            if (
+                (remaining_analysis_budget is not None and remaining_analysis_budget <= 0)
+                or (remaining_candidate_budget is not None and remaining_candidate_budget <= 0)
+            ):
                 return False, "success"
             request_limit = self.profile_registry.global_config.runtime.discovery_page_size
             provider_summary["requests"] += 1
@@ -751,7 +782,10 @@ class ResearchService:
             complete_page = True
             eligible_works = []
             for index, provider_work in enumerate(page.works):
-                if self.candidate_service.remaining_capacity(profile) <= 0:
+                if (
+                    profile.ai_analysis.enabled
+                    and self.candidate_service.remaining_capacity(profile) <= 0
+                ):
                     errors.append("Inbox capacity reached before the slice completed")
                     return False, "capacity_reached"
                 self.run_repository.update_progress(run.id, fetched_count=1)
@@ -801,6 +835,17 @@ class ResearchService:
             for _, _, eligible_work, discovery_provider in eligible_works:
                 work = eligible_work
                 try:
+                    if not profile.ai_analysis.enabled:
+                        self._enrich_work(
+                            work,
+                            profile,
+                            stats,
+                            discovery_provider,
+                            warnings,
+                            enrichment_provider_failures,
+                            unavailable_enrichment_providers,
+                        )
+                        continue
                     context_pack = self.context_builder.build(
                         work,
                         profile,
@@ -926,6 +971,116 @@ class ResearchService:
                 return False, None
             seen_cursors.add(page.next_cursor)
             cursor = page.next_cursor
+
+    def _process_analysis_backlog(
+        self,
+        run: ResearchRunRecord,
+        profile: ResearchProfile,
+        queries: Sequence[ResearchQuery],
+        stats: dict,
+        errors: list[str],
+        warnings: list[str],
+        enrichment_provider_failures: dict[str, int],
+        unavailable_enrichment_providers: set[str],
+        analysis_breaker: ResearchAnalysisCircuitBreaker,
+    ) -> Optional[ResearchRunStatus]:
+        query_by_key = {query.query_key: query for query in queries}
+        discoveries = self.work_repository.list_unanalyzed_discoveries(
+            profile.id,
+            tuple(query_by_key),
+            MAX_ANALYSIS_BACKLOG_SCAN_PER_RUN,
+        )
+        starting_attempt_count = self.run_repository.get(run.id).analysis_attempt_count
+        backlog_analysis_limit = min(
+            MAX_ANALYSIS_BACKLOG_PER_RUN, profile.search.max_analyses_per_run
+        )
+        for discovery in discoveries:
+            current_run = self.run_repository.get(run.id)
+            if current_run.analysis_attempt_count - starting_attempt_count >= backlog_analysis_limit:
+                break
+            if current_run.surfaced_count >= profile.search.max_candidates_per_run:
+                warnings.append(
+                    "Candidate budget reached while processing the saved Discovery backlog."
+                )
+                break
+            if self.candidate_service.remaining_capacity(profile) <= 0:
+                warnings.append(
+                    "Inbox capacity reached while processing the saved Discovery backlog."
+                )
+                break
+            query = query_by_key.get(discovery.query_key)
+            work = self.work_repository.get_work(discovery.work_id)
+            if query is None or work is None:
+                continue
+            lens = _lens_for(profile, query)
+            screened = self.screening.screen(
+                work, profile, query, _BACKLOG_SEARCH_SLICE, self._now()
+            )
+            if "ambiguous_existing_source" in screened.metadata_warnings:
+                warnings.append(
+                    "ambiguous_existing_source: Work '{}' was retained because "
+                    "its canonical Source identity is ambiguous".format(work.id)
+                )
+            if not screened.eligible:
+                continue
+            if analysis_breaker.analysis_disabled_for_run:
+                errors.append("DeepSeek analysis circuit opened for this run")
+                return "partial"
+            work = self._enrich_work(
+                work,
+                profile,
+                stats,
+                discovery.provider,
+                warnings,
+                enrichment_provider_failures,
+                unavailable_enrichment_providers,
+            )
+            context_pack = self.context_builder.build(
+                work, profile, lens, keywords=(query.text,)
+            )
+            analysis = self.work_repository.get_analysis(
+                work.id,
+                profile.id,
+                self.analysis_service.input_hash(work, profile, lens, context_pack),
+            )
+            if analysis is None:
+                analysis_attempted = False
+
+                def record_analysis_attempt():
+                    nonlocal analysis_attempted
+                    self.run_repository.update_progress(
+                        run.id, analysis_attempt_count=1
+                    )
+                    analysis_attempted = True
+
+                try:
+                    analysis = self.analysis_service.analyze(
+                        work,
+                        profile,
+                        lens,
+                        context_pack,
+                        circuit_breaker=analysis_breaker,
+                        on_attempt=record_analysis_attempt,
+                    )
+                except AIGatewayError as error:
+                    errors.append("DeepSeek: {}".format(str(error)[:240]))
+                    return "partial"
+                if analysis_attempted and analysis is not None:
+                    self.run_repository.update_progress(run.id, analyzed_count=1)
+            if analysis is None:
+                if analysis_breaker.analysis_disabled_for_run:
+                    errors.append("DeepSeek analysis circuit opened for this run")
+                    return "partial"
+                continue
+            generated = self.candidate_service.generate(analysis, profile, lens)
+            if generated.outcome == "inbox_full":
+                warnings.append(
+                    "Inbox capacity reached while processing the saved Discovery backlog."
+                )
+                break
+            if generated.outcome == "created":
+                self.run_repository.update_progress(run.id, surfaced_count=1)
+        return None
 
     def _enrich_work(
         self,

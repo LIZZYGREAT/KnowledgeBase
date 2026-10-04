@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from backend.app.db.connection import connect_database
-from backend.app.domain.research import ResearchGlobalConfig, ResearchProfile
+from backend.app.domain.research import ResearchGlobalConfig, ResearchProfile, ResearchProviders
 from backend.app.domain.research_runtime import (
     ResearchCandidateRecord,
     ResearchContextPack,
@@ -34,7 +34,10 @@ from backend.app.services.research_providers.base import (
     ResearchProviderError,
 )
 from backend.app.services.research_lock import GlobalResearchLock
-from backend.app.services.research_service import ResearchService
+from backend.app.services.research_service import (
+    MAX_ANALYSIS_BACKLOG_PER_RUN,
+    ResearchService,
+)
 from backend.app.services.source_registry import SourceRegistry
 
 
@@ -128,36 +131,80 @@ def test_full_inbox_skips_before_provider_or_deepseek_calls(tmp_path):
     connection.close()
 
 
-def test_disabled_ai_skips_scheduled_and_rejects_manual_queue_without_advancing_watermark(
-    tmp_path,
-):
+def test_disabled_ai_keeps_discovery_and_enrichment_without_context_or_candidates(tmp_path):
     connection = connect_database(":memory:")
-    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    provider = FakeProvider(
+        [ProviderPage(works=(_provider_work().model_copy(update={"doi": "10.1000/original"}),))]
+    )
+    enrichment = FakeEnrichmentProvider()
     base_profile = _profile()
     profile = base_profile.model_copy(
         update={
+            "providers": ResearchProviders.model_validate(
+                {**base_profile.providers.model_dump(), "enrichment": ["openalex"]}
+            ),
             "ai_analysis": base_profile.ai_analysis.model_copy(
                 update={"enabled": False}
             )
         }
     )
-    service, run_repository, _, ai_client = _service(
+    service, run_repository, search_repository, ai_client = _service(
+        tmp_path,
+        connection,
+        provider,
+        profile=profile,
+        additional_providers={"openalex": enrichment},
+    )
+    context_builder = RecordingContextBuilder(service.context_builder)
+    service.context_builder = context_builder
+
+    run = service.tick()
+
+    assert run is not None and run.status == "success"
+    assert (run.fetched_count, run.new_work_count, run.analysis_attempt_count, run.surfaced_count) == (1, 1, 0, 0)
+    assert provider.calls == 1
+    assert enrichment.enrichment_calls == 1
+    assert ai_client.calls == []
+    assert context_builder.work_titles == []
+    assert connection.execute("SELECT COUNT(*) FROM research_works").fetchone()[0] == 1
+    assert connection.execute("SELECT COUNT(*) FROM research_discoveries").fetchone()[0] == 1
+    assert ResearchCandidateRepository(connection).count_new(profile.id) == 0
+    query = service.query_builder.build(profile)[0]
+    state = search_repository.get_state(profile.id, query.lens_id, "arxiv", query.query_key)
+    assert state is not None and state.completed_through == _NOW.isoformat()
+    work_id = connection.execute("SELECT id FROM research_works").fetchone()[0]
+    enriched_work = service.work_repository.get_work(work_id)
+    assert enriched_work is not None and enriched_work.venue == "Journal of Learning"
+
+    request = service.queue_manual_run(profile.id)
+    assert service.run_request_repository.get(request.id).status == "pending"
+    manual_run = service.tick()
+    assert manual_run is not None and manual_run.trigger == "manual"
+    assert manual_run.status == "success"
+    assert service.run_request_repository.get(request.id).status == "completed"
+    assert len(run_repository.list_for_profile(profile.id)) == 2
+    connection.close()
+
+
+def test_disabled_ai_keeps_discovery_running_when_inbox_is_full(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile(max_new_candidates=1).model_copy(
+        update={
+            "ai_analysis": _profile().ai_analysis.model_copy(update={"enabled": False})
+        }
+    )
+    _seed_existing_new_candidate(connection, profile)
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    service, _, _, ai_client = _service(
         tmp_path, connection, provider, profile=profile
     )
 
-    assert service.tick() is None
-    assert provider.calls == 0
-    assert service.profile_state_repository.get(profile.id) is None
+    run = service.tick()
 
-    with pytest.raises(ValueError, match="Research AI Analysis is disabled"):
-        service.queue_manual_run(profile.id)
-
-    assert provider.calls == 0
+    assert run is not None and run.status == "success"
+    assert run.fetched_count == 1 and provider.calls == 1
     assert ai_client.calls == []
-    assert service.profile_state_repository.get(profile.id) is None
-    assert connection.execute("SELECT COUNT(*) FROM research_search_state").fetchone()[0] == 0
-    assert connection.execute("SELECT COUNT(*) FROM research_run_requests").fetchone()[0] == 0
-    assert run_repository.list_for_profile(profile.id) == []
+    assert connection.execute("SELECT COUNT(*) FROM research_discoveries").fetchone()[0] == 1
     connection.close()
 
 
@@ -165,7 +212,6 @@ def test_disabled_ai_skips_scheduled_and_rejects_manual_queue_without_advancing_
     ("blocker", "message"),
     [
         ("profile_disabled", "Research Profile is disabled"),
-        ("ai_disabled", "Research AI Analysis is disabled"),
         ("paused", "Research Profile is paused"),
         ("inbox_full", "Research Inbox is full"),
     ],
@@ -177,14 +223,6 @@ def test_manual_queue_rejects_profiles_that_cannot_discover(
     base_profile = _profile(max_new_candidates=1 if blocker == "inbox_full" else 20)
     if blocker == "profile_disabled":
         profile = base_profile.model_copy(update={"enabled": False})
-    elif blocker == "ai_disabled":
-        profile = base_profile.model_copy(
-            update={
-                "ai_analysis": base_profile.ai_analysis.model_copy(
-                    update={"enabled": False}
-                )
-            }
-        )
     else:
         profile = base_profile
     if blocker == "inbox_full":
@@ -197,6 +235,72 @@ def test_manual_queue_rejects_profiles_that_cannot_discover(
         service.queue_manual_run(profile.id)
 
     assert connection.execute("SELECT COUNT(*) FROM research_run_requests").fetchone()[0] == 0
+    connection.close()
+
+
+def test_reenabling_ai_analyzes_saved_discovery_backlog_with_a_per_run_bound(tmp_path):
+    connection = connect_database(":memory:")
+    filtered_works = tuple(
+        _provider_work().model_copy(
+            update={
+                "provider_record_id": "2401.filtered-{}".format(index),
+                "title": "Control Theory Revisited {}".format(index),
+                "abstract": "A control systems paper unrelated to this Lens.",
+                "arxiv_id": "2401.filtered-{}".format(index),
+            }
+        )
+        for index in range(3)
+    )
+    eligible_works = tuple(
+        _provider_work().model_copy(
+            update={
+                "provider_record_id": "2401.eligible-{}".format(index),
+                "title": "Fisher Information for Continual Learning {}".format(index),
+                "arxiv_id": "2401.eligible-{}".format(index),
+            }
+        )
+        for index in range(12)
+    )
+    works = filtered_works + eligible_works
+    provider = FakeProvider([ProviderPage(works=works), ProviderPage(works=())])
+    base_profile = _profile(max_new_candidates=20)
+    profile = base_profile.model_copy(
+        update={
+            "search": base_profile.search.model_copy(
+                update={"max_candidates_per_run": 20}
+            ),
+            "ai_analysis": base_profile.ai_analysis.model_copy(
+                update={"enabled": False}
+            ),
+        }
+    )
+    service, _, _, ai_client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    context_builder = RecordingContextBuilder(service.context_builder)
+    service.context_builder = context_builder
+
+    discovery_run = service.tick()
+
+    assert discovery_run is not None and discovery_run.status == "success"
+    assert discovery_run.new_work_count == 15
+    assert discovery_run.analysis_attempt_count == 0
+    assert connection.execute("SELECT COUNT(*) FROM research_discoveries").fetchone()[0] == 15
+
+    enabled_profile = profile.model_copy(
+        update={
+            "ai_analysis": profile.ai_analysis.model_copy(update={"enabled": True})
+        }
+    )
+    service.profile_registry = _profile_registry(enabled_profile)
+    analysis_run = service.run_profile(enabled_profile.id, trigger="manual")
+
+    assert analysis_run is not None and analysis_run.status == "success"
+    assert analysis_run.analysis_attempt_count == MAX_ANALYSIS_BACKLOG_PER_RUN
+    assert analysis_run.surfaced_count == MAX_ANALYSIS_BACKLOG_PER_RUN
+    assert len(context_builder.work_titles) == MAX_ANALYSIS_BACKLOG_PER_RUN
+    assert len(ai_client.calls) == MAX_ANALYSIS_BACKLOG_PER_RUN
+    assert ResearchCandidateRepository(connection).count_new(profile.id) == MAX_ANALYSIS_BACKLOG_PER_RUN
     connection.close()
 
 

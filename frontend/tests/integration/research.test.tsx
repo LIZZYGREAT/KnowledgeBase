@@ -474,7 +474,7 @@ describe("Research workspace", () => {
     });
   });
 
-  it("explains that discovery is paused when AI Analysis is disabled", async () => {
+  it("keeps discovery active when DeepSeek analysis is disabled", async () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: {
@@ -485,9 +485,9 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(await screen.findByText(
-      "Research discovery and DeepSeek analysis are disabled · 自动与手动 Research Run 均已暂停；启用后从原 Watermark 继续。",
+      "DeepSeek analysis is off · 检索、确定性筛选和元数据补全仍会运行并保存 Discovery；不会构建或发送 Context，也不会生成 Candidate。重新启用后，每次 Run 最多分析 10 条符合当前 Lens 和 Query 的未分析 Discovery。",
     )).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("explains when all default Lenses are disabled but keeps temporary Search Now available", async () => {
@@ -589,9 +589,9 @@ describe("Research workspace", () => {
     />);
 
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
-    expect(screen.getByLabelText("Enable Research discovery + unattended DeepSeek analysis")).toBeTruthy();
-    expect(screen.getByText(/Scheduled \/ Manual Run/)).toBeTruthy();
-    expect(screen.getByText(/持续授权/)).toBeTruthy();
+    expect(screen.getByLabelText("Enable unattended DeepSeek analysis")).toBeTruthy();
+    expect(screen.getByText(/此选项只控制 AI 分析授权/)).toBeTruthy();
+    expect(screen.getByText(/重新启用后，每次 Run 最多分析 10 条/)).toBeTruthy();
     expect(screen.getByText(/筛选词、breadth 和 Knowledge Context 的修改只影响后续 Research Run/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
     fireEvent.click(screen.getByLabelText("Discovery Provider arxiv"));
