@@ -977,6 +977,102 @@ def test_reactivation_review_covers_a_lens_enabled_on_an_active_profile(tmp_path
     connection.close()
 
 
+def test_reactivation_review_covers_a_removed_and_readded_lens_with_stale_watermark(tmp_path):
+    connection = connect_database(":memory:")
+    current = _profile()
+    replay = current.lenses[0].model_copy(
+        update={"id": "replay", "title": "Replay", "queries": ["experience replay"]}
+    )
+    candidate = current.model_copy(update={"lenses": [*current.lenses, replay]})
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=current
+    )
+    query = service.query_builder.build(candidate)[1]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        candidate.id, query.lens_id, "arxiv", query.query_key, query.text, stale.isoformat()
+    )
+    search_repository.complete_slice(
+        candidate.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is True
+    assert review["triggers"] == ["lens_enabled:replay"]
+    connection.close()
+
+
+def test_new_lens_without_a_stale_watermark_does_not_require_reactivation_review(tmp_path):
+    connection = connect_database(":memory:")
+    current = _profile()
+    new_lens = current.lenses[0].model_copy(
+        update={"id": "replay", "title": "Replay", "queries": ["experience replay"]}
+    )
+    candidate = current.model_copy(update={"lenses": [*current.lenses, new_lens]})
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]), profile=current)
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is False
+    assert review["triggers"] == []
+    connection.close()
+
+
+def test_reactivation_review_covers_a_removed_and_readded_discovery_provider(tmp_path):
+    connection = connect_database(":memory:")
+    current = _profile(discovery=("arxiv",))
+    candidate = current.model_copy(
+        update={"providers": current.providers.model_copy(update={"discovery": ["arxiv", "openalex"]})}
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([], name="arxiv"), profile=current,
+        additional_providers={"openalex": FakeProvider([], name="openalex")},
+    )
+    query = service.query_builder.build(candidate)[0]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        candidate.id, query.lens_id, "openalex", query.query_key, query.text, stale.isoformat()
+    )
+    search_repository.complete_slice(
+        candidate.id,
+        query.lens_id,
+        "openalex",
+        query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is True
+    assert review["triggers"] == ["provider_enabled:openalex"]
+    connection.close()
+
+
+def test_first_time_discovery_provider_without_old_watermark_needs_no_review(tmp_path):
+    connection = connect_database(":memory:")
+    current = _profile(discovery=("arxiv",))
+    candidate = current.model_copy(
+        update={"providers": current.providers.model_copy(update={"discovery": ["arxiv", "openalex"]})}
+    )
+    service, _, _, _ = _service(
+        tmp_path, connection, FakeProvider([], name="arxiv"), profile=current,
+        additional_providers={"openalex": FakeProvider([], name="openalex")},
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is False
+    assert review["triggers"] == []
+    connection.close()
+
+
 def test_reactivation_review_covers_a_lens_enabled_on_an_active_profile(tmp_path):
     connection = connect_database(":memory:")
     profile = _profile()

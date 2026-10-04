@@ -458,6 +458,8 @@ function reactivationTriggerLabel(trigger: string): string {
   if (trigger === "ai_analysis_enabled") return "启用 AI Analysis";
   if (trigger === "schedule_enabled") return "将 Schedule 从 Manual 改为自动运行";
   if (trigger.startsWith("lens_enabled:")) return `启用 Lens：${trigger.slice("lens_enabled:".length)}`;
+  if (trigger === "provider_enabled:arxiv") return "启用 Discovery Provider：arXiv";
+  if (trigger === "provider_enabled:openalex") return "启用 Discovery Provider：OpenAlex";
   return trigger;
 }
 

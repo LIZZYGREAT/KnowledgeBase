@@ -210,8 +210,12 @@ class ResearchService:
         current_lenses = {lens.id: lens for lens in current.lenses}
         for lens in candidate.lenses:
             previous = current_lenses.get(lens.id)
-            if previous is not None and not previous.enabled and lens.enabled:
+            if lens.enabled and (previous is None or not previous.enabled):
                 triggers.append("lens_enabled:{}".format(lens.id))
+        current_discovery = set(current.providers.discovery)
+        for provider in candidate.providers.discovery:
+            if provider not in current_discovery:
+                triggers.append("provider_enabled:{}".format(provider))
         if current.schedule.mode == "manual" and candidate.schedule.mode != "manual":
             triggers.append("schedule_enabled")
 

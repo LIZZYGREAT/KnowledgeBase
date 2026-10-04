@@ -612,6 +612,21 @@ describe("Research workspace", () => {
     });
   });
 
+  it("labels a re-enabled Discovery Provider in Reactivation Review", async () => {
+    reactivationReviewResponse = {
+      required: true,
+      triggers: ["provider_enabled:openalex"],
+      max_catchup_days: 30,
+      strategies: ["last_window", "all", "from_now"],
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Defaults" }));
+    fireEvent.click(await screen.findByLabelText("Discovery Provider openalex"));
+    fireEvent.click(await screen.findByRole("button", { name: "Review Diff" }));
+
+    expect(await screen.findByText("启用 Discovery Provider：OpenAlex")).toBeTruthy();
+  });
+
   it("opens the Source Draft in the Unified Workspace", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Save Source" }));
