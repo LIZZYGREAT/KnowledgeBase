@@ -4,9 +4,9 @@ import { parse, stringify } from "yaml";
 import App from "../../src/App";
 import { ResearchProfileDefaultsEditor } from "../../src/ResearchProfileDefaultsEditor";
 import { ResearchProfileCreateDialog } from "../../src/ResearchProfileCreateDialog";
-import { ResearchCreateNoteDialog } from "../../src/ResearchCandidate";
-import { ResearchRunDrawer } from "../../src/ResearchRun";
-import type { ResearchProfile, ResearchRun } from "../../src/api";
+import { ResearchCandidateCard, ResearchCreateNoteDialog } from "../../src/ResearchCandidate";
+import { ResearchRunDrawer, ResearchRunList } from "../../src/ResearchRun";
+import type { ResearchCandidateListItem, ResearchProfile, ResearchRun, ResearchRunStatus } from "../../src/api";
 
 vi.mock("../../src/Workspace", async () => {
   const React = await import("react");
@@ -83,6 +83,8 @@ describe("Research workspace", () => {
     expect(await screen.findByText("Discoveries", {}, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText("Related knowledge")).toBeTruthy();
+    expect(screen.getByText("Why read it")).toBeTruthy();
+    expect(screen.queryByText("What may be new")).toBeNull();
     expect(screen.getByText("Relevance: High")).toBeTruthy();
     expect(screen.getByText("Library novelty: Medium")).toBeTruthy();
     expect(screen.getByText(/排序信号/)).toBeTruthy();
@@ -168,6 +170,70 @@ describe("Research workspace", () => {
     expect(within(inspector).getByText("Lens B")).toBeTruthy();
     expect(within(inspector).queryByText("Lens A")).toBeNull();
     expect(within(inspector).queryByText("Lens C")).toBeNull();
+  });
+
+  it("renders normal Run flow-control states without failure tones", () => {
+    const statuses: Array<[ResearchRunStatus, string, string]> = [
+      ["success", "green", "✓"],
+      ["running", "blue", "◷"],
+      ["partial", "amber", "·"],
+      ["skipped_paused", "amber", "·"],
+      ["skipped_disabled", "amber", "·"],
+      ["skipped_ai_disabled", "amber", "·"],
+      ["skipped_inbox_full", "amber", "·"],
+      ["capacity_reached", "amber", "·"],
+      ["failed", "rose", "!"],
+      ["interrupted", "rose", "!"],
+    ];
+    const runs = statuses.map(([status], index) => ({
+      id: `run-${index}`,
+      trigger: "scheduled",
+      status,
+      started_at: "2026-10-04T00:00:00+00:00",
+      finished_at: null,
+      fetched_count: 0,
+      surfaced_count: 0,
+      profile_id: profile.id,
+      request_id: null,
+      profile_content_hash: "sha256:abc",
+      effective_config: {},
+      new_work_count: 0,
+      duplicate_count: 0,
+      deterministic_filtered_count: 0,
+      analysis_attempt_count: 0,
+      analyzed_count: 0,
+      analysis_counts_known: true,
+      provider_summary: {},
+      error_summary: null,
+    } satisfies ResearchRun));
+    render(<ResearchRunList runs={runs} count={runs.length} loading={false} onOpen={() => undefined} />);
+
+    for (const [status, tone, mark] of statuses) {
+      const label = status.replaceAll("_", " ");
+      const chip = screen.getByText(label, { selector: ".chip" });
+      expect(chip.classList.contains(`chip-${tone}`)).toBe(true);
+      const row = chip.closest(".research-run-row");
+      expect(row?.querySelector(".research-run-mark")?.textContent).toBe(mark);
+    }
+  });
+
+  it("labels the candidate reading reason as why to read it", () => {
+    render(<ResearchCandidateCard
+      item={candidateListItem as ResearchCandidateListItem}
+      profile={profile as ResearchProfile}
+      selected={false}
+      selectable={false}
+      busy={false}
+      onSelect={() => undefined}
+      onDetails={() => undefined}
+      onShortlist={() => undefined}
+      onDismiss={() => undefined}
+      onSaveSource={() => undefined}
+      onCreateNote={() => undefined}
+    />);
+
+    expect(screen.getByText("Why read it")).toBeTruthy();
+    expect(screen.getByText("Compare its adaptive estimates against EWC.")).toBeTruthy();
   });
 
   it("creates a new Profile Draft from the simple setup fields", async () => {

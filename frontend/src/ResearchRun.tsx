@@ -17,12 +17,27 @@ export function ResearchRunList({
   return <div className="research-run-list">
     <div className="research-run-list-heading"><div><h2>Research Runs</h2><p>{count} recorded run{count === 1 ? "" : "s"} for this Profile</p></div></div>
     {runs.map((run) => <button className="research-run-row" key={run.id} onClick={() => onOpen(run.id)}>
-      <span className={`research-run-mark research-run-${run.status}`} aria-hidden="true">{run.status === "success" ? "✓" : run.status === "running" ? "◷" : "!"}</span>
+      <span className={`research-run-mark research-run-${run.status}`} aria-hidden="true">{runMark(run.status)}</span>
       <span className="research-run-row-main"><strong>{formatDate(run.started_at)} · {run.trigger === "scheduled" ? "Scheduled" : "Manual"}</strong><small>{run.fetched_count} fetched · {run.surfaced_count} candidates · {run.status.replaceAll("_", " ")}</small></span>
-      <Chip tone={run.status === "success" ? "green" : run.status === "partial" || run.status === "skipped_ai_disabled" ? "amber" : run.status === "running" ? "blue" : "rose"}>{run.status.replaceAll("_", " ")}</Chip>
+      <Chip tone={runTone(run.status)}>{run.status.replaceAll("_", " ")}</Chip>
       <span className="row-arrow" aria-hidden="true">↗</span>
     </button>)}
   </div>;
+}
+
+function runTone(status: ResearchRun["status"]): string {
+  if (status === "success") return "green";
+  if (status === "running") return "blue";
+  if (status === "failed" || status === "interrupted") return "rose";
+  if (["partial", "skipped_paused", "skipped_disabled", "skipped_ai_disabled", "skipped_inbox_full", "capacity_reached"].includes(status)) return "amber";
+  return "neutral";
+}
+
+function runMark(status: ResearchRun["status"]): string {
+  if (status === "success") return "✓";
+  if (status === "running") return "◷";
+  if (status === "failed" || status === "interrupted") return "!";
+  return "·";
 }
 
 export function ResearchRunDrawer({ run, onClose }: { run: ResearchRun; onClose: () => void }) {

@@ -46,7 +46,7 @@ export function ResearchCandidateCard({
     <div className="research-candidate-insight-grid">
       <div><span>Why shown</span><p>{item.analysis.why_relevant}</p></div>
       <div><span>Related knowledge</span>{item.analysis.existing_relations.length ? <ul>{item.analysis.existing_relations.slice(0, 2).map((relation) => <li key={`${relation.entity_type}:${relation.entity_id}`}><strong>{relation.entity_id}</strong><small>{relation.reason}</small></li>)}</ul> : <p>尚未找到明确的已有知识关联。</p>}</div>
-      <div><span>What may be new</span><p>{item.analysis.reading_reason}</p></div>
+      <div><span>Why read it</span><p>{item.analysis.reading_reason}</p></div>
     </div>
     <div className="research-candidate-footer">
       <span>排序信号 {Math.round(item.recommended_score * 100)} · 收录于 {formatDate(item.candidate.created_at)}</span>
