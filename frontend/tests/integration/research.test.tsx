@@ -524,7 +524,7 @@ describe("Research workspace", () => {
     expect(await screen.findByRole("heading", { name: "Create Research Note" })).toBeTruthy();
     await screen.findByRole("option", { name: "Regularization" });
     expect((screen.getByLabelText("Collection") as HTMLSelectElement).value).toBe("continual-learning");
-    expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("regularization");
+    await waitFor(() => expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("regularization"));
     fireEvent.change(screen.getByLabelText("Collection"), { target: { value: "continual-learning" } });
     fireEvent.change(screen.getByLabelText("Section"), { target: { value: "regularization" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
