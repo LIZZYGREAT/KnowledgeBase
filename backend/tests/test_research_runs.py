@@ -1069,6 +1069,130 @@ def test_reactivation_review_covers_a_disabled_lens_reenabled_with_stale_waterma
 
     assert review["required"] is True
     assert review["triggers"] == ["lens_enabled:replay"]
+    assert [stream["query_text"] for stream in review["streams"]] == ["experience replay"]
+    connection.close()
+
+
+def test_reactivation_review_excludes_new_stream_when_another_affected_stream_is_stale(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    current = _profile(queries=("existing query",))
+    candidate_lens = current.lenses[0].model_copy(
+        update={"queries": ["existing query", "replayed query", "brand new query"]}
+    )
+    candidate = current.model_copy(update={"lenses": [candidate_lens]})
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=current
+    )
+    queries = {query.text: query for query in service.query_builder.build(candidate)}
+    stale_query = queries["replayed query"]
+    new_query = queries["brand new query"]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        candidate.id,
+        stale_query.lens_id,
+        "arxiv",
+        stale_query.query_key,
+        stale_query.text,
+        stale.isoformat(),
+    )
+    search_repository.complete_slice(
+        candidate.id,
+        stale_query.lens_id,
+        "arxiv",
+        stale_query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+
+    review = service.reactivation_review(candidate)
+
+    assert review["required"] is True
+    assert review["triggers"] == [
+        "query_enabled:{}:{}".format(stale_query.lens_id, stale_query.query_key)
+    ]
+    assert review["streams"] == [
+        {
+            "lens_id": stale_query.lens_id,
+            "provider": "arxiv",
+            "query_key": stale_query.query_key,
+            "query_text": stale_query.text,
+        }
+    ]
+    assert search_repository.get_state(
+        candidate.id, new_query.lens_id, "arxiv", new_query.query_key
+    ) is None
+    connection.close()
+
+
+def test_reactivation_review_excludes_recent_stream_when_another_affected_stream_is_stale(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    current = _profile(queries=("stale query", "recent query"))
+    disabled_lens = current.lenses[0].model_copy(update={"enabled": False})
+    current = current.model_copy(update={"lenses": [disabled_lens]})
+    candidate = current.model_copy(
+        update={"lenses": [disabled_lens.model_copy(update={"enabled": True})]}
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([]), profile=current
+    )
+    queries = {query.text: query for query in service.query_builder.build(candidate)}
+    stale_query = queries["stale query"]
+    recent_query = queries["recent query"]
+    stale = _NOW - timedelta(days=90)
+    recent = _NOW - timedelta(days=2)
+    for query, completed_through in (
+        (stale_query, stale),
+        (recent_query, recent),
+    ):
+        search_repository.record_attempt(
+            candidate.id,
+            query.lens_id,
+            "arxiv",
+            query.query_key,
+            query.text,
+            completed_through.isoformat(),
+        )
+        search_repository.complete_slice(
+            candidate.id,
+            query.lens_id,
+            "arxiv",
+            query.query_key,
+            completed_through.isoformat(),
+            completed_through.isoformat(),
+        )
+
+    review = service.reactivation_review(candidate)
+    advanced = service.watermarks.advance_streams_to_floor(
+        candidate,
+        _NOW,
+        stream_keys={
+            (stream["lens_id"], stream["provider"], stream["query_key"])
+            for stream in review["streams"]
+        },
+        audit_strategy="from_now",
+        recorded_at=_NOW,
+    )
+
+    assert review["required"] is True
+    assert review["streams"] == [
+        {
+            "lens_id": stale_query.lens_id,
+            "provider": "arxiv",
+            "query_key": stale_query.query_key,
+            "query_text": stale_query.text,
+        }
+    ]
+    assert [state.query_key for state in advanced] == [stale_query.query_key]
+    assert search_repository.get_state(
+        candidate.id, stale_query.lens_id, "arxiv", stale_query.query_key
+    ).completed_through == _NOW.isoformat()
+    assert search_repository.get_state(
+        candidate.id, recent_query.lens_id, "arxiv", recent_query.query_key
+    ).completed_through == recent.isoformat()
     connection.close()
 
 

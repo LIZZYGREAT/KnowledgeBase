@@ -244,8 +244,28 @@ class ResearchService:
                 "strategies": [],
             }
 
+        now = self._now()
+        cutoff = timedelta(days=candidate.search.max_catchup_days)
+        stale_streams = tuple(
+            stream
+            for stream in affected_streams
+            if (state := self.search_repository.get_state(
+                candidate.id, stream["lens_id"], stream["provider"], stream["query_key"]
+            )) is not None
+            and state.completed_through is not None
+            and now - _parse_timestamp(state.completed_through) > cutoff
+        )
+        if not stale_streams:
+            return {
+                "required": False,
+                "triggers": [],
+                "streams": [],
+                "max_catchup_days": candidate.search.max_catchup_days,
+                "strategies": [],
+            }
+
         current_lenses = {lens.id: lens for lens in current.lenses}
-        for stream in affected_streams:
+        for stream in stale_streams:
             lens = next(lens for lens in candidate.lenses if lens.id == stream["lens_id"])
             previous_lens = current_lenses.get(lens.id)
             if lens.enabled and (previous_lens is None or not previous_lens.enabled):
@@ -270,26 +290,14 @@ class ResearchService:
                 if trigger not in triggers:
                     triggers.append(trigger)
 
-        now = self._now()
-        cutoff = timedelta(days=candidate.search.max_catchup_days)
-        catchup_required = any(
-            (state := self.search_repository.get_state(
-                candidate.id, stream["lens_id"], stream["provider"], stream["query_key"]
-            )) is not None
-            and state.completed_through is not None
-            and now - _parse_timestamp(state.completed_through) > cutoff
-            for stream in affected_streams
-        )
-        if catchup_required and not triggers:
+        if not triggers:
             triggers.append("stream_enabled")
         return {
-            "required": catchup_required,
-            "triggers": triggers if catchup_required else [],
-            "streams": list(affected_streams) if catchup_required else [],
+            "required": True,
+            "triggers": triggers,
+            "streams": list(stale_streams),
             "max_catchup_days": candidate.search.max_catchup_days,
-            "strategies": (
-                ["last_window", "all", "from_now"] if catchup_required else []
-            ),
+            "strategies": ["last_window", "all", "from_now"],
         }
 
     def record_reactivation_choice(
