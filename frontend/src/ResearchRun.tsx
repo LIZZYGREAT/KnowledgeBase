@@ -29,7 +29,7 @@ function runTone(status: ResearchRun["status"]): string {
   if (status === "success") return "green";
   if (status === "running") return "blue";
   if (status === "failed" || status === "interrupted") return "rose";
-  if (["partial", "skipped_paused", "skipped_disabled", "skipped_ai_disabled", "skipped_inbox_full", "capacity_reached"].includes(status)) return "amber";
+  if (["partial", "skipped_paused", "skipped_disabled", "skipped_inbox_full", "capacity_reached"].includes(status)) return "amber";
   return "neutral";
 }
 

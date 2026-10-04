@@ -38,6 +38,7 @@ def test_research_configuration_uses_the_global_analysis_timeout(tmp_path, monke
     assert config.base_url == "https://example.test"
     assert config.timeout_seconds == 17
     assert config.max_retries == 4
+    assert configured_ai.timeout_seconds == 29
 
 
 def test_research_components_share_gateway_and_runtime_dependencies(tmp_path, monkeypatch):

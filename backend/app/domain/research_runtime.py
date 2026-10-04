@@ -104,7 +104,6 @@ ResearchRunStatus = Literal[
     "interrupted",
     "skipped_paused",
     "skipped_disabled",
-    "skipped_ai_disabled",
     "skipped_inbox_full",
     "capacity_reached",
 ]

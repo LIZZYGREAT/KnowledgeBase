@@ -266,7 +266,7 @@ CREATE TABLE IF NOT EXISTS research_control_events (
     id TEXT PRIMARY KEY,
     profile_id TEXT NOT NULL,
     event_type TEXT NOT NULL CHECK (
-        event_type IN ('pause', 'resume', 'watermark_skip', 'reactivation_choice')
+        event_type IN ('pause', 'resume', 'watermark_skip')
     ),
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL
@@ -387,7 +387,7 @@ CREATE TABLE IF NOT EXISTS research_runs (
     status TEXT NOT NULL CHECK (
         status IN (
             'running', 'success', 'partial', 'failed', 'interrupted',
-            'skipped_paused', 'skipped_disabled', 'skipped_ai_disabled',
+            'skipped_paused', 'skipped_disabled',
             'skipped_inbox_full', 'capacity_reached'
         )
     ),

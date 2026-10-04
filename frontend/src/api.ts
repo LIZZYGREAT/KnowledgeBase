@@ -287,7 +287,7 @@ export interface ResearchProfile {
 }
 
 export interface ResearchInboxUsage { new_count: number; capacity: number; remaining: number }
-export type ResearchRunStatus = "running" | "success" | "partial" | "failed" | "interrupted" | "skipped_paused" | "skipped_disabled" | "skipped_ai_disabled" | "skipped_inbox_full" | "capacity_reached";
+export type ResearchRunStatus = "running" | "success" | "partial" | "failed" | "interrupted" | "skipped_paused" | "skipped_disabled" | "skipped_inbox_full" | "capacity_reached";
 export interface ResearchRunSummary {
   id: string;
   trigger: "scheduled" | "manual";

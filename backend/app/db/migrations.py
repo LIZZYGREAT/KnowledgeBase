@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -39,6 +39,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_reactivation_choice_events
         elif target_version == 11:
             migration = _migrate_to_watermark_overlap_floor
+        elif target_version == 12:
+            migration = _migrate_to_cleanup_research_legacy_states
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -178,6 +180,118 @@ def _migrate_to_watermark_overlap_floor(connection: sqlite3.Connection) -> None:
     ):
         connection.execute(
             "ALTER TABLE research_search_state ADD COLUMN overlap_floor TEXT"
+        )
+
+
+def _migrate_to_cleanup_research_legacy_states(
+    connection: sqlite3.Connection,
+) -> None:
+    if _table_exists(connection, "research_control_events"):
+        connection.execute("DROP INDEX IF EXISTS research_control_events_profile_idx")
+        connection.execute(
+            "ALTER TABLE research_control_events "
+            "RENAME TO research_control_events_before_v12"
+        )
+        connection.execute(
+            """CREATE TABLE research_control_events (
+                   id TEXT PRIMARY KEY,
+                   profile_id TEXT NOT NULL,
+                   event_type TEXT NOT NULL CHECK (
+                       event_type IN ('pause', 'resume', 'watermark_skip')
+                   ),
+                   payload_json TEXT NOT NULL,
+                   created_at TEXT NOT NULL
+               )"""
+        )
+        connection.execute(
+            """INSERT INTO research_control_events (
+                   id, profile_id, event_type, payload_json, created_at
+               ) SELECT id, profile_id, event_type, payload_json, created_at
+                 FROM research_control_events_before_v12
+                 WHERE event_type <> 'reactivation_choice'"""
+        )
+        connection.execute("DROP TABLE research_control_events_before_v12")
+        connection.execute(
+            """CREATE INDEX research_control_events_profile_idx
+               ON research_control_events (profile_id, created_at DESC)"""
+        )
+
+    required_run_columns = {
+        "id",
+        "profile_id",
+        "request_id",
+        "trigger",
+        "status",
+        "profile_content_hash",
+        "effective_config_json",
+        "fetched_count",
+        "new_work_count",
+        "duplicate_count",
+        "deterministic_filtered_count",
+        "analysis_attempt_count",
+        "analyzed_count",
+        "analysis_counts_known",
+        "surfaced_count",
+        "provider_summary_json",
+        "error_summary",
+        "started_at",
+        "finished_at",
+    }
+    if _table_exists(connection, "research_runs") and required_run_columns <= {
+        row[1] for row in connection.execute("PRAGMA table_info(research_runs)")
+    }:
+        connection.execute("DROP INDEX IF EXISTS research_runs_profile_idx")
+        connection.execute(
+            "ALTER TABLE research_runs RENAME TO research_runs_before_v12"
+        )
+        connection.execute(
+            """CREATE TABLE research_runs (
+                   id TEXT PRIMARY KEY,
+                   profile_id TEXT NOT NULL,
+                   request_id TEXT,
+                   trigger TEXT NOT NULL CHECK (trigger IN ('scheduled', 'manual')),
+                   status TEXT NOT NULL CHECK (
+                       status IN (
+                           'running', 'success', 'partial', 'failed', 'interrupted',
+                           'skipped_paused', 'skipped_disabled', 'skipped_inbox_full',
+                           'capacity_reached'
+                       )
+                   ),
+                   profile_content_hash TEXT NOT NULL,
+                   effective_config_json TEXT NOT NULL,
+                   fetched_count INTEGER NOT NULL DEFAULT 0,
+                   new_work_count INTEGER NOT NULL DEFAULT 0,
+                   duplicate_count INTEGER NOT NULL DEFAULT 0,
+                   deterministic_filtered_count INTEGER NOT NULL DEFAULT 0,
+                   analysis_attempt_count INTEGER NOT NULL DEFAULT 0,
+                   analyzed_count INTEGER NOT NULL DEFAULT 0,
+                   analysis_counts_known INTEGER NOT NULL DEFAULT 1,
+                   surfaced_count INTEGER NOT NULL DEFAULT 0,
+                   provider_summary_json TEXT NOT NULL,
+                   error_summary TEXT,
+                   started_at TEXT NOT NULL,
+                   finished_at TEXT
+               )"""
+        )
+        connection.execute(
+            """INSERT INTO research_runs (
+                   id, profile_id, request_id, trigger, status, profile_content_hash,
+                   effective_config_json, fetched_count, new_work_count, duplicate_count,
+                   deterministic_filtered_count, analysis_attempt_count, analyzed_count,
+                   analysis_counts_known, surfaced_count, provider_summary_json,
+                   error_summary, started_at, finished_at
+               ) SELECT id, profile_id, request_id, trigger, status, profile_content_hash,
+                        effective_config_json, fetched_count, new_work_count, duplicate_count,
+                        deterministic_filtered_count, analysis_attempt_count, analyzed_count,
+                        analysis_counts_known, surfaced_count, provider_summary_json,
+                        error_summary, started_at, finished_at
+                 FROM research_runs_before_v12
+                 WHERE status <> 'skipped_ai_disabled'"""
+        )
+        connection.execute("DROP TABLE research_runs_before_v12")
+        connection.execute(
+            """CREATE INDEX research_runs_profile_idx
+               ON research_runs (profile_id, started_at DESC)"""
         )
 
 

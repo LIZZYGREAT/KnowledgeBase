@@ -138,7 +138,7 @@
 .research-run-mark { display: grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; border-radius: 8px; color: #78837b; background: #f1f3f1; font-size: var(--text-sm); font-weight: 700; }
 .research-run-success { color: #64866b; background: #eff6f0; }
 .research-run-running { color: #607f9e; background: #eef4f9; }
-.research-run-partial, .research-run-skipped_paused, .research-run-skipped_disabled, .research-run-skipped_ai_disabled, .research-run-skipped_inbox_full, .research-run-capacity_reached { color: #94713e; background: #fbf6e9; }
+.research-run-partial, .research-run-skipped_paused, .research-run-skipped_disabled, .research-run-skipped_inbox_full, .research-run-capacity_reached { color: #94713e; background: #fbf6e9; }
 .research-run-failed, .research-run-interrupted { color: #a15d56; background: #fcf1ef; }
 .research-run-row-main { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .research-run-row-main strong { overflow: hidden; color: #52665a; font-size: var(--text-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,4 +1,4 @@
-"""ASGI application and Phase 0–8 service wiring."""
+"""ASGI application and service composition."""
 
 from contextlib import asynccontextmanager
 import logging
@@ -22,8 +22,11 @@ from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.ai_client import (
     AIConfigurationError,
     AIGatewayError,
+    DeepSeekClient,
+    DeepSeekConfig,
 )
 from backend.app.bootstrap import build_research_components
+from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.draft_service import DraftService
@@ -69,7 +72,9 @@ async def lifespan(application: FastAPI):
         draft_service = DraftService(DraftRepository(connection))
         proposal_service = ProposalService(ProposalRepository(connection))
         research_components = build_research_components(repository_root, connection)
-        ai_gateway = research_components.ai_gateway
+        ai_gateway = AIGateway(
+            DeepSeekClient(DeepSeekConfig.from_environment(repository_root))
+        )
         ai_proposal_service = AIProposalService(
             repository_root, draft_service, proposal_service, ai_gateway
         )

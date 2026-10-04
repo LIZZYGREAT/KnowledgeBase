@@ -210,7 +210,6 @@ describe("Research workspace", () => {
       ["partial", "amber", "·"],
       ["skipped_paused", "amber", "·"],
       ["skipped_disabled", "amber", "·"],
-      ["skipped_ai_disabled", "amber", "·"],
       ["skipped_inbox_full", "amber", "·"],
       ["capacity_reached", "amber", "·"],
       ["failed", "rose", "!"],
