@@ -1132,9 +1132,9 @@ def test_batch_preflight_api_accepts_document_and_collection_drafts(api_client):
     response = _preflight_batch(api_client, document, collection)
 
     assert response.status_code == 200, response.json()
-    assert [item["entity_id"] for item in response.json()["results"]] == [
-        "preflight-api-note",
-        "preflight-api-reading",
+    assert [item["draft_id"] for item in response.json()["results"]] == [
+        document.json()["draft"]["id"],
+        collection.json()["draft"]["id"],
     ]
     assert all(item["valid"] for item in response.json()["results"])
 
@@ -1183,10 +1183,10 @@ def test_batch_preflight_api_accepts_source_document_and_collection_drafts(api_c
     response = _preflight_batch(api_client, source, document, collection)
 
     assert response.status_code == 200, response.json()
-    assert [item["entity_id"] for item in response.json()["results"]] == [
-        "preflight-api-source",
-        "preflight-api-source-note",
-        "preflight-api-source-reading",
+    assert [item["draft_id"] for item in response.json()["results"]] == [
+        source.json()["draft"]["id"],
+        document.json()["draft"]["id"],
+        collection.json()["draft"]["id"],
     ]
     assert all(item["valid"] for item in response.json()["results"])
 
