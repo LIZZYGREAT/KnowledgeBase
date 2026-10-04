@@ -244,6 +244,7 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("New Profile description"), { target: { value: "New view synthesis work." } });
     fireEvent.change(screen.getByLabelText("Initial Lens ID"), { target: { value: "rendering-quality" } });
     fireEvent.change(screen.getByLabelText("Initial Lens title"), { target: { value: "Rendering Quality" } });
+    fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning regularization" } });
     fireEvent.change(screen.getByLabelText("New Profile schedule"), { target: { value: "weekly" } });
     fireEvent.change(screen.getByLabelText("New Profile breadth"), { target: { value: "explore" } });
     fireEvent.change(screen.getByLabelText("New Profile inbox cap"), { target: { value: "12" } });
@@ -258,7 +259,7 @@ describe("Research workspace", () => {
       id: "3dgs",
       title: "3D Gaussian Splatting",
       description: "New view synthesis work.",
-      lenses: [{ id: "rendering-quality", title: "Rendering Quality", queries: ["Rendering Quality"] }],
+      lenses: [{ id: "rendering-quality", title: "Rendering Quality", queries: ["continual learning regularization"] }],
       schedule: { mode: "weekly" },
       search: { breadth: "explore" },
       inbox: { max_new_candidates: 12 },
@@ -459,6 +460,15 @@ describe("Research workspace", () => {
     />);
 
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
+    fireEvent.click(screen.getByLabelText("Discovery Provider arxiv"));
+    const lastDiscoveryProvider = screen.getByLabelText("Discovery Provider openalex") as HTMLInputElement;
+    expect(lastDiscoveryProvider.checked).toBe(true);
+    expect(lastDiscoveryProvider.disabled).toBe(true);
+    fireEvent.click(lastDiscoveryProvider);
+    expect(lastDiscoveryProvider.checked).toBe(true);
+    fireEvent.click(screen.getByLabelText("Enrichment Provider openalex"));
+    fireEvent.click(screen.getByLabelText("Enrichment Provider crossref"));
     fireEvent.change(screen.getByLabelText("Profile title"), { target: { value: "Continual Learning Research" } });
     fireEvent.change(screen.getByLabelText("Profile description"), { target: { value: "Updated research direction." } });
     fireEvent.change(screen.getByLabelText("New Lens ID"), { target: { value: "replay-methods" } });
@@ -481,6 +491,9 @@ describe("Research workspace", () => {
     expect(draftContent).toContain("new incremental query");
     expect(draftContent).toContain("scope: selected-context");
     expect(draftContent).toContain("max_analyses_per_run: 30");
+    expect(parse(draftContent)).toMatchObject({
+      providers: { discovery: ["openalex"], enrichment: ["openalex", "crossref"] },
+    });
     expect(draftContent).toContain("# Keep this profile note.");
     expect(draftContent).toContain("# Keep this trailing note.");
     expect(draftContent.indexOf("schema_version:")).toBeLessThan(draftContent.indexOf("id:"));

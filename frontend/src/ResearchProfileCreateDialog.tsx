@@ -24,6 +24,7 @@ export function ResearchProfileCreateDialog({
   const [description, setDescription] = useState(sourceProfile?.description ?? "");
   const [lensId, setLensId] = useState("initial-lens");
   const [lensTitle, setLensTitle] = useState("Initial Research Lens");
+  const [initialQuery, setInitialQuery] = useState("");
   const [schedule, setSchedule] = useState<ResearchProfile["schedule"]["mode"]>(sourceProfile?.schedule.mode ?? "daily");
   const [breadth, setBreadth] = useState<ResearchBreadth>(sourceProfile?.search.breadth ?? "balanced");
   const [inboxCapacity, setInboxCapacity] = useState(sourceProfile?.inbox.max_new_candidates ?? 20);
@@ -54,6 +55,10 @@ export function ResearchProfileCreateDialog({
       setError("Initial Lens title 不能为空。");
       return;
     }
+    if (!sourceProfile && !initialQuery.trim()) {
+      setError("Initial Query 不能为空。");
+      return;
+    }
     if (!Number.isInteger(inboxCapacity) || inboxCapacity < 0) {
       setError("Inbox cap 必须是 0 或更大的整数。");
       return;
@@ -72,7 +77,7 @@ export function ResearchProfileCreateDialog({
           title: lensTitle.trim(),
           enabled: true,
           priority: "medium",
-          queries: [lensTitle.trim()],
+          queries: [initialQuery.trim()],
           include_terms: [],
           exclude_terms: [],
         }],
@@ -113,6 +118,7 @@ export function ResearchProfileCreateDialog({
         {sourceProfile ? <p className="field-hint">复制 Providers、Context、Lens 和搜索限制；创建后仍可在 Defaults 编辑。</p> : <>
           <label className="field-label">Initial Lens ID<input aria-label="Initial Lens ID" value={lensId} onChange={(event) => setLensId(event.target.value)} /></label>
           <label className="field-label">Initial Lens title<input aria-label="Initial Lens title" value={lensTitle} onChange={(event) => setLensTitle(event.target.value)} /></label>
+          <label className="field-label">Initial Query<input aria-label="Initial Query" value={initialQuery} onChange={(event) => setInitialQuery(event.target.value)} placeholder="e.g. regularization continual learning" /></label>
           <label className="field-label">Schedule<select aria-label="New Profile schedule" value={schedule} onChange={(event) => setSchedule(event.target.value as ResearchProfile["schedule"]["mode"])}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="manual">Manual only</option></select></label>
           <label className="field-label">Breadth<select aria-label="New Profile breadth" value={breadth} onChange={(event) => setBreadth(event.target.value as ResearchBreadth)}><option value="strict">Strict</option><option value="balanced">Balanced</option><option value="explore">Explore</option></select></label>
           <label className="field-label">Inbox cap<input aria-label="New Profile inbox cap" type="number" min={0} step={1} value={inboxCapacity} onChange={(event) => setInboxCapacity(event.target.value === "" ? -1 : Number(event.target.value))} /></label>

@@ -20,6 +20,15 @@ import { useRuntimeDraftSession } from "./draft/useRuntimeDraftSession";
 import { errorMessage } from "./errors";
 import { createLineDiff } from "./publishReview";
 
+const DISCOVERY_PROVIDERS = [
+  { id: "arxiv", label: "arXiv" },
+  { id: "openalex", label: "OpenAlex" },
+] as const;
+const ENRICHMENT_PROVIDERS = [
+  { id: "openalex", label: "OpenAlex" },
+  { id: "crossref", label: "Crossref" },
+] as const;
+
 interface ResearchProfileDefaultsEditorProps {
   profile: ResearchProfile;
   canonicalContent: string;
@@ -95,6 +104,29 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, isNew
     const nextValue = transform(editableProfile);
     applyYamlDiff(document, [], currentValue, nextValue);
     saveYamlEdit(document);
+  }
+
+  function toggleProvider(group: "discovery" | "enrichment", provider: string) {
+    if (!editableProfile) return;
+    const selected = editableProfile.providers[group];
+    if (selected.includes(provider)) {
+      if (group === "discovery" && selected.length === 1) return;
+      updateProfile((current) => ({
+        ...current,
+        providers: {
+          ...current.providers,
+          [group]: current.providers[group].filter((item) => item !== provider),
+        },
+      }));
+      return;
+    }
+    updateProfile((current) => ({
+      ...current,
+      providers: {
+        ...current.providers,
+        [group]: [...current.providers[group], provider],
+      },
+    }));
   }
 
   function updateYamlDocument(change: (document: ReturnType<typeof parseDocument>) => void) {
@@ -284,6 +316,24 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, isNew
               <button className="button button-secondary" type="button" onClick={addLens}>Add Lens</button>
             </div>
             <TextListField label="Profile exclude terms" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
+          </section>
+
+          <section className="research-defaults-section">
+            <div className="research-section-heading"><div><h3>Providers</h3><p>选择自动发现和元数据补全使用的 Provider。</p></div></div>
+            <div className="research-defaults-grid research-defaults-fields">
+              <fieldset>
+                <legend>Discovery Providers</legend>
+                {DISCOVERY_PROVIDERS.map((provider) => {
+                  const checked = editableProfile.providers.discovery.includes(provider.id);
+                  return <label className="research-default-toggle" key={provider.id}><input aria-label={`Discovery Provider ${provider.id}`} type="checkbox" checked={checked} disabled={checked && editableProfile.providers.discovery.length === 1} onChange={() => toggleProvider("discovery", provider.id)} /><span>{provider.label}</span></label>;
+                })}
+                <span className="field-hint">至少选择一个 Discovery Provider。</span>
+              </fieldset>
+              <fieldset>
+                <legend>Enrichment Providers</legend>
+                {ENRICHMENT_PROVIDERS.map((provider) => <label className="research-default-toggle" key={provider.id}><input aria-label={`Enrichment Provider ${provider.id}`} type="checkbox" checked={editableProfile.providers.enrichment.includes(provider.id)} onChange={() => toggleProvider("enrichment", provider.id)} /><span>{provider.label}</span></label>)}
+              </fieldset>
+            </div>
           </section>
 
           <section className="research-defaults-section">
