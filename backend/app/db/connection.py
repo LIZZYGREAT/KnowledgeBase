@@ -1,4 +1,4 @@
-"""SQLite connection setup for disposable Runtime state."""
+"""SQLite connection setup for persistent Runtime state."""
 
 from pathlib import Path
 import sqlite3

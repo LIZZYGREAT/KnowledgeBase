@@ -266,7 +266,7 @@ CREATE TABLE IF NOT EXISTS research_control_events (
     id TEXT PRIMARY KEY,
     profile_id TEXT NOT NULL,
     event_type TEXT NOT NULL CHECK (
-        event_type IN ('pause', 'resume', 'watermark_skip')
+        event_type IN ('pause', 'resume', 'watermark_skip', 'reactivation_choice')
     ),
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL

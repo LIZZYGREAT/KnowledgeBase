@@ -716,15 +716,135 @@ def test_reactivation_review_requires_a_choice_for_stale_watermarks(tmp_path):
 
     service.pause_profile(profile.id, _NOW + timedelta(days=5), _NOW)
     state_before = service.profile_state_repository.get(profile.id)
-    service.apply_reactivation_strategy(
-        profile.id, "last_window", now=_NOW
+    choice = service.record_reactivation_choice(
+        profile.id,
+        service.profile_registry.content_hash(profile.id),
+        "last_window",
+        now=_NOW,
     )
     state_after = service.profile_state_repository.get(profile.id)
     assert state_after.paused_until == state_before.paused_until
-    assert service.control_event_repository.latest_resume(profile.id)["payload"] == {
-        "strategy": "catch_up",
+    assert choice["event_type"] == "reactivation_choice"
+    assert service.control_event_repository.latest_reactivation_choice(profile.id)[
+        "payload"
+    ] == {
+        "profile_content_hash": "a" * 64,
+        "strategy": "last_window",
         "catchup_days": profile.search.max_catchup_days,
     }
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    ("trigger", "manual_incremental"),
+    [("scheduled", False), ("manual", True)],
+)
+def test_scheduled_and_manual_incremental_runs_use_reactivation_policy(
+    tmp_path, trigger, manual_incremental
+):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([])
+    service, _, search_repository, _ = _service(tmp_path, connection, provider)
+    profile = service.profile_registry.get("continual-learning")
+    query = service.query_builder.build(profile)[0]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        profile.id, query.lens_id, "arxiv", query.query_key, query.text, stale.isoformat()
+    )
+    search_repository.complete_slice(
+        profile.id, query.lens_id, "arxiv", query.query_key,
+        stale.isoformat(), stale.isoformat(),
+    )
+    previous = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    service.record_reactivation_choice(
+        profile.id,
+        service.profile_registry.content_hash(profile.id),
+        "last_window",
+        catchup_days=7,
+        now=_NOW,
+    )
+
+    run = service.run_profile(
+        profile.id,
+        trigger=trigger,
+        manual_incremental=manual_incremental,
+    )
+
+    assert run is not None and run.status == "success"
+    assert run.effective_config["resume_strategy"] == "last_window"
+    assert run.effective_config["catchup_days_override"] == 7
+    current = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    if manual_incremental:
+        assert current == previous
+    else:
+        assert current.completed_through == _NOW.isoformat()
+    connection.close()
+
+
+def test_from_now_reactivation_choice_is_applied_once_for_manual_incremental(tmp_path):
+    connection = connect_database(":memory:")
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([])
+    )
+    profile = service.profile_registry.get("continual-learning")
+    query = service.query_builder.build(profile)[0]
+    stale = _NOW - timedelta(days=90)
+    search_repository.record_attempt(
+        profile.id, query.lens_id, "arxiv", query.query_key, query.text, stale.isoformat()
+    )
+    search_repository.complete_slice(
+        profile.id, query.lens_id, "arxiv", query.query_key,
+        stale.isoformat(), stale.isoformat(),
+    )
+    service.record_reactivation_choice(
+        profile.id,
+        service.profile_registry.content_hash(profile.id),
+        "from_now",
+        now=_NOW,
+    )
+
+    first = service.run_profile(
+        profile.id, trigger="manual", manual_incremental=True
+    )
+    state = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert first is not None and first.status == "success"
+    assert first.effective_config["resume_strategy"] == "from_now"
+    assert state.completed_through == _NOW.isoformat()
+    assert len([
+        event for event in service.search_repository.list_control_events(profile.id)
+        if event["event_type"] == "watermark_skip"
+    ]) == 1
+
+    second = service.run_profile(
+        profile.id, trigger="manual", manual_incremental=True
+    )
+
+    assert second is not None and second.status == "success"
+    assert second.effective_config["resume_strategy"] == "all"
+    assert len([
+        event for event in service.search_repository.list_control_events(profile.id)
+        if event["event_type"] == "watermark_skip"
+    ]) == 1
+    connection.close()
+
+
+def test_reactivation_choice_is_ignored_for_a_different_profile_hash(tmp_path):
+    connection = connect_database(":memory:")
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
+    profile = service.profile_registry.get("continual-learning")
+    service.record_reactivation_choice(
+        profile.id, "b" * 64, "all", now=_NOW
+    )
+
+    assert service.resolve_effective_resume_policy(
+        profile.id, service.profile_registry.content_hash(profile.id)
+    ) is None
     connection.close()
 
 

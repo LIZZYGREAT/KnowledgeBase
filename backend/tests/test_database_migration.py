@@ -18,7 +18,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     connection = connect_database(database_path)
     try:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
         ).fetchone() is not None
@@ -68,7 +68,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     reopened = connect_database(database_path)
     try:
-        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 10
         assert reopened.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 5
         assert reopened.execute("SELECT COUNT(*) FROM collection_progress").fetchone()[0] == 1
     finally:
@@ -77,11 +77,58 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
 def test_migration_rejects_a_database_from_a_newer_schema_version():
     connection = sqlite3.connect(":memory:")
-    connection.execute("PRAGMA user_version = 10")
+    connection.execute("PRAGMA user_version = 11")
 
     with pytest.raises(RuntimeError, match="newer than supported"):
         migrate_database(connection)
 
+    connection.close()
+
+
+def test_version_nine_migration_preserves_control_events_and_adds_reactivation_choice():
+    connection = sqlite3.connect(":memory:")
+    connection.executescript(
+        """CREATE TABLE research_control_events (
+               id TEXT PRIMARY KEY,
+               profile_id TEXT NOT NULL,
+               event_type TEXT NOT NULL CHECK (
+                   event_type IN ('pause', 'resume', 'watermark_skip')
+               ),
+               payload_json TEXT NOT NULL,
+               created_at TEXT NOT NULL
+           );
+           CREATE INDEX research_control_events_profile_idx
+               ON research_control_events (profile_id, created_at DESC);
+           INSERT INTO research_control_events VALUES (
+               'resume-1', 'profile-1', 'resume', '{"strategy":"catch_up"}', '2026-10-01'
+           );
+           PRAGMA user_version = 9;"""
+    )
+
+    migrate_database(connection)
+
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+    assert connection.execute(
+        "SELECT id, profile_id, event_type, payload_json, created_at "
+        "FROM research_control_events"
+    ).fetchone() == (
+        "resume-1",
+        "profile-1",
+        "resume",
+        '{"strategy":"catch_up"}',
+        "2026-10-01",
+    )
+    connection.execute(
+        """INSERT INTO research_control_events VALUES (
+               'choice-1', 'profile-1', 'reactivation_choice', '{}', '2026-10-02'
+           )"""
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            """INSERT INTO research_control_events VALUES (
+                   'invalid-1', 'profile-1', 'skip', '{}', '2026-10-03'
+               )"""
+        )
     connection.close()
 
 
@@ -98,7 +145,7 @@ def test_version_seven_migration_separates_attempts_and_marks_old_analysis_total
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
     row = connection.execute(
         """SELECT analysis_attempt_count, analyzed_count, analysis_counts_known
            FROM research_runs WHERE id = 'old-run'"""
@@ -122,7 +169,7 @@ def test_version_eight_migration_normalizes_historical_research_dismiss_reasons(
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
     assert connection.execute(
         "SELECT id, dismiss_reason FROM research_candidates ORDER BY id"
     ).fetchall() == [
@@ -175,7 +222,7 @@ def test_version_five_migration_allows_multiple_candidates_to_share_source_draft
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
     assert connection.execute(
         "SELECT candidate_id, draft_id FROM research_pending_links"
     ).fetchall() == [("candidate-a", "source-draft")]
@@ -225,7 +272,7 @@ def test_version_three_database_migrates_research_tables_and_preserves_drafts():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
     assert connection.execute(
         "SELECT content, revision FROM drafts WHERE id = 'existing-draft'"
     ).fetchone() == ("preserved draft content", 2)
@@ -331,7 +378,7 @@ def test_version_four_research_run_migration_preserves_rows_and_adds_ai_disabled
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
     assert connection.execute(
         "SELECT status, fetched_count, finished_at FROM research_runs WHERE id = 'existing-run'"
     ).fetchone() == ("success", 2, "finished")
@@ -374,7 +421,7 @@ def test_version_six_migration_preserves_analyses_with_empty_input_context():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
     assert connection.execute(
         "SELECT input_context_json FROM research_work_analyses WHERE id = 'analysis-1'"
     ).fetchone()[0] == "{}"

@@ -15,6 +15,9 @@ from backend.app.domain.ai import ResearchCandidateAnalysisOutput
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.main import app
 from backend.app.repositories.proposal_repository import ProposalRepository
+from backend.app.repositories.research_control_event_repository import (
+    ResearchControlEventRepository,
+)
 from backend.app.repositories.research_search_repository import ResearchSearchRepository
 from backend.app.services.ai_client import MockDeepSeekClient
 from backend.app.services.ai_gateway import AIGateway
@@ -563,6 +566,81 @@ def test_research_profile_publish_rejects_missing_reactivation_strategy(api_clie
     )
     assert published.status_code == 409, published.json()
     assert "requires Reactivation Review" in published.json()["detail"]
+
+
+def test_research_profile_publish_persists_hash_bound_reactivation_choice(api_client):
+    service = api_client.app.state.research_service
+    repository = api_client.app.state.repository_root
+    profile = service.profile_registry.get("continual-learning")
+    disabled = profile.model_copy(update={"enabled": False})
+    service.profile_registry = replace(
+        service.profile_registry,
+        profiles=tuple(
+            disabled if item.id == profile.id else item
+            for item in service.profile_registry.profiles
+        ),
+    )
+    query = service.query_builder.build(disabled)[0]
+    stale = service.now() - timedelta(days=90)
+    with open_test_runtime(api_client) as connection:
+        search_repository = ResearchSearchRepository(connection)
+        search_repository.record_attempt(
+            profile.id,
+            query.lens_id,
+            "arxiv",
+            query.query_key,
+            query.text,
+            stale.isoformat(),
+        )
+        search_repository.complete_slice(
+            profile.id,
+            query.lens_id,
+            "arxiv",
+            query.query_key,
+            stale.isoformat(),
+            stale.isoformat(),
+        )
+
+    profile_path = repository / "config" / "research" / "profiles" / "continual-learning.yaml"
+    candidate = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    candidate["title"] = "Durable Reactivation Choice Test"
+    created = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "research_profile",
+            "entity_id": profile.id,
+            "content": yaml.safe_dump(candidate, sort_keys=False, allow_unicode=True),
+        },
+    )
+    assert created.status_code == 201, created.json()
+    draft = created.json()["draft"]
+
+    published = api_client.post(
+        "/api/publish",
+        json={
+            "draft_id": draft["id"],
+            "expected_revision": draft["revision"],
+            "reactivation_strategy": "last_window",
+        },
+    )
+
+    assert published.status_code == 200, published.json()
+    canonical_hash = hashlib.sha256(profile_path.read_bytes()).hexdigest()
+    with open_test_runtime(api_client) as connection:
+        choice = ResearchControlEventRepository(
+            connection
+        ).latest_reactivation_choice(profile.id)
+        state = ResearchSearchRepository(connection).get_state(
+            profile.id, query.lens_id, "arxiv", query.query_key
+        )
+
+    assert choice is not None
+    assert choice["payload"] == {
+        "profile_content_hash": canonical_hash,
+        "strategy": "last_window",
+        "catchup_days": candidate["search"]["max_catchup_days"],
+    }
+    assert state is not None and state.completed_through == stale.isoformat()
 
 
 def test_publishing_source_refreshes_research_screening_registry(api_client):

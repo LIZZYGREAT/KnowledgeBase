@@ -72,9 +72,6 @@ class ResearchWatermarkService:
             raise ValueError("catchup_days override requires the last_window strategy")
         if manual_incremental and manual_range is not None:
             raise ValueError("Manual incremental and historical ranges cannot be combined")
-        if manual_incremental and resume_strategy != "all":
-            raise ValueError("Manual incremental search uses the scheduled watermark window")
-
         state = self.repository.get_state(
             profile.id, query.lens_id, provider, query.query_key
         )

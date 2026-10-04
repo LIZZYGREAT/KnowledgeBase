@@ -9,7 +9,9 @@ import uuid
 from backend.app.repositories.research_repository import ResearchRepository
 
 
-ResearchControlEventType = Literal["pause", "resume", "watermark_skip"]
+ResearchControlEventType = Literal[
+    "pause", "resume", "watermark_skip", "reactivation_choice"
+]
 
 
 class ResearchControlEventRepository:
@@ -53,6 +55,15 @@ class ResearchControlEventRepository:
         row = self.connection.execute(
             """SELECT * FROM research_control_events
                WHERE profile_id = ? AND event_type = 'resume'
+               ORDER BY created_at DESC, id DESC LIMIT 1""",
+            (profile_id,),
+        ).fetchone()
+        return _event_from_row(row) if row else None
+
+    def latest_reactivation_choice(self, profile_id: str) -> Optional[dict[str, Any]]:
+        row = self.connection.execute(
+            """SELECT * FROM research_control_events
+               WHERE profile_id = ? AND event_type = 'reactivation_choice'
                ORDER BY created_at DESC, id DESC LIMIT 1""",
             (profile_id,),
         ).fetchone()

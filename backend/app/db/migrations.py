@@ -1,9 +1,9 @@
-"""Versioned upgrades for disposable Runtime SQLite state."""
+"""Versioned upgrades for persistent Runtime SQLite state."""
 
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -35,6 +35,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_record_research_analysis_attempts
         elif target_version == 9:
             migration = _migrate_to_normalize_research_dismiss_reasons
+        elif target_version == 10:
+            migration = _migrate_to_reactivation_choice_events
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -131,6 +133,40 @@ def _migrate_to_normalize_research_dismiss_reasons(
                ELSE dismiss_reason
            END
            WHERE dismiss_reason IN ('too_similar', 'not_following_subfield')"""
+    )
+
+
+def _migrate_to_reactivation_choice_events(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "research_control_events"):
+        return
+    connection.execute("DROP INDEX IF EXISTS research_control_events_profile_idx")
+    connection.execute(
+        "ALTER TABLE research_control_events "
+        "RENAME TO research_control_events_before_reactivation_choice"
+    )
+    connection.execute(
+        """CREATE TABLE research_control_events (
+               id TEXT PRIMARY KEY,
+               profile_id TEXT NOT NULL,
+               event_type TEXT NOT NULL CHECK (
+                   event_type IN (
+                       'pause', 'resume', 'watermark_skip', 'reactivation_choice'
+                   )
+               ),
+               payload_json TEXT NOT NULL,
+               created_at TEXT NOT NULL
+           )"""
+    )
+    connection.execute(
+        """INSERT INTO research_control_events (
+               id, profile_id, event_type, payload_json, created_at
+           ) SELECT id, profile_id, event_type, payload_json, created_at
+             FROM research_control_events_before_reactivation_choice"""
+    )
+    connection.execute("DROP TABLE research_control_events_before_reactivation_choice")
+    connection.execute(
+        """CREATE INDEX research_control_events_profile_idx
+           ON research_control_events (profile_id, created_at DESC)"""
     )
 
 

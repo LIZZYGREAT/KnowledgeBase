@@ -1,6 +1,7 @@
 """Draft publishing API routes."""
 
 from dataclasses import asdict
+import hashlib
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -70,31 +71,24 @@ async def publish(body: PublishRequest, request: Request):
                 detail="The Profile reactivation state changed; review the Draft again.",
             )
 
+        if body.reactivation_strategy is not None:
+            service.record_reactivation_choice(
+                draft.entity_id,
+                hashlib.sha256(draft.content.encode("utf-8")).hexdigest(),
+                body.reactivation_strategy,
+                catchup_days=(
+                    candidate.search.max_catchup_days
+                    if body.reactivation_strategy == "last_window"
+                    else None
+                ),
+                now=service.now(),
+            )
         result = publisher.publish(
             body.draft_id,
             expected_revision=body.expected_revision,
             commit_message=body.commit_message,
         )
-        response = _published_view(result)
-        if body.reactivation_strategy is not None:
-            try:
-                service.apply_reactivation_strategy(
-                    draft.entity_id,
-                    body.reactivation_strategy,
-                    catchup_days=(
-                        candidate.search.max_catchup_days
-                        if body.reactivation_strategy == "last_window"
-                        else None
-                    ),
-                    now=service.now(),
-                )
-            except Exception as error:
-                response["warnings"].append(
-                    "Research reactivation strategy could not be applied: {}".format(
-                        error
-                    )
-                )
-        return response
+        return _published_view(result)
     finally:
         lock.release()
 

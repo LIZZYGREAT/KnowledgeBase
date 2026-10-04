@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -214,9 +215,9 @@ def test_profile_reactivation_review_and_publish_require_a_selected_strategy(tmp
         "strategies": ["last_window", "all", "from_now"],
     }
     service.reactivation_review = lambda candidate: review
-    applied = []
-    service.apply_reactivation_strategy = lambda profile_id, strategy, **kwargs: applied.append(
-        (profile_id, strategy, kwargs)
+    recorded = []
+    service.record_reactivation_choice = lambda profile_id, profile_content_hash, strategy, **kwargs: recorded.append(
+        (profile_id, profile_content_hash, strategy, kwargs)
     )
 
     application = FastAPI()
@@ -243,7 +244,7 @@ def test_profile_reactivation_review_and_publish_require_a_selected_strategy(tmp
             )
             assert blocked.status_code == 409
             assert publish_calls == []
-            assert applied == []
+            assert recorded == []
 
             published = await client.post(
                 "/api/publish",
@@ -256,8 +257,10 @@ def test_profile_reactivation_review_and_publish_require_a_selected_strategy(tmp
             assert published.status_code == 200, published.json()
             assert published.json()["commit_revision"] == "commit"
             assert len(publish_calls) == 1
-            assert applied[0][0:2] == (profile.id, "last_window")
-            assert applied[0][2]["catchup_days"] == profile.search.max_catchup_days
+            assert recorded[0][0] == profile.id
+            assert recorded[0][1] == hashlib.sha256(b"profile draft").hexdigest()
+            assert recorded[0][2] == "last_window"
+            assert recorded[0][3]["catchup_days"] == profile.search.max_catchup_days
 
     asyncio.run(exercise_routes())
     connection.close()

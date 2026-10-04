@@ -221,9 +221,10 @@ class ResearchService:
             ),
         }
 
-    def apply_reactivation_strategy(
+    def record_reactivation_choice(
         self,
         profile_id: str,
+        profile_content_hash: str,
         strategy: str,
         catchup_days: Optional[int] = None,
         now: Optional[datetime] = None,
@@ -231,53 +232,82 @@ class ResearchService:
         profile = self.profile_registry.get(profile_id)
         if profile is None:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
+        if (
+            not isinstance(profile_content_hash, str)
+            or len(profile_content_hash) != 64
+            or any(character not in "0123456789abcdef" for character in profile_content_hash)
+        ):
+            raise ValueError("Research Profile content hash must be a lowercase SHA-256 digest")
         if strategy not in {"last_window", "all", "from_now"}:
             raise ValueError("Unknown Research reactivation strategy")
+        if strategy == "last_window":
+            if catchup_days is None:
+                catchup_days = profile.search.max_catchup_days
+            if isinstance(catchup_days, bool) or not isinstance(catchup_days, int) or catchup_days < 1:
+                raise ValueError("catchup_days must be a positive integer")
+        elif catchup_days is not None:
+            raise ValueError("catchup_days is only valid for the last_window strategy")
         timestamp = self._now() if now is None else _aware_utc(now, "now")
+        return self.control_event_repository.create(
+            profile_id,
+            "reactivation_choice",
+            {
+                "profile_content_hash": profile_content_hash,
+                "strategy": strategy,
+                "catchup_days": catchup_days,
+            },
+            timestamp,
+        )
+
+    def resolve_effective_resume_policy(
+        self, profile_id: str, profile_hash: str
+    ) -> Optional[tuple[ResumeStrategy, Optional[int], Optional[datetime]]]:
+        """Resolve a published reactivation choice for scheduled or incremental work."""
+        choice = self.control_event_repository.latest_reactivation_choice(profile_id)
+        if choice is None or choice["payload"].get("profile_content_hash") != profile_hash:
+            return None
+
+        chosen_at = _parse_timestamp(choice["created_at"])
         state = self.profile_state_repository.get(profile_id)
-        paused_until = (
-            _parse_timestamp(state.paused_until)
-            if state is not None and state.paused_until is not None
+        last_success = (
+            _parse_timestamp(state.last_successful_scheduled_run_at)
+            if state is not None and state.last_successful_scheduled_run_at is not None
             else None
         )
-        if paused_until is None or paused_until <= timestamp:
-            if strategy == "last_window":
-                days = (
-                    profile.search.max_catchup_days
-                    if catchup_days is None
-                    else catchup_days
-                )
-                return self.resume_profile(
-                    profile_id, strategy="catch_up", catchup_days=days, now=timestamp
-                )
-            if strategy == "all":
-                return self.resume_profile(
-                    profile_id, strategy="catch_up", now=timestamp
-                )
-            return self.resume_profile(profile_id, strategy="from_now", now=timestamp)
+        if last_success is not None and last_success > chosen_at:
+            return None
 
-        # Keep an explicit user pause intact while recording the selected strategy
-        # for the first scheduled run after that pause expires.
-        event_strategy = "catch_up" if strategy in {"last_window", "all"} else "from_now"
-        event_days = (
-            profile.search.max_catchup_days
-            if catchup_days is None and strategy == "last_window"
-            else catchup_days
-        )
-        with self.work_repository.write_transaction():
-            if strategy == "from_now":
-                queries = self.query_builder.build(profile)
-                self.watermarks.skip_profile_to_now(profile, timestamp, queries)
-                self.control_event_repository.create(
-                    profile_id, "watermark_skip", {"strategy": "from_now"}, timestamp
-                )
-            self.control_event_repository.create(
-                profile_id,
-                "resume",
-                {"strategy": event_strategy, "catchup_days": event_days},
-                timestamp,
-            )
-        return state
+        latest_resume = self.control_event_repository.latest_resume(profile_id)
+        if latest_resume is not None and _parse_timestamp(latest_resume["created_at"]) > chosen_at:
+            return None
+
+        strategy = choice["payload"].get("strategy")
+        catchup_days = choice["payload"].get("catchup_days")
+        if strategy not in {"last_window", "all", "from_now"}:
+            raise ValueError("Stored Research reactivation choice has an invalid strategy")
+        if strategy == "last_window":
+            if isinstance(catchup_days, bool) or not isinstance(catchup_days, int) or catchup_days < 1:
+                raise ValueError("Stored Research catchup_days must be a positive integer")
+        else:
+            catchup_days = None
+
+        if strategy == "from_now":
+            profile = self.profile_registry.get(profile_id)
+            if profile is None:
+                raise LookupError("Research Profile '{}' does not exist".format(profile_id))
+            queries = self.query_builder.build(profile)
+            if all(
+                (watermark := self.search_repository.get_state(
+                    profile_id, query.lens_id, provider, query.query_key
+                )) is not None
+                and watermark.completed_through is not None
+                and _parse_timestamp(watermark.completed_through) >= chosen_at
+                for query in queries
+                for provider in profile.providers.discovery
+            ):
+                return "all", None, None
+            return "from_now", None, chosen_at
+        return strategy, catchup_days, None
 
     def pause_profile(
         self, profile_id: str, paused_until: datetime, now: Optional[datetime] = None
@@ -519,6 +549,11 @@ class ResearchService:
         if canonical_profile is None:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
         profile_hash = self.profile_registry.content_hash(profile_id)
+        reactivation_effective_at = None
+        if trigger == "scheduled" or manual_incremental:
+            policy = self.resolve_effective_resume_policy(profile_id, profile_hash)
+            if policy is not None:
+                resume_strategy, catchup_days_override, reactivation_effective_at = policy
         effective_config = _effective_config(
             canonical_profile,
             lens_overrides,
@@ -615,10 +650,23 @@ class ResearchService:
 
         # The run row is committed before any network or AI call.
         if resume_strategy == "from_now" and manual_range is None:
-            self.watermarks.skip_profile_to_now(profile, now, queries)
-            return self.run_repository.finish(
-                run.id, "success", {}, None, self._now()
+            if reactivation_effective_at is None:
+                self.watermarks.skip_profile_to_now(profile, now, queries)
+                return self.run_repository.finish(
+                    run.id, "success", {}, None, self._now()
+                )
+            skip_queries = {
+                (query.lens_id, query.query_key): query
+                for query in (*self.query_builder.build(canonical_profile), *queries)
+            }
+            self.watermarks.skip_profile_to_now(
+                canonical_profile,
+                reactivation_effective_at,
+                tuple(skip_queries.values()),
             )
+            # The durable from_now choice has moved stale watermarks to its fixed
+            # publish-time boundary; this Run now uses the ordinary overlap window.
+            resume_strategy = "all"
 
         all_provider_names = tuple(
             dict.fromkeys(
