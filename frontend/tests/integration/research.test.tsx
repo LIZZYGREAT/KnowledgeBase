@@ -593,6 +593,7 @@ describe("Research workspace", () => {
     expect(screen.getByLabelText("Enable Research discovery + unattended DeepSeek analysis")).toBeTruthy();
     expect(screen.getByText(/Scheduled \/ Manual Run/)).toBeTruthy();
     expect(screen.getByText(/持续授权/)).toBeTruthy();
+    expect(screen.getByText(/筛选词、breadth 和 Knowledge Context 的修改只影响后续 Research Run/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
     fireEvent.click(screen.getByLabelText("Discovery Provider arxiv"));
     const lastDiscoveryProvider = screen.getByLabelText("Discovery Provider openalex") as HTMLInputElement;

@@ -17,6 +17,8 @@ provenance:
   ai_assisted: false
 ---
 
+# iCaRL 前置知识
+
 ## 一、从任务形态开始理解 Class-Incremental Learning
 
 ### 1. 输入为一段不断扩展的类别流

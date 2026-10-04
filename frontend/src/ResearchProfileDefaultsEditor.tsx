@@ -307,6 +307,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
 
           <section className="research-defaults-section">
             <div className="research-section-heading"><div><h3>Search lenses</h3><p>启用状态、优先级和查询词将作为后续搜索默认值。</p></div></div>
+            <p className="field-hint">筛选词、breadth 和 Knowledge Context 的修改只影响后续 Research Run。系统不会自动重新评估已覆盖的历史窗口；如需按新规则检查旧论文，请使用 Search Now 的历史日期范围。</p>
             {editableProfile.lenses.map((lens, index) => <article className="research-default-lens" key={lens.id}>
               <div className="research-default-lens-heading"><label><input type="checkbox" checked={lens.enabled} onChange={(event) => updateProfile((current) => updateLens(current, index, { enabled: event.target.checked }))} /><span><strong>{lens.id}</strong><small>Lens ID is fixed after creation</small></span></label><button className="button button-quiet" type="button" aria-label={`Remove Lens ${lens.id}`} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>Remove Lens</button></div>
               <div className="research-defaults-grid research-defaults-fields">
