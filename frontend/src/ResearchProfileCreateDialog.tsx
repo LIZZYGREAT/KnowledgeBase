@@ -16,7 +16,7 @@ export function ResearchProfileCreateDialog({
   profiles: ResearchProfileSummary[];
   sourceProfile: ResearchProfile | null;
   onClose: () => void;
-  onCreated: (profile: ResearchProfile, draftContent: string) => void;
+  onCreated: (profile: ResearchProfile, draftContent: string, draftCreatedInThisFlow: boolean) => void;
 }) {
   const [id, setId] = useState(sourceProfile ? `${sourceProfile.id}-copy` : "");
   const [title, setTitle] = useState(sourceProfile ? `${sourceProfile.title} Copy` : "");
@@ -86,7 +86,7 @@ export function ResearchProfileCreateDialog({
     try {
       const content = stringify(profile, { lineWidth: 0 });
       const acquired = await createDraft("research_profile", profile.id, content);
-      onCreated(profile, acquired.created ? content : acquired.draft.content);
+      onCreated(profile, acquired.created ? content : acquired.draft.content, acquired.created);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {

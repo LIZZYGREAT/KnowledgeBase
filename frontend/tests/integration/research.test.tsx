@@ -23,6 +23,7 @@ describe("Research workspace", () => {
   let responseCandidateDetail = candidateDetail;
   let responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
   let researchProfileDraft: Record<string, unknown> | null = null;
+  let createDraftCreatedInThisFlow = true;
   let reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
 
   beforeEach(() => {
@@ -31,6 +32,7 @@ describe("Research workspace", () => {
     responseCandidateDetail = candidateDetail;
     responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
     researchProfileDraft = null;
+    createDraftCreatedInThisFlow = true;
     reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
     window.history.replaceState({}, "", "/research");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
@@ -42,12 +44,16 @@ describe("Research workspace", () => {
       if (path === "/api/documents?limit=100&offset=0") return jsonResponse([]);
       if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary]);
       if (path === "/api/research/profiles/continual-learning") return jsonResponse(responseProfileDetail);
-      if (path === "/api/drafts?entity_type=research_profile&entity_id=continual-learning") return jsonResponse([]);
+      if (path.startsWith("/api/drafts?entity_type=research_profile&entity_id=")) {
+        const entityId = new URLSearchParams(path.split("?")[1]).get("entity_id");
+        return jsonResponse(researchProfileDraft?.entity_id === entityId ? [researchProfileDraft] : []);
+      }
       if (path === "/api/drafts" && init?.method === "POST") {
         const body = JSON.parse(String(init.body));
         researchProfileDraft = { id: "profile-draft-1", entity_type: "research_profile", entity_id: body.entity_id, base_git_revision: "abc123", base_content_hash: "a".repeat(64), content: body.content, revision: 1, created_at: "2026-10-03T00:00:00+00:00", updated_at: "2026-10-03T00:00:00+00:00" };
-        return jsonResponse({ draft: researchProfileDraft, created: true }, 201);
+        return jsonResponse({ draft: researchProfileDraft, created: createDraftCreatedInThisFlow }, 201);
       }
+      if (path === "/api/drafts/profile-draft-1" && init?.method === "DELETE") return new Response(null, { status: 204 });
       if (path === "/api/drafts/profile-draft-1/compare" && researchProfileDraft) {
         const canonical = JSON.stringify(profile, null, 2);
         return jsonResponse({ draft: researchProfileDraft, base_content: canonical, current_content: canonical, current_git_revision: "abc123", current_content_hash: "a".repeat(64), canonical_changed: false });
@@ -267,6 +273,23 @@ describe("Research workspace", () => {
       providers: { discovery: ["arxiv"], enrichment: [] },
       ai_analysis: { enabled: false, provider: "deepseek" },
     });
+  });
+
+  it("resumes an existing Profile Draft without deleting it when the editor closes", async () => {
+    createDraftCreatedInThisFlow = false;
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "New Profile" }));
+    fireEvent.change(screen.getByLabelText("New Profile ID"), { target: { value: "resumed-profile" } });
+    fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Resumed Profile" } });
+    fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
+
+    expect(await screen.findByText("Existing unpublished Profile Draft resumed. Closing this editor will keep the Draft.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑 Resumed Profile" })).toBeNull());
+    expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts/profile-draft-1" && init?.method === "DELETE")).toBe(false);
+    expect(researchProfileDraft).not.toBeNull();
   });
 
   it("duplicates a Profile's canonical settings into a new Draft", async () => {
@@ -519,6 +542,7 @@ describe("Research workspace", () => {
     render(<ResearchProfileDefaultsEditor
       profile={profile as unknown as ResearchProfile}
       canonicalContent={`# Keep this profile note.\n${stringify(profile, { lineWidth: 0 })}# Keep this trailing note.\n`}
+      draftCreatedInThisFlow={false}
       onClose={() => undefined}
       onPublished={published}
     />);

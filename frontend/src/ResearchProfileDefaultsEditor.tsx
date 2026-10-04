@@ -32,7 +32,7 @@ const ENRICHMENT_PROVIDERS = [
 interface ResearchProfileDefaultsEditorProps {
   profile: ResearchProfile;
   canonicalContent: string;
-  isNew?: boolean;
+  draftCreatedInThisFlow: boolean;
   onClose: () => void;
   onPublished: (warnings: string[]) => void;
 }
@@ -43,7 +43,8 @@ interface ProfileReview {
   reactivation: ResearchReactivationReview | null;
 }
 
-export function ResearchProfileDefaultsEditor({ profile, canonicalContent, isNew = false, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
+export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draftCreatedInThisFlow, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
+  const isNewProfile = canonicalContent.length === 0;
   const initialContent = useMemo(() => canonicalContent, [canonicalContent]);
   const session = useRuntimeDraftSession({
     entityType: "research_profile",
@@ -179,7 +180,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, isNew
 
   async function closeEditor() {
     if (busy) return;
-    if (isNew) {
+    if (draftCreatedInThisFlow) {
       setBusy(true);
       setError("");
       try {
@@ -223,7 +224,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, isNew
         compareDraft(saved.id),
         preflightDraft(saved.id),
       ]);
-      const reactivation = preflight.valid && !isNew
+      const reactivation = preflight.valid && !isNewProfile
         ? await reviewResearchReactivation(profile.id, saved.id)
         : null;
       setReactivationStrategy("");
@@ -272,15 +273,16 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, isNew
     : [];
 
   return <div className="research-modal-overlay research-profile-editor-overlay" role="presentation" onMouseDown={(event) => {
-    if (!isNew && event.target === event.currentTarget) void closeEditor();
+    if (!draftCreatedInThisFlow && event.target === event.currentTarget) void closeEditor();
   }}>
     <section className="research-dismiss-dialog research-profile-editor" role="dialog" aria-modal="true" aria-labelledby="research-profile-editor-title">
       <header className="research-profile-editor-header">
         <div><p className="eyebrow">PROFILE DEFAULTS</p><h2 id="research-profile-editor-title">编辑 {profile.title}</h2><p>修改会先自动保存为 Draft；检查差异并通过校验后，才会写入 canonical Profile。</p></div>
-        <button className="button button-quiet" type="button" disabled={busy || (isNew && (session.loading || session.state === "saving"))} onClick={() => void closeEditor()}>{isNew ? "Discard new Profile Draft" : "关闭"}</button>
+        <button className="button button-quiet" type="button" disabled={busy || (draftCreatedInThisFlow && (session.loading || session.state === "saving"))} onClick={() => void closeEditor()}>{draftCreatedInThisFlow ? "Discard new Profile Draft" : "关闭"}</button>
       </header>
       <div className="research-profile-editor-body">
         <div className="research-profile-draft-status" role="status"><strong>{statusText}</strong><span>Research Profile Draft · {profile.id}</span></div>
+        {isNewProfile && !draftCreatedInThisFlow && <p className="notice" role="status">Existing unpublished Profile Draft resumed. Closing this editor will keep the Draft.</p>}
         {session.error && <p className="error-copy" role="alert">{session.error}</p>}
         {error && <p className="error-copy" role="alert">{error}</p>}
         {notice && <p className="notice" role="status">{notice}</p>}

@@ -71,7 +71,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [runCount, setRunCount] = useState(0);
   const [runsLoading, setRunsLoading] = useState(false);
   const [runDetail, setRunDetail] = useState<ResearchRun | null>(null);
-  const [profileEditor, setProfileEditor] = useState<{ profile: ResearchProfile; canonicalContent: string; isNew: boolean } | null>(null);
+  const [profileEditor, setProfileEditor] = useState<{ profile: ResearchProfile; canonicalContent: string; draftCreatedInThisFlow: boolean } | null>(null);
   const [createProfileSource, setCreateProfileSource] = useState<ResearchProfile | null | undefined>(undefined);
   const [profilePublishWarnings, setProfilePublishWarnings] = useState<string[]>([]);
 
@@ -299,21 +299,21 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
       profiles={profiles}
       sourceProfile={createProfileSource}
       onClose={() => setCreateProfileSource(undefined)}
-      onCreated={(createdProfile, draftContent) => {
+      onCreated={(createdProfile, draftContent, draftCreatedInThisFlow) => {
         const savedProfile = parse(draftContent) as ResearchProfile;
         setCreateProfileSource(undefined);
-        setProfileEditor({ profile: savedProfile ?? createdProfile, canonicalContent: "", isNew: true });
+        setProfileEditor({ profile: savedProfile ?? createdProfile, canonicalContent: "", draftCreatedInThisFlow });
       }}
     />}
     {profileEditor && <ResearchProfileDefaultsEditor
       profile={profileEditor.profile}
       canonicalContent={profileEditor.canonicalContent}
-      isNew={profileEditor.isNew}
+      draftCreatedInThisFlow={profileEditor.draftCreatedInThisFlow}
       onClose={() => setProfileEditor(null)}
       onPublished={(warnings) => {
         const publishedProfileId = profileEditor.profile.id;
         setProfileEditor(null);
-        if (profileEditor.isNew) setSelectedProfileId(publishedProfileId);
+        if (!profileEditor.canonicalContent) setSelectedProfileId(publishedProfileId);
         setProfilePublishWarnings(warnings);
         refresh();
       }}
@@ -327,7 +327,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   return <div className="page-stack research-page">
     <PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<div className="research-profile-header-actions"><label className="research-profile-select"><span>Profile</span><select aria-label="Research Profile" value={selectedProfileId} onChange={(event) => { setProfileEditor(null); setSelectedProfileId(event.target.value); setTab("new"); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>Select a Profile</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button className="button button-secondary" onClick={() => setCreateProfileSource(null)}>New Profile</button><button className="button button-quiet" disabled={!profile || profile.profile.id !== selectedProfileId} onClick={() => setCreateProfileSource(profile?.profile ?? null)}>Duplicate Profile</button></div>} />
     {profileError && <ErrorState message={profileError} retry={refresh} />}
-    {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={(id) => { setQueuedRequestId(id); setTab("new"); }} onEditDefaults={() => setProfileEditor({ profile: profile.profile, canonicalContent: profile.canonical_content, isNew: false })} />}
+    {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={(id) => { setQueuedRequestId(id); setTab("new"); }} onEditDefaults={() => setProfileEditor({ profile: profile.profile, canonicalContent: profile.canonical_content, draftCreatedInThisFlow: false })} />}
     {profilePublishWarnings.length > 0 && <div className="notice research-queued-notice" role="status"><strong>Profile published with warnings</strong><ul>{profilePublishWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="text-button" onClick={() => setProfilePublishWarnings([])}>Dismiss</button></div>}
     {queuedRequestId && <div className="notice research-queued-notice" role="status"><strong>Search queued</strong><span>Request {queuedRequestId.slice(0, 10)} 已加入本地队列；将在下次 Research tick 执行。</span><button className="text-button" onClick={() => setQueuedRequestId("")}>Dismiss</button></div>}
 
