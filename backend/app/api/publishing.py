@@ -1,5 +1,7 @@
 """Draft publishing API routes."""
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.app.api.schemas import (

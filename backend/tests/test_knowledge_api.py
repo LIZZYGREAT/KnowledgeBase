@@ -1026,6 +1026,93 @@ def test_batch_publish_api_publishes_document_and_collection_in_one_commit(api_c
     ).status_code == 404
 
 
+def test_batch_preflight_api_accepts_document_and_collection_drafts(api_client):
+    document = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "document",
+            "entity_id": "preflight-api-note",
+            "content": _document_content("preflight-api-note", "Preflight API Note"),
+        },
+    )
+    assert document.status_code == 201, document.json()
+    collection = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "collection",
+            "entity_id": "preflight-api-reading",
+            "content": (
+                "schema_version: 1\nid: preflight-api-reading\n"
+                "title: Preflight API Reading\nstatus: active\nposition: 0\nnodes:\n"
+                "  - id: preflight-api-note\n    kind: entity\n"
+                "    entity_type: document\n    entity_id: preflight-api-note\n"
+            ),
+        },
+    )
+    assert collection.status_code == 201, collection.json()
+
+    response = _preflight_batch(api_client, document, collection)
+
+    assert response.status_code == 200, response.json()
+    assert [item["entity_id"] for item in response.json()["results"]] == [
+        "preflight-api-note",
+        "preflight-api-reading",
+    ]
+    assert all(item["valid"] for item in response.json()["results"])
+
+
+def test_batch_preflight_api_accepts_source_document_and_collection_drafts(api_client):
+    source_id = "preflight-api-source"
+    source = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "source",
+            "entity_id": source_id,
+            "content": (
+                "schema_version: 1\nid: preflight-api-source\ntype: paper\n"
+                "title: Preflight API Source\nauthors:\n  - Example Author\nyear: 2025\n"
+            ),
+        },
+    )
+    assert source.status_code == 201, source.json()
+    document = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "document",
+            "entity_id": "preflight-api-source-note",
+            "content": _document_content(
+                "preflight-api-source-note", "Preflight API Source Note"
+            ).replace("source-alpha", source_id),
+        },
+    )
+    assert document.status_code == 201, document.json()
+    collection = api_client.post(
+        "/api/drafts",
+        json={
+            "entity_type": "collection",
+            "entity_id": "preflight-api-source-reading",
+            "content": (
+                "schema_version: 1\nid: preflight-api-source-reading\n"
+                "title: Preflight API Source Reading\nstatus: active\n"
+                "position: 0\nnodes:\n  - id: preflight-api-source-note\n"
+                "    kind: entity\n    entity_type: document\n"
+                "    entity_id: preflight-api-source-note\n"
+            ),
+        },
+    )
+    assert collection.status_code == 201, collection.json()
+
+    response = _preflight_batch(api_client, source, document, collection)
+
+    assert response.status_code == 200, response.json()
+    assert [item["entity_id"] for item in response.json()["results"]] == [
+        "preflight-api-source",
+        "preflight-api-source-note",
+        "preflight-api-source-reading",
+    ]
+    assert all(item["valid"] for item in response.json()["results"])
+
+
 def test_publish_api_rejects_draft_changed_after_review(api_client):
     created = api_client.post(
         "/api/imports/blank-document",
@@ -1329,6 +1416,21 @@ def _document_content(entity_id="neural-indexing", title="Neural Indexing"):
         "# {}\n\nA stable index retains canonical facts [@source-alpha, Sec. 2].\n"
         "See [[Calibrated Optimizer]] and [[Missing Term]].\n"
     ).format(entity_id, title, title)
+
+
+def _preflight_batch(api_client, *draft_responses):
+    return api_client.post(
+        "/api/publish/preflight-batch",
+        json={
+            "drafts": [
+                {
+                    "draft_id": response.json()["draft"]["id"],
+                    "expected_revision": response.json()["draft"]["revision"],
+                }
+                for response in draft_responses
+            ]
+        },
+    )
 
 
 def _term_draft_content():
