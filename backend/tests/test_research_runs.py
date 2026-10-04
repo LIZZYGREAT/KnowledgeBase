@@ -230,7 +230,7 @@ def test_capacity_reached_mid_slice_stops_pagination_without_advancing_watermark
     assert run is not None and run.status == "capacity_reached"
     assert run.surfaced_count == 1
     assert provider.calls == 1
-    assert provider.limit_requests == [1]
+    assert provider.limit_requests == [20]
     state = search_repository.get_state(
         profile.id, "regularization", "arxiv", _query_key(service)
     )
