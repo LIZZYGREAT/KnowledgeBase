@@ -34,7 +34,8 @@ test("Workspace URLs retain Collection context and batch publishing state", () =
 });
 
 test("entity editing stays in the Reader workspace and the full-page editor is gone", () => {
-  assert.doesNotMatch(app, /query\.get\("edit"\)/);
+  assert.match(app, /route\.entityType === "source" && query\.get\("edit"\) === "1"/);
+  assert.match(workspace, /openMetadataOnLoad/);
   assert.doesNotMatch(app, /parts\[0\] === "edit"/);
   assert.doesNotMatch(workspace, /WorkspaceEditingSurface|WorkspaceMode|initialMode/);
   assert.match(reader, /setActiveDrawer\("source"\)/);
