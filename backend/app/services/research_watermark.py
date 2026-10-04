@@ -53,6 +53,7 @@ class ResearchWatermarkService:
         catchup_days_override: Optional[int] = None,
         catchup_effective_at: Optional[datetime] = None,
         manual_incremental: bool = False,
+        manual_run: bool = False,
     ) -> ResearchSearchPlan:
         now_utc = _as_utc(now, "now")
         if query.profile_id != profile.id:
@@ -114,7 +115,7 @@ class ResearchWatermarkService:
                 query_key=query.query_key,
                 query_text=query.text,
                 slices=(),
-                manual=False,
+                manual=manual_run,
                 previous_watermark=previous_watermark,
                 watermark_skip_required=True,
             )
@@ -150,7 +151,7 @@ class ResearchWatermarkService:
             query_key=query.query_key,
             query_text=query.text,
             slices=_slice_range(start, now_utc, global_config.runtime.slice_days),
-            manual=manual_incremental,
+            manual=manual_run or manual_incremental,
             previous_watermark=previous_watermark,
         )
 

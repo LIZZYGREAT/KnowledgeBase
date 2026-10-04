@@ -1,6 +1,6 @@
 """Single-profile Research pipeline with durable run and watermark boundaries."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
@@ -56,7 +56,7 @@ from backend.app.services.markdown_parser import parse_yaml
 
 
 MAX_ANALYSIS_BACKLOG_PER_RUN = 10
-MAX_ANALYSIS_BACKLOG_SCAN_PER_RUN = 100
+MAX_ANALYSIS_BACKLOG_PAGE_SIZE = 100
 _LENS_PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 _BACKLOG_SEARCH_SLICE = ResearchSearchSlice(
     datetime.min.replace(tzinfo=timezone.utc),
@@ -587,7 +587,11 @@ class ResearchService:
         self.run_repository.create(run)
 
         # The run row is committed before any network or AI call.
-        if execution_resume_strategy == "from_now" and manual_range is None:
+        if (
+            trigger == "scheduled"
+            and execution_resume_strategy == "from_now"
+            and manual_range is None
+        ):
             self.watermarks.skip_profile_to_now(profile, now, queries)
             return self.run_repository.finish(
                 run.id, "success", {}, None, self._now()
@@ -706,6 +710,7 @@ class ResearchService:
                     catchup_days_override=catchup_days_override,
                     catchup_effective_at=catchup_effective_at,
                     manual_incremental=manual_incremental,
+                    manual_run=run.trigger == "manual",
                 )
                 if plan.watermark_skip_required or not plan.slices:
                     continue
@@ -722,16 +727,26 @@ class ResearchService:
                 stream_order += 1
 
         pending_by_work = {}
+        backlog_budget = _analysis_backlog_budget(
+            profile.search.max_analyses_per_run
+        )
         if profile.ai_analysis.enabled:
+            backlog_candidates = self._collect_analysis_backlog(
+                profile, queries, warnings, backlog_budget
+            )
             self._merge_ranked_works(
                 pending_by_work,
-                self._collect_analysis_backlog(profile, queries, warnings),
+                backlog_candidates,
                 set(),
             )
+        else:
+            backlog_candidates = []
         processed_work_ids: set[str] = set()
         backlog_attempts = 0
-        backlog_attempt_limit = min(
-            MAX_ANALYSIS_BACKLOG_PER_RUN, profile.search.max_analyses_per_run
+        backlog_attempt_limit = min(backlog_budget, len(backlog_candidates))
+        new_attempts = 0
+        new_attempt_limit = max(
+            0, profile.search.max_analyses_per_run - backlog_attempt_limit
         )
         request_limit = self.profile_registry.global_config.runtime.discovery_page_size
 
@@ -740,6 +755,9 @@ class ResearchService:
             pending_by_work = {}
             for stream in streams:
                 if not stream.active:
+                    continue
+                if stream.provider_name in unavailable_discovery_providers:
+                    stream.active = False
                     continue
                 if (
                     profile.ai_analysis.enabled
@@ -876,10 +894,9 @@ class ResearchService:
                 round_candidates.values(), key=lambda item: (-item.score, item.order)
             )
             for candidate in ordered_candidates:
-                if (
-                    candidate.backlog
-                    and backlog_attempts >= backlog_attempt_limit
-                ):
+                if candidate.backlog and backlog_attempts >= backlog_attempt_limit:
+                    continue
+                if not candidate.backlog and new_attempts >= new_attempt_limit:
                     continue
                 attempts_before = self.run_repository.get(
                     run.id
@@ -903,6 +920,8 @@ class ResearchService:
                 ).analysis_attempt_count
                 if candidate.backlog:
                     backlog_attempts += max(0, attempts_after - attempts_before)
+                else:
+                    new_attempts += max(0, attempts_after - attempts_before)
                 if profile.ai_analysis.enabled and (
                     attempts_after >= profile.search.max_analyses_per_run
                 ):
@@ -962,41 +981,58 @@ class ResearchService:
         profile: ResearchProfile,
         queries: Sequence[ResearchQuery],
         warnings: list[str],
+        max_candidates: int,
     ) -> list[_RankedWork]:
+        if max_candidates <= 0:
+            return []
         query_by_key = {query.query_key: query for query in queries}
-        discoveries = self.work_repository.list_unanalyzed_discoveries(
-            profile.id,
-            tuple(query_by_key),
-            MAX_ANALYSIS_BACKLOG_SCAN_PER_RUN,
-        )
+        query_keys = tuple(query_by_key)
         backlog = []
-        for index, discovery in enumerate(discoveries):
-            query = query_by_key.get(discovery.query_key)
-            work = self.work_repository.get_work(discovery.work_id)
-            if query is None or work is None:
-                continue
-            lens = _lens_for(profile, query)
-            screened = self.screening.screen(
-                work, profile, query, _BACKLOG_SEARCH_SLICE, self._now()
+        after = None
+        scanned = 0
+        while len(backlog) < max_candidates:
+            page = self.work_repository.list_unanalyzed_discoveries(
+                profile.id,
+                query_keys,
+                MAX_ANALYSIS_BACKLOG_PAGE_SIZE,
+                after=after,
             )
-            if "ambiguous_existing_source" in screened.metadata_warnings:
-                warnings.append(
-                    "ambiguous_existing_source: Work '{}' was retained because "
-                    "its canonical Source identity is ambiguous".format(work.id)
+            if not page:
+                break
+            for discovery in page:
+                after = (discovery.discovered_at, discovery.id)
+                query = query_by_key.get(discovery.query_key)
+                work = self.work_repository.get_work(discovery.work_id)
+                index = scanned
+                scanned += 1
+                if query is None or work is None:
+                    continue
+                lens = _lens_for(profile, query)
+                screened = self.screening.screen(
+                    work, profile, query, _BACKLOG_SEARCH_SLICE, self._now()
                 )
-            if not screened.eligible or screened.pre_rank is None:
-                continue
-            backlog.append(
-                _RankedWork(
-                    work_id=work.id,
-                    query=query,
-                    lens=lens,
-                    discovery_provider=discovery.provider,
-                    score=screened.pre_rank.score,
-                    order=(0, index),
-                    backlog=True,
+                if "ambiguous_existing_source" in screened.metadata_warnings:
+                    warnings.append(
+                        "ambiguous_existing_source: Work '{}' was retained because "
+                        "its canonical Source identity is ambiguous".format(work.id)
+                    )
+                if not screened.eligible or screened.pre_rank is None:
+                    continue
+                backlog.append(
+                    _RankedWork(
+                        work_id=work.id,
+                        query=query,
+                        lens=lens,
+                        discovery_provider=discovery.provider,
+                        score=screened.pre_rank.score,
+                        order=(0, index),
+                        backlog=True,
+                    )
                 )
-            )
+                if len(backlog) >= max_candidates:
+                    break
+            if len(page) < MAX_ANALYSIS_BACKLOG_PAGE_SIZE:
+                break
         return backlog
 
     @staticmethod
@@ -1009,11 +1045,18 @@ class ResearchService:
             if candidate.work_id in processed_work_ids:
                 continue
             current = target.get(candidate.work_id)
-            if current is None or (-candidate.score, candidate.order) < (
-                -current.score,
-                current.order,
-            ):
+            if current is None:
                 target[candidate.work_id] = candidate
+                continue
+            selected = (
+                candidate
+                if (-candidate.score, candidate.order)
+                < (-current.score, current.order)
+                else current
+            )
+            if current.backlog or candidate.backlog:
+                selected = replace(selected, backlog=True)
+            target[candidate.work_id] = selected
 
     def _process_ranked_work(
         self,
@@ -1031,7 +1074,7 @@ class ResearchService:
         if work is None:
             return True, None
         if not profile.ai_analysis.enabled:
-            self._enrich_work(
+            enriched_work = self._enrich_work(
                 work,
                 profile,
                 stats,
@@ -1039,6 +1082,9 @@ class ResearchService:
                 warnings,
                 enrichment_provider_failures,
                 unavailable_enrichment_providers,
+            )
+            self._post_enrichment_check(
+                run, work, enriched_work, profile, candidate.query, warnings
             )
             return True, None
 
@@ -1050,6 +1096,21 @@ class ResearchService:
         if self.candidate_service.remaining_capacity(profile) <= 0:
             errors.append("Inbox capacity reached before the candidate could be analyzed")
             return False, "capacity_reached"
+
+        original_work = work
+        work = self._enrich_work(
+            work,
+            profile,
+            stats,
+            candidate.discovery_provider,
+            warnings,
+            enrichment_provider_failures,
+            unavailable_enrichment_providers,
+        )
+        if not self._post_enrichment_check(
+            run, original_work, work, profile, candidate.query, warnings
+        ):
+            return True, None
 
         context_pack = self.context_builder.build(
             work,
@@ -1067,53 +1128,29 @@ class ResearchService:
             if analysis_breaker.analysis_disabled_for_run:
                 errors.append("DeepSeek analysis circuit opened for this run")
                 return False, "partial"
-            original_work = work
-            work = self._enrich_work(
-                work,
-                profile,
-                stats,
-                candidate.discovery_provider,
-                warnings,
-                enrichment_provider_failures,
-                unavailable_enrichment_providers,
-            )
-            if work != original_work:
-                context_pack = self.context_builder.build(
+            analysis_attempted = False
+
+            def record_analysis_attempt():
+                nonlocal analysis_attempted
+                self.run_repository.update_progress(
+                    run.id, analysis_attempt_count=1
+                )
+                analysis_attempted = True
+
+            try:
+                analysis = self.analysis_service.analyze(
                     work,
                     profile,
                     candidate.lens,
-                    keywords=(candidate.query.text,),
+                    context_pack,
+                    circuit_breaker=analysis_breaker,
+                    on_attempt=record_analysis_attempt,
                 )
-                analysis_hash = self.analysis_service.input_hash(
-                    work, profile, candidate.lens, context_pack
-                )
-                analysis = self.work_repository.get_analysis(
-                    work.id, profile.id, analysis_hash
-                )
-            if analysis is None:
-                analysis_attempted = False
-
-                def record_analysis_attempt():
-                    nonlocal analysis_attempted
-                    self.run_repository.update_progress(
-                        run.id, analysis_attempt_count=1
-                    )
-                    analysis_attempted = True
-
-                try:
-                    analysis = self.analysis_service.analyze(
-                        work,
-                        profile,
-                        candidate.lens,
-                        context_pack,
-                        circuit_breaker=analysis_breaker,
-                        on_attempt=record_analysis_attempt,
-                    )
-                except AIGatewayError as error:
-                    errors.append("DeepSeek: {}".format(str(error)[:240]))
-                    return False, "partial"
-                if analysis_attempted and analysis is not None:
-                    self.run_repository.update_progress(run.id, analyzed_count=1)
+            except AIGatewayError as error:
+                errors.append("DeepSeek: {}".format(str(error)[:240]))
+                return False, "partial"
+            if analysis_attempted and analysis is not None:
+                self.run_repository.update_progress(run.id, analyzed_count=1)
         if analysis is None:
             if analysis_breaker.analysis_disabled_for_run:
                 errors.append("DeepSeek analysis circuit opened for this run")
@@ -1132,6 +1169,32 @@ class ResearchService:
                 errors.append("Inbox capacity reached before the next search round")
                 return False, "capacity_reached"
         return True, None
+
+    def _post_enrichment_check(
+        self,
+        run: ResearchRunRecord,
+        original_work: ResearchWorkRecord,
+        enriched_work: ResearchWorkRecord,
+        profile: ResearchProfile,
+        query: ResearchQuery,
+        warnings: list[str],
+    ) -> bool:
+        if _screening_metadata_signature(original_work) == _screening_metadata_signature(
+            enriched_work
+        ):
+            return True
+        decision = self.screening.post_enrichment_check(enriched_work, profile, query)
+        if "ambiguous_existing_source" in decision.metadata_warnings:
+            warning = (
+                "ambiguous_existing_source: Work '{}' was retained because "
+                "its canonical Source identity is ambiguous".format(enriched_work.id)
+            )
+            if warning not in warnings:
+                warnings.append(warning)
+        if decision.eligible:
+            return True
+        self.run_repository.update_progress(run.id, deterministic_filtered_count=1)
+        return False
 
     def _enrich_work(
         self,
@@ -1303,6 +1366,26 @@ def _needs_openalex_enrichment(work: ResearchWorkRecord) -> bool:
             not work.venue,
             not work.url,
         )
+    )
+
+
+def _analysis_backlog_budget(max_analyses_per_run: int) -> int:
+    if max_analyses_per_run <= 0:
+        return 0
+    return min(MAX_ANALYSIS_BACKLOG_PER_RUN, max(1, max_analyses_per_run // 3))
+
+
+def _screening_metadata_signature(work: ResearchWorkRecord) -> tuple:
+    return (
+        work.title,
+        work.abstract,
+        work.authors,
+        work.year,
+        work.published_at,
+        work.doi,
+        work.arxiv_id,
+        work.openalex_id,
+        work.semantic_scholar_id,
     )
 
 

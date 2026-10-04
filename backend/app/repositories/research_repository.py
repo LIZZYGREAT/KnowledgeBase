@@ -206,11 +206,23 @@ class ResearchRepository:
         return [_discovery_from_row(row) for row in rows]
 
     def list_unanalyzed_discoveries(
-        self, profile_id: str, query_keys: tuple[str, ...], limit: int
+        self,
+        profile_id: str,
+        query_keys: tuple[str, ...],
+        limit: int,
+        after: Optional[tuple[str, str]] = None,
     ) -> list[ResearchDiscoveryRecord]:
         if not query_keys or limit <= 0:
             return []
         placeholders = ", ".join("?" for _ in query_keys)
+        after_clause = ""
+        cursor_parameters: tuple[str, ...] = ()
+        if after is not None:
+            after_clause = """
+                 AND (discovery.discovered_at > ?
+                      OR (discovery.discovered_at = ? AND discovery.id > ?))
+            """
+            cursor_parameters = (after[0], after[0], after[1])
         rows = self.connection.execute(
             """SELECT discovery.* FROM research_discoveries AS discovery
                WHERE discovery.profile_id = ?
@@ -234,9 +246,10 @@ class ResearchRepository:
                             OR (earlier.discovered_at = discovery.discovered_at
                                 AND earlier.id < discovery.id))
                  )
+                 {}
                ORDER BY discovery.discovered_at, discovery.id
-               LIMIT ?""".format(placeholders, placeholders),
-            (profile_id, *query_keys, *query_keys, limit),
+               LIMIT ?""".format(placeholders, placeholders, after_clause),
+            (profile_id, *query_keys, *query_keys, *cursor_parameters, limit),
         ).fetchall()
         return [_discovery_from_row(row) for row in rows]
 

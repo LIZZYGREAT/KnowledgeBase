@@ -247,6 +247,87 @@ def test_manual_incremental_run_keeps_scheduled_watermark_unchanged(tmp_path):
     connection.close()
 
 
+def test_direct_manual_run_without_override_keeps_scheduled_watermark_unchanged(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([])
+    service, _, search_repository, _ = _service(tmp_path, connection, provider)
+    profile = service.profile_registry.get("continual-learning")
+    query = service.query_builder.build(profile)[0]
+    watermark = _NOW - timedelta(hours=12)
+    search_repository.record_attempt(
+        profile.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        query.text,
+        watermark.isoformat(),
+    )
+    search_repository.complete_slice(
+        profile.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        watermark.isoformat(),
+        watermark.isoformat(),
+    )
+    before = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+
+    run = service.run_profile(profile.id, trigger="manual")
+
+    after = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert run is not None and run.status == "success"
+    assert after == before
+    assert provider.calls > 0
+    connection.close()
+
+
+def test_queued_manual_run_without_range_keeps_scheduled_watermark_unchanged(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, FakeProvider([])
+    )
+    profile = service.profile_registry.get("continual-learning")
+    query = service.query_builder.build(profile)[0]
+    watermark = _NOW - timedelta(hours=12)
+    search_repository.record_attempt(
+        profile.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        query.text,
+        watermark.isoformat(),
+    )
+    search_repository.complete_slice(
+        profile.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        watermark.isoformat(),
+        watermark.isoformat(),
+    )
+    before = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    service.queue_manual_run(profile.id)
+
+    run = service.tick()
+
+    after = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert run is not None and run.trigger == "manual" and run.status == "success"
+    assert after == before
+    connection.close()
+
+
 def test_full_inbox_skips_before_provider_or_deepseek_calls(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([])
@@ -435,6 +516,107 @@ def test_reenabling_ai_analyzes_saved_discovery_backlog_with_a_per_run_bound(tmp
     assert len(context_builder.work_titles) == MAX_ANALYSIS_BACKLOG_PER_RUN
     assert len(ai_client.calls) == MAX_ANALYSIS_BACKLOG_PER_RUN
     assert ResearchCandidateRepository(connection).count_new(profile.id) == MAX_ANALYSIS_BACKLOG_PER_RUN
+    connection.close()
+
+
+def test_analysis_backlog_scans_past_first_hundred_filtered_discoveries(tmp_path):
+    connection = connect_database(":memory:")
+    service, _, _, ai_client = _service(
+        tmp_path, connection, FakeProvider([])
+    )
+    profile = service.profile_registry.get("continual-learning")
+    query = service.query_builder.build(profile)[0]
+    context_builder = RecordingContextBuilder(service.context_builder)
+    service.context_builder = context_builder
+
+    for index in range(101):
+        eligible = index == 100
+        work = _provider_work().model_copy(
+            update={
+                "provider_record_id": "2401.backlog-{}".format(index),
+                "title": (
+                    "Fisher Information for Continual Learning"
+                    if eligible
+                    else "Control Theory Revisited {}".format(index)
+                ),
+                "abstract": (
+                    "Fisher information supports continual learning."
+                    if eligible
+                    else "A control systems paper unrelated to this Lens."
+                ),
+                "arxiv_id": "2401.backlog-{}".format(index),
+            }
+        )
+        service.deduplicator.record_discovery(
+            profile.id,
+            query.lens_id,
+            query.query_key,
+            query.text,
+            work,
+            discovered_at=_NOW + timedelta(seconds=index),
+        )
+
+    run = service.run_profile(profile.id, trigger="manual")
+
+    assert run is not None and run.status == "success"
+    assert run.analysis_attempt_count == 1
+    assert run.surfaced_count == 1
+    assert context_builder.work_titles == ["Fisher Information for Continual Learning"]
+    assert len(ai_client.calls) == 1
+    connection.close()
+
+
+def test_analysis_budget_reserves_a_slot_for_eligible_backlog(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    profile = profile.model_copy(
+        update={
+            "search": profile.search.model_copy(update={"max_analyses_per_run": 3})
+        }
+    )
+    new_works = tuple(
+        _provider_work().model_copy(
+            update={
+                "provider_record_id": "2401.new-{}".format(index),
+                "title": "Fisher Information for Continual Learning New {}".format(
+                    index
+                ),
+                "doi": "10.1000/new-{}".format(index),
+                "arxiv_id": "2401.new-{}".format(index),
+            }
+        )
+        for index in range(5)
+    )
+    provider = FakeProvider([ProviderPage(works=new_works)])
+    service, _, _, _ = _service(tmp_path, connection, provider, profile=profile)
+    query = service.query_builder.build(profile)[0]
+    backlog_work = _provider_work().model_copy(
+        update={
+            "provider_record_id": "2401.historical",
+            "title": "Fisher Information Historical Study",
+            "abstract": "Fisher information is discussed.",
+            "year": 2010,
+            "published_at": "2010-01-01",
+            "arxiv_id": "2401.historical",
+        }
+    )
+    service.deduplicator.record_discovery(
+        profile.id,
+        query.lens_id,
+        query.query_key,
+        query.text,
+        backlog_work,
+        discovered_at=_NOW - timedelta(days=30),
+    )
+    context_builder = RecordingContextBuilder(service.context_builder)
+    service.context_builder = context_builder
+
+    run = service.run_profile(profile.id, trigger="manual")
+
+    assert run is not None and run.status == "success"
+    assert run.analysis_attempt_count == 3
+    assert "Fisher Information Historical Study" in context_builder.work_titles
+    assert len(context_builder.work_titles) == 3
     connection.close()
 
 
@@ -840,6 +1022,55 @@ def test_configured_enrichment_fills_work_metadata_before_analysis(tmp_path):
     connection.close()
 
 
+def test_enrichment_discovering_existing_source_skips_context_and_analysis(tmp_path):
+    connection = connect_database(":memory:")
+    discovery_work = _provider_work().model_copy(
+        update={
+            "doi": None,
+            "openalex_id": "W123456",
+            "venue": None,
+        }
+    )
+    discovery = FakeProvider([ProviderPage(works=(discovery_work,))])
+    enrichment = FakeEnrichmentProvider()
+    profile = _profile(enrichment=("openalex",))
+    service, _, _, ai_client = _service(
+        tmp_path,
+        connection,
+        discovery,
+        profile=profile,
+        additional_providers={"openalex": enrichment},
+    )
+    service.screening.sources = SourceRegistry(
+        (
+            SourceMetadata.model_validate(
+                {
+                    "schema_version": 1,
+                    "id": "existing-enriched-source",
+                    "type": "paper",
+                    "title": "A paper already in the library",
+                    "authors": ["Ada Lovelace"],
+                    "year": 2026,
+                    "identifiers": {"doi": "10.1000/enriched"},
+                }
+            ),
+        )
+    )
+    context_builder = RecordingContextBuilder(service.context_builder)
+    service.context_builder = context_builder
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert run.deterministic_filtered_count == 1
+    assert run.analysis_attempt_count == 0
+    assert run.surfaced_count == 0
+    assert enrichment.enrichment_calls == 1
+    assert context_builder.work_titles == []
+    assert ai_client.calls == []
+    connection.close()
+
+
 def test_deterministically_filtered_work_skips_optional_enrichment(tmp_path):
     connection = connect_database(":memory:")
     unrelated = ProviderWork(
@@ -1025,7 +1256,12 @@ def test_provider_failures_open_a_run_local_circuit_and_other_provider_continues
     connection = connect_database(":memory:")
     profile = _profile(
         discovery=("arxiv", "openalex"),
-        queries=("fisher information", "parameter importance", "regularization"),
+        queries=(
+            "fisher information",
+            "parameter importance",
+            "regularization",
+            "continual learning",
+        ),
     )
     failing = FakeProvider([], name="arxiv", error=True)
     succeeding = FakeProvider([ProviderPage(works=())], name="openalex")
@@ -1041,7 +1277,7 @@ def test_provider_failures_open_a_run_local_circuit_and_other_provider_continues
 
     assert run is not None and run.status == "partial"
     assert failing.calls == 3
-    assert succeeding.calls == 3
+    assert succeeding.calls == 4
     assert run.provider_summary["arxiv"]["circuit_open"] is True
     assert run.provider_summary["openalex"]["errors"] == 0
     arxiv_state = search_repository.get_state(

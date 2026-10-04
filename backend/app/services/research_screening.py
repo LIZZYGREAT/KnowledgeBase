@@ -129,6 +129,52 @@ class ResearchScreeningService:
             pre_rank=score,
         )
 
+    def post_enrichment_check(
+        self,
+        work: ResearchWorkRecord,
+        profile: ResearchProfile,
+        query: ResearchQuery,
+    ) -> ScreeningDecision:
+        """Recheck only identity and text rules that enrichment can change."""
+        if query.profile_id != profile.id:
+            raise ValueError("Research Query belongs to a different Profile")
+        if query.lens_id not in {lens.id for lens in profile.lenses}:
+            raise ValueError("Research Query references an unknown Lens")
+        lens = next(lens for lens in profile.lenses if lens.id == query.lens_id)
+        if (
+            query.priority != lens.priority
+            or query.lens_title != lens.title
+            or query.include_terms != tuple(lens.include_terms)
+            or query.exclude_terms != tuple(lens.exclude_terms)
+            or query.profile_exclude_terms != tuple(profile.exclude_terms)
+        ):
+            raise ValueError("Research Query Lens settings do not match the Profile")
+
+        searchable_text = normalize_title(
+            "{} {}".format(work.title, work.abstract or "")
+        )
+        reasons = []
+        exclude_terms = tuple(query.exclude_terms) + tuple(query.profile_exclude_terms)
+        if any(_contains_term(searchable_text, term) for term in exclude_terms):
+            reasons.append("excluded_term")
+        if query.include_terms and not any(
+            _contains_term(searchable_text, term) for term in query.include_terms
+        ):
+            reasons.append("include_term_not_matched")
+
+        warnings = []
+        source_match = find_matching_source(self.sources.sources, work)
+        if source_match.source is not None:
+            reasons.append("existing_source")
+        elif source_match.ambiguous:
+            warnings.append("ambiguous_existing_source")
+        return ScreeningDecision(
+            eligible=not reasons,
+            filtered_reasons=tuple(dict.fromkeys(reasons)),
+            metadata_warnings=tuple(dict.fromkeys(warnings)),
+            pre_rank=None,
+        )
+
 def _pre_rank(
     work: ResearchWorkRecord,
     query: ResearchQuery,
