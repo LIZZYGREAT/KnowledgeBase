@@ -18,8 +18,8 @@ from backend.app.services.ai_client import AIProviderError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v2"
-RESEARCH_ANALYSIS_VERSION = 2
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v3"
+RESEARCH_ANALYSIS_VERSION = 3
 
 
 class ResearchAnalysisCircuitBreaker:
@@ -139,7 +139,7 @@ class ResearchAnalysisService:
             return None
         if not isinstance(output, ResearchCandidateAnalysisOutput):
             raise AIResponseError("Research analysis returned an unexpected output model")
-        _validate_analysis_references(output, profile, context_pack)
+        _validate_analysis_references(output, profile, matched_lens, context_pack)
 
         analyzed_at = self.clock()
         if analyzed_at.tzinfo is None or analyzed_at.utcoffset() is None:
@@ -207,11 +207,16 @@ def _breadth_policy(breadth: str) -> str:
 def _validate_analysis_references(
     output: ResearchCandidateAnalysisOutput,
     profile: ResearchProfile,
+    matched_lens: ResearchLens,
     context_pack: ResearchContextPack,
 ) -> None:
     profile_lenses = {lens.id for lens in profile.lenses}
     if any(lens_id not in profile_lenses for lens_id in output.matched_lenses):
         raise AIResponseError("Research analysis referenced an unknown Lens")
+    if any(lens_id != matched_lens.id for lens_id in output.matched_lenses):
+        raise AIResponseError(
+            "Research analysis may reference only the selected Lens; other Lens hits remain Discovery provenance"
+        )
 
     available_entities = {
         (card.entity_type, card.entity_id) for card in context_pack.cards

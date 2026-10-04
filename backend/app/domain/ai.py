@@ -105,7 +105,7 @@ class ResearchCandidateAnalysisOutput(AIOutput):
     profile_relevance: float = Field(ge=0.0, le=1.0)
     knowledge_relevance: float = Field(ge=0.0, le=1.0)
     novelty_to_library: float = Field(ge=0.0, le=1.0)
-    matched_lenses: list[Slug] = Field(default_factory=list, max_length=12)
+    matched_lenses: list[Slug] = Field(default_factory=list, max_length=1)
     matched_topics: list[NonEmptyText] = Field(default_factory=list, max_length=20)
     summary: NonEmptyText
     why_relevant: NonEmptyText

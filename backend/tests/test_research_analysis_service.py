@@ -6,7 +6,7 @@ import pytest
 
 from backend.app.db.connection import connect_database
 from backend.app.domain.ai import ResearchCandidateAnalysisOutput
-from backend.app.domain.research import ResearchProfile
+from backend.app.domain.research import ResearchLens, ResearchProfile
 from backend.app.domain.research_runtime import (
     ResearchContextCard,
     ResearchContextPack,
@@ -192,6 +192,37 @@ def test_research_analysis_rejects_relations_outside_the_context_pack():
         # The output is schema-valid but its entity reference must still be rejected.
         service.analyze(work, profile, profile.lenses[0], _context_pack())
 
+    connection.close()
+
+
+def test_research_analysis_rejects_a_different_profile_lens_as_matched():
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    profile = _profile()
+    replay = ResearchLens.model_validate(
+        {
+            "id": "replay",
+            "title": "Replay",
+            "enabled": True,
+            "priority": "medium",
+            "queries": ["experience replay"],
+            "include_terms": [],
+            "exclude_terms": [],
+        }
+    )
+    profile = profile.model_copy(update={"lenses": [*profile.lenses, replay]})
+    output = _analysis_output()
+    output["matched_lenses"] = ["replay"]
+    service = ResearchAnalysisService(
+        repository, AIGateway(MockDeepSeekClient({"research_candidate_analysis": output}))
+    )
+
+    with pytest.raises(AIResponseError, match="only the selected Lens"):
+        service.analyze(work, profile, profile.lenses[0], _context_pack())
+
+    assert connection.execute("SELECT COUNT(*) FROM research_work_analyses").fetchone()[0] == 0
     connection.close()
 
 
