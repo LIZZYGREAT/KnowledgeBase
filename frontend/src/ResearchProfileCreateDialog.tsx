@@ -19,18 +19,18 @@ export function ResearchProfileCreateDialog({
   onCreated: (profile: ResearchProfile, draftContent: string, draftCreatedInThisFlow: boolean) => void;
 }) {
   const [id, setId] = useState(sourceProfile ? `${sourceProfile.id}-copy` : "");
+  const [profileIdManuallyEdited, setProfileIdManuallyEdited] = useState(Boolean(sourceProfile));
   const [title, setTitle] = useState(sourceProfile ? `${sourceProfile.title} Copy` : "");
   const [description, setDescription] = useState(sourceProfile?.description ?? "");
-  const [lensId, setLensId] = useState("initial-lens");
-  const [lensTitle, setLensTitle] = useState("Initial Research Lens");
+  const [lensId, setLensId] = useState("main");
   const [initialQuery, setInitialQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedId = id.trim();
     const normalizedTitle = title.trim();
+    const normalizedId = profileIdManuallyEdited ? id.trim() : uniqueProfileId(normalizedTitle, profiles);
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalizedId)) {
       setError("Profile ID 只能使用小写字母、数字和连字符。");
       return;
@@ -47,10 +47,6 @@ export function ResearchProfileCreateDialog({
       setError("Initial Lens ID 只能使用小写字母、数字和连字符。");
       return;
     }
-    if (!sourceProfile && !lensTitle.trim()) {
-      setError("Initial Lens title 不能为空。");
-      return;
-    }
     if (!sourceProfile && !initialQuery.trim()) {
       setError("Initial Query 不能为空。");
       return;
@@ -65,7 +61,7 @@ export function ResearchProfileCreateDialog({
         enabled: true,
         lenses: [{
           id: lensId.trim(),
-          title: lensTitle.trim(),
+          title: "Main focus",
           enabled: true,
           priority: "medium",
           queries: [initialQuery.trim()],
@@ -99,23 +95,33 @@ export function ResearchProfileCreateDialog({
       <header>
         <p className="eyebrow">{sourceProfile ? "DUPLICATE PROFILE" : "NEW PROFILE"}</p>
         <h2 id="research-profile-create-title">{sourceProfile ? "Duplicate Research Profile" : "New Research Profile"}</h2>
-        <p>先创建 Research Profile Draft；检查 Defaults 并通过 Publisher 发布后才会进入 Profile 列表。</p>
+        <p>先填写名称和研究主题，再检查 Defaults；通过审查并发布后，Profile 才会进入列表。</p>
       </header>
       <form onSubmit={(event) => void submit(event)}>
         {error && <p className="error-copy" role="alert">{error}</p>}
-        <label className="field-label">Profile ID<input aria-label="New Profile ID" value={id} onChange={(event) => setId(event.target.value)} placeholder="e.g. llm-agents" autoFocus /></label>
-        <label className="field-label">Profile title<input aria-label="New Profile title" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        {sourceProfile && <label className="field-label">Profile ID<input aria-label="New Profile ID" value={id} onChange={(event) => setId(event.target.value)} placeholder="e.g. llm-agents" autoFocus /></label>}
+        <label className="field-label">Profile name<input aria-label="New Profile title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus={!sourceProfile} /></label>
         <label className="field-label">Description<textarea aria-label="New Profile description" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-        {sourceProfile ? <p className="field-hint">复制现有 Defaults；下一步可检查并调整。</p> : <>
+        {sourceProfile ? <p className="field-hint">复制现有 Defaults；下一步可检查并调整。</p> : <label className="field-label">Research focus<textarea aria-label="Initial Query" rows={3} value={initialQuery} onChange={(event) => setInitialQuery(event.target.value)} placeholder="e.g. regularization continual learning" /></label>}
+        {!sourceProfile && <details className="research-advanced-settings">
+          <summary>Advanced identifiers</summary>
+          <label className="field-label">Profile ID<input aria-label="New Profile ID" value={profileIdManuallyEdited ? id : uniqueProfileId(title, profiles)} onChange={(event) => { setId(event.target.value); setProfileIdManuallyEdited(true); }} placeholder="e.g. llm-agents" /><span className="field-hint">默认根据名称生成；重名时自动追加序号。</span></label>
           <label className="field-label">Initial Lens ID<input aria-label="Initial Lens ID" value={lensId} onChange={(event) => setLensId(event.target.value)} /></label>
-          <label className="field-label">Initial Lens title<input aria-label="Initial Lens title" value={lensTitle} onChange={(event) => setLensTitle(event.target.value)} /></label>
-          <label className="field-label">Initial Query<input aria-label="Initial Query" value={initialQuery} onChange={(event) => setInitialQuery(event.target.value)} placeholder="e.g. regularization continual learning" /></label>
-        </>}
+        </details>}
         <footer className="research-dialog-actions">
           <button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button>
-          <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Creating Draft…" : "Create Draft"}</button>
+          <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Creating Research Profile…" : "Create Research Profile"}</button>
         </footer>
       </form>
     </section>
   </div>;
+}
+
+function uniqueProfileId(title: string, profiles: ResearchProfileSummary[]) {
+  const base = title.trim().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "research-profile";
+  const usedIds = new Set(profiles.map((profile) => profile.id));
+  if (!usedIds.has(base)) return base;
+  let suffix = 2;
+  while (usedIds.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
 }

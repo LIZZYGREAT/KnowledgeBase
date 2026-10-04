@@ -283,7 +283,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
 
         {editableProfile && <>
           <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>Profile identity</h3><p>Profile ID 固定；标题和描述会随 Defaults 发布。</p></div></div>
+            <div className="research-section-heading"><div><h3>Profile name</h3><p>名称和描述显示在 Research Profile 列表中。</p></div></div>
             <div className="research-defaults-grid">
               <label className="field-label">Profile title<input aria-label="Profile title" value={editableProfile.title} onChange={(event) => updateProfile((current) => ({ ...current, title: event.target.value }))} /></label>
               <label className="field-label">Profile description<textarea aria-label="Profile description" rows={2} value={editableProfile.description ?? ""} onChange={(event) => updateProfile((current) => ({ ...current, description: event.target.value.trim() ? event.target.value : null }))} /></label>
@@ -291,76 +291,93 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
           </section>
 
           <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>Search lenses</h3><p>启用状态、优先级和查询词将作为后续搜索默认值。</p></div></div>
-            <p className="field-hint">筛选词、breadth 和 Knowledge Context 的修改只影响后续 Research Run。系统不会自动重新评估已覆盖的历史窗口；如需按新规则检查旧论文，请使用 Search Now 的历史日期范围。</p>
+            <div className="research-section-heading"><div><h3>Research focus</h3><p>编辑每个主题名称和用于发现论文的查询词。</p></div></div>
+            <p className="field-hint">筛选规则和搜索默认值的修改只影响后续 Research Run。系统不会自动重新评估已覆盖的历史窗口；如需按新规则检查旧论文，请使用 Search Now 的历史日期范围。</p>
             {editableProfile.lenses.map((lens, index) => <article className="research-default-lens" key={lens.id}>
-              <div className="research-default-lens-heading"><label><input type="checkbox" checked={lens.enabled} onChange={(event) => updateProfile((current) => updateLens(current, index, { enabled: event.target.checked }))} /><span><strong>{lens.id}</strong><small>Lens ID is fixed after creation</small></span></label><button className="button button-quiet" type="button" aria-label={`Remove Lens ${lens.id}`} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>Remove Lens</button></div>
-              <div className="research-defaults-grid research-defaults-fields">
-                <label className="field-label">Lens title<input aria-label={`Lens ${lens.id} title`} value={lens.title} onChange={(event) => updateProfile((current) => updateLens(current, index, { title: event.target.value }))} /></label>
-                <label className="field-label">优先级<select value={lens.priority} onChange={(event) => updateProfile((current) => updateLens(current, index, { priority: event.target.value as typeof lens.priority }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
-              </div>
+              <div className="research-default-lens-heading"><label><input type="checkbox" checked={lens.enabled} onChange={(event) => updateProfile((current) => updateLens(current, index, { enabled: event.target.checked }))} /><span><strong>{lens.title}</strong><small>{lens.enabled ? "Included in automatic research" : "Excluded from automatic research"}</small></span></label></div>
               <div className="research-defaults-grid">
+                <label className="field-label">Focus name<input aria-label={"Lens " + lens.id + " title"} value={lens.title} onChange={(event) => updateProfile((current) => updateLens(current, index, { title: event.target.value }))} /></label>
                 <TextListField label="Queries" value={lens.queries} onChange={(value) => updateProfile((current) => updateLens(current, index, { queries: value }))} />
-                <TextListField label="Include terms" value={lens.include_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { include_terms: value }))} />
-                <TextListField label="Lens exclude terms" value={lens.exclude_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { exclude_terms: value }))} />
               </div>
+              <details className="research-advanced-settings research-lens-advanced">
+                <summary>高级筛选与标识</summary>
+                <p className="field-hint">Lens ID：{lens.id}（创建后固定）</p>
+                <label className="field-label">优先级<select value={lens.priority} onChange={(event) => updateProfile((current) => updateLens(current, index, { priority: event.target.value as typeof lens.priority }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+                <div className="research-defaults-grid">
+                  <TextListField label="Include terms" value={lens.include_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { include_terms: value }))} />
+                  <TextListField label="Lens exclude terms" value={lens.exclude_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { exclude_terms: value }))} />
+                </div>
+                <button className="button button-quiet" type="button" aria-label={"Remove Lens " + lens.id} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>Remove Focus</button>
+              </details>
             </article>)}
-            <div className="research-default-add-lens">
-              <label className="field-label">New Lens ID<input aria-label="New Lens ID" value={newLensId} onChange={(event) => setNewLensId(event.target.value)} placeholder="e.g. retrieval-augmented" /><span className="field-hint">小写字母、数字和连字符；创建后固定。</span></label>
-              <label className="field-label">New Lens title<input aria-label="New Lens title" value={newLensTitle} onChange={(event) => setNewLensTitle(event.target.value)} /></label>
-              <label className="field-label">Initial Query<input aria-label="Initial Query" value={newLensQuery} onChange={(event) => setNewLensQuery(event.target.value)} placeholder="e.g. retrieval augmented generation" /></label>
-              <button className="button button-secondary" type="button" onClick={addLens}>Add Lens</button>
-            </div>
-            <TextListField label="Profile exclude terms" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
           </section>
 
           <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>Providers</h3><p>选择自动发现和元数据补全使用的 Provider。</p></div></div>
-            <div className="research-defaults-grid research-defaults-fields">
-              <fieldset>
-                <legend>Discovery Providers</legend>
-                {DISCOVERY_PROVIDERS.map((provider) => {
-                  const checked = editableProfile.providers.discovery.includes(provider.id);
-                  return <label className="research-default-toggle" key={provider.id}><input aria-label={`Discovery Provider ${provider.id}`} type="checkbox" checked={checked} disabled={checked && editableProfile.providers.discovery.length === 1} onChange={() => toggleProvider("discovery", provider.id)} /><span>{provider.label}</span></label>;
-                })}
-                <span className="field-hint">至少选择一个 Discovery Provider。</span>
-              </fieldset>
-              <fieldset>
-                <legend>Enrichment Providers</legend>
-                {ENRICHMENT_PROVIDERS.map((provider) => <label className="research-default-toggle" key={provider.id}><input aria-label={`Enrichment Provider ${provider.id}`} type="checkbox" checked={editableProfile.providers.enrichment.includes(provider.id)} onChange={() => toggleProvider("enrichment", provider.id)} /><span>{provider.label}</span></label>)}
-              </fieldset>
-            </div>
-          </section>
-
-          <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>Search defaults</h3><p>这些值用于后续运行；单次 Search Now 可以另行覆盖 breadth 和日期。</p></div></div>
+            <div className="research-section-heading"><div><h3>Schedule and Inbox</h3><p>控制自动运行时间表以及每次运行可加入 Inbox 的候选上限。</p></div></div>
             <div className="research-defaults-grid research-defaults-fields">
               <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.enabled} onChange={(event) => updateProfile((current) => ({ ...current, enabled: event.target.checked }))} /><span>Enable Research Profile</span></label>
-              <label className="field-label">Default breadth<select value={editableProfile.search.breadth} onChange={(event) => updateProfile((current) => ({ ...current, search: { ...current.search, breadth: event.target.value as ResearchBreadth } }))}><option value="strict">Strict · 高相关</option><option value="balanced">Balanced · 均衡</option><option value="explore">Explore · 新颖性</option></select></label>
               <label className="field-label">Schedule<select value={editableProfile.schedule.mode} onChange={(event) => updateProfile((current) => ({ ...current, schedule: { mode: event.target.value as ResearchProfile["schedule"]["mode"] } }))}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="manual">Manual only</option></select></label>
-              <NumberField label="Initial lookback days" value={editableProfile.search.initial_lookback_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, initial_lookback_days: value } }))} />
-              <NumberField label="Max catch-up days" value={editableProfile.search.max_catchup_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_catchup_days: value } }))} />
-              <NumberField label="Max candidates per run" value={editableProfile.search.max_candidates_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_candidates_per_run: value } }))} />
-              <NumberField label="Max analyses per run" value={editableProfile.search.max_analyses_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_analyses_per_run: value } }))} />
               <NumberField label="Inbox max new candidates" value={editableProfile.inbox.max_new_candidates} min={0} onChange={(value) => updateProfile((current) => ({ ...current, inbox: { max_new_candidates: value } }))} />
             </div>
           </section>
 
           <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>Knowledge context</h3><p>选择固定引用，并配置动态检索默认值。</p></div></div>
+            <div className="research-section-heading"><div><h3>Knowledge context</h3><p>选择固定引用，供已授权的 AI 分析参考。</p></div></div>
             {libraryLoading ? <p className="field-hint">正在载入 Collections 和 Documents…</p> : <div className="research-defaults-context-grid">
               <SelectionList label="Pinned Collections" items={collections.map((item) => ({ id: item.id, title: item.title }))} selected={editableProfile.context.collections} onChange={(value) => updateProfile((current) => ({ ...current, context: { ...current.context, collections: value } }))} />
               <SelectionList label="Pinned Documents" items={documents.map((item) => ({ id: item.id, title: item.title }))} selected={editableProfile.context.documents} onChange={(value) => updateProfile((current) => ({ ...current, context: { ...current.context, documents: value } }))} />
             </div>}
-            <div className="research-defaults-grid research-defaults-fields">
-              <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.context.dynamic_retrieval.enabled} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, enabled: event.target.checked } } }))} /><span>Enable dynamic retrieval</span></label>
-              <label className="field-label">Dynamic Retrieval scope<select aria-label="Dynamic Retrieval scope" value={editableProfile.context.dynamic_retrieval.scope} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, scope: event.target.value as ResearchProfile["context"]["dynamic_retrieval"]["scope"] } } }))}><option value="entire-library">Entire library</option><option value="selected-context">Selected Collections and Documents</option></select><span className="field-hint">Selected context limits retrieved and analyzed material to pinned Documents and Collection members.</span></label>
-              <div className="research-default-ai-analysis">
-                <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.ai_analysis.enabled} onChange={(event) => updateProfile((current) => ({ ...current, ai_analysis: { ...current.ai_analysis, enabled: event.target.checked } }))} /><span>Enable unattended DeepSeek analysis</span></label>
-                <p className="field-hint">此选项只控制 AI 分析授权。关闭时，检索、确定性筛选、元数据补全和 Discovery 保存仍会继续；不会构建或发送 Context Pack，也不会生成 Candidate。重新启用后，每次 Run 最多分析 10 条符合当前 Lens 与 Query 的未分析 Discovery。启用时，论文元数据、摘要和受 Context Budget 限制的知识片段会发送给 DeepSeek。</p>
-              </div>
+            <div className="research-default-ai-analysis">
+              <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.ai_analysis.enabled} onChange={(event) => updateProfile((current) => ({ ...current, ai_analysis: { ...current.ai_analysis, enabled: event.target.checked } }))} /><span>Enable unattended DeepSeek analysis</span></label>
+              <p className="field-hint">此选项只控制 AI 分析授权。关闭时，检索、确定性筛选、元数据补全和 Discovery 保存仍会继续；不会构建或发送 Context Pack，也不会生成 Candidate。重新启用后，每次 Run 最多分析 10 条符合当前 Lens 与 Query 的未分析 Discovery。启用时，论文元数据、摘要和受 Context Budget 限制的知识片段会发送给 DeepSeek。</p>
             </div>
           </section>
+
+          <details className="research-advanced-settings research-profile-advanced">
+            <summary>高级设置</summary>
+            <p className="field-hint">Profile ID：{editableProfile.id}（创建后固定）</p>
+            <section className="research-defaults-section">
+              <div className="research-section-heading"><div><h3>Search defaults</h3><p>这些值用于后续自动搜索；单次 Search Now 可单独覆盖。</p></div></div>
+              <div className="research-defaults-grid research-defaults-fields">
+                <label className="field-label">Default breadth<select value={editableProfile.search.breadth} onChange={(event) => updateProfile((current) => ({ ...current, search: { ...current.search, breadth: event.target.value as ResearchBreadth } }))}><option value="strict">Strict · 高相关</option><option value="balanced">Balanced · 均衡</option><option value="explore">Explore · 新颖性</option></select></label>
+                <NumberField label="Initial lookback days" value={editableProfile.search.initial_lookback_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, initial_lookback_days: value } }))} />
+                <NumberField label="Max catch-up days" value={editableProfile.search.max_catchup_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_catchup_days: value } }))} />
+                <NumberField label="Max candidates per run" value={editableProfile.search.max_candidates_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_candidates_per_run: value } }))} />
+                <NumberField label="Max analyses per run" value={editableProfile.search.max_analyses_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_analyses_per_run: value } }))} />
+              </div>
+            </section>
+            <section className="research-defaults-section">
+              <div className="research-section-heading"><div><h3>Providers</h3><p>选择自动发现和元数据补全使用的 Provider。</p></div></div>
+              <div className="research-defaults-grid research-defaults-fields">
+                <fieldset>
+                  <legend>Discovery Providers</legend>
+                  {DISCOVERY_PROVIDERS.map((provider) => {
+                    const checked = editableProfile.providers.discovery.includes(provider.id);
+                    return <label className="research-default-toggle" key={provider.id}><input aria-label={"Discovery Provider " + provider.id} type="checkbox" checked={checked} disabled={checked && editableProfile.providers.discovery.length === 1} onChange={() => toggleProvider("discovery", provider.id)} /><span>{provider.label}</span></label>;
+                  })}
+                  <span className="field-hint">至少选择一个 Discovery Provider。</span>
+                </fieldset>
+                <fieldset>
+                  <legend>Enrichment Providers</legend>
+                  {ENRICHMENT_PROVIDERS.map((provider) => <label className="research-default-toggle" key={provider.id}><input aria-label={"Enrichment Provider " + provider.id} type="checkbox" checked={editableProfile.providers.enrichment.includes(provider.id)} onChange={() => toggleProvider("enrichment", provider.id)} /><span>{provider.label}</span></label>)}
+                </fieldset>
+              </div>
+            </section>
+            <section className="research-defaults-section">
+              <div className="research-section-heading"><div><h3>Additional rules</h3><p>调整 Profile 筛选词、增加 Lens 和动态知识检索行为。</p></div></div>
+              <TextListField label="Profile exclude terms" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
+              <div className="research-default-add-lens">
+                <label className="field-label">New Lens ID<input aria-label="New Lens ID" value={newLensId} onChange={(event) => setNewLensId(event.target.value)} placeholder="e.g. retrieval-augmented" /><span className="field-hint">小写字母、数字和连字符；创建后固定。</span></label>
+                <label className="field-label">New Lens title<input aria-label="New Lens title" value={newLensTitle} onChange={(event) => setNewLensTitle(event.target.value)} /></label>
+                <label className="field-label">Initial Query<input aria-label="Initial Query" value={newLensQuery} onChange={(event) => setNewLensQuery(event.target.value)} placeholder="e.g. retrieval augmented generation" /></label>
+                <button className="button button-secondary" type="button" onClick={addLens}>Add Lens</button>
+              </div>
+              <div className="research-defaults-grid research-defaults-fields">
+                <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.context.dynamic_retrieval.enabled} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, enabled: event.target.checked } } }))} /><span>Enable dynamic retrieval</span></label>
+                <label className="field-label">Dynamic Retrieval scope<select aria-label="Dynamic Retrieval scope" value={editableProfile.context.dynamic_retrieval.scope} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, scope: event.target.value as ResearchProfile["context"]["dynamic_retrieval"]["scope"] } } }))}><option value="entire-library">Entire library</option><option value="selected-context">Selected Collections and Documents</option></select><span className="field-hint">Selected context limits retrieved and analyzed material to pinned Documents and Collection members.</span></label>
+              </div>
+            </section>
+          </details>
         </>}
 
         {review && <section className="research-default-review" aria-label="Profile Draft review">
@@ -401,7 +418,28 @@ function TextListField({ label, value, onChange }: { label: string; value: strin
 }
 
 function NumberField({ label, value, min, onChange }: { label: string; value: number; min: number; onChange: (value: number) => void }) {
-  return <label className="field-label">{label}<input type="number" min={min} step={1} value={value} onChange={(event) => onChange(event.target.value === "" ? min - 1 : Number(event.target.value))} /></label>;
+  const committedValue = String(value);
+  const [rawValue, setRawValue] = useState(committedValue);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setRawValue(committedValue);
+    setError("");
+  }, [committedValue]);
+
+  function commitValue() {
+    const nextValue = Number(rawValue);
+    if (!rawValue.trim() || !Number.isInteger(nextValue) || nextValue < min) {
+      setRawValue(committedValue);
+      setError("Enter a whole number greater than or equal to " + min + ".");
+      return;
+    }
+    setError("");
+    setRawValue(String(nextValue));
+    if (nextValue !== value) onChange(nextValue);
+  }
+
+  return <label className="field-label">{label}<input type="number" min={min} step={1} value={rawValue} aria-invalid={Boolean(error)} onChange={(event) => { setRawValue(event.target.value); setError(""); }} onBlur={commitValue} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitValue(); } }} />{error && <span className="error-copy" role="alert">{error}</span>}</label>;
 }
 
 function SelectionList({ label, items, selected, onChange }: { label: string; items: Array<{ id: string; title: string }>; selected: string[]; onChange: (selected: string[]) => void }) {

@@ -49,13 +49,12 @@ export function ResearchProfilePanel({
   const pausedUntil = detail.runtime_state?.paused_until ?? null;
   const isPaused = Boolean(pausedUntil && new Date(pausedUntil).getTime() > Date.now());
   const canSearch = summary.enabled
-    && !isPaused
     && (!profile.ai_analysis.enabled || summary.inbox.remaining > 0);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pauseUntil, setPauseUntil] = useState("");
   const [resumeStrategy, setResumeStrategy] = useState<"catch_up" | "from_now">("catch_up");
-  const [catchupDays, setCatchupDays] = useState(String(profile.search.max_catchup_days));
+  const [catchupDays, setCatchupDays] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -176,10 +175,12 @@ export function ResearchProfilePanel({
       setError("额外检索词需要唯一，每条最多 2,000 字符，最多 20 条。");
       return;
     }
-    if (queryLines.length > 0 && selectedLenses.length > 1 && !selectedLenses.includes(additionalQueryLens)) {
-      setError("选择多个 Lens 时，请指定 Additional Query Lens。");
-      return;
-    }
+    const priority = { low: 0, medium: 1, high: 2 };
+    const additionalQueryTarget = selectedLenses.length === 1
+      ? selectedLenses[0]
+      : additionalQueryLens || profile.lenses
+        .filter((lens) => selectedLenses.includes(lens.id))
+        .sort((left, right) => priority[right.priority] - priority[left.priority])[0]?.id;
     setBusy(true);
     setNotice("");
     const input: QueueResearchRunInput = {
@@ -187,7 +188,7 @@ export function ResearchProfilePanel({
       breadth,
       date_range: dateRange,
       additional_queries: queryLines,
-      ...(queryLines.length ? { additional_query_lens: selectedLenses.length === 1 ? selectedLenses[0] : additionalQueryLens } : {}),
+      ...(queryLines.length && additionalQueryTarget ? { additional_query_lens: additionalQueryTarget } : {}),
     };
     try {
       const queued = await queueResearchRun(profile.id, input);
@@ -223,24 +224,25 @@ export function ResearchProfilePanel({
       </div>
       <div className="research-profile-actions">
         <button className="button button-secondary" type="button" onClick={onEditDefaults}>Edit Defaults</button>
-        {isPaused ? <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume</button> : <button className="button button-secondary" disabled={busy || !summary.enabled} onClick={() => setPauseOpen((open) => !open)}>Pause</button>}
+        {isPaused ? <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume</button> : <button className="button button-secondary" disabled={busy || !summary.enabled} onClick={() => setPauseOpen((open) => !open)}>Pause automatic research</button>}
         <button className="button button-primary" disabled={!canSearch} onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "Close Search" : "Search Now"}</button>
       </div>
     </div>
 
     {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 Search Now。</p>}
-    {isPaused && <p className="research-search-block-note" role="status">Research paused · Resume Profile 后才能运行 Search Now。</p>}
+    {isPaused && <p className="research-search-block-note" role="status">Automatic research is paused until {formatDate(pausedUntil)}. Manual Search Now remains available.</p>}
     {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">DeepSeek analysis is off · 检索、确定性筛选和元数据补全仍会运行并保存 Discovery；不会构建或发送 Context，也不会生成 Candidate。重新启用后，每次 Run 最多分析 10 条符合当前 Lens 和 Query 的未分析 Discovery。</p>}
     {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Lens。</p>}
 
     {isPaused && <div className="research-resume-bar">
       <label className="field-label">恢复方式<select value={resumeStrategy} onChange={(event) => setResumeStrategy(event.target.value as typeof resumeStrategy)}><option value="catch_up">追赶暂停期间的内容</option><option value="from_now">从现在开始，不补历史</option></select></label>
-      {resumeStrategy === "catch_up" && <label className="field-label">追赶天数<input type="number" min="1" max="3650" value={catchupDays} onChange={(event) => setCatchupDays(event.target.value)} /></label>}
+      {resumeStrategy === "catch_up" && <p className="field-hint">恢复后会补回暂停期间的内容，最多回看 {profile.search.max_catchup_days} 天。</p>}
+      {resumeStrategy === "catch_up" && <details className="research-advanced-settings"><summary>高级恢复选项</summary><label className="field-label">自定义追赶天数<input type="number" min="1" max="3650" value={catchupDays} onChange={(event) => setCatchupDays(event.target.value)} /><span className="field-hint">留空时使用 Profile 的最多回看天数。</span></label></details>}
       <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume Research</button>
     </div>}
 
     {pauseOpen && <div className="research-pause-options">
-      <strong>暂停 Research</strong>
+      <strong>Pause automatic research</strong>
       <div className="research-inline-actions">
         {[1, 3, 7].map((days) => <button className="button button-secondary" key={days} disabled={busy} onClick={() => void pause(days)}>{days} 天</button>)}
       </div>
@@ -259,16 +261,20 @@ export function ResearchProfilePanel({
     </p>}
 
     {searchOpen && canSearch && <form className="research-search-form" onSubmit={(event) => void submitSearch(event)}>
-      <div className="research-section-heading"><div><h3>Search Focus</h3><p>设置仅对本次搜索生效，不会修改 Profile 默认值。</p></div></div>
-      <div className="research-lens-options">{profile.lenses.map((lens) => <label className="research-lens-option" key={lens.id}><input type="checkbox" checked={selectedLenses.includes(lens.id)} onChange={() => toggleLens(lens.id)} /><span><strong>{lens.title}</strong><small>{lens.priority} priority · {lens.id}</small></span></label>)}</div>
+      <div className="research-section-heading"><div><h3>Search Focus</h3><p>选择本次搜索的主题和时间范围；这些设置不会修改 Profile 默认值。</p></div></div>
+      <div className="research-lens-options">{profile.lenses.map((lens) => <label className="research-lens-option" key={lens.id}><input type="checkbox" checked={selectedLenses.includes(lens.id)} onChange={() => toggleLens(lens.id)} /><span><strong>{lens.title}</strong></span></label>)}</div>
       <div className="research-search-controls">
-        <label className="field-label">Breadth<select value={breadth} onChange={(event) => setBreadth(event.target.value as ResearchBreadth)}><option value="strict">Strict · 高相关</option><option value="balanced">Balanced · 均衡</option><option value="explore">Explore · 强调新颖性</option></select></label>
-        <label className="field-label">时间范围<select value={dateMode} onChange={(event) => setDateMode(event.target.value as typeof dateMode)}><option value="incremental">增量 · 从 scheduled Watermark 到现在</option><option value="last_7_days">最近 7 天</option><option value="last_30_days">最近 30 天</option><option value="last_90_days">最近 90 天</option><option value="custom">自定义</option></select></label>
+        <label className="field-label">时间范围<select value={dateMode === "incremental" ? "last_30_days" : dateMode} onChange={(event) => setDateMode(event.target.value as typeof dateMode)}><option value="last_7_days">最近 7 天</option><option value="last_30_days">最近 30 天</option><option value="last_90_days">最近 90 天</option><option value="custom">自定义</option></select></label>
       </div>
       {dateMode === "incremental" && <p className="field-hint research-incremental-help">从已有的 Lens / Provider / Query Watermark 窗口检索；没有水位的新增 query 使用 Profile 初始回看天数。这是手动 Run，不会推进 scheduled Watermark。</p>}
       {dateMode === "custom" && <><div className="research-search-controls"><label className="field-label">开始日期<input type="date" max={localDateInputValue(new Date())} value={dateStart} onChange={(event) => setDateStart(event.target.value)} /></label><label className="field-label">结束日期<input type="date" max={localDateInputValue(new Date())} value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} /></label></div><p className="field-hint">结束日期按本地日历包含整天；选择今天时截至当前时刻。</p></>}
       <label className="field-label">额外检索词 <span className="field-hint">每行一条，最多 20 条</span><textarea rows={3} maxLength={40000} value={queries} onChange={(event) => setQueries(event.target.value)} placeholder="dynamic fisher continual learning" /></label>
-      {queries.split(/\r?\n/).some((query) => query.trim()) && selectedLenses.length > 1 && <label className="field-label">Additional Query Lens<select value={additionalQueryLens} onChange={(event) => setAdditionalQueryLens(event.target.value)}><option value="">选择 Lens</option>{profile.lenses.filter((lens) => selectedLenses.includes(lens.id)).map((lens) => <option key={lens.id} value={lens.id}>{lens.title} · {lens.priority}</option>)}</select><span className="field-hint">额外检索词会继承该 Lens 的 priority、include_terms 与 exclude_terms。</span></label>}
+      <details className="research-advanced-settings">
+        <summary>高级搜索选项</summary>
+        <label className="field-label">相关性范围<select aria-label="相关性范围" value={breadth} onChange={(event) => setBreadth(event.target.value as ResearchBreadth)}><option value="strict">Strict · 高相关</option><option value="balanced">Balanced · 均衡</option><option value="explore">Explore · 强调新颖性</option></select></label>
+        <label className="research-default-toggle"><input type="checkbox" checked={dateMode === "incremental"} onChange={(event) => setDateMode(event.target.checked ? "incremental" : "last_30_days")} /><span>从上次自动检索进度继续</span></label>
+        {queries.split(/\r?\n/).some((query) => query.trim()) && selectedLenses.length > 1 && <label className="field-label">Additional Query Lens<select value={additionalQueryLens} onChange={(event) => setAdditionalQueryLens(event.target.value)}><option value="">自动选择相关性最高的 Search Focus</option>{profile.lenses.filter((lens) => selectedLenses.includes(lens.id)).map((lens) => <option key={lens.id} value={lens.id}>{lens.title} · {lens.priority}</option>)}</select><span className="field-hint">额外检索词默认使用所选 Search Focus 中相关性最高的一项，并继承其筛选规则。</span></label>}
+      </details>
       {error && <p className="error-copy" role="alert">{error}</p>}
       <div className="research-search-footer"><span>请求会进入本地队列，由 Research 调度器执行。</span><button className="button button-primary" disabled={busy || !selectedLenses.length}>{busy ? "正在排队…" : "加入搜索队列"}</button></div>
     </form>}

@@ -28,6 +28,12 @@
 .research-inline-notice { margin: 0; }
 .research-inline-error { margin: 0; }
 .research-search-form { display: grid; gap: 14px; border-top: 1px solid #e9efea; padding-top: 18px; }
+.research-advanced-settings { display: grid; gap: 11px; border: 1px solid #e6ece7; border-radius: 8px; padding: 10px 12px; background: #fafcfb; }
+.research-advanced-settings > summary { color: #607166; font-size: var(--text-sm); font-weight: 650; cursor: pointer; }
+.research-advanced-settings[open] > summary { margin-bottom: 2px; }
+.research-profile-advanced { gap: 14px; }
+.research-lens-advanced { background: #fff; }
+.research-lens-advanced > .research-defaults-grid { margin-top: 2px; }
 .research-section-heading h3 { margin: 0; color: #435b4a; font-size: var(--text-md); }
 .research-section-heading p { margin: 4px 0 0; color: #89958d; font-size: var(--text-xs); }
 .research-lens-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }

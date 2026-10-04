@@ -427,7 +427,6 @@ def test_disabled_ai_keeps_discovery_running_when_inbox_is_full(tmp_path):
     ("blocker", "message"),
     [
         ("profile_disabled", "Research Profile is disabled"),
-        ("paused", "Research Profile is paused"),
         ("inbox_full", "Research Inbox is full"),
     ],
 )
@@ -443,9 +442,6 @@ def test_manual_queue_rejects_profiles_that_cannot_discover(
     if blocker == "inbox_full":
         _seed_existing_new_candidate(connection, profile)
     service, _, _, _ = _service(tmp_path, connection, FakeProvider([]), profile=profile)
-    if blocker == "paused":
-        service.pause_profile(profile.id, _NOW + timedelta(days=1))
-
     with pytest.raises(ValueError, match=message):
         service.queue_manual_run(profile.id)
 
@@ -620,19 +616,19 @@ def test_analysis_budget_reserves_a_slot_for_eligible_backlog(tmp_path):
     connection.close()
 
 
-def test_queued_manual_run_rechecks_pause_before_discovery(tmp_path):
+def test_queued_manual_run_discovers_while_automatic_research_is_paused(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
     service, _, _, _ = _service(tmp_path, connection, provider)
-    request = service.queue_manual_run("continual-learning")
     service.pause_profile("continual-learning", _NOW + timedelta(days=1))
+    request = service.queue_manual_run("continual-learning")
 
     run = service.tick()
 
-    assert run is not None and run.status == "skipped_paused"
+    assert run is not None and run.status == "success"
     assert run.request_id == request.id
     assert service.run_request_repository.get(request.id).status == "completed"
-    assert provider.calls == 0
+    assert provider.calls == 1
     connection.close()
 
 
@@ -1543,6 +1539,34 @@ def test_resume_catchup_days_are_applied_to_the_next_scheduled_run(tmp_path):
         "continual-learning", query.lens_id, "arxiv", query.query_key
     )
     floor = _NOW - timedelta(days=7)
+    assert state is not None and state.overlap_floor == floor.isoformat()
+    assert provider.search_ranges[0][0] == floor
+    connection.close()
+
+
+def test_resume_catchup_defaults_to_profile_max_catchup_days(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=())])
+    profile = _profile()
+    profile = profile.model_copy(
+        update={
+            "search": profile.search.model_copy(update={"max_catchup_days": 12})
+        }
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+
+    service.resume_profile("continual-learning", strategy="catch_up", now=_NOW)
+    run = service.tick()
+
+    assert run is not None and run.status == "success"
+    assert run.effective_config["catchup_days_override"] == 12
+    query = service.query_builder.build(service.profile_registry.get("continual-learning"))[0]
+    state = search_repository.get_state(
+        "continual-learning", query.lens_id, "arxiv", query.query_key
+    )
+    floor = _NOW - timedelta(days=12)
     assert state is not None and state.overlap_floor == floor.isoformat()
     assert provider.search_ranges[0][0] == floor
     connection.close()

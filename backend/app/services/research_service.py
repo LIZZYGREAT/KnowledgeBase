@@ -273,6 +273,8 @@ class ResearchService:
             raise ValueError("catchup_days must be a positive integer")
         if strategy == "from_now" and catchup_days is not None:
             raise ValueError("catchup_days cannot be combined with from_now")
+        if strategy == "catch_up" and catchup_days is None:
+            catchup_days = profile.search.max_catchup_days
         timestamp = self._now() if now is None else _aware_utc(now, "now")
         with self.work_repository.write_transaction():
             queries = self.query_builder.build(profile)
@@ -308,13 +310,6 @@ class ResearchService:
         queued_at = self._now()
         if not profile.enabled:
             raise ValueError("Research Profile is disabled")
-        profile_state = self.profile_state_repository.get(profile_id)
-        if (
-            profile_state is not None
-            and profile_state.paused_until is not None
-            and _parse_timestamp(profile_state.paused_until) > queued_at
-        ):
-            raise ValueError("Research Profile is paused")
         if (
             profile.ai_analysis.enabled
             and self.candidate_service.remaining_capacity(profile) <= 0
@@ -538,7 +533,8 @@ class ResearchService:
             return None
         profile_state = self.profile_state_repository.get_or_create(profile.id, now)
         if (
-            profile_state.paused_until is not None
+            trigger == "scheduled"
+            and profile_state.paused_until is not None
             and _parse_timestamp(profile_state.paused_until) > now
         ):
             return self._create_finished_run(

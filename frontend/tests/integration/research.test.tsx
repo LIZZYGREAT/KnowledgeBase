@@ -266,30 +266,30 @@ describe("Research workspace", () => {
     expect(screen.getByText("Compare its adaptive estimates against EWC.")).toBeTruthy();
   });
 
-  it("creates a new Profile Draft from the simple setup fields", async () => {
+  it("creates a Research Profile from name and focus, generating stable default identifiers", async () => {
     const created = vi.fn();
     render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={null} onClose={() => undefined} onCreated={created} />);
-    fireEvent.change(screen.getByLabelText("New Profile ID"), { target: { value: "3dgs" } });
     fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "3D Gaussian Splatting" } });
     fireEvent.change(screen.getByLabelText("New Profile description"), { target: { value: "New view synthesis work." } });
-    fireEvent.change(screen.getByLabelText("Initial Lens ID"), { target: { value: "rendering-quality" } });
-    fireEvent.change(screen.getByLabelText("Initial Lens title"), { target: { value: "Rendering Quality" } });
     fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning regularization" } });
     expect(screen.queryByLabelText("New Profile schedule")).toBeNull();
     expect(screen.queryByLabelText("New Profile breadth")).toBeNull();
     expect(screen.queryByLabelText("New Profile inbox cap")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
+    fireEvent.click(screen.getByText("Advanced identifiers"));
+    expect((screen.getByLabelText("New Profile ID") as HTMLInputElement).value).toBe("3d-gaussian-splatting");
+    expect((screen.getByLabelText("Initial Lens ID") as HTMLInputElement).value).toBe("main");
+    fireEvent.click(screen.getByRole("button", { name: "Create Research Profile" }));
 
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
     const body = JSON.parse(String(call?.[1]?.body));
     const draftProfile = parse(body.content);
-    expect(body).toMatchObject({ entity_type: "research_profile", entity_id: "3dgs" });
+    expect(body).toMatchObject({ entity_type: "research_profile", entity_id: "3d-gaussian-splatting" });
     expect(draftProfile).toMatchObject({
-      id: "3dgs",
+      id: "3d-gaussian-splatting",
       title: "3D Gaussian Splatting",
       description: "New view synthesis work.",
-      lenses: [{ id: "rendering-quality", title: "Rendering Quality", queries: ["continual learning regularization"] }],
+      lenses: [{ id: "main", title: "Main focus", queries: ["continual learning regularization"] }],
       schedule: { mode: "daily" },
       search: { breadth: "balanced" },
       inbox: { max_new_candidates: 20 },
@@ -302,10 +302,9 @@ describe("Research workspace", () => {
     createDraftCreatedInThisFlow = false;
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "New Profile" }));
-    fireEvent.change(screen.getByLabelText("New Profile ID"), { target: { value: "resumed-profile" } });
     fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Resumed Profile" } });
     fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Research Profile" }));
 
     expect(await screen.findByText("Existing unpublished Profile Draft resumed. Closing this editor will keep the Draft.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
@@ -313,6 +312,18 @@ describe("Research workspace", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑 Resumed Profile" })).toBeNull());
     expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts/profile-draft-1" && init?.method === "DELETE")).toBe(false);
     expect(researchProfileDraft).not.toBeNull();
+  });
+
+  it("adds a numeric suffix when a generated Profile ID is already used", () => {
+    render(<ResearchProfileCreateDialog
+      profiles={[profileSummary, { ...profileSummary, id: "continual-learning-2" }]}
+      sourceProfile={null}
+      onClose={() => undefined}
+      onCreated={() => undefined}
+    />);
+    fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Continual Learning" } });
+    fireEvent.click(screen.getByText("Advanced identifiers"));
+    expect((screen.getByLabelText("New Profile ID") as HTMLInputElement).value).toBe("continual-learning-3");
   });
 
   it("duplicates a Profile's canonical settings into a new Draft", async () => {
@@ -323,7 +334,7 @@ describe("Research workspace", () => {
     expect(screen.queryByLabelText("New Profile schedule")).toBeNull();
     fireEvent.change(screen.getByLabelText("New Profile ID"), { target: { value: "continual-learning-copy" } });
     fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Continual Learning Copy" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Research Profile" }));
 
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
@@ -443,7 +454,7 @@ describe("Research workspace", () => {
     });
   });
 
-  it("requires an Additional Query Lens for multiple selected lenses and queues incremental search", async () => {
+  it("automatically assigns extra queries to the highest-priority selected Lens", async () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: {
@@ -453,15 +464,12 @@ describe("Research workspace", () => {
     };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Search Now" }));
-    fireEvent.change(screen.getByLabelText("时间范围"), { target: { value: "incremental" } });
     fireEvent.change(screen.getByLabelText(/额外检索词/), { target: { value: "replay distillation" } });
+    fireEvent.click(screen.getByText("高级搜索选项"));
 
-    expect(screen.getByText("从已有的 Lens / Provider / Query Watermark 窗口检索；没有水位的新增 query 使用 Profile 初始回看天数。这是手动 Run，不会推进 scheduled Watermark。")).toBeTruthy();
     expect(screen.getByLabelText(/Additional Query Lens/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
-    expect(await screen.findByText("选择多个 Lens 时，请指定 Additional Query Lens。")).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText(/Additional Query Lens/), { target: { value: "replay" } });
+    fireEvent.click(screen.getByLabelText("从上次自动检索进度继续"));
+    expect(screen.getByText("从已有的 Lens / Provider / Query Watermark 窗口检索；没有水位的新增 query 使用 Profile 初始回看天数。这是手动 Run，不会推进 scheduled Watermark。")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
     expect(await screen.findByText(/Search queued/)).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
@@ -469,7 +477,7 @@ describe("Research workspace", () => {
       lenses: ["regularization", "replay"],
       date_range: { mode: "incremental" },
       additional_queries: ["replay distillation"],
-      additional_query_lens: "replay",
+      additional_query_lens: "regularization",
     });
   });
 
@@ -530,7 +538,7 @@ describe("Research workspace", () => {
     expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
   });
 
-  it("blocks manual search while the Profile is paused", async () => {
+  it("keeps manual search available while automatic research is paused", async () => {
     responseProfileDetail = {
       ...profileDetail,
       runtime_state: {
@@ -540,10 +548,12 @@ describe("Research workspace", () => {
     };
     render(<App />);
 
-    expect(await screen.findByText(
-      "Research paused · Resume Profile 后才能运行 Search Now。",
-    )).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
+    expect(await screen.findByText(/Automatic research is paused until .* Manual Search Now remains available\./)).toBeTruthy();
+    const searchButton = screen.getByRole("button", { name: "Search Now" });
+    expect(searchButton.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(searchButton);
+    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
+    expect(await screen.findByText(/Search queued/)).toBeTruthy();
   });
 
   it("blocks manual search when the Inbox is full", async () => {
@@ -569,7 +579,7 @@ describe("Research workspace", () => {
       onQueued={() => undefined}
       onEditDefaults={() => undefined}
     />);
-    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pause automatic research" }));
 
     const now = new Date();
     const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -591,7 +601,8 @@ describe("Research workspace", () => {
     expect(screen.getByLabelText("Enable unattended DeepSeek analysis")).toBeTruthy();
     expect(screen.getByText(/此选项只控制 AI 分析授权/)).toBeTruthy();
     expect(screen.getByText(/重新启用后，每次 Run 最多分析 10 条/)).toBeTruthy();
-    expect(screen.getByText(/筛选词、breadth 和 Knowledge Context 的修改只影响后续 Research Run/)).toBeTruthy();
+    expect(screen.getByText(/筛选规则和搜索默认值的修改只影响后续 Research Run/)).toBeTruthy();
+    fireEvent.click(screen.getByText("高级设置"));
     fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
     fireEvent.click(screen.getByLabelText("Discovery Provider arxiv"));
     const lastDiscoveryProvider = screen.getByLabelText("Discovery Provider openalex") as HTMLInputElement;
@@ -607,7 +618,9 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("New Lens title"), { target: { value: "Replay Methods" } });
     fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "replay continual learning" } });
     fireEvent.click(screen.getByRole("button", { name: "Add Lens" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Lens regularization" }));
+    const originalLens = screen.getByLabelText("Lens regularization title").closest("article");
+    fireEvent.click(within(originalLens as HTMLElement).getByText("高级筛选与标识"));
+    fireEvent.click(within(originalLens as HTMLElement).getByRole("button", { name: "Remove Lens regularization" }));
     const queriesField = screen.getByLabelText(/Queries/) as HTMLTextAreaElement;
     expect(queriesField.value).toBe("replay continual learning");
     await user.clear(queriesField);
@@ -647,6 +660,25 @@ describe("Research workspace", () => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
     });
     expect(published).toHaveBeenCalledWith([]);
+  });
+
+  it("keeps advanced defaults collapsed and rejects empty numeric edits without saving them", async () => {
+    render(<ResearchProfileDefaultsEditor
+      profile={profile as unknown as ResearchProfile}
+      canonicalContent={stringify(profile, { lineWidth: 0 })}
+      draftCreatedInThisFlow={false}
+      onClose={() => undefined}
+      onPublished={() => undefined}
+    />);
+    expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
+    expect((screen.getByText("高级设置").closest("details") as HTMLDetailsElement).open).toBe(false);
+
+    const inboxLimit = screen.getByRole("spinbutton", { name: "Inbox max new candidates" });
+    fireEvent.change(inboxLimit, { target: { value: "" } });
+    fireEvent.blur(inboxLimit);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Enter a whole number greater than or equal to 0.");
+    expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(false);
   });
 
   it("filters pinned Documents by title or ID without losing selection", async () => {
