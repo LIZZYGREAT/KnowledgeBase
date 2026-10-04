@@ -6,6 +6,7 @@ import subprocess
 import yaml
 
 from backend.app.main import app
+from backend.app.services.ai_client import DeepSeekConfig
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -57,11 +58,17 @@ def test_application_initializes_phase_services_from_configured_paths(
             assert app.state.publisher.repository_root == repository.resolve()
             assert app.state.import_service.repository_root == repository.resolve()
             assert app.state.ai_gateway.provider == "deepseek"
-            assert app.state.ai_gateway.client.config.timeout_seconds == 37
+            assert (
+                app.state.ai_gateway.client.config.timeout_seconds
+                == DeepSeekConfig.from_environment(repository).timeout_seconds
+            )
             assert app.state.ai_proposal_service.repository_root == repository.resolve()
+            assert app.state.ai_proposal_service.gateway is app.state.ai_gateway
+            research_gateway = app.state.research_service.analysis_service.gateway
+            assert research_gateway is not app.state.ai_gateway
+            assert research_gateway.client.config.timeout_seconds == 37
             assert app.state.knowledge_read_service.repository_root == repository.resolve()
             assert app.state.context_export_service.knowledge is app.state.knowledge_read_service
-            assert app.state.research_service.analysis_service.gateway is app.state.ai_gateway
             assert app.state.research_service.context_builder.knowledge is app.state.knowledge_read_service
             assert app.state.research_service.context_builder.collections is app.state.collection_service
             assert app.state.research_service.context_builder.context_export is app.state.context_export_service
