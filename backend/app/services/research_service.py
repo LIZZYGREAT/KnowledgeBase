@@ -180,7 +180,13 @@ class ResearchService:
         candidate = ResearchProfile.model_validate(parse_yaml(content))
         if candidate.id != profile_id:
             raise ValueError("Research Profile Draft id does not match its target")
-        profile_path = self.profile_registry.path_for(profile_id)
+        profile_path = (
+            self.repository_root
+            / "config"
+            / "research"
+            / "profiles"
+            / "{}.yaml".format(profile_id)
+        )
         ResearchProfileRegistry.validate_candidate(
             self.repository_root, candidate, profile_path
         )
@@ -189,9 +195,12 @@ class ResearchService:
     def reactivation_review(self, candidate: ResearchProfile) -> dict:
         current = self.profile_registry.get(candidate.id)
         if current is None:
-            raise LookupError(
-                "Research Profile '{}' does not exist".format(candidate.id)
-            )
+            return {
+                "required": False,
+                "triggers": [],
+                "max_catchup_days": candidate.search.max_catchup_days,
+                "strategies": [],
+            }
 
         triggers = []
         if not current.enabled and candidate.enabled:

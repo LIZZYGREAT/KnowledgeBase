@@ -735,6 +735,45 @@ def test_reactivation_review_requires_a_choice_for_stale_watermarks(tmp_path):
     connection.close()
 
 
+def test_new_profile_candidate_uses_its_canonical_path_and_skips_reactivation(
+    tmp_path, monkeypatch
+):
+    connection = connect_database(":memory:")
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
+    candidate = _profile().model_copy(
+        update={"id": "llm-agents", "title": "LLM Agents"}
+    )
+    observed = {}
+
+    def validate_candidate(repository_root, profile, profile_path):
+        observed["root"] = repository_root
+        observed["profile"] = profile
+        observed["path"] = profile_path
+
+    monkeypatch.setattr(
+        ResearchProfileRegistry, "validate_candidate", validate_candidate
+    )
+    parsed = service.parse_profile_candidate(
+        candidate.id, yaml.safe_dump(candidate.model_dump(mode="json"))
+    )
+
+    assert parsed.id == "llm-agents"
+    assert observed["path"] == (
+        service.repository_root
+        / "config"
+        / "research"
+        / "profiles"
+        / "llm-agents.yaml"
+    )
+    assert service.reactivation_review(parsed) == {
+        "required": False,
+        "triggers": [],
+        "max_catchup_days": candidate.search.max_catchup_days,
+        "strategies": [],
+    }
+    connection.close()
+
+
 @pytest.mark.parametrize(
     ("trigger", "manual_incremental"),
     [("scheduled", False), ("manual", True)],

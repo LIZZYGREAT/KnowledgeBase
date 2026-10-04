@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { parse } from "yaml";
 import {
   dismissResearchCandidate,
   getResearchCandidate,
@@ -17,6 +18,7 @@ import {
   type ResearchCandidateStatus,
   type ResearchDismissReason,
   type ResearchProfileDetail,
+  type ResearchProfile,
   type ResearchProfileSummary,
   type ResearchRun,
   type ResearchSort,
@@ -24,6 +26,7 @@ import {
 import { ResearchCandidateCard, ResearchCandidateDrawer, ResearchCreateNoteDialog, ResearchDismissDialog, ResearchShortlistDialog, type ResearchNoteOptions } from "./ResearchCandidate";
 import { ResearchProfilePanel } from "./ResearchProfile";
 import { ResearchProfileDefaultsEditor } from "./ResearchProfileDefaultsEditor";
+import { ResearchProfileCreateDialog } from "./ResearchProfileCreateDialog";
 import { ResearchRunDrawer, ResearchRunList } from "./ResearchRun";
 import { ErrorState, LoadingState, PageHeader } from "./ui";
 import { errorMessage } from "./errors";
@@ -68,7 +71,8 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [runCount, setRunCount] = useState(0);
   const [runsLoading, setRunsLoading] = useState(false);
   const [runDetail, setRunDetail] = useState<ResearchRun | null>(null);
-  const [editingDefaults, setEditingDefaults] = useState(false);
+  const [profileEditor, setProfileEditor] = useState<{ profile: ResearchProfile; canonicalContent: string; isNew: boolean } | null>(null);
+  const [createProfileSource, setCreateProfileSource] = useState<ResearchProfile | null | undefined>(undefined);
   const [profilePublishWarnings, setProfilePublishWarnings] = useState<string[]>([]);
 
   const currentSummary = useMemo(() => profiles.find((item) => item.id === selectedProfileId) ?? null, [profiles, selectedProfileId]);
@@ -290,16 +294,41 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     { id: "runs", label: "Runs" },
   ];
 
+  const profileLayers = <>
+    {createProfileSource !== undefined && <ResearchProfileCreateDialog
+      profiles={profiles}
+      sourceProfile={createProfileSource}
+      onClose={() => setCreateProfileSource(undefined)}
+      onCreated={(createdProfile, draftContent) => {
+        const savedProfile = parse(draftContent) as ResearchProfile;
+        setCreateProfileSource(undefined);
+        setProfileEditor({ profile: savedProfile ?? createdProfile, canonicalContent: "", isNew: true });
+      }}
+    />}
+    {profileEditor && <ResearchProfileDefaultsEditor
+      profile={profileEditor.profile}
+      canonicalContent={profileEditor.canonicalContent}
+      isNew={profileEditor.isNew}
+      onClose={() => setProfileEditor(null)}
+      onPublished={(warnings) => {
+        const publishedProfileId = profileEditor.profile.id;
+        setProfileEditor(null);
+        if (profileEditor.isNew) setSelectedProfileId(publishedProfileId);
+        setProfilePublishWarnings(warnings);
+        refresh();
+      }}
+    />}
+  </>;
+
   if (pageLoading && !profiles.length) return <LoadingState label="正在读取 Research Profiles…" />;
   if (profileError && !profiles.length) return <ErrorState message={profileError} retry={refresh} />;
-  if (!profiles.length) return <div className="page-stack"><PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="从外部研究发现候选内容，并由你决定哪些进入知识库。" /><div className="surface"><div className="empty-state"><span className="empty-mark">⌕</span><strong>没有可用的 Research Profile</strong><p>添加并验证 Profile 配置后，这里会显示研究发现。</p></div></div></div>;
+  if (!profiles.length) return <div className="page-stack"><PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="从外部研究发现候选内容，并由你决定哪些进入知识库。" action={<button className="button button-primary" onClick={() => setCreateProfileSource(null)}>New Profile</button>} /><div className="surface"><div className="empty-state"><span className="empty-mark">⌕</span><strong>没有可用的 Research Profile</strong><p>添加并验证 Profile 配置后，这里会显示研究发现。</p></div></div>{profileLayers}</div>;
 
   return <div className="page-stack research-page">
-    <PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<label className="research-profile-select"><span>Profile</span><select aria-label="Research Profile" value={selectedProfileId} onChange={(event) => { setEditingDefaults(false); setSelectedProfileId(event.target.value); setTab("new"); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>Select a Profile</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>} />
+    <PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<div className="research-profile-header-actions"><label className="research-profile-select"><span>Profile</span><select aria-label="Research Profile" value={selectedProfileId} onChange={(event) => { setProfileEditor(null); setSelectedProfileId(event.target.value); setTab("new"); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>Select a Profile</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button className="button button-secondary" onClick={() => setCreateProfileSource(null)}>New Profile</button><button className="button button-quiet" disabled={!profile || profile.profile.id !== selectedProfileId} onClick={() => setCreateProfileSource(profile?.profile ?? null)}>Duplicate Profile</button></div>} />
     {profileError && <ErrorState message={profileError} retry={refresh} />}
-    {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={(id) => { setQueuedRequestId(id); setTab("new"); }} onEditDefaults={() => setEditingDefaults(true)} />}
+    {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={(id) => { setQueuedRequestId(id); setTab("new"); }} onEditDefaults={() => setProfileEditor({ profile: profile.profile, canonicalContent: profile.canonical_content, isNew: false })} />}
     {profilePublishWarnings.length > 0 && <div className="notice research-queued-notice" role="status"><strong>Profile published with warnings</strong><ul>{profilePublishWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="text-button" onClick={() => setProfilePublishWarnings([])}>Dismiss</button></div>}
-    {editingDefaults && profile?.profile.id === selectedProfileId && <ResearchProfileDefaultsEditor profile={profile.profile} canonicalContent={profile.canonical_content} onClose={() => setEditingDefaults(false)} onPublished={(warnings) => { setEditingDefaults(false); setProfilePublishWarnings(warnings); refresh(); }} />}
     {queuedRequestId && <div className="notice research-queued-notice" role="status"><strong>Search queued</strong><span>Request {queuedRequestId.slice(0, 10)} 已加入本地队列；将在下次 Research tick 执行。</span><button className="text-button" onClick={() => setQueuedRequestId("")}>Dismiss</button></div>}
 
     <section className="surface research-inbox-section">
@@ -328,5 +357,6 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     {dismissTargets && <ResearchDismissDialog count={dismissTargets.length} busy={actionBusy} onClose={() => setDismissTargets(null)} onSubmit={(reason, note) => void dismiss(reason, note)} />}
     {shortlistTargets && <ResearchShortlistDialog count={shortlistTargets.length} busy={actionBusy} error={actionError} onClose={() => setShortlistTargets(null)} onSubmit={(note) => void shortlist(shortlistTargets, note)} />}
     {createNoteTarget && <ResearchCreateNoteDialog title={createNoteTarget.work.title} busy={actionBusy} onClose={() => setCreateNoteTarget(null)} onCreate={(options) => void createNote(createNoteTarget.candidate.id, options)} />}
+    {profileLayers}
   </div>;
 }

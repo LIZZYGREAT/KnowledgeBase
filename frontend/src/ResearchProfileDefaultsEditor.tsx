@@ -23,6 +23,7 @@ import { createLineDiff } from "./publishReview";
 interface ResearchProfileDefaultsEditorProps {
   profile: ResearchProfile;
   canonicalContent: string;
+  isNew?: boolean;
   onClose: () => void;
   onPublished: (warnings: string[]) => void;
 }
@@ -33,7 +34,7 @@ interface ProfileReview {
   reactivation: ResearchReactivationReview | null;
 }
 
-export function ResearchProfileDefaultsEditor({ profile, canonicalContent, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
+export function ResearchProfileDefaultsEditor({ profile, canonicalContent, isNew = false, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
   const initialContent = useMemo(() => canonicalContent, [canonicalContent]);
   const session = useRuntimeDraftSession({
     entityType: "research_profile",
@@ -146,6 +147,19 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, onClo
 
   async function closeEditor() {
     if (busy) return;
+    if (isNew) {
+      setBusy(true);
+      setError("");
+      try {
+        await session.discard();
+        onClose();
+      } catch (reason) {
+        setError(errorMessage(reason));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (session.isDirty) {
       setBusy(true);
       setError("");
@@ -177,7 +191,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, onClo
         compareDraft(saved.id),
         preflightDraft(saved.id),
       ]);
-      const reactivation = preflight.valid
+      const reactivation = preflight.valid && !isNew
         ? await reviewResearchReactivation(profile.id, saved.id)
         : null;
       setReactivationStrategy("");
@@ -226,12 +240,12 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, onClo
     : [];
 
   return <div className="research-modal-overlay research-profile-editor-overlay" role="presentation" onMouseDown={(event) => {
-    if (event.target === event.currentTarget) void closeEditor();
+    if (!isNew && event.target === event.currentTarget) void closeEditor();
   }}>
     <section className="research-dismiss-dialog research-profile-editor" role="dialog" aria-modal="true" aria-labelledby="research-profile-editor-title">
       <header className="research-profile-editor-header">
         <div><p className="eyebrow">PROFILE DEFAULTS</p><h2 id="research-profile-editor-title">编辑 {profile.title}</h2><p>修改会先自动保存为 Draft；检查差异并通过校验后，才会写入 canonical Profile。</p></div>
-        <button className="button button-quiet" type="button" disabled={busy} onClick={() => void closeEditor()}>关闭</button>
+        <button className="button button-quiet" type="button" disabled={busy || (isNew && (session.loading || session.state === "saving"))} onClick={() => void closeEditor()}>{isNew ? "Discard new Profile Draft" : "关闭"}</button>
       </header>
       <div className="research-profile-editor-body">
         <div className="research-profile-draft-status" role="status"><strong>{statusText}</strong><span>Research Profile Draft · {profile.id}</span></div>

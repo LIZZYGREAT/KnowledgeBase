@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { stringify } from "yaml";
+import { parse, stringify } from "yaml";
 import App from "../../src/App";
 import { ResearchProfileDefaultsEditor } from "../../src/ResearchProfileDefaultsEditor";
+import { ResearchProfileCreateDialog } from "../../src/ResearchProfileCreateDialog";
 import { ResearchRunDrawer } from "../../src/ResearchRun";
 import type { ResearchProfile, ResearchRun } from "../../src/api";
 
@@ -162,6 +163,59 @@ describe("Research workspace", () => {
     expect(within(inspector).getByText("Lens B")).toBeTruthy();
     expect(within(inspector).queryByText("Lens A")).toBeNull();
     expect(within(inspector).queryByText("Lens C")).toBeNull();
+  });
+
+  it("creates a new Profile Draft from the simple setup fields", async () => {
+    const created = vi.fn();
+    render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={null} onClose={() => undefined} onCreated={created} />);
+    fireEvent.change(screen.getByLabelText("New Profile ID"), { target: { value: "3dgs" } });
+    fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "3D Gaussian Splatting" } });
+    fireEvent.change(screen.getByLabelText("New Profile description"), { target: { value: "New view synthesis work." } });
+    fireEvent.change(screen.getByLabelText("Initial Lens ID"), { target: { value: "rendering-quality" } });
+    fireEvent.change(screen.getByLabelText("Initial Lens title"), { target: { value: "Rendering Quality" } });
+    fireEvent.change(screen.getByLabelText("New Profile schedule"), { target: { value: "weekly" } });
+    fireEvent.change(screen.getByLabelText("New Profile breadth"), { target: { value: "explore" } });
+    fireEvent.change(screen.getByLabelText("New Profile inbox cap"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
+
+    await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
+    const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
+    const body = JSON.parse(String(call?.[1]?.body));
+    const draftProfile = parse(body.content);
+    expect(body).toMatchObject({ entity_type: "research_profile", entity_id: "3dgs" });
+    expect(draftProfile).toMatchObject({
+      id: "3dgs",
+      title: "3D Gaussian Splatting",
+      description: "New view synthesis work.",
+      lenses: [{ id: "rendering-quality", title: "Rendering Quality", queries: ["Rendering Quality"] }],
+      schedule: { mode: "weekly" },
+      search: { breadth: "explore" },
+      inbox: { max_new_candidates: 12 },
+      providers: { discovery: ["arxiv"], enrichment: [] },
+    });
+  });
+
+  it("duplicates a Profile's canonical settings into a new Draft", async () => {
+    const created = vi.fn();
+    render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={profile as unknown as ResearchProfile} onClose={() => undefined} onCreated={created} />);
+    fireEvent.change(screen.getByLabelText("New Profile ID"), { target: { value: "continual-learning-copy" } });
+    fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Continual Learning Copy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
+
+    await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
+    const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
+    const body = JSON.parse(String(call?.[1]?.body));
+    const draftProfile = parse(body.content);
+    expect(draftProfile).toMatchObject({
+      id: "continual-learning-copy",
+      title: "Continual Learning Copy",
+      lenses: profile.lenses,
+      providers: profile.providers,
+      context: profile.context,
+      search: profile.search,
+      schedule: profile.schedule,
+      inbox: profile.inbox,
+    });
   });
 
   it("queues custom Research dates as local calendar boundaries", async () => {

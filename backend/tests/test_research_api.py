@@ -266,6 +266,58 @@ def test_profile_reactivation_review_and_publish_require_a_selected_strategy(tmp
     connection.close()
 
 
+def test_new_research_profile_can_publish_without_reactivation_review(tmp_path):
+    connection = _connection()
+    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
+    profile = _profile().model_copy(update={"id": "llm-agents", "title": "LLM Agents"})
+    draft = Draft(
+        id="new-profile-draft",
+        entity_type="research_profile",
+        entity_id=profile.id,
+        base_git_revision="revision",
+        base_content_hash="hash",
+        content="new profile draft",
+        revision=1,
+        created_at=_NOW.isoformat(),
+        updated_at=_NOW.isoformat(),
+    )
+    publish_calls = []
+
+    def publish(*args, **kwargs):
+        publish_calls.append((args, kwargs))
+        return PublishedResult(
+            draft_id=draft.id,
+            entity_type="research_profile",
+            entity_id=profile.id,
+            path="config/research/profiles/llm-agents.yaml",
+            commit_revision="new-profile-commit",
+        )
+
+    service.parse_profile_candidate = lambda profile_id, content: profile
+    application = FastAPI()
+    application.include_router(router)
+    application.include_router(publishing_router)
+    application.state.research_service = service
+    application.state.draft_service = SimpleNamespace(get=lambda draft_id: draft)
+    application.state.publisher = SimpleNamespace(publish=publish)
+
+    async def exercise_route():
+        async with AsyncClient(
+            transport=ASGITransport(app=application), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/publish",
+                json={"draft_id": draft.id, "expected_revision": draft.revision},
+            )
+            assert response.status_code == 200, response.json()
+            assert response.json()["entity_id"] == "llm-agents"
+            assert response.json()["commit_revision"] == "new-profile-commit"
+            assert len(publish_calls) == 1
+
+    asyncio.run(exercise_route())
+    connection.close()
+
+
 def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
     connection = _connection()
     service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
