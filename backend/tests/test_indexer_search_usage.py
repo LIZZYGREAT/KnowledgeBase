@@ -156,6 +156,23 @@ def test_search_exact_title_alias_fts_evidence_and_structured_filters(tmp_path):
     connection.close()
 
 
+def test_search_allowed_entities_contract_excludes_unselected_entities(tmp_path):
+    repository = _create_knowledge_tree(tmp_path / "repo")
+    connection = connect_database(":memory:")
+    Indexer(repository, connection).full_rebuild()
+
+    results = SearchService(connection).search(
+        "retains canonical facts",
+        allowed_entities={("document", "neural-indexing")},
+    )
+
+    assert results
+    assert {(result.entity_type, result.entity_id) for result in results} == {
+        ("document", "neural-indexing")
+    }
+    connection.close()
+
+
 def test_document_fts_uses_a_small_view_count_boost(tmp_path):
     repository = _create_knowledge_tree(tmp_path / "repo")
     documents = repository / "knowledge" / "documents" / "learning"

@@ -147,7 +147,7 @@ class ResearchService:
             raise ValueError("Manual incremental and historical ranges cannot be combined")
         if manual_incremental and resume_strategy != "all":
             raise ValueError("Manual incremental search uses the scheduled watermark window")
-        if not self.global_lock.acquire():
+        if not self.global_lock.try_acquire():
             return None
         try:
             now = self._now()
@@ -414,7 +414,7 @@ class ResearchService:
 
     def tick(self) -> Optional[ResearchRunRecord]:
         """Run one queued manual request, otherwise one most-overdue scheduled Profile."""
-        if not self.global_lock.acquire():
+        if not self.global_lock.try_acquire():
             return None
         try:
             now = self._now()
@@ -982,14 +982,6 @@ class ResearchService:
                                         self.run_repository.update_progress(
                                             run.id, analyzed_count=1
                                         )
-                        if analysis is None and not profile.ai_analysis.enabled:
-                            analysis = self.analysis_service.analyze(
-                                work,
-                                profile,
-                                lens,
-                                context_pack,
-                                circuit_breaker=analysis_breaker,
-                            )
                     if analysis is None:
                         if analysis_breaker.analysis_disabled_for_run:
                             errors.append("DeepSeek analysis circuit opened for this run")

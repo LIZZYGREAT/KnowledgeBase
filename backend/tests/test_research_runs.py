@@ -667,19 +667,20 @@ def test_global_research_lock_allows_only_one_owner(tmp_path):
     first = GlobalResearchLock(path)
     second = GlobalResearchLock(path)
     try:
-        assert first.acquire() is True
-        assert second.acquire() is False
+        assert first.try_acquire() is True
+        assert first.try_acquire() is False
+        assert second.try_acquire() is False
     finally:
         first.release()
-    assert second.acquire() is True
+    assert second.try_acquire() is True
     second.release()
 
 
-def test_global_research_lock_exclusive_acquire_rejects_existing_owner(tmp_path):
+def test_global_research_lock_is_non_reentrant(tmp_path):
     lock = GlobalResearchLock(tmp_path / "runtime" / "research.lock")
-    assert lock.acquire() is True
+    assert lock.try_acquire() is True
     try:
-        assert lock.acquire_exclusive() is False
+        assert lock.try_acquire() is False
     finally:
         lock.release()
 
@@ -1057,7 +1058,7 @@ def test_tick_does_not_claim_request_when_another_process_holds_global_lock(tmp_
     service, _, _, _ = _service(tmp_path, connection, provider)
     request = service.queue_manual_run("continual-learning")
     competing_lock = GlobalResearchLock(service.global_lock.path)
-    assert competing_lock.acquire() is True
+    assert competing_lock.try_acquire() is True
     try:
         assert service.tick() is None
     finally:

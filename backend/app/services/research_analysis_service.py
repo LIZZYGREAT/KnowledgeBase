@@ -117,7 +117,6 @@ class ResearchAnalysisService:
         circuit_breaker: Optional[ResearchAnalysisCircuitBreaker] = None,
         on_attempt: Optional[Callable[[], None]] = None,
     ) -> Optional[ResearchWorkAnalysisRecord]:
-        _validate_lens(profile, matched_lens)
         if not profile.ai_analysis.enabled:
             return None
 

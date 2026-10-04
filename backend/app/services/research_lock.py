@@ -17,14 +17,7 @@ class GlobalResearchLock:
         with self._state_lock:
             return self._file is not None
 
-    def acquire(self) -> bool:
-        with self._state_lock:
-            if self._file is not None:
-                return self._owner_thread_id == get_ident()
-            return self._acquire_locked()
-
-    def acquire_exclusive(self) -> bool:
-        """Acquire only when this instance has no current owner."""
+    def try_acquire(self) -> bool:
         with self._state_lock:
             if self._file is not None:
                 return False

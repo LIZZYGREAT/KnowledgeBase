@@ -46,7 +46,7 @@ async def publish(body: PublishRequest, request: Request):
 
     service = request.app.state.research_service
     lock = service.global_lock
-    if not lock.acquire_exclusive():
+    if not lock.try_acquire():
         raise HTTPException(
             status_code=409,
             detail="Research is currently running; retry publishing after it finishes.",
@@ -102,7 +102,7 @@ async def publish_batch(body: BatchPublishRequest, request: Request):
     service = request.app.state.research_service
     if profile_drafts:
         lock = service.global_lock
-        if not lock.acquire_exclusive():
+        if not lock.try_acquire():
             raise HTTPException(
                 status_code=409,
                 detail="Research is currently running; retry publishing after it finishes.",

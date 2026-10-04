@@ -231,10 +231,6 @@ class ResearchContextBuilder:
                 limit=result_limit,
                 allowed_entities=allowed_entity_ids,
             ):
-                if allowed_entity_ids is not None and (
-                    result.entity_type, result.entity_id
-                ) not in allowed_entity_ids:
-                    continue
                 key = (result.entity_type, result.entity_id)
                 previous = best_by_entity.get(key)
                 if (
