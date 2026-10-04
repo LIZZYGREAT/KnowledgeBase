@@ -46,6 +46,41 @@ def test_incremental_search_starts_at_watermark_minus_overlap():
         connection.close()
 
 
+def test_from_now_overlap_floor_prevents_reopening_skipped_history():
+    connection, repository, service, profile, query, global_config = _setup()
+    try:
+        _seed_watermark(
+            repository, profile, query, "arxiv", _NOW - timedelta(days=3)
+        )
+
+        service.skip_profile_to_now(profile, _NOW)
+
+        state = repository.get_state(
+            profile.id, query.lens_id, "arxiv", query.query_key
+        )
+        assert state.completed_through == _NOW.isoformat()
+        assert state.overlap_floor == _NOW.isoformat()
+        next_plan = service.build_plan(
+            profile, query, "arxiv", _NOW + timedelta(days=1), global_config
+        )
+        assert next_plan.slices[0].start_at == _NOW
+
+        changed_lens = profile.lenses[0].model_copy(
+            update={"queries": ["a newly added query"]}
+        )
+        changed_profile = profile.model_copy(
+            update={"lenses": [changed_lens, *profile.lenses[1:]]}
+        )
+        new_query = service.query_builder.build(changed_profile)[0]
+        new_query_plan = service.build_plan(
+            changed_profile, new_query, "arxiv", _NOW, global_config
+        )
+        assert new_query_plan.previous_watermark is None
+        assert new_query_plan.slices[0].start_at == _NOW - timedelta(days=30)
+    finally:
+        connection.close()
+
+
 def test_manual_incremental_uses_watermark_window_without_advancing_it():
     connection, repository, service, profile, query, global_config = _setup()
     try:

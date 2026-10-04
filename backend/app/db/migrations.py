@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -37,6 +37,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_normalize_research_dismiss_reasons
         elif target_version == 10:
             migration = _migrate_to_reactivation_choice_events
+        elif target_version == 11:
+            migration = _migrate_to_watermark_overlap_floor
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -168,6 +170,15 @@ def _migrate_to_reactivation_choice_events(connection: sqlite3.Connection) -> No
         """CREATE INDEX research_control_events_profile_idx
            ON research_control_events (profile_id, created_at DESC)"""
     )
+
+
+def _migrate_to_watermark_overlap_floor(connection: sqlite3.Connection) -> None:
+    if _table_exists(connection, "research_search_state") and not _column_exists(
+        connection, "research_search_state", "overlap_floor"
+    ):
+        connection.execute(
+            "ALTER TABLE research_search_state ADD COLUMN overlap_floor TEXT"
+        )
 
 
 def _migrate_to_research_run_ai_disabled_status(connection: sqlite3.Connection) -> None:

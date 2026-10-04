@@ -137,6 +137,12 @@ class ResearchSearchRepository:
                     requested = _parse_timestamp(skipped_at)
                     if old_watermark is not None and old_watermark > requested:
                         watermark = state.completed_through
+                    old_overlap_floor = _parse_timestamp(state.overlap_floor)
+                    overlap_floor = (
+                        skipped_at
+                        if old_overlap_floor is None or requested > old_overlap_floor
+                        else state.overlap_floor
+                    )
                     old_updated = _parse_timestamp(state.updated_at)
                     requested_update = _parse_timestamp(skipped_at)
                     updated_at = (
@@ -146,11 +152,12 @@ class ResearchSearchRepository:
                     )
                     self.connection.execute(
                         """UPDATE research_search_state SET query_text = ?,
-                               completed_through = ?, updated_at = ?
+                               completed_through = ?, overlap_floor = ?, updated_at = ?
                            WHERE profile_id = ? AND lens_id = ? AND provider = ? AND query_key = ?""",
                         (
                             query_text,
                             watermark,
+                            overlap_floor,
                             updated_at,
                             profile_id,
                             lens_id,
@@ -162,9 +169,9 @@ class ResearchSearchRepository:
                     self.connection.execute(
                         """INSERT INTO research_search_state (
                                profile_id, lens_id, provider, query_key, query_text,
-                               completed_through, last_attempt_at, last_success_at,
+                               completed_through, overlap_floor, last_attempt_at, last_success_at,
                                created_at, updated_at
-                           ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)""",
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)""",
                         (
                             profile_id,
                             lens_id,
@@ -172,6 +179,7 @@ class ResearchSearchRepository:
                             query_key,
                             query_text,
                             watermark,
+                            skipped_at,
                             skipped_at,
                             skipped_at,
                         ),
@@ -248,6 +256,7 @@ def _state_from_row(row: sqlite3.Row) -> ResearchSearchStateRecord:
         query_key=row["query_key"],
         query_text=row["query_text"],
         completed_through=row["completed_through"],
+        overlap_floor=row["overlap_floor"],
         last_attempt_at=row["last_attempt_at"],
         last_success_at=row["last_success_at"],
         created_at=row["created_at"],

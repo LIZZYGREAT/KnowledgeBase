@@ -122,6 +122,11 @@ class ResearchWatermarkService:
             start = previous_watermark - timedelta(
                 hours=global_config.runtime.overlap_hours
             )
+        overlap_floor = _parse_stored_timestamp(
+            state.overlap_floor if state is not None else None
+        )
+        if overlap_floor is not None:
+            start = max(start, overlap_floor)
         if resume_strategy == "last_window":
             catchup_days = (
                 catchup_days_override

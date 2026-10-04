@@ -186,6 +186,7 @@ class ResearchSearchStateRecord(CanonicalModel):
     query_key: NonEmptyText
     query_text: NonEmptyText
     completed_through: Optional[NonEmptyText] = None
+    overlap_floor: Optional[NonEmptyText] = None
     last_attempt_at: Optional[NonEmptyText] = None
     last_success_at: Optional[NonEmptyText] = None
     created_at: NonEmptyText

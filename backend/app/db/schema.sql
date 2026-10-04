@@ -371,6 +371,7 @@ CREATE TABLE IF NOT EXISTS research_search_state (
     query_key TEXT NOT NULL,
     query_text TEXT NOT NULL,
     completed_through TEXT,
+    overlap_floor TEXT,
     last_attempt_at TEXT,
     last_success_at TEXT,
     created_at TEXT NOT NULL,

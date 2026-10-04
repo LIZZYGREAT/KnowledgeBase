@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -856,6 +857,7 @@ def test_from_now_reactivation_choice_is_applied_once_for_manual_incremental(tmp
     assert first is not None and first.status == "success"
     assert first.effective_config["resume_strategy"] == "from_now"
     assert state.completed_through == _NOW.isoformat()
+    assert state.overlap_floor == _NOW.isoformat()
     assert len([
         event for event in service.search_repository.list_control_events(profile.id)
         if event["event_type"] == "watermark_skip"
@@ -1221,6 +1223,54 @@ def test_resume_catchup_days_are_applied_to_the_next_scheduled_run(tmp_path):
     assert run is not None and run.status == "success"
     assert run.effective_config["resume_strategy"] == "last_window"
     assert run.effective_config["catchup_days_override"] == 7
+    connection.close()
+
+
+def test_resume_from_now_floor_prevents_overlap_reopening_skipped_history(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([])
+    service, _, search_repository, _ = _service(tmp_path, connection, provider)
+    profile = service.profile_registry.get("continual-learning")
+    query = service.query_builder.build(profile)[0]
+    stale = _NOW - timedelta(days=10)
+    search_repository.record_attempt(
+        profile.id, query.lens_id, "arxiv", query.query_key, query.text, stale.isoformat()
+    )
+    search_repository.complete_slice(
+        profile.id,
+        query.lens_id,
+        "arxiv",
+        query.query_key,
+        stale.isoformat(),
+        stale.isoformat(),
+    )
+    config = service.profile_registry.global_config
+    service.profile_registry = replace(
+        service.profile_registry,
+        global_config=config.model_copy(
+            update={
+                "runtime": config.runtime.model_copy(update={"overlap_hours": 48})
+            }
+        ),
+    )
+    resume_at = _NOW + timedelta(hours=1)
+    service.pause_profile(profile.id, resume_at + timedelta(days=1), now=_NOW)
+
+    service.resume_profile(profile.id, strategy="from_now", now=resume_at)
+
+    state = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert state.completed_through == resume_at.isoformat()
+    assert state.overlap_floor == resume_at.isoformat()
+    next_plan = service.watermarks.build_plan(
+        profile,
+        query,
+        "arxiv",
+        resume_at + timedelta(days=1),
+        service.profile_registry.global_config,
+    )
+    assert next_plan.slices[0].start_at == resume_at
     connection.close()
 
 
