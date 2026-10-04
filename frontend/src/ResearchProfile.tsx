@@ -45,6 +45,7 @@ export function ResearchProfilePanel({
   onEditDefaults: () => void;
 }) {
   const profile = detail.profile;
+  const hasActiveDefaultLens = profile.lenses.some((lens) => lens.enabled);
   const pausedUntil = detail.runtime_state?.paused_until ?? null;
   const isPaused = Boolean(pausedUntil && new Date(pausedUntil).getTime() > Date.now());
   const canSearch = summary.enabled
@@ -206,7 +207,7 @@ export function ResearchProfilePanel({
     });
   }
 
-  const scheduledText = !profile.ai_analysis.enabled ? "自动发现已暂停" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
+  const scheduledText = !profile.ai_analysis.enabled ? "自动发现已暂停" : !hasActiveDefaultLens ? "No active default Lens · 自动发现当前不会执行" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
   const capacityPercent = summary.inbox.capacity === 0 ? 100 : Math.min(100, summary.inbox.new_count / summary.inbox.capacity * 100);
 
   return <section className="surface research-profile-panel">
@@ -231,6 +232,7 @@ export function ResearchProfilePanel({
     {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 Search Now。</p>}
     {isPaused && <p className="research-search-block-note" role="status">Research paused · Resume Profile 后才能运行 Search Now。</p>}
     {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">AI Analysis disabled · 自动发现已暂停；启用后会从原 Watermark 继续。</p>}
+    {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Lens。</p>}
 
     {isPaused && <div className="research-resume-bar">
       <label className="field-label">恢复方式<select value={resumeStrategy} onChange={(event) => setResumeStrategy(event.target.value as typeof resumeStrategy)}><option value="catch_up">追赶暂停期间的内容</option><option value="from_now">从现在开始，不补历史</option></select></label>

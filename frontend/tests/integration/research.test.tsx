@@ -379,6 +379,32 @@ describe("Research workspace", () => {
     expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("explains when all default Lenses are disabled but keeps temporary Search Now available", async () => {
+    responseProfileDetail = {
+      ...profileDetail,
+      profile: {
+        ...profile,
+        lenses: profile.lenses.map((lens) => ({ ...lens, enabled: false })),
+      },
+    };
+    render(<App />);
+
+    expect(await screen.findByText(
+      "No active default Lens · 自动发现当前不会执行",
+    )).toBeTruthy();
+    expect(screen.getByText("Search Now 仍可临时选择 Lens。")).toBeTruthy();
+    const searchButton = screen.getByRole("button", { name: "Search Now" });
+    expect(searchButton.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(searchButton);
+
+    const searchForm = screen.getByText("Search Focus").closest("form");
+    expect(searchForm).not.toBeNull();
+    const lens = within(searchForm as HTMLElement).getByRole("checkbox", { name: /Regularization/ });
+    expect((lens as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(lens);
+    expect((lens as HTMLInputElement).checked).toBe(true);
+  });
+
   it("blocks manual search when the Profile is disabled", async () => {
     responseProfileSummary = { ...profileSummary, enabled: false };
     responseProfileDetail = {

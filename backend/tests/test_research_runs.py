@@ -1217,6 +1217,42 @@ def test_tick_selects_most_overdue_profile_and_skips_paused_profiles(tmp_path):
     connection.close()
 
 
+def test_tick_skips_profiles_without_active_default_lenses(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([ProviderPage(works=())])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    source_profile = _profile()
+    profile = source_profile.model_copy(
+        update={
+            "lenses": [
+                lens.model_copy(update={"enabled": False})
+                for lens in source_profile.lenses
+            ]
+        }
+    )
+    service.profile_registry = _profile_registry(profile)
+
+    assert service.tick() is None
+    assert provider.calls == 0
+    assert service.run_repository.list_for_profile(profile.id) == []
+
+    reenabled = profile.model_copy(
+        update={
+            "lenses": [
+                profile.lenses[0].model_copy(update={"enabled": True}),
+                *profile.lenses[1:],
+            ]
+        }
+    )
+    service.profile_registry = _profile_registry(reenabled)
+
+    run = service.tick()
+
+    assert run is not None and run.status == "success"
+    assert provider.calls == 1
+    connection.close()
+
+
 def test_scheduled_failures_wait_for_retry_cooldown_but_manual_runs_do_not(
     tmp_path,
 ):

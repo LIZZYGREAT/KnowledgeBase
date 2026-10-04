@@ -481,6 +481,8 @@ class ResearchService:
                 or profile.schedule.mode == "manual"
             ):
                 continue
+            if not any(lens.enabled for lens in profile.lenses):
+                continue
             state = self.profile_state_repository.get(profile.id)
             if state is not None and state.paused_until is not None:
                 if _parse_timestamp(state.paused_until) > now:
