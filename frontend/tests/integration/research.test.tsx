@@ -265,6 +265,7 @@ describe("Research workspace", () => {
       search: { breadth: "balanced" },
       inbox: { max_new_candidates: 20 },
       providers: { discovery: ["arxiv"], enrichment: [] },
+      ai_analysis: { enabled: false, provider: "deepseek" },
     });
   });
 
@@ -291,6 +292,7 @@ describe("Research workspace", () => {
       search: profile.search,
       schedule: profile.schedule,
       inbox: profile.inbox,
+      ai_analysis: profile.ai_analysis,
     });
   });
 
@@ -522,6 +524,9 @@ describe("Research workspace", () => {
     />);
 
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
+    expect(screen.getByLabelText("Enable unattended DeepSeek analysis")).toBeTruthy();
+    expect(screen.getByText(/Scheduled \/ Manual Research Run/)).toBeTruthy();
+    expect(screen.getByText(/持续授权/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
     fireEvent.click(screen.getByLabelText("Discovery Provider arxiv"));
     const lastDiscoveryProvider = screen.getByLabelText("Discovery Provider openalex") as HTMLInputElement;

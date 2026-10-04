@@ -183,6 +183,7 @@
 .research-default-add-lens { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 11px; border-top: 1px solid #edf1ed; padding-top: 12px; }
 .research-defaults-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .research-defaults-fields { align-items: start; }
+.research-default-ai-analysis { display: grid; gap: 4px; align-content: start; }
 .research-default-list-field { display: grid; gap: 5px; }
 .research-default-list-field textarea { min-height: 74px; resize: vertical; border: 1px solid #e1e8e2; border-radius: 7px; padding: 8px 10px; color: #3b5143; background: #fff; font-size: var(--text-sm); line-height: 1.5; }
 .research-defaults-context-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
