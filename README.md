@@ -4,7 +4,7 @@ KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and 
 
 This repository implements Phases 0–14: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; staged Markdown/PDF imports; the server-side DeepSeek Gateway; the Knowledge API; the Reference Hub reader and editor; Source, Evidence, PaperSkill, and Context Export integrations; non-canonical reader annotations and Markdown formatting tools; legacy migration workflows; private production deployment and backup support; the Collection Explorer + Unified Workspace; and the Research Agent.
 
-**Phase 13 implementation is complete and frozen. Phase 14 implementation is complete; final verification of the latest repairs and production acceptance remain pending.** Research Profiles are canonical YAML under `config/research/profiles/`; GitManager tracks that explicit root without allowlisting the whole repository. See [Architecture](docs/ARCHITECTURE.md) for the current Proposal, Draft, resolver, import, API, frontend, and Research rules.
+**Phase 13 implementation is complete and frozen. Phase 14 implementation is complete. The preceding HEAD (`2f60026`) passed GitHub Actions Run #35; this revision's local checks pass, while remote CI for its later commits and production acceptance remain pending.** Research Profiles are canonical YAML under `config/research/profiles/`; GitManager tracks that explicit root without allowlisting the whole repository. See [Architecture](docs/ARCHITECTURE.md) for the current Proposal, Draft, resolver, import, API, frontend, and Research rules.
 
 ## Local setup
 
@@ -18,6 +18,7 @@ python -m pip install -r backend/requirements-dev.txt
 python -m pytest -q
 python tools/kb.py check
 python tools/kb.py rebuild
+python tools/research.py check --root .
 ```
 
 These commands use a local `.venv`; Docker Compose and server deployments continue to install dependencies in their container or deployment environment.
