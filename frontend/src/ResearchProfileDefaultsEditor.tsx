@@ -419,7 +419,19 @@ function NumberField({ label, value, min, onChange }: { label: string; value: nu
 }
 
 function SelectionList({ label, items, selected, onChange }: { label: string; items: Array<{ id: string; title: string }>; selected: string[]; onChange: (selected: string[]) => void }) {
-  return <fieldset className="research-default-selection"><legend>{label}</legend>{items.length ? items.map((item) => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => onChange(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} /><span>{item.title}</span></label>) : <p className="field-hint">没有可选项。</p>}</fieldset>;
+  const [filter, setFilter] = useState("");
+  const normalizedFilter = filter.trim().toLocaleLowerCase();
+  const visibleItems = normalizedFilter
+    ? items.filter((item) => `${item.title} ${item.id}`.toLocaleLowerCase().includes(normalizedFilter))
+    : items;
+
+  return <fieldset className="research-default-selection">
+    <legend>{label}</legend>
+    {items.length ? <>
+      <input aria-label={`Filter ${label}`} type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter by title or ID" />
+      {visibleItems.length ? visibleItems.map((item) => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => onChange(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} /><span>{item.title}</span></label>) : <p className="field-hint">没有匹配的项目。</p>}
+    </> : <p className="field-hint">没有可选项。</p>}
+  </fieldset>;
 }
 
 function updateLens(profile: ResearchProfile, index: number, patch: Partial<ResearchProfile["lenses"][number]>): ResearchProfile {

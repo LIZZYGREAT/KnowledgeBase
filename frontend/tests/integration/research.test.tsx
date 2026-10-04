@@ -22,6 +22,7 @@ describe("Research workspace", () => {
   let responseProfileSummary = profileSummary;
   let responseCandidateDetail = candidateDetail;
   let responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
+  let responseDocuments: Array<{ id: string; title: string }> = [];
   let researchProfileDraft: Record<string, unknown> | null = null;
   let createDraftCreatedInThisFlow = true;
   let reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
@@ -31,6 +32,7 @@ describe("Research workspace", () => {
     responseProfileSummary = profileSummary;
     responseCandidateDetail = candidateDetail;
     responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
+    responseDocuments = [];
     researchProfileDraft = null;
     createDraftCreatedInThisFlow = true;
     reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
@@ -41,7 +43,7 @@ describe("Research workspace", () => {
       if (path === "/api/collections?status=active") return jsonResponse([{ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, node_count: 1, entity_count: 0, document_count: 0 }]);
       if (path === "/api/collections/continual-learning") return jsonResponse(responseCollection);
       if (path === "/api/drafts?entity_type=collection&entity_id=continual-learning") return jsonResponse([]);
-      if (path === "/api/documents?limit=100&offset=0") return jsonResponse([]);
+      if (path === "/api/documents?limit=100&offset=0") return jsonResponse(responseDocuments);
       if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary]);
       if (path === "/api/research/profiles/continual-learning") return jsonResponse(responseProfileDetail);
       if (path.startsWith("/api/drafts?entity_type=research_profile&entity_id=")) {
@@ -625,6 +627,30 @@ describe("Research workspace", () => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
     });
     expect(published).toHaveBeenCalledWith([]);
+  });
+
+  it("filters pinned Documents by title or ID without losing selection", async () => {
+    responseDocuments = [
+      { id: "alpha-notes", title: "Alpha Research Notes" },
+      { id: "beta-notes", title: "Beta Research Notes" },
+    ];
+    render(<ResearchProfileDefaultsEditor
+      profile={profile as unknown as ResearchProfile}
+      canonicalContent={stringify(profile, { lineWidth: 0 })}
+      draftCreatedInThisFlow={false}
+      onClose={() => undefined}
+      onPublished={() => undefined}
+    />);
+
+    const alphaCheckbox = await screen.findByRole("checkbox", { name: "Alpha Research Notes" }) as HTMLInputElement;
+    fireEvent.click(alphaCheckbox);
+    const filter = screen.getByRole("searchbox", { name: "Filter Pinned Documents" });
+    fireEvent.change(filter, { target: { value: "beta" } });
+    expect(screen.queryByRole("checkbox", { name: "Alpha Research Notes" })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Beta Research Notes" })).toBeTruthy();
+
+    fireEvent.change(filter, { target: { value: "alpha-notes" } });
+    expect((screen.getByRole("checkbox", { name: "Alpha Research Notes" }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("requires a reactivation choice before publishing an enabled Profile with an old watermark", async () => {
