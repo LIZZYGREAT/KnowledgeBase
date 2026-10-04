@@ -1,11 +1,12 @@
 """Single-profile Research pipeline with durable run and watermark boundaries."""
 
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 import uuid
 
-from backend.app.domain.research import ResearchProfile
+from backend.app.domain.research import ResearchLens, ResearchProfile
 from backend.app.domain.runtime import Draft
 from backend.app.domain.research_runtime import (
     ResearchContextPack,
@@ -56,10 +57,42 @@ from backend.app.services.markdown_parser import parse_yaml
 
 MAX_ANALYSIS_BACKLOG_PER_RUN = 10
 MAX_ANALYSIS_BACKLOG_SCAN_PER_RUN = 100
+_LENS_PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 _BACKLOG_SEARCH_SLICE = ResearchSearchSlice(
     datetime.min.replace(tzinfo=timezone.utc),
     datetime.max.replace(tzinfo=timezone.utc),
 )
+
+
+@dataclass
+class _SearchStream:
+    order: int
+    query: ResearchQuery
+    lens: ResearchLens
+    provider_name: str
+    provider: ResearchProvider
+    plan: ResearchSearchPlan
+    slice_index: int = 0
+    cursor: Optional[str] = None
+    seen_cursors: set[str] = field(default_factory=set)
+    attempt_marked: bool = False
+    complete_after_round: bool = False
+    active: bool = True
+
+    @property
+    def search_slice(self) -> ResearchSearchSlice:
+        return self.plan.slices[self.slice_index]
+
+
+@dataclass(frozen=True)
+class _RankedWork:
+    work_id: str
+    query: ResearchQuery
+    lens: ResearchLens
+    discovery_provider: str
+    score: float
+    order: tuple[int, int]
+    backlog: bool = False
 
 
 class ResearchService:
@@ -537,6 +570,9 @@ class ResearchService:
             additional_queries,
             additional_query_lens,
         )
+        queries = tuple(
+            sorted(queries, key=lambda query: _LENS_PRIORITY_ORDER[query.priority])
+        )
         run = ResearchRunRecord(
             id=self.id_factory(),
             profile_id=profile.id,
@@ -587,89 +623,25 @@ class ResearchService:
         terminal_status: Optional[ResearchRunStatus] = None
 
         try:
-            if profile.ai_analysis.enabled:
-                backlog_status = self._process_analysis_backlog(
-                    run,
-                    profile,
-                    queries,
-                    stats,
-                    errors,
-                    warnings,
-                    enrichment_provider_failures,
-                    unavailable_enrichment_providers,
-                    analysis_breaker,
-                )
-                if backlog_status is not None:
-                    terminal_status = backlog_status
-
-            for query in queries:
-                if terminal_status is not None:
-                    break
-                lens = _lens_for(profile, query)
-                for provider_name in profile.providers.discovery:
-                    if terminal_status is not None:
-                        break
-                    if provider_name in unavailable_discovery_providers:
-                        continue
-                    provider = self.providers.get(provider_name)
-                    if provider is None:
-                        unavailable_discovery_providers.add(provider_name)
-                        errors.append("{}: adapter is not configured".format(provider_name))
-                        _provider_stats(stats, provider_name)["errors"] += 1
-                        continue
-                    plan = self.watermarks.build_plan(
-                        profile,
-                        query,
-                        provider_name,
-                        now,
-                        self.profile_registry.global_config,
-                        manual_range=manual_range,
-                        resume_strategy=execution_resume_strategy,
-                        catchup_days_override=execution_catchup_days_override,
-                        catchup_effective_at=execution_catchup_effective_at,
-                        manual_incremental=manual_incremental,
-                    )
-                    if plan.watermark_skip_required:
-                        continue
-                    provider_incomplete = False
-                    for search_slice in plan.slices:
-                        if terminal_status is not None or provider_incomplete:
-                            break
-                        if (
-                            profile.ai_analysis.enabled
-                            and self.candidate_service.remaining_capacity(profile) <= 0
-                        ):
-                            terminal_status = "capacity_reached"
-                            break
-                        if not plan.manual:
-                            self.watermarks.mark_attempt(plan, search_slice, self._now())
-                        complete_slice, slice_status = self._process_slice(
-                            run,
-                            profile,
-                            query,
-                            lens,
-                            provider_name,
-                            provider,
-                            plan,
-                            search_slice,
-                            stats,
-                            errors,
-                            warnings,
-                            discovery_provider_failures,
-                            unavailable_discovery_providers,
-                            enrichment_provider_failures,
-                            unavailable_enrichment_providers,
-                            analysis_breaker,
-                        )
-                        if slice_status is not None:
-                            terminal_status = slice_status
-                        if complete_slice and not plan.manual:
-                            self.watermarks.complete_slice(plan, search_slice, self._now())
-                        else:
-                            provider_incomplete = True
-                    if terminal_status is not None:
-                        break
-
+            terminal_status = self._run_search_streams(
+                run,
+                profile,
+                queries,
+                now,
+                manual_range,
+                execution_resume_strategy,
+                execution_catchup_days_override,
+                execution_catchup_effective_at,
+                manual_incremental,
+                stats,
+                errors,
+                warnings,
+                discovery_provider_failures,
+                unavailable_discovery_providers,
+                enrichment_provider_failures,
+                unavailable_enrichment_providers,
+                analysis_breaker,
+            )
             status: ResearchRunStatus = terminal_status or ("partial" if errors else "success")
         except Exception as error:
             errors.append("{}: {}".format(type(error).__name__, str(error)[:240]))
@@ -690,16 +662,17 @@ class ResearchService:
             )
         return finished
 
-    def _process_slice(
+    def _run_search_streams(
         self,
         run: ResearchRunRecord,
         profile: ResearchProfile,
-        query: ResearchQuery,
-        lens,
-        provider_name: str,
-        provider: ResearchProvider,
-        plan: ResearchSearchPlan,
-        search_slice,
+        queries: Sequence[ResearchQuery],
+        now: datetime,
+        manual_range: Optional[tuple[datetime, datetime]],
+        resume_strategy: ResumeStrategy,
+        catchup_days_override: Optional[int],
+        catchup_effective_at: Optional[datetime],
+        manual_incremental: bool,
         stats: dict,
         errors: list[str],
         warnings: list[str],
@@ -708,306 +681,296 @@ class ResearchService:
         enrichment_provider_failures: dict[str, int],
         unavailable_enrichment_providers: set[str],
         analysis_breaker: ResearchAnalysisCircuitBreaker,
-    ) -> tuple[bool, Optional[ResearchRunStatus]]:
-        provider_summary = _provider_stats(stats, provider_name)
-        cursor = None
-        seen_cursors = set()
-        while True:
-            remaining_inbox = self.candidate_service.remaining_capacity(profile)
-            current_run = self.run_repository.get(run.id)
-            remaining_analysis_budget = (
-                profile.search.max_analyses_per_run
-                - current_run.analysis_attempt_count
-                if profile.ai_analysis.enabled
-                else None
-            )
-            remaining_candidate_budget = (
-                profile.search.max_candidates_per_run - current_run.surfaced_count
-                if profile.ai_analysis.enabled
-                else None
-            )
-            if profile.ai_analysis.enabled and remaining_inbox <= 0:
-                errors.append("Inbox capacity reached before the slice completed")
-                return False, "capacity_reached"
-            if remaining_analysis_budget is not None and remaining_analysis_budget <= 0:
-                warnings.append(
-                    "Analysis budget reached; the current search slice remains incomplete and its watermark was not advanced."
-                )
-            if remaining_candidate_budget is not None and remaining_candidate_budget <= 0:
-                warnings.append(
-                    "Candidate budget reached; the current search slice remains incomplete and its watermark was not advanced."
-                )
-            if (
-                (remaining_analysis_budget is not None and remaining_analysis_budget <= 0)
-                or (remaining_candidate_budget is not None and remaining_candidate_budget <= 0)
-            ):
-                return False, "success"
-            request_limit = self.profile_registry.global_config.runtime.discovery_page_size
-            provider_summary["requests"] += 1
-            try:
-                page = provider.search(
-                    query.text,
-                    search_slice.start_at,
-                    search_slice.end_at,
-                    cursor,
-                    limit=request_limit,
-                )
-            except ResearchProviderError as error:
-                provider_summary["errors"] += 1
-                discovery_provider_failures[provider_name] += 1
-                errors.append("{}: {}".format(provider_name, str(error)[:240]))
-                if (
-                    discovery_provider_failures[provider_name]
-                    >= self.provider_failure_threshold
-                ):
+    ) -> Optional[ResearchRunStatus]:
+        streams = []
+        stream_order = 0
+        for query in queries:
+            lens = _lens_for(profile, query)
+            for provider_name in profile.providers.discovery:
+                if provider_name in unavailable_discovery_providers:
+                    continue
+                provider = self.providers.get(provider_name)
+                if provider is None:
                     unavailable_discovery_providers.add(provider_name)
-                    provider_summary["circuit_open"] = True
-                return False, None
-
-            discovery_provider_failures[provider_name] = 0
-            provider_summary["pages"] += 1
-            if not isinstance(page, ProviderPage):
-                errors.append("{}: adapter returned an invalid page".format(provider_name))
-                provider_summary["errors"] += 1
-                return False, None
-            if len(page.works) > request_limit:
-                errors.append(
-                    "{}: adapter returned more Works than the requested limit".format(
-                        provider_name
+                    errors.append("{}: adapter is not configured".format(provider_name))
+                    _provider_stats(stats, provider_name)["errors"] += 1
+                    continue
+                plan = self.watermarks.build_plan(
+                    profile,
+                    query,
+                    provider_name,
+                    now,
+                    self.profile_registry.global_config,
+                    manual_range=manual_range,
+                    resume_strategy=resume_strategy,
+                    catchup_days_override=catchup_days_override,
+                    catchup_effective_at=catchup_effective_at,
+                    manual_incremental=manual_incremental,
+                )
+                if plan.watermark_skip_required or not plan.slices:
+                    continue
+                streams.append(
+                    _SearchStream(
+                        order=stream_order,
+                        query=query,
+                        lens=lens,
+                        provider_name=provider_name,
+                        provider=provider,
+                        plan=plan,
                     )
                 )
-                provider_summary["errors"] += 1
-                return False, None
-            provider_summary["works"] += len(page.works)
-            complete_page = True
-            eligible_works = []
-            for index, provider_work in enumerate(page.works):
+                stream_order += 1
+
+        pending_by_work = {}
+        if profile.ai_analysis.enabled:
+            self._merge_ranked_works(
+                pending_by_work,
+                self._collect_analysis_backlog(profile, queries, warnings),
+                set(),
+            )
+        processed_work_ids: set[str] = set()
+        backlog_attempts = 0
+        backlog_attempt_limit = min(
+            MAX_ANALYSIS_BACKLOG_PER_RUN, profile.search.max_analyses_per_run
+        )
+        request_limit = self.profile_registry.global_config.runtime.discovery_page_size
+
+        while pending_by_work or any(stream.active for stream in streams):
+            round_candidates = pending_by_work
+            pending_by_work = {}
+            for stream in streams:
+                if not stream.active:
+                    continue
                 if (
                     profile.ai_analysis.enabled
                     and self.candidate_service.remaining_capacity(profile) <= 0
                 ):
-                    errors.append("Inbox capacity reached before the slice completed")
-                    return False, "capacity_reached"
-                self.run_repository.update_progress(run.id, fetched_count=1)
-                if not isinstance(provider_work, ProviderWork):
-                    raise ValueError("Provider page contained an invalid Work")
-                ingested = self.deduplicator.record_discovery(
-                    profile.id,
-                    query.lens_id,
-                    query.query_key,
-                    query.text,
-                    provider_work,
-                    discovered_at=self._now(),
-                )
-                if ingested.created_work:
-                    self.run_repository.update_progress(run.id, new_work_count=1)
-                else:
-                    self.run_repository.update_progress(run.id, duplicate_count=1)
-                screened = self.screening.screen(
-                    ingested.work,
-                    profile,
-                    query,
-                    search_slice,
-                    self._now(),
-                )
-                if "ambiguous_existing_source" in screened.metadata_warnings:
-                    warnings.append(
-                        "ambiguous_existing_source: Work '{}' was retained because "
-                        "its canonical Source identity is ambiguous".format(ingested.work.id)
+                    errors.append("Inbox capacity reached before the current search round completed")
+                    return "capacity_reached"
+                if not stream.plan.manual and not stream.attempt_marked:
+                    self.watermarks.mark_attempt(
+                        stream.plan, stream.search_slice, self._now()
                     )
-                if not screened.eligible:
-                    self.run_repository.update_progress(
-                        run.id, deterministic_filtered_count=1
+                    stream.attempt_marked = True
+                provider_summary = _provider_stats(stats, stream.provider_name)
+                provider_summary["requests"] += 1
+                try:
+                    page = stream.provider.search(
+                        stream.query.text,
+                        stream.search_slice.start_at,
+                        stream.search_slice.end_at,
+                        stream.cursor,
+                        limit=request_limit,
                     )
+                except ResearchProviderError as error:
+                    provider_summary["errors"] += 1
+                    discovery_provider_failures[stream.provider_name] += 1
+                    errors.append(
+                        "{}: {}".format(stream.provider_name, str(error)[:240])
+                    )
+                    if (
+                        discovery_provider_failures[stream.provider_name]
+                        >= self.provider_failure_threshold
+                    ):
+                        unavailable_discovery_providers.add(stream.provider_name)
+                        provider_summary["circuit_open"] = True
+                    stream.active = False
                     continue
 
-                if screened.pre_rank is None:
-                    raise RuntimeError("Eligible Work is missing its Pre-Rank score")
-                eligible_works.append(
-                    (screened.pre_rank.score, index, ingested.work, provider_work.provider)
-                )
-
-            if not complete_page:
-                return False, None
-
-            eligible_works.sort(key=lambda item: (-item[0], item[1]))
-            analysis_budget_reached = False
-            for _, _, eligible_work, discovery_provider in eligible_works:
-                work = eligible_work
-                try:
-                    if not profile.ai_analysis.enabled:
-                        self._enrich_work(
-                            work,
-                            profile,
-                            stats,
-                            discovery_provider,
-                            warnings,
-                            enrichment_provider_failures,
-                            unavailable_enrichment_providers,
+                discovery_provider_failures[stream.provider_name] = 0
+                provider_summary["pages"] += 1
+                if not isinstance(page, ProviderPage):
+                    errors.append(
+                        "{}: adapter returned an invalid page".format(
+                            stream.provider_name
+                        )
+                    )
+                    provider_summary["errors"] += 1
+                    stream.active = False
+                    continue
+                if len(page.works) > request_limit:
+                    errors.append(
+                        "{}: adapter returned more Works than the requested limit".format(
+                            stream.provider_name
+                        )
+                    )
+                    provider_summary["errors"] += 1
+                    stream.active = False
+                    continue
+                provider_summary["works"] += len(page.works)
+                for index, provider_work in enumerate(page.works):
+                    if (
+                        profile.ai_analysis.enabled
+                        and self.candidate_service.remaining_capacity(profile) <= 0
+                    ):
+                        errors.append(
+                            "Inbox capacity reached before the current search round completed"
+                        )
+                        return "capacity_reached"
+                    self.run_repository.update_progress(run.id, fetched_count=1)
+                    if not isinstance(provider_work, ProviderWork):
+                        raise ValueError("Provider page contained an invalid Work")
+                    ingested = self.deduplicator.record_discovery(
+                        profile.id,
+                        stream.query.lens_id,
+                        stream.query.query_key,
+                        stream.query.text,
+                        provider_work,
+                        discovered_at=self._now(),
+                    )
+                    if ingested.created_work:
+                        self.run_repository.update_progress(run.id, new_work_count=1)
+                    else:
+                        self.run_repository.update_progress(run.id, duplicate_count=1)
+                    screened = self.screening.screen(
+                        ingested.work,
+                        profile,
+                        stream.query,
+                        stream.search_slice,
+                        self._now(),
+                    )
+                    if "ambiguous_existing_source" in screened.metadata_warnings:
+                        warnings.append(
+                            "ambiguous_existing_source: Work '{}' was retained because "
+                            "its canonical Source identity is ambiguous".format(
+                                ingested.work.id
+                            )
+                        )
+                    if not screened.eligible:
+                        self.run_repository.update_progress(
+                            run.id, deterministic_filtered_count=1
                         )
                         continue
-                    context_pack = self.context_builder.build(
-                        work,
-                        profile,
-                        lens,
-                        keywords=(query.text,),
-                    )
-                    analysis_hash = self.analysis_service.input_hash(
-                        work, profile, lens, context_pack
-                    )
-                    analysis = self.work_repository.get_analysis(
-                        work.id, profile.id, analysis_hash
-                    )
-                    if analysis is None:
-                        if profile.ai_analysis.enabled:
-                            current_attempt_count = self.run_repository.get(
-                                run.id
-                            ).analysis_attempt_count
-                            if (
-                                current_attempt_count
-                                >= profile.search.max_analyses_per_run
-                            ):
-                                analysis_budget_reached = True
-                                continue
-                            if analysis_breaker.analysis_disabled_for_run:
-                                errors.append(
-                                    "DeepSeek analysis circuit opened for this run"
-                                )
-                                return False, None
-                            work = self._enrich_work(
-                                work,
-                                profile,
-                                stats,
-                                discovery_provider,
-                                warnings,
-                                enrichment_provider_failures,
-                                unavailable_enrichment_providers,
+                    if screened.pre_rank is None:
+                        raise RuntimeError("Eligible Work is missing its Pre-Rank score")
+                    self._merge_ranked_works(
+                        round_candidates,
+                        [
+                            _RankedWork(
+                                work_id=ingested.work.id,
+                                query=stream.query,
+                                lens=stream.lens,
+                                discovery_provider=provider_work.provider,
+                                score=screened.pre_rank.score,
+                                order=(stream.order + 1, index),
                             )
-                            if work != eligible_work:
-                                context_pack = self.context_builder.build(
-                                    work,
-                                    profile,
-                                    lens,
-                                    keywords=(query.text,),
-                                )
-                                analysis_hash = self.analysis_service.input_hash(
-                                    work, profile, lens, context_pack
-                                )
-                                analysis = self.work_repository.get_analysis(
-                                    work.id, profile.id, analysis_hash
-                                )
-                            if analysis is None:
-                                analysis_attempted = False
+                        ],
+                        processed_work_ids,
+                    )
 
-                                def record_analysis_attempt():
-                                    nonlocal analysis_attempted
-                                    self.run_repository.update_progress(
-                                        run.id, analysis_attempt_count=1
-                                    )
-                                    analysis_attempted = True
+                if page.next_cursor is None:
+                    stream.complete_after_round = True
+                elif page.next_cursor in stream.seen_cursors or page.next_cursor == stream.cursor:
+                    errors.append(
+                        "{}: pagination cursor did not advance".format(
+                            stream.provider_name
+                        )
+                    )
+                    provider_summary["errors"] += 1
+                    stream.active = False
+                else:
+                    stream.seen_cursors.add(page.next_cursor)
+                    stream.cursor = page.next_cursor
 
-                                analysis = self.analysis_service.analyze(
-                                    work,
-                                    profile,
-                                    lens,
-                                    context_pack,
-                                    circuit_breaker=analysis_breaker,
-                                    on_attempt=record_analysis_attempt,
-                                )
-                                if analysis_attempted:
-                                    current_attempt_count = self.run_repository.get(
-                                        run.id
-                                    ).analysis_attempt_count
-                                    analysis_budget_reached = (
-                                        current_attempt_count
-                                        >= profile.search.max_analyses_per_run
-                                    )
-                                    if analysis is not None:
-                                        self.run_repository.update_progress(
-                                            run.id, analyzed_count=1
-                                        )
-                    if analysis is None:
-                        if analysis_breaker.analysis_disabled_for_run:
-                            errors.append("DeepSeek analysis circuit opened for this run")
-                            return False, None
-                        continue
-
-                    generated = self.candidate_service.generate(analysis, profile, lens)
-                    if generated.outcome == "inbox_full":
-                        errors.append("Inbox capacity reached before the slice completed")
-                        return False, "capacity_reached"
-                    if generated.outcome == "created":
-                        self.run_repository.update_progress(run.id, surfaced_count=1)
-                        if self.candidate_service.remaining_capacity(profile) <= 0:
-                            errors.append("Inbox capacity reached before the slice completed")
-                            return False, "capacity_reached"
-                        if (
-                            self.run_repository.get(run.id).surfaced_count
-                            >= profile.search.max_candidates_per_run
-                        ):
-                            warnings.append(
-                                "Candidate budget reached; the current search slice remains incomplete and its watermark was not advanced."
-                            )
-                            return False, "success"
-                except AIGatewayError as error:
-                    errors.append("DeepSeek: {}".format(str(error)[:240]))
-                    complete_page = False
-                    break
-                except Exception:
-                    raise
-
-            if not complete_page:
-                return False, None
-            if analysis_budget_reached:
-                warnings.append(
-                    "Analysis budget reached; the current search slice remains incomplete and its watermark was not advanced."
+            ordered_candidates = sorted(
+                round_candidates.values(), key=lambda item: (-item.score, item.order)
+            )
+            for candidate in ordered_candidates:
+                if (
+                    candidate.backlog
+                    and backlog_attempts >= backlog_attempt_limit
+                ):
+                    continue
+                attempts_before = self.run_repository.get(
+                    run.id
+                ).analysis_attempt_count
+                complete_work, work_status = self._process_ranked_work(
+                    run,
+                    profile,
+                    candidate,
+                    stats,
+                    errors,
+                    warnings,
+                    enrichment_provider_failures,
+                    unavailable_enrichment_providers,
+                    analysis_breaker,
                 )
-                return False, "success"
-            if page.next_cursor is None:
-                return True, None
-            if page.next_cursor in seen_cursors or page.next_cursor == cursor:
-                errors.append("{}: pagination cursor did not advance".format(provider_name))
-                provider_summary["errors"] += 1
-                return False, None
-            seen_cursors.add(page.next_cursor)
-            cursor = page.next_cursor
+                if not complete_work:
+                    return work_status or "partial"
+                processed_work_ids.add(candidate.work_id)
+                attempts_after = self.run_repository.get(
+                    run.id
+                ).analysis_attempt_count
+                if candidate.backlog:
+                    backlog_attempts += max(0, attempts_after - attempts_before)
+                if profile.ai_analysis.enabled and (
+                    attempts_after >= profile.search.max_analyses_per_run
+                ):
+                    warnings.append(
+                        "Analysis budget reached; the current search slices remain incomplete and their watermarks were not advanced."
+                    )
+                    return "success"
+                if profile.ai_analysis.enabled and (
+                    self.run_repository.get(run.id).surfaced_count
+                    >= profile.search.max_candidates_per_run
+                ):
+                    warnings.append(
+                        "Candidate budget reached; the current search slices remain incomplete and their watermarks were not advanced."
+                    )
+                    return "success"
+                if profile.ai_analysis.enabled and self.candidate_service.remaining_capacity(profile) <= 0:
+                    errors.append("Inbox capacity reached before the next search round")
+                    return "capacity_reached"
 
-    def _process_analysis_backlog(
+            current_run = self.run_repository.get(run.id)
+            if profile.ai_analysis.enabled and (
+                current_run.analysis_attempt_count >= profile.search.max_analyses_per_run
+            ):
+                warnings.append(
+                    "Analysis budget reached; the current search slices remain incomplete and their watermarks were not advanced."
+                )
+                return "success"
+            if profile.ai_analysis.enabled and (
+                current_run.surfaced_count >= profile.search.max_candidates_per_run
+            ):
+                warnings.append(
+                    "Candidate budget reached; the current search slices remain incomplete and their watermarks were not advanced."
+                )
+                return "success"
+            if profile.ai_analysis.enabled and self.candidate_service.remaining_capacity(profile) <= 0:
+                errors.append("Inbox capacity reached before the next search round")
+                return "capacity_reached"
+
+            for stream in streams:
+                if not stream.complete_after_round:
+                    continue
+                if not stream.plan.manual:
+                    self.watermarks.complete_slice(
+                        stream.plan, stream.search_slice, self._now()
+                    )
+                stream.slice_index += 1
+                stream.cursor = None
+                stream.seen_cursors.clear()
+                stream.attempt_marked = False
+                stream.complete_after_round = False
+                if stream.slice_index >= len(stream.plan.slices):
+                    stream.active = False
+        return None
+
+    def _collect_analysis_backlog(
         self,
-        run: ResearchRunRecord,
         profile: ResearchProfile,
         queries: Sequence[ResearchQuery],
-        stats: dict,
-        errors: list[str],
         warnings: list[str],
-        enrichment_provider_failures: dict[str, int],
-        unavailable_enrichment_providers: set[str],
-        analysis_breaker: ResearchAnalysisCircuitBreaker,
-    ) -> Optional[ResearchRunStatus]:
+    ) -> list[_RankedWork]:
         query_by_key = {query.query_key: query for query in queries}
         discoveries = self.work_repository.list_unanalyzed_discoveries(
             profile.id,
             tuple(query_by_key),
             MAX_ANALYSIS_BACKLOG_SCAN_PER_RUN,
         )
-        starting_attempt_count = self.run_repository.get(run.id).analysis_attempt_count
-        backlog_analysis_limit = min(
-            MAX_ANALYSIS_BACKLOG_PER_RUN, profile.search.max_analyses_per_run
-        )
-        for discovery in discoveries:
-            current_run = self.run_repository.get(run.id)
-            if current_run.analysis_attempt_count - starting_attempt_count >= backlog_analysis_limit:
-                break
-            if current_run.surfaced_count >= profile.search.max_candidates_per_run:
-                warnings.append(
-                    "Candidate budget reached while processing the saved Discovery backlog."
-                )
-                break
-            if self.candidate_service.remaining_capacity(profile) <= 0:
-                warnings.append(
-                    "Inbox capacity reached while processing the saved Discovery backlog."
-                )
-                break
+        backlog = []
+        for index, discovery in enumerate(discoveries):
             query = query_by_key.get(discovery.query_key)
             work = self.work_repository.get_work(discovery.work_id)
             if query is None or work is None:
@@ -1021,28 +984,112 @@ class ResearchService:
                     "ambiguous_existing_source: Work '{}' was retained because "
                     "its canonical Source identity is ambiguous".format(work.id)
                 )
-            if not screened.eligible:
+            if not screened.eligible or screened.pre_rank is None:
                 continue
-            if analysis_breaker.analysis_disabled_for_run:
-                errors.append("DeepSeek analysis circuit opened for this run")
-                return "partial"
-            work = self._enrich_work(
+            backlog.append(
+                _RankedWork(
+                    work_id=work.id,
+                    query=query,
+                    lens=lens,
+                    discovery_provider=discovery.provider,
+                    score=screened.pre_rank.score,
+                    order=(0, index),
+                    backlog=True,
+                )
+            )
+        return backlog
+
+    @staticmethod
+    def _merge_ranked_works(
+        target: dict[str, _RankedWork],
+        candidates: Sequence[_RankedWork],
+        processed_work_ids: set[str],
+    ) -> None:
+        for candidate in candidates:
+            if candidate.work_id in processed_work_ids:
+                continue
+            current = target.get(candidate.work_id)
+            if current is None or (-candidate.score, candidate.order) < (
+                -current.score,
+                current.order,
+            ):
+                target[candidate.work_id] = candidate
+
+    def _process_ranked_work(
+        self,
+        run: ResearchRunRecord,
+        profile: ResearchProfile,
+        candidate: _RankedWork,
+        stats: dict,
+        errors: list[str],
+        warnings: list[str],
+        enrichment_provider_failures: dict[str, int],
+        unavailable_enrichment_providers: set[str],
+        analysis_breaker: ResearchAnalysisCircuitBreaker,
+    ) -> tuple[bool, Optional[ResearchRunStatus]]:
+        work = self.work_repository.get_work(candidate.work_id)
+        if work is None:
+            return True, None
+        if not profile.ai_analysis.enabled:
+            self._enrich_work(
                 work,
                 profile,
                 stats,
-                discovery.provider,
+                candidate.discovery_provider,
                 warnings,
                 enrichment_provider_failures,
                 unavailable_enrichment_providers,
             )
-            context_pack = self.context_builder.build(
-                work, profile, lens, keywords=(query.text,)
+            return True, None
+
+        current_run = self.run_repository.get(run.id)
+        if current_run.analysis_attempt_count >= profile.search.max_analyses_per_run:
+            return False, "success"
+        if current_run.surfaced_count >= profile.search.max_candidates_per_run:
+            return False, "success"
+        if self.candidate_service.remaining_capacity(profile) <= 0:
+            errors.append("Inbox capacity reached before the candidate could be analyzed")
+            return False, "capacity_reached"
+
+        context_pack = self.context_builder.build(
+            work,
+            profile,
+            candidate.lens,
+            keywords=(candidate.query.text,),
+        )
+        analysis_hash = self.analysis_service.input_hash(
+            work, profile, candidate.lens, context_pack
+        )
+        analysis = self.work_repository.get_analysis(
+            work.id, profile.id, analysis_hash
+        )
+        if analysis is None:
+            if analysis_breaker.analysis_disabled_for_run:
+                errors.append("DeepSeek analysis circuit opened for this run")
+                return False, "partial"
+            original_work = work
+            work = self._enrich_work(
+                work,
+                profile,
+                stats,
+                candidate.discovery_provider,
+                warnings,
+                enrichment_provider_failures,
+                unavailable_enrichment_providers,
             )
-            analysis = self.work_repository.get_analysis(
-                work.id,
-                profile.id,
-                self.analysis_service.input_hash(work, profile, lens, context_pack),
-            )
+            if work != original_work:
+                context_pack = self.context_builder.build(
+                    work,
+                    profile,
+                    candidate.lens,
+                    keywords=(candidate.query.text,),
+                )
+                analysis_hash = self.analysis_service.input_hash(
+                    work, profile, candidate.lens, context_pack
+                )
+                analysis = self.work_repository.get_analysis(
+                    work.id, profile.id, analysis_hash
+                )
             if analysis is None:
                 analysis_attempted = False
 
@@ -1057,30 +1104,34 @@ class ResearchService:
                     analysis = self.analysis_service.analyze(
                         work,
                         profile,
-                        lens,
+                        candidate.lens,
                         context_pack,
                         circuit_breaker=analysis_breaker,
                         on_attempt=record_analysis_attempt,
                     )
                 except AIGatewayError as error:
                     errors.append("DeepSeek: {}".format(str(error)[:240]))
-                    return "partial"
+                    return False, "partial"
                 if analysis_attempted and analysis is not None:
                     self.run_repository.update_progress(run.id, analyzed_count=1)
-            if analysis is None:
-                if analysis_breaker.analysis_disabled_for_run:
-                    errors.append("DeepSeek analysis circuit opened for this run")
-                    return "partial"
-                continue
-            generated = self.candidate_service.generate(analysis, profile, lens)
-            if generated.outcome == "inbox_full":
-                warnings.append(
-                    "Inbox capacity reached while processing the saved Discovery backlog."
-                )
-                break
-            if generated.outcome == "created":
-                self.run_repository.update_progress(run.id, surfaced_count=1)
-        return None
+        if analysis is None:
+            if analysis_breaker.analysis_disabled_for_run:
+                errors.append("DeepSeek analysis circuit opened for this run")
+                return False, "partial"
+            return True, None
+
+        generated = self.candidate_service.generate(
+            analysis, profile, candidate.lens
+        )
+        if generated.outcome == "inbox_full":
+            errors.append("Inbox capacity reached before the candidate could be saved")
+            return False, "capacity_reached"
+        if generated.outcome == "created":
+            self.run_repository.update_progress(run.id, surfaced_count=1)
+            if self.candidate_service.remaining_capacity(profile) <= 0:
+                errors.append("Inbox capacity reached before the next search round")
+                return False, "capacity_reached"
+        return True, None
 
     def _enrich_work(
         self,

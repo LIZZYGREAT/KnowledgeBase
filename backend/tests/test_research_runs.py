@@ -80,6 +80,140 @@ def test_run_is_persisted_before_provider_and_completed_slice_advances_watermark
     connection.close()
 
 
+def test_search_rounds_rank_across_providers_and_prioritize_high_lenses(tmp_path):
+    connection = connect_database(":memory:")
+    base_profile = _profile(discovery=("arxiv", "openalex"))
+    profile_data = base_profile.model_dump(mode="json")
+    profile_data["lenses"] = [
+        {
+            "id": "low-focus",
+            "title": "Low Focus",
+            "enabled": True,
+            "priority": "low",
+            "queries": ["low priority methods"],
+            "include_terms": [],
+            "exclude_terms": [],
+        },
+        {
+            "id": "high-focus",
+            "title": "High Focus",
+            "enabled": True,
+            "priority": "high",
+            "queries": ["fisher information"],
+            "include_terms": [],
+            "exclude_terms": [],
+        },
+    ]
+    profile_data["search"]["max_analyses_per_run"] = 1
+    profile = ResearchProfile.model_validate(profile_data)
+
+    class QueryAwareProvider:
+        def __init__(self, name, works_by_query):
+            self.name = name
+            self.works_by_query = works_by_query
+            self.calls = []
+            self.before_search = None
+
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.calls.append((query, cursor))
+            if self.before_search is not None:
+                self.before_search()
+            work = self.works_by_query[query]
+            return ProviderPage(works=(work,))
+
+    low_query = "low priority methods"
+    high_query = "fisher information"
+    arxiv = QueryAwareProvider(
+        "arxiv",
+        {
+            low_query: ProviderWork(
+                provider="arxiv",
+                provider_record_id="2401.11111",
+                arxiv_id="2401.11111",
+                title="A Study of Older Methods",
+                abstract="An unrelated study.",
+                authors=("Ada Lovelace",),
+                year=2026,
+                published_at="2026-10-02",
+                url="https://arxiv.org/abs/2401.11111",
+            ),
+            high_query: ProviderWork(
+                provider="arxiv",
+                provider_record_id="2401.22222",
+                arxiv_id="2401.22222",
+                title="A Study of Older Methods",
+                abstract="An unrelated study.",
+                authors=("Ada Lovelace",),
+                year=2026,
+                published_at="2026-10-02",
+                url="https://arxiv.org/abs/2401.22222",
+            ),
+        },
+    )
+    openalex = QueryAwareProvider(
+        "openalex",
+        {
+            low_query: ProviderWork(
+                provider="openalex",
+                provider_record_id="W-LOW",
+                openalex_id="W-LOW",
+                title="A Study of Older Methods",
+                abstract="An unrelated study.",
+                authors=("Ada Lovelace",),
+                year=2026,
+                published_at="2026-10-02",
+                url="https://openalex.org/W-LOW",
+            ),
+            high_query: ProviderWork(
+                provider="openalex",
+                provider_record_id="W-HIGH",
+                openalex_id="W-HIGH",
+                title="Fisher Information for Continual Learning",
+                abstract="Fisher information helps estimate parameter importance.",
+                authors=("Ada Lovelace",),
+                year=2026,
+                published_at="2026-10-02",
+                url="https://openalex.org/W-HIGH",
+            ),
+        },
+    )
+    service, _, _, ai_client = _service(
+        tmp_path,
+        connection,
+        arxiv,
+        profile=profile,
+        additional_providers={"openalex": openalex},
+        analysis_output={
+            **_analysis_output(),
+            "matched_lenses": ["high-focus"],
+        },
+    )
+    arxiv.before_search = lambda: _assert_no_ai_calls(ai_client)
+    openalex.before_search = lambda: _assert_no_ai_calls(ai_client)
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert run.analysis_attempt_count == 1 and run.surfaced_count == 1
+    assert [query for query, _ in arxiv.calls] == [high_query, low_query]
+    assert [query for query, _ in openalex.calls] == [high_query, low_query]
+    work_rows = [
+        tuple(row)
+        for row in connection.execute(
+            "SELECT id, title, arxiv_id, openalex_id FROM research_works ORDER BY title"
+        ).fetchall()
+    ]
+    high_work_id = connection.execute(
+        "SELECT id FROM research_works WHERE openalex_id = 'w-high'"
+    ).fetchone()
+    assert high_work_id is not None, (run, work_rows)
+    high_work_id = high_work_id[0]
+    candidate = service.candidate_repository.get_for_work(high_work_id, profile.id)
+    assert candidate is not None and candidate.primary_lens_id == "high-focus"
+    assert len(ai_client.calls) == 1
+    connection.close()
+
+
 def test_manual_incremental_run_keeps_scheduled_watermark_unchanged(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([])
@@ -1509,6 +1643,10 @@ def _seed_existing_new_candidate(connection, profile):
 def _assert_running_run_exists(run_repository):
     runs = run_repository.list_for_profile("continual-learning")
     assert runs and runs[0].status == "running"
+
+
+def _assert_no_ai_calls(ai_client):
+    assert ai_client.calls == []
 
 
 def _query_key(service, query_index=0):
