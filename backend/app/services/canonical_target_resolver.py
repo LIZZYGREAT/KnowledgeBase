@@ -94,6 +94,45 @@ class CanonicalTargetResolver:
         path = self._canonical_path(path, entity_type)
         return CanonicalTarget(path=path, metadata=metadata)
 
+    def resolve_existing_target_path(
+        self, entity_type: str, entity_id: str
+    ) -> Union[Path, None]:
+        """Return the confined canonical path for an existing entity, if present."""
+        self._validate_entity_id(entity_type, entity_id)
+        if entity_type == "source":
+            candidates = [self.knowledge_root / "sources" / "{}.yaml".format(entity_id)]
+        elif entity_type == "collection":
+            candidates = [
+                self.knowledge_root / "collections" / "{}.yaml".format(entity_id)
+            ]
+        elif entity_type == "document":
+            row = self.connection.execute(
+                "SELECT path FROM document_index WHERE entity_id = ?", (entity_id,)
+            ).fetchone()
+            candidates = []
+            if row is not None:
+                candidates.append(self._indexed_path(row["path"], "document", entity_id))
+            candidates.extend(
+                self.knowledge_root / "documents" / folder / "{}.md".format(entity_id)
+                for folder in self._DOCUMENT_FOLDERS.values()
+            )
+        else:
+            raise ValueError("Unsupported Research conversion entity type")
+
+        existing = [
+            self._canonical_path(candidate, entity_type)
+            for candidate in candidates
+            if candidate.is_file()
+        ]
+        unique = tuple(dict.fromkeys(existing))
+        if len(unique) > 1:
+            raise ValueError(
+                "Multiple canonical targets exist for {} '{}'".format(
+                    entity_type, entity_id
+                )
+            )
+        return unique[0] if unique else None
+
     def _validate_entity_id(self, entity_type: str, entity_id: str) -> None:
         if entity_type == "taxonomy":
             if entity_id not in self._TAXONOMY_FILES:

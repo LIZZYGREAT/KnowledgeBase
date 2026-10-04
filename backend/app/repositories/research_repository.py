@@ -273,6 +273,13 @@ class ResearchRepository:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_all_pending_links(self) -> list[dict]:
+        rows = self.connection.execute(
+            """SELECT * FROM research_pending_links
+               ORDER BY created_at, id"""
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def get_pending_link_for_candidate(
         self, candidate_id: str, relation_type: str
     ) -> Optional[dict]:
@@ -374,6 +381,16 @@ class ResearchRepository:
         cursor = self.connection.execute(
             "DELETE FROM research_pending_links WHERE draft_id IN ({})".format(placeholders),
             draft_ids,
+        )
+        return cursor.rowcount
+
+    def delete_pending_link_ids(self, pending_ids: tuple[str, ...]) -> int:
+        if not pending_ids:
+            return 0
+        placeholders = ", ".join("?" for _ in pending_ids)
+        cursor = self.connection.execute(
+            "DELETE FROM research_pending_links WHERE id IN ({})".format(placeholders),
+            pending_ids,
         )
         return cursor.rowcount
 

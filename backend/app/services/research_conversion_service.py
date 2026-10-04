@@ -343,6 +343,101 @@ class ResearchConversionService:
                 )
             self.work_repository.delete_pending_links_for_drafts(draft_ids)
 
+    def reconcile_pending_links(self) -> dict:
+        """Recover pending Research conversions after canonical publish succeeded."""
+        pending_links = self.work_repository.list_all_pending_links()
+        resolved_ids: list[str] = []
+        stale_ids: list[str] = []
+        entity_links: list[dict] = []
+        status_by_candidate: dict[str, str] = {}
+        warnings: list[str] = []
+
+        expected_entities = {
+            "source": "source",
+            "note": "document",
+            "collection": "collection",
+        }
+        for link in pending_links:
+            try:
+                self.draft_service.get(link["draft_id"])
+            except LookupError:
+                pass
+            else:
+                continue
+
+            entity_type = link["intended_entity_type"]
+            entity_id = link["intended_entity_id"]
+            relation = link["relation_type"]
+            if expected_entities.get(relation) != entity_type:
+                warnings.append(
+                    "Pending Research link {} has an invalid entity type/relation pair".format(
+                        link["id"]
+                    )
+                )
+                continue
+            if self.work_repository.get_work(link["work_id"]) is None:
+                stale_ids.append(link["id"])
+                warnings.append(
+                    "Pending Research link {} references a missing Work and was removed".format(
+                        link["id"]
+                    )
+                )
+                continue
+
+            try:
+                target_path = self.canonical_target_resolver.resolve_existing_target_path(
+                    entity_type, entity_id
+                )
+                if target_path is None:
+                    stale_ids.append(link["id"])
+                    continue
+                canonical_content = target_path.read_text(encoding="utf-8")
+                resolved_target = self.canonical_target_resolver.resolve_target(
+                    entity_type, entity_id, canonical_content
+                )
+                if resolved_target.path != target_path:
+                    raise ValueError("Canonical target path changed during reconciliation")
+            except (OSError, UnicodeError, ValueError, ValidationError, yaml.YAMLError) as error:
+                warnings.append(
+                    "Pending Research link {} could not be validated: {}".format(
+                        link["id"], error
+                    )
+                )
+                continue
+
+            if relation in {"source", "note"}:
+                entity_links.append(link)
+                next_status = "note_created" if relation == "note" else "saved_source"
+                prior_status = status_by_candidate.get(link["candidate_id"])
+                if next_status == "note_created" or prior_status is None:
+                    status_by_candidate[link["candidate_id"]] = next_status
+            resolved_ids.append(link["id"])
+
+        now = self._now().isoformat()
+        with self.work_repository.write_transaction():
+            for link in entity_links:
+                self.work_repository.add_entity_link(
+                    work_id=link["work_id"],
+                    entity_type=link["intended_entity_type"],
+                    entity_id=link["intended_entity_id"],
+                    relation_type=link["relation_type"],
+                    created_at=now,
+                )
+            for candidate_id, status in status_by_candidate.items():
+                self.candidate_repository.mark_candidate_converted(
+                    candidate_id, status, now
+                )
+            self.work_repository.delete_pending_link_ids(
+                tuple(resolved_ids + stale_ids)
+            )
+
+        return {
+            "finalized": len(resolved_ids),
+            "stale": len(stale_ids),
+            "pending": len(self.work_repository.list_all_pending_links()),
+            "warnings": tuple(warnings),
+        }
+
     def _link_existing_source(
         self, candidate_id: str, work_id: str, source_id: str
     ) -> None:

@@ -1,6 +1,7 @@
 """ASGI application and Phase 0–8 service wiring."""
 
 from contextlib import asynccontextmanager
+import logging
 from pathlib import Path
 import os
 
@@ -140,6 +141,16 @@ async def lifespan(application: FastAPI):
         application.state.publisher = publisher
         application.state.research_service = research_service
         application.state.research_conversion_service = research_conversion_service
+        try:
+            result = research_conversion_service.reconcile_pending_links()
+            for warning in result["warnings"]:
+                logging.getLogger(__name__).warning(
+                    "Research conversion reconciliation: %s", warning
+                )
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Research conversion reconciliation failed during startup"
+            )
         yield
     finally:
         connection.close()

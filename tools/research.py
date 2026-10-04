@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from backend.app.db.connection import connect_database
+from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.research_candidate_repository import (
     ResearchCandidateRepository,
 )
@@ -23,6 +24,10 @@ from backend.app.repositories.research_run_request_repository import (
     ResearchRunRequestRepository,
 )
 from backend.app.services.ai_client import DeepSeekConfig
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
+from backend.app.services.draft_service import DraftService
+from backend.app.services.git_manager import GitManager
+from backend.app.services.research_conversion_service import ResearchConversionService
 from backend.app.services.research_profile_registry import ResearchProfileRegistry
 from backend.app.services.research_wiring import build_research_service_for_cli
 
@@ -58,6 +63,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="run immediately as a manual diagnostic, bypassing the scheduled due check",
     )
 
+    reconcile = commands.add_parser(
+        "reconcile", help="recover completed Research conversions after a publish"
+    )
+    _add_runtime_arguments(reconcile)
+
     args = parser.parse_args(argv)
     root = _resolve_root(getattr(args, "root", None))
 
@@ -67,6 +77,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return _profiles(root)
     if args.command == "status":
         return _status(root, _resolve_database(root, args.database))
+    if args.command == "reconcile":
+        return _reconcile(root, _resolve_database(root, args.database))
     if args.command in {"tick", "run"}:
         return _execute(root, _resolve_database(root, args.database), args)
     return 2
@@ -213,6 +225,35 @@ def _execute(root: Path, database_path: Path, args) -> int:
         return 1 if run.status in {"failed", "interrupted"} else 0
     except Exception as error:
         print("ERROR research {}: {}".format(args.command, error))
+        return 1
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _reconcile(root: Path, database_path: Path) -> int:
+    connection = None
+    try:
+        connection = connect_database(database_path)
+        converter = ResearchConversionService(
+            root,
+            connection,
+            DraftService(DraftRepository(connection)),
+            GitManager(root),
+            CanonicalTargetResolver(root, connection),
+        )
+        result = converter.reconcile_pending_links()
+        print(
+            "Research conversion reconcile: {} finalized, {} stale removed, "
+            "{} pending.".format(
+                result["finalized"], result["stale"], result["pending"]
+            )
+        )
+        for warning in result["warnings"]:
+            print("WARNING {}".format(warning))
+        return 1 if result["warnings"] else 0
+    except Exception as error:
+        print("ERROR research reconcile: {}".format(error))
         return 1
     finally:
         if connection is not None:

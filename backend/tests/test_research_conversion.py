@@ -24,6 +24,7 @@ from backend.app.services.indexer import Indexer
 from backend.app.services.publisher import Publisher
 from backend.app.services.research_conversion_service import ResearchConversionService
 from backend.tests.test_publisher import _git, _initialize_repository
+from tools.research import main as research_cli_main
 
 
 _NOW = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
@@ -500,6 +501,126 @@ def test_create_note_api_returns_draft_group_ids(tmp_path):
         assert ResearchCandidateRepository(connection).get(candidate.id).status == "new"
     finally:
         connection.close()
+
+
+def test_reconcile_recovers_published_note_after_post_publish_failure(tmp_path):
+    repository, connection, drafts, converter, candidate = _setup(tmp_path)
+    try:
+        result = converter.create_note(
+            candidate.id, "paper-note", "structured"
+        )
+        source_draft = drafts.get(result.source_draft_id)
+        document_draft = drafts.get(result.document_draft_id)
+        publisher = Publisher(
+            repository,
+            drafts,
+            Indexer(repository, connection),
+            git_manager=GitManager(repository),
+            canonical_target_resolver=CanonicalTargetResolver(repository, connection),
+        )
+
+        def fail_runtime_finalize(_drafts):
+            raise RuntimeError("injected conversion failure")
+
+        publisher.add_post_publish_hook(fail_runtime_finalize)
+        published = publisher.publish_batch(
+            [
+                (source_draft.id, source_draft.revision),
+                (document_draft.id, document_draft.revision),
+            ]
+        )
+
+        assert any(
+            "injected conversion failure" in warning
+            for warning in published.warnings
+        )
+        assert drafts.repository.get(source_draft.id) is None
+        assert drafts.repository.get(document_draft.id) is None
+        assert len(ResearchRepository(connection).list_pending_links(candidate.id)) == 2
+        assert ResearchCandidateRepository(connection).get(candidate.id).status == "new"
+
+        recovered = converter.reconcile_pending_links()
+
+        assert recovered == {
+            "finalized": 2,
+            "stale": 0,
+            "pending": 0,
+            "warnings": (),
+        }
+        assert ResearchCandidateRepository(connection).get(candidate.id).status == "note_created"
+        assert {
+            (link["entity_type"], link["relation_type"])
+            for link in ResearchRepository(connection).list_entity_links(candidate.work_id)
+        } == {("source", "source"), ("document", "note")}
+        assert converter.reconcile_pending_links() == {
+            "finalized": 0,
+            "stale": 0,
+            "pending": 0,
+            "warnings": (),
+        }
+    finally:
+        connection.close()
+
+
+def test_reconcile_leaves_pending_conversion_while_its_draft_exists(tmp_path):
+    repository, connection, drafts, converter, candidate = _setup(tmp_path)
+    try:
+        result = converter.save_source(candidate.id)
+        draft = drafts.get(result.draft_id)
+        target = converter.canonical_target_resolver.resolve_target(
+            "source", result.source_id, draft.content
+        )
+        target.path.write_bytes(draft.content.encode("utf-8"))
+
+        report = converter.reconcile_pending_links()
+
+        assert report["finalized"] == 0
+        assert report["stale"] == 0
+        assert report["pending"] == 1
+        assert report["warnings"] == ()
+        assert ResearchCandidateRepository(connection).get(candidate.id).status == "new"
+        assert ResearchRepository(connection).list_entity_links(candidate.work_id) == []
+    finally:
+        connection.close()
+
+
+def test_reconcile_cleans_stale_pending_conversion_without_canonical_target(tmp_path):
+    _, connection, drafts, converter, candidate = _setup(tmp_path)
+    try:
+        result = converter.save_source(candidate.id)
+        draft = drafts.get(result.draft_id)
+        drafts.discard(draft.id, draft.revision)
+
+        report = converter.reconcile_pending_links()
+
+        assert report == {
+            "finalized": 0,
+            "stale": 1,
+            "pending": 0,
+            "warnings": (),
+        }
+        assert ResearchCandidateRepository(connection).get(candidate.id).status == "new"
+        assert ResearchRepository(connection).list_entity_links(candidate.work_id) == []
+    finally:
+        connection.close()
+
+
+def test_research_cli_exposes_conversion_reconcile(tmp_path):
+    repository, connection, _, _, _ = _setup(tmp_path)
+    connection.close()
+    database_path = tmp_path / "runtime" / "knowledge.db"
+
+    result = research_cli_main(
+        [
+            "reconcile",
+            "--root",
+            str(repository),
+            "--database",
+            str(database_path),
+        ]
+    )
+
+    assert result == 0
 
 
 def _setup(tmp_path):
