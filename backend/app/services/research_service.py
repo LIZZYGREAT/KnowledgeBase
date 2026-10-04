@@ -739,11 +739,7 @@ class ResearchService:
             backlog_candidates = []
         processed_work_ids: set[str] = set()
         backlog_attempts = 0
-        backlog_attempt_limit = min(backlog_budget, len(backlog_candidates))
-        new_attempts = 0
-        new_attempt_limit = max(
-            0, profile.search.max_analyses_per_run - backlog_attempt_limit
-        )
+        backlog_attempt_limit = backlog_budget
         request_limit = self.profile_registry.global_config.runtime.discovery_page_size
 
         while pending_by_work or any(stream.active for stream in streams):
@@ -887,12 +883,11 @@ class ResearchService:
                     stream.cursor = page.next_cursor
 
             ordered_candidates = sorted(
-                round_candidates.values(), key=lambda item: (-item.score, item.order)
+                round_candidates.values(),
+                key=lambda item: (not item.backlog, -item.score, item.order),
             )
             for candidate in ordered_candidates:
                 if candidate.backlog and backlog_attempts >= backlog_attempt_limit:
-                    continue
-                if not candidate.backlog and new_attempts >= new_attempt_limit:
                     continue
                 attempts_before = self.run_repository.get(
                     run.id
@@ -916,8 +911,6 @@ class ResearchService:
                 ).analysis_attempt_count
                 if candidate.backlog:
                     backlog_attempts += max(0, attempts_after - attempts_before)
-                else:
-                    new_attempts += max(0, attempts_after - attempts_before)
                 if profile.ai_analysis.enabled and (
                     attempts_after >= profile.search.max_analyses_per_run
                 ):

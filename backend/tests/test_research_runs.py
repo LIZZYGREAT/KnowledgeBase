@@ -616,6 +616,88 @@ def test_analysis_budget_reserves_a_slot_for_eligible_backlog(tmp_path):
     connection.close()
 
 
+def test_filtered_backlog_releases_unused_analysis_budget_to_new_works(tmp_path):
+    connection = connect_database(":memory:")
+    base_profile = _profile(enrichment=("openalex",))
+    profile = base_profile.model_copy(
+        update={
+            "search": base_profile.search.model_copy(
+                update={"max_analyses_per_run": 3}
+            )
+        }
+    )
+    new_works = tuple(
+        _provider_work().model_copy(
+            update={
+                "provider_record_id": "2401.new-budget-{}".format(index),
+                "title": "Fisher Information Study {}".format(index),
+                "abstract": "Fisher information supports continual learning.",
+                "doi": "10.1000/new-budget-{}".format(index),
+                "arxiv_id": "2401.new-budget-{}".format(index),
+                "venue": "Learning Systems Conference",
+                "url": "https://example.org/new-budget-{}".format(index),
+            }
+        )
+        for index in range(3)
+    )
+    discovery = FakeProvider([ProviderPage(works=new_works)])
+    enrichment = FakeEnrichmentProvider()
+    service, _, _, ai_client = _service(
+        tmp_path,
+        connection,
+        discovery,
+        profile=profile,
+        additional_providers={"openalex": enrichment},
+    )
+    query = service.query_builder.build(profile)[0]
+    backlog_work = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2401.old-filtered-backlog",
+        title="Fisher Information Historical Study",
+        abstract="Fisher information supports continual learning.",
+        authors=("Ada Lovelace",),
+        year=2010,
+        published_at="2010-01-01",
+        arxiv_id="2401.old-filtered-backlog",
+        openalex_id="W-seed-backlog",
+    )
+    service.deduplicator.record_discovery(
+        profile.id,
+        query.lens_id,
+        query.query_key,
+        query.text,
+        backlog_work,
+        discovered_at=_NOW - timedelta(days=30),
+    )
+    service.screening.sources = SourceRegistry(
+        (
+            SourceMetadata.model_validate(
+                {
+                    "schema_version": 1,
+                    "id": "already-published-source",
+                    "type": "paper",
+                    "title": "A paper already in the library",
+                    "authors": ["Ada Lovelace"],
+                    "year": 2010,
+                    "identifiers": {"doi": "10.1000/enriched"},
+                }
+            ),
+        )
+    )
+    context_builder = RecordingContextBuilder(service.context_builder)
+    service.context_builder = context_builder
+
+    run = service.run_profile(profile.id, trigger="manual")
+
+    assert run is not None and run.status == "success"
+    assert run.analysis_attempt_count == 3
+    assert enrichment.enrichment_calls == 1
+    assert len(context_builder.work_titles) == 3
+    assert all("Historical Study" not in title for title in context_builder.work_titles)
+    assert len(ai_client.calls) == 3
+    connection.close()
+
+
 def test_queued_manual_run_discovers_while_automatic_research_is_paused(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
