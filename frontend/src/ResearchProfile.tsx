@@ -245,7 +245,7 @@ export function ResearchProfilePanel({
       <div className="research-inline-actions">
         {[1, 3, 7].map((days) => <button className="button button-secondary" key={days} disabled={busy} onClick={() => void pause(days)}>{days} 天</button>)}
       </div>
-      <div className="research-pause-date"><label className="field-label">暂停至指定日期<input type="date" value={pauseUntil} min={new Date().toISOString().slice(0, 10)} onChange={(event) => setPauseUntil(event.target.value)} /></label><button className="button button-secondary" disabled={busy || !pauseUntil} onClick={() => void pauseToDate()}>确认日期</button></div>
+      <div className="research-pause-date"><label className="field-label">暂停至指定日期<input type="date" value={pauseUntil} min={localDateInputValue(new Date())} onChange={(event) => setPauseUntil(event.target.value)} /></label><button className="button button-secondary" disabled={busy || !pauseUntil} onClick={() => void pauseToDate()}>确认日期</button></div>
     </div>}
 
     <div className="research-inbox-meter">

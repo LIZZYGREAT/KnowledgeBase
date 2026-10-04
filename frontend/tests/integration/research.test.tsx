@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse, stringify } from "yaml";
 import App from "../../src/App";
+import { ResearchProfilePanel } from "../../src/ResearchProfile";
 import { ResearchProfileDefaultsEditor } from "../../src/ResearchProfileDefaultsEditor";
 import { ResearchProfileCreateDialog } from "../../src/ResearchProfileCreateDialog";
 import { ResearchCandidateCard, ResearchCreateNoteDialog } from "../../src/ResearchCandidate";
@@ -83,6 +84,7 @@ describe("Research workspace", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -557,6 +559,23 @@ describe("Research workspace", () => {
       "Inbox Full · 处理候选后才能运行 Search Now。",
     );
     expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("uses the local calendar date as the Pause date minimum", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-04T16:30:00.000Z"));
+    render(<ResearchProfilePanel
+      summary={profileSummary}
+      detail={profileDetail}
+      onRefresh={() => undefined}
+      onQueued={() => undefined}
+      onEditDefaults={() => undefined}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+
+    const now = new Date();
+    const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    expect((screen.getByLabelText("暂停至指定日期") as HTMLInputElement).min).toBe(localToday);
   });
 
   it("edits Profile Defaults through autosaved Draft review and publish", async () => {
