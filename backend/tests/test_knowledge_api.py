@@ -1,7 +1,7 @@
 import hashlib
 import json
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 import shutil
 import subprocess
@@ -25,6 +25,7 @@ from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.research_providers.base import ProviderWork
+from backend.app.services.research_watermark import ResearchWatermarkService
 from backend.tests.runtime_db import open_test_runtime
 from backend.tests.test_research_runs import FakeProvider, _service
 
@@ -659,6 +660,178 @@ def test_research_profile_publish_persists_hash_bound_reactivation_choice(api_cl
         "streams": expected_streams,
     }
     assert state is not None and state.completed_through == stale.isoformat()
+
+
+@pytest.mark.parametrize("publish_mode", ["single", "batch"])
+@pytest.mark.parametrize("strategy", ["from_now", "last_window", "all"])
+def test_pending_reactivation_choice_survives_unrelated_profile_publish(
+    api_client, publish_mode, strategy
+):
+    service = api_client.app.state.research_service
+    repository = api_client.app.state.repository_root
+    profile_id = "continual-learning"
+    profile_path = repository / "config" / "research" / "profiles" / "continual-learning.yaml"
+    canonical = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+
+    def create_profile_draft(content):
+        response = api_client.post(
+            "/api/drafts",
+            json={
+                "entity_type": "research_profile",
+                "entity_id": profile_id,
+                "content": yaml.safe_dump(content, sort_keys=False, allow_unicode=True),
+            },
+        )
+        assert response.status_code == 201, response.json()
+        return response.json()["draft"]
+
+    disabled = dict(canonical)
+    disabled["enabled"] = False
+    draft = create_profile_draft(disabled)
+    published = api_client.post(
+        "/api/publish",
+        json={"draft_id": draft["id"], "expected_revision": draft["revision"]},
+    )
+    assert published.status_code == 200, published.json()
+
+    current = service.profile_registry.get(profile_id)
+    query = service.query_builder.build(current)[0]
+    stale = service.now() - timedelta(days=90)
+    with open_test_runtime(api_client) as connection:
+        search_repository = ResearchSearchRepository(connection)
+        search_repository.record_attempt(
+            profile_id, query.lens_id, "arxiv", query.query_key, query.text, stale.isoformat()
+        )
+        search_repository.complete_slice(
+            profile_id,
+            query.lens_id,
+            "arxiv",
+            query.query_key,
+            stale.isoformat(),
+            stale.isoformat(),
+        )
+
+    reactivated = dict(disabled)
+    reactivated["enabled"] = True
+    draft = create_profile_draft(reactivated)
+    review = api_client.post(
+        "/api/research/profiles/{}/reactivation-review".format(profile_id),
+        json={"draft_id": draft["id"]},
+    )
+    assert review.status_code == 200, review.json()
+    assert review.json()["required"] is True
+    published = api_client.post(
+        "/api/publish",
+        json={
+            "draft_id": draft["id"],
+            "expected_revision": draft["revision"],
+            "reactivation_strategy": strategy,
+        },
+    )
+    assert published.status_code == 200, published.json()
+    with open_test_runtime(api_client) as connection:
+        choice = ResearchControlEventRepository(
+            connection
+        ).latest_reactivation_choice(profile_id)
+        state_before_follow_up = ResearchSearchRepository(connection).get_state(
+            profile_id, query.lens_id, "arxiv", query.query_key
+        )
+    assert choice is not None
+    assert choice["payload"]["strategy"] == strategy
+    assert state_before_follow_up is not None
+    assert state_before_follow_up.overlap_floor is None
+
+    unrelated_update = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    unrelated_update["description"] = "An unrelated Profile metadata update."
+    follow_up = create_profile_draft(unrelated_update)
+    if publish_mode == "single":
+        published = api_client.post(
+            "/api/publish",
+            json={
+                "draft_id": follow_up["id"],
+                "expected_revision": follow_up["revision"],
+            },
+        )
+    else:
+        document = api_client.post(
+            "/api/drafts",
+            json={
+                "entity_type": "document",
+                "entity_id": "reactivation-choice-follow-up",
+                "content": _document_content(
+                    "reactivation-choice-follow-up", "Reactivation Choice Follow-up"
+                ),
+            },
+        )
+        assert document.status_code == 201, document.json()
+        document_draft = document.json()["draft"]
+        published = api_client.post(
+            "/api/publish/batch",
+            json={
+                "drafts": [
+                    {
+                        "draft_id": follow_up["id"],
+                        "expected_revision": follow_up["revision"],
+                    },
+                    {
+                        "draft_id": document_draft["id"],
+                        "expected_revision": document_draft["revision"],
+                    },
+                ]
+            },
+        )
+    assert published.status_code == 200, published.json()
+
+    with open_test_runtime(api_client) as connection:
+        state_after_follow_up = ResearchSearchRepository(connection).get_state(
+            profile_id, query.lens_id, "arxiv", query.query_key
+        )
+        control_events = ResearchControlEventRepository(connection).list_for_profile(
+            profile_id
+        )
+    assert state_after_follow_up is not None
+    new_profile = service.profile_registry.get(profile_id)
+    new_profile_hash = hashlib.sha256(profile_path.read_bytes()).hexdigest()
+    assert choice["payload"]["profile_content_hash"] != new_profile_hash
+
+    if strategy == "all":
+        assert state_after_follow_up.overlap_floor is None
+        assert not [event for event in control_events if event["event_type"] == "watermark_skip"]
+        scan_now = service.now() + timedelta(days=1)
+        with open_test_runtime(api_client) as connection:
+            plan = ResearchWatermarkService(
+                ResearchSearchRepository(connection)
+            ).build_plan(
+                new_profile,
+                service.query_builder.build(new_profile)[0],
+                "arxiv",
+                scan_now,
+                service.profile_registry.global_config,
+            )
+        assert plan.slices[0].start_at == stale - timedelta(
+            hours=service.profile_registry.global_config.runtime.overlap_hours
+        )
+        return
+
+    choice_time = datetime.fromisoformat(choice["created_at"])
+    expected_floor = (
+        choice_time
+        if strategy == "from_now"
+        else choice_time - timedelta(days=reactivated["search"]["max_catchup_days"])
+    )
+    assert datetime.fromisoformat(state_after_follow_up.completed_through) == expected_floor
+    assert datetime.fromisoformat(state_after_follow_up.overlap_floor) == expected_floor
+    with open_test_runtime(api_client) as connection:
+        plan = ResearchWatermarkService(
+            ResearchSearchRepository(connection)
+        ).build_plan(
+            new_profile,
+            service.query_builder.build(new_profile)[0],
+            "arxiv",
+            expected_floor + timedelta(days=1),
+            service.profile_registry.global_config,
+        )
+    assert plan.slices[0].start_at == expected_floor
 
 
 def test_publishing_source_refreshes_research_screening_registry(api_client):

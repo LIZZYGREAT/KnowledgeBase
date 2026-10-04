@@ -414,6 +414,15 @@ class ResearchService:
             return strategy, catchup_days, chosen_at
         return strategy, catchup_days, None
 
+    def materialize_pending_reactivation_boundary(
+        self, profile_id: str
+    ) -> Optional[tuple[ResumeStrategy, Optional[int], Optional[datetime]]]:
+        """Persist any pending boundary for the Profile's current canonical version."""
+        if self.profile_registry.get(profile_id) is None:
+            return None
+        profile_hash = self.profile_registry.content_hash(profile_id)
+        return self.resolve_effective_resume_policy(profile_id, profile_hash)
+
     def pause_profile(
         self, profile_id: str, paused_until: datetime, now: Optional[datetime] = None
     ):
@@ -688,6 +697,11 @@ class ResearchService:
         if reactivation_effective_at is not None:
             # The stream-scoped floor is already durable. Apply ordinary incremental
             # planning so unaffected streams keep their normal watermark behavior.
+            execution_resume_strategy = "all"
+            execution_catchup_days_override = None
+            execution_catchup_effective_at = None
+        elif execution_catchup_effective_at is not None:
+            # Resume catch-up already persisted its lower boundary at resume time.
             execution_resume_strategy = "all"
             execution_catchup_days_override = None
             execution_catchup_effective_at = None

@@ -58,6 +58,7 @@ async def publish(body: PublishRequest, request: Request):
                 status_code=409,
                 detail="Draft changed after review. Refresh the Publish Review before publishing.",
             )
+        service.materialize_pending_reactivation_boundary(draft.entity_id)
         candidate = service.parse_profile_candidate(draft.entity_id, draft.content)
         review = service.reactivation_review(candidate)
         if review["required"] and body.reactivation_strategy is None:
@@ -110,6 +111,7 @@ async def publish_batch(body: BatchPublishRequest, request: Request):
             )
         try:
             for draft in profile_drafts:
+                service.materialize_pending_reactivation_boundary(draft.entity_id)
                 candidate = service.parse_profile_candidate(draft.entity_id, draft.content)
                 if service.reactivation_review(candidate)["required"]:
                     raise HTTPException(

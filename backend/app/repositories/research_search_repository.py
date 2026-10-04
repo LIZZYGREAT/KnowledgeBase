@@ -212,21 +212,6 @@ class ResearchSearchRepository:
                 )
             return tuple(updated_states)
 
-    def skip_profile_to_now(
-        self,
-        profile_id: str,
-        state_specs: tuple[tuple[str, str, str, str], ...],
-        skipped_at: str,
-    ) -> tuple[ResearchSearchStateRecord, ...]:
-        """Compatibility wrapper for the explicit from-now watermark action."""
-        return self.advance_streams_to_floor(
-            profile_id,
-            state_specs,
-            skipped_at,
-            audit_strategy="from_now",
-            recorded_at=skipped_at,
-        )
-
     def list_control_events(self, profile_id: str) -> list[dict]:
         rows = self.connection.execute(
             """SELECT id, profile_id, event_type, payload_json, created_at

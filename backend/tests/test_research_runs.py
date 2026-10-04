@@ -1633,7 +1633,7 @@ def test_scheduled_failures_wait_for_retry_cooldown_but_manual_runs_do_not(
 def test_resume_catchup_days_are_applied_to_the_next_scheduled_run(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([ProviderPage(works=())])
-    service, _, _, _ = _service(tmp_path, connection, provider)
+    service, _, search_repository, _ = _service(tmp_path, connection, provider)
     service.resume_profile(
         "continual-learning", strategy="catch_up", catchup_days=7, now=_NOW
     )
@@ -1643,6 +1643,13 @@ def test_resume_catchup_days_are_applied_to_the_next_scheduled_run(tmp_path):
     assert run is not None and run.status == "success"
     assert run.effective_config["resume_strategy"] == "last_window"
     assert run.effective_config["catchup_days_override"] == 7
+    query = service.query_builder.build(service.profile_registry.get("continual-learning"))[0]
+    state = search_repository.get_state(
+        "continual-learning", query.lens_id, "arxiv", query.query_key
+    )
+    floor = _NOW - timedelta(days=7)
+    assert state is not None and state.overlap_floor == floor.isoformat()
+    assert provider.search_ranges[0][0] == floor
     connection.close()
 
 
