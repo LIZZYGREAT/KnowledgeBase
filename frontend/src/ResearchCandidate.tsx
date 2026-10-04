@@ -71,11 +71,17 @@ export interface ResearchNoteOptions {
 export function ResearchCreateNoteDialog({
   title,
   busy,
+  suggestedCollectionId = null,
+  suggestedSection = null,
+  allowedCollectionIds = [],
   onClose,
   onCreate,
 }: {
   title: string;
   busy: boolean;
+  suggestedCollectionId?: string | null;
+  suggestedSection?: string | null;
+  allowedCollectionIds?: string[];
   onClose: () => void;
   onCreate: (options: ResearchNoteOptions) => void;
 }) {
@@ -84,18 +90,29 @@ export function ResearchCreateNoteDialog({
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const [collectionId, setCollectionId] = useState("");
   const [sectionId, setSectionId] = useState("");
-  const [sections, setSections] = useState<Array<{ id: string; label: string }>>([]);
+  const [sections, setSections] = useState<Array<{ id: string; title: string; label: string }>>([]);
   const [loadError, setLoadError] = useState("");
+  const [destinationHint, setDestinationHint] = useState("");
 
   useEffect(() => {
     let active = true;
     void listCollections("active").then((values) => {
-      if (active) setCollections(values);
+      if (!active) return;
+      setCollections(values);
+      if (!suggestedCollectionId) return;
+      const suggested = values.find((collection) => collection.id === suggestedCollectionId);
+      if (!allowedCollectionIds.includes(suggestedCollectionId)) {
+        setDestinationHint(`Suggested Collection ${suggestedCollectionId} is no longer in this Profile's context.`);
+      } else if (!suggested) {
+        setDestinationHint(`Suggested Collection ${suggestedCollectionId} is not currently active.`);
+      } else {
+        setCollectionId(suggested.id);
+      }
     }).catch((reason: unknown) => {
       if (active) setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection 列表。");
     });
     return () => { active = false; };
-  }, []);
+  }, [allowedCollectionIds, suggestedCollectionId]);
 
   useEffect(() => {
     let active = true;
@@ -104,18 +121,33 @@ export function ResearchCreateNoteDialog({
       return () => { active = false; };
     }
     setSectionId("");
+    setDestinationHint("");
     setLoadError("");
     void getCollection(collectionId).then(async (collection) => {
       const collectionDrafts = await listDrafts("collection", collectionId);
       const current = collectionDrafts[0]
         ? parseCollectionDraft(collectionDrafts[0].content, collection)
         : collection;
-      if (active) setSections(flattenCollectionSections(current));
+      if (!active) return;
+      const nextSections = flattenCollectionSections(current);
+      setSections(nextSections);
+      if (collectionId === suggestedCollectionId && suggestedSection) {
+        const expected = normalizeSectionTitle(suggestedSection);
+        const matches = nextSections.filter((section) => normalizeSectionTitle(section.title) === expected);
+        if (matches.length === 1) {
+          setSectionId(matches[0].id);
+          setDestinationHint(`Suggested section “${suggestedSection}” was preselected.`);
+        } else if (matches.length > 1) {
+          setDestinationHint(`Suggested section “${suggestedSection}” matches multiple sections; choose one manually.`);
+        } else {
+          setDestinationHint(`Suggested section “${suggestedSection}” was not found; choose a section manually.`);
+        }
+      }
     }).catch((reason: unknown) => {
       if (active) setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection Sections。");
     });
     return () => { active = false; };
-  }, [collectionId]);
+  }, [collectionId, suggestedCollectionId, suggestedSection]);
 
   return <div className="research-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="research-dismiss-dialog research-create-note-dialog" role="dialog" aria-modal="true" aria-labelledby="research-create-note-title" onSubmit={(event) => {
@@ -132,6 +164,7 @@ export function ResearchCreateNoteDialog({
       <label className="field-label">Template<select aria-label="Note template" value={template} onChange={(event) => setTemplate(event.target.value as ResearchNoteOptions["template"])}><option value="structured">Structured skeleton</option><option value="blank">Blank</option></select></label>
       <label className="field-label">Collection<select aria-label="Collection" value={collectionId} onChange={(event) => setCollectionId(event.target.value)}><option value="">No Collection</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}</select></label>
       {collectionId && <label className="field-label">Section<select aria-label="Section" value={sectionId} onChange={(event) => setSectionId(event.target.value)}><option value="">Collection root</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}</select></label>}
+      {destinationHint && <p className="field-hint" role="status">{destinationHint}</p>}
       {loadError && <p className="error-copy" role="alert">{loadError}</p>}
       <p className="subtle-copy">只创建笔记骨架。Source、Document 与可选 Collection 会作为 Draft 进入 Workspace 批量审阅。</p>
       <div className="editor-main-actions"><button className="button button-secondary" type="button" disabled={busy} onClick={onClose}>取消</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? "正在创建…" : "Create"}</button></div>
@@ -139,18 +172,22 @@ export function ResearchCreateNoteDialog({
   </div>;
 }
 
-function flattenCollectionSections(collection: Collection): Array<{ id: string; label: string }> {
-  const sections: Array<{ id: string; label: string }> = [];
+function flattenCollectionSections(collection: Collection): Array<{ id: string; title: string; label: string }> {
+  const sections: Array<{ id: string; title: string; label: string }> = [];
   function visit(nodes: CollectionNode[], parents: string[] = []) {
     for (const node of nodes) {
       if (node.kind !== "section") continue;
       const path = [...parents, node.title];
-      sections.push({ id: node.id, label: path.join(" / ") });
+      sections.push({ id: node.id, title: node.title, label: path.join(" / ") });
       visit(node.children, path);
     }
   }
   visit(collection.nodes);
   return sections;
+}
+
+function normalizeSectionTitle(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 }
 
 export function ResearchCandidateDrawer({
@@ -189,6 +226,7 @@ export function ResearchCandidateDrawer({
         <AnalysisTimeContext detail={detail} />
         <section className="research-detail-section"><h3>Analysis provenance</h3><DetailRow label="Provider" value={analysis.provider} /><DetailRow label="Model" value={analysis.model} /><DetailRow label="Analysis version" value={String(analysis.analysis_version)} /><DetailRow label="Prompt version" value={analysis.prompt_version} /><DetailRow label="Analyzed at" value={formatDate(analysis.analyzed_at)} /><DetailRow label="Input hash" value={analysis.input_hash} /></section>
         <section className="research-detail-section"><h3>Matched terms</h3><div className="research-candidate-tags">{analysis.analysis.matched_topics.length ? analysis.analysis.matched_topics.map((term) => <Chip key={term}>{term}</Chip>) : <span className="subtle-copy">No matched topics recorded.</span>}</div></section>
+        {(analysis.analysis.suggested_collection || analysis.analysis.suggested_section) && <section className="research-detail-section"><h3>Suggested destination</h3><p className="subtle-copy">AI suggestion only. Check the current Collection before creating the Note.</p>{analysis.analysis.suggested_collection && <DetailRow label="Collection ID" value={analysis.analysis.suggested_collection} />}{analysis.analysis.suggested_section && <DetailRow label="Section title" value={analysis.analysis.suggested_section} />}</section>}
         <section className="research-detail-section"><h3>Related knowledge</h3>{detail.knowledge_relations.length ? detail.knowledge_relations.map((relation) => {
           const path = entityPath(relation.entity_type, relation.entity_id);
           return <div className="research-related-row" key={`${relation.entity_type}:${relation.entity_id}`}>

@@ -4,6 +4,7 @@ import { parse, stringify } from "yaml";
 import App from "../../src/App";
 import { ResearchProfileDefaultsEditor } from "../../src/ResearchProfileDefaultsEditor";
 import { ResearchProfileCreateDialog } from "../../src/ResearchProfileCreateDialog";
+import { ResearchCreateNoteDialog } from "../../src/ResearchCandidate";
 import { ResearchRunDrawer } from "../../src/ResearchRun";
 import type { ResearchProfile, ResearchRun } from "../../src/api";
 
@@ -19,6 +20,7 @@ describe("Research workspace", () => {
   let responseProfileDetail = profileDetail;
   let responseProfileSummary = profileSummary;
   let responseCandidateDetail = candidateDetail;
+  let responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
   let researchProfileDraft: Record<string, unknown> | null = null;
   let reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
 
@@ -26,6 +28,7 @@ describe("Research workspace", () => {
     responseProfileDetail = profileDetail;
     responseProfileSummary = profileSummary;
     responseCandidateDetail = candidateDetail;
+    responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
     researchProfileDraft = null;
     reactivationReviewResponse = { required: false, triggers: [], max_catchup_days: 30, strategies: [] };
     window.history.replaceState({}, "", "/research");
@@ -33,7 +36,7 @@ describe("Research workspace", () => {
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/collections?status=active") return jsonResponse([{ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, node_count: 1, entity_count: 0, document_count: 0 }]);
-      if (path === "/api/collections/continual-learning") return jsonResponse({ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] });
+      if (path === "/api/collections/continual-learning") return jsonResponse(responseCollection);
       if (path === "/api/drafts?entity_type=collection&entity_id=continual-learning") return jsonResponse([]);
       if (path === "/api/documents?limit=100&offset=0") return jsonResponse([]);
       if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary]);
@@ -95,6 +98,8 @@ describe("Research workspace", () => {
     expect(screen.getByRole("heading", { name: "Analysis-time context" })).toBeTruthy();
     expect(screen.getByText("Snapshot excerpt used at analysis time.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Current knowledge links" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Suggested destination" })).toBeTruthy();
+    expect(screen.getByText("Collection ID")).toBeTruthy();
     expect(screen.getByText("Source · published-paper")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Edit note" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Candidate note" }), { target: { value: "Compare with replay-based methods." } });
@@ -216,6 +221,26 @@ describe("Research workspace", () => {
       schedule: profile.schedule,
       inbox: profile.inbox,
     });
+  });
+
+  it("does not preselect a suggested Section when its title is ambiguous", async () => {
+    responseCollection = {
+      id: "continual-learning",
+      title: "Continual Learning",
+      description: null,
+      status: "active",
+      position: 0,
+      nodes: [
+        { id: "regularization-a", kind: "section", title: "Regularization", children: [] },
+        { id: "regularization-b", kind: "section", title: "Regularization", children: [] },
+      ],
+    };
+    render(<ResearchCreateNoteDialog title="A New Regularization Method" busy={false} suggestedCollectionId="continual-learning" suggestedSection="Regularization" allowedCollectionIds={["continual-learning"]} onClose={() => undefined} onCreate={() => undefined} />);
+
+    await screen.findByText(/matches multiple sections/);
+    expect((screen.getByLabelText("Collection") as HTMLSelectElement).value).toBe("continual-learning");
+    expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("");
+    expect(screen.getAllByRole("option", { name: "Regularization" })).toHaveLength(2);
   });
 
   it("queues custom Research dates as local calendar boundaries", async () => {
@@ -424,11 +449,17 @@ describe("Research workspace", () => {
   });
 
   it("creates a structured note group and enters batch Workspace review", async () => {
+    responseProfileDetail = {
+      ...profileDetail,
+      profile: { ...profile, context: { ...profile.context, collections: ["continual-learning"] } },
+    };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Create Note" }));
     expect(await screen.findByRole("heading", { name: "Create Research Note" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Collection"), { target: { value: "continual-learning" } });
     await screen.findByRole("option", { name: "Regularization" });
+    expect((screen.getByLabelText("Collection") as HTMLSelectElement).value).toBe("continual-learning");
+    expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("regularization");
+    fireEvent.change(screen.getByLabelText("Collection"), { target: { value: "continual-learning" } });
     fireEvent.change(screen.getByLabelText("Section"), { target: { value: "regularization" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
@@ -508,6 +539,7 @@ const work = {
 const analysis = {
   relevant: true, profile_relevance: 0.91, knowledge_relevance: 0.8, novelty_to_library: 0.73, matched_lenses: ["regularization"], matched_topics: ["Fisher information", "Catastrophic forgetting"],
   summary: "A new importance estimation method for continual learning.", why_relevant: "It matches the regularization Lens and studies parameter importance.", reading_reason: "Compare its adaptive estimates against EWC.", existing_relations: [{ entity_type: "term", entity_id: "fisher-information", relation: "extends", reason: "Uses Fisher information to estimate parameter importance." }],
+  suggested_collection: "continual-learning", suggested_section: "Regularization",
 };
 
 const candidateListItem = { candidate, work, analysis, recommended_score: 0.84 };

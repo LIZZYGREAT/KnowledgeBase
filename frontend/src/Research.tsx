@@ -356,7 +356,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     {runDetail && <ResearchRunDrawer run={runDetail} onClose={() => setRunDetail(null)} />}
     {dismissTargets && <ResearchDismissDialog count={dismissTargets.length} busy={actionBusy} onClose={() => setDismissTargets(null)} onSubmit={(reason, note) => void dismiss(reason, note)} />}
     {shortlistTargets && <ResearchShortlistDialog count={shortlistTargets.length} busy={actionBusy} error={actionError} onClose={() => setShortlistTargets(null)} onSubmit={(note) => void shortlist(shortlistTargets, note)} />}
-    {createNoteTarget && <ResearchCreateNoteDialog title={createNoteTarget.work.title} busy={actionBusy} onClose={() => setCreateNoteTarget(null)} onCreate={(options) => void createNote(createNoteTarget.candidate.id, options)} />}
+    {createNoteTarget && <ResearchCreateNoteDialog title={createNoteTarget.work.title} busy={actionBusy} suggestedCollectionId={createNoteTarget.analysis.suggested_collection ?? null} suggestedSection={createNoteTarget.analysis.suggested_section ?? null} allowedCollectionIds={profile?.profile.id === selectedProfileId ? profile.profile.context.collections : []} onClose={() => setCreateNoteTarget(null)} onCreate={(options) => void createNote(createNoteTarget.candidate.id, options)} />}
     {profileLayers}
   </div>;
 }
