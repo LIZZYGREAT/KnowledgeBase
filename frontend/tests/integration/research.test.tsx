@@ -291,6 +291,44 @@ describe("Research workspace", () => {
     });
   });
 
+  it("blocks Note creation until the suggested Section is resolved", async () => {
+    const collectionDraftsPath = "/api/drafts?entity_type=collection&entity_id=continual-learning";
+    const fetchNormally = mockFetch.getMockImplementation();
+    let resolveCollectionDrafts: (() => void) | undefined;
+    mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === collectionDraftsPath) {
+        return new Promise<Response>((resolve) => {
+          resolveCollectionDrafts = () => resolve(jsonResponse([]));
+        });
+      }
+      return fetchNormally!(input, init);
+    });
+    const onCreate = vi.fn();
+    render(<ResearchCreateNoteDialog
+      title="A New Regularization Method"
+      busy={false}
+      suggestedCollectionId="continual-learning"
+      suggestedSection="Regularization"
+      allowedCollectionIds={["continual-learning"]}
+      onClose={() => undefined}
+      onCreate={onCreate}
+    />);
+
+    await waitFor(() => {
+      expect((screen.getByLabelText("Collection") as HTMLSelectElement).value).toBe("continual-learning");
+    });
+    const createButton = screen.getByRole("button", { name: "Create" });
+    expect(createButton.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Resolving suggested destination…")).toBeTruthy();
+    fireEvent.click(createButton);
+    expect(onCreate).not.toHaveBeenCalled();
+
+    resolveCollectionDrafts?.();
+    expect(await screen.findByText(/was preselected/)).toBeTruthy();
+    expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("regularization");
+    expect(createButton.hasAttribute("disabled")).toBe(false);
+  });
+
   it("does not preselect a suggested Section when its title is ambiguous", async () => {
     responseCollection = {
       id: "continual-learning",
@@ -309,6 +347,25 @@ describe("Research workspace", () => {
     expect((screen.getByLabelText("Collection") as HTMLSelectElement).value).toBe("continual-learning");
     expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("");
     expect(screen.getAllByRole("option", { name: "Regularization" })).toHaveLength(2);
+  });
+
+  it("allows manual destination choice when the suggested Section is missing", async () => {
+    responseCollection = {
+      ...responseCollection,
+      nodes: [],
+    };
+    const onCreate = vi.fn();
+    render(<ResearchCreateNoteDialog title="A New Regularization Method" busy={false} suggestedCollectionId="continual-learning" suggestedSection="Regularization" allowedCollectionIds={["continual-learning"]} onClose={() => undefined} onCreate={onCreate} />);
+
+    expect(await screen.findByText(/was not found; choose a section manually/)).toBeTruthy();
+    const createButton = screen.getByRole("button", { name: "Create" });
+    expect(createButton.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(createButton);
+    expect(onCreate).toHaveBeenCalledWith({
+      document_type: "paper-note",
+      template: "structured",
+      collection_id: "continual-learning",
+    });
   });
 
   it("queues custom Research dates as local calendar boundaries", async () => {

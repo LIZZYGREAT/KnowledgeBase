@@ -93,23 +93,40 @@ export function ResearchCreateNoteDialog({
   const [sections, setSections] = useState<Array<{ id: string; title: string; label: string }>>([]);
   const [loadError, setLoadError] = useState("");
   const [destinationHint, setDestinationHint] = useState("");
+  const [destinationResolving, setDestinationResolving] = useState(Boolean(suggestedCollectionId));
+  const [collectionSuggestionResolved, setCollectionSuggestionResolved] = useState(!suggestedCollectionId);
 
   useEffect(() => {
     let active = true;
+    if (suggestedCollectionId) {
+      setDestinationResolving(true);
+      setCollectionSuggestionResolved(false);
+    }
     void listCollections("active").then((values) => {
       if (!active) return;
       setCollections(values);
-      if (!suggestedCollectionId) return;
+      if (!suggestedCollectionId) {
+        setDestinationResolving(false);
+        return;
+      }
       const suggested = values.find((collection) => collection.id === suggestedCollectionId);
       if (!allowedCollectionIds.includes(suggestedCollectionId)) {
         setDestinationHint(`Suggested Collection ${suggestedCollectionId} is no longer in this Profile's context.`);
+        setDestinationResolving(false);
       } else if (!suggested) {
         setDestinationHint(`Suggested Collection ${suggestedCollectionId} is not currently active.`);
+        setDestinationResolving(false);
       } else {
         setCollectionId(suggested.id);
+        if (!suggestedSection) setDestinationResolving(false);
       }
     }).catch((reason: unknown) => {
-      if (active) setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection 列表。");
+      if (active) {
+        setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection 列表。");
+        setDestinationResolving(false);
+      }
+    }).finally(() => {
+      if (active) setCollectionSuggestionResolved(true);
     });
     return () => { active = false; };
   }, [allowedCollectionIds, suggestedCollectionId]);
@@ -118,8 +135,13 @@ export function ResearchCreateNoteDialog({
     let active = true;
     if (!collectionId) {
       setSections([]);
+      if (collectionSuggestionResolved) setDestinationResolving(false);
       return () => { active = false; };
     }
+    const resolvingSuggestedSection = Boolean(
+      suggestedSection && collectionId === suggestedCollectionId,
+    );
+    setDestinationResolving(resolvingSuggestedSection);
     setSectionId("");
     setDestinationHint("");
     setLoadError("");
@@ -145,13 +167,16 @@ export function ResearchCreateNoteDialog({
       }
     }).catch((reason: unknown) => {
       if (active) setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection Sections。");
+    }).finally(() => {
+      if (active) setDestinationResolving(false);
     });
     return () => { active = false; };
-  }, [collectionId, suggestedCollectionId, suggestedSection]);
+  }, [collectionId, collectionSuggestionResolved, suggestedCollectionId, suggestedSection]);
 
   return <div className="research-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="research-dismiss-dialog research-create-note-dialog" role="dialog" aria-modal="true" aria-labelledby="research-create-note-title" onSubmit={(event) => {
       event.preventDefault();
+      if (busy || destinationResolving) return;
       onCreate({
         document_type: documentType,
         template,
@@ -164,10 +189,11 @@ export function ResearchCreateNoteDialog({
       <label className="field-label">Template<select aria-label="Note template" value={template} onChange={(event) => setTemplate(event.target.value as ResearchNoteOptions["template"])}><option value="structured">Structured skeleton</option><option value="blank">Blank</option></select></label>
       <label className="field-label">Collection<select aria-label="Collection" value={collectionId} onChange={(event) => setCollectionId(event.target.value)}><option value="">No Collection</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}</select></label>
       {collectionId && <label className="field-label">Section<select aria-label="Section" value={sectionId} onChange={(event) => setSectionId(event.target.value)}><option value="">Collection root</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}</select></label>}
+      {destinationResolving && <p className="field-hint" role="status">Resolving suggested destination…</p>}
       {destinationHint && <p className="field-hint" role="status">{destinationHint}</p>}
       {loadError && <p className="error-copy" role="alert">{loadError}</p>}
       <p className="subtle-copy">只创建笔记骨架。Source、Document 与可选 Collection 会作为 Draft 进入 Workspace 批量审阅。</p>
-      <div className="editor-main-actions"><button className="button button-secondary" type="button" disabled={busy} onClick={onClose}>取消</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? "正在创建…" : "Create"}</button></div>
+      <div className="editor-main-actions"><button className="button button-secondary" type="button" disabled={busy} onClick={onClose}>取消</button><button className="button button-primary" type="submit" disabled={busy || destinationResolving}>{busy ? "正在创建…" : "Create"}</button></div>
     </form>
   </div>;
 }
