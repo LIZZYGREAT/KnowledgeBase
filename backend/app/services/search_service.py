@@ -43,6 +43,8 @@ _MATCH_PRIORITY = {"exact id": 5, "title": 4, "alias": 3, "full text": 2, "evide
 _USAGE_ALPHA = 0.4
 _USAGE_BETA = 0.2
 _USAGE_MAX_BOOST = 3.0
+_ENTITY_ID_BATCH_SIZE = 500
+_MAX_SCOPED_EVIDENCE_RESULTS = 200
 _CJK_CHARACTERS = re.compile(
     r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]"
 )
@@ -75,56 +77,70 @@ class SearchService:
         normalized_query = normalize_key(query)
         results: Dict[tuple, SearchResult] = {}
 
-        documents = self.connection.execute(
-            """SELECT d.*, COALESCE(s.view_count, 0) AS view_count,
-                      COALESCE(s.search_click_count, 0) AS search_click_count
-               FROM document_index d
-               LEFT JOIN document_stats s ON s.document_id = d.entity_id"""
-        ).fetchall()
-        terms = self.connection.execute("SELECT * FROM term_index").fetchall()
-        sources = self.connection.execute("SELECT * FROM source_index").fetchall()
-
-        for row in documents:
-            if not _entity_allowed(allowed_entities, "document", row["entity_id"]):
-                continue
-            metadata = json.loads(row["metadata_json"])
-            self._offer(
-                results, "document", row["entity_id"], row["title"], row["path"],
-                metadata, row["view_count"], row["search_click_count"],
-                _canonical_match(query, normalized_query, row["entity_id"], row["title"]),
-                100.0 if query and query.casefold() == row["entity_id"].casefold()
-                else 80.0 if query and normalized_query == normalize_key(row["title"])
-                else 0.0,
-                "",
-                filter_values,
+        for batch in _entity_id_batches(allowed_entities, "document"):
+            scope_clause = "" if batch is None else " WHERE d.entity_id IN ({})".format(
+                ", ".join("?" for _ in batch)
             )
+            documents = self.connection.execute(
+                """SELECT d.*, COALESCE(s.view_count, 0) AS view_count,
+                          COALESCE(s.search_click_count, 0) AS search_click_count
+                   FROM document_index d
+                   LEFT JOIN document_stats s ON s.document_id = d.entity_id{}""".format(
+                    scope_clause
+                ),
+                () if batch is None else tuple(batch),
+            ).fetchall()
+            for row in documents:
+                metadata = json.loads(row["metadata_json"])
+                self._offer(
+                    results, "document", row["entity_id"], row["title"], row["path"],
+                    metadata, row["view_count"], row["search_click_count"],
+                    _canonical_match(query, normalized_query, row["entity_id"], row["title"]),
+                    100.0 if query and query.casefold() == row["entity_id"].casefold()
+                    else 80.0 if query and normalized_query == normalize_key(row["title"])
+                    else 0.0,
+                    "",
+                    filter_values,
+                )
 
-        for row in terms:
-            if not _entity_allowed(allowed_entities, "term", row["entity_id"]):
-                continue
-            metadata = json.loads(row["metadata_json"])
-            aliases = json.loads(row["aliases_json"])
-            match = _canonical_match(query, normalized_query, row["entity_id"], row["title"])
-            score = 100.0 if match == "exact id" else 80.0 if match == "title" else 0.0
-            if query and match is None and normalized_query in {
-                normalize_key(alias) for alias in aliases
-            }:
-                match, score = "alias", 70.0
-            self._offer(
-                results, "term", row["entity_id"], row["title"], row["path"],
-                metadata, 0, 0, match, score, "", filter_values,
+        for batch in _entity_id_batches(allowed_entities, "term"):
+            scope_clause = "" if batch is None else " WHERE entity_id IN ({})".format(
+                ", ".join("?" for _ in batch)
             )
+            terms = self.connection.execute(
+                "SELECT * FROM term_index{}".format(scope_clause),
+                () if batch is None else tuple(batch),
+            ).fetchall()
+            for row in terms:
+                metadata = json.loads(row["metadata_json"])
+                aliases = json.loads(row["aliases_json"])
+                match = _canonical_match(query, normalized_query, row["entity_id"], row["title"])
+                score = 100.0 if match == "exact id" else 80.0 if match == "title" else 0.0
+                if query and match is None and normalized_query in {
+                    normalize_key(alias) for alias in aliases
+                }:
+                    match, score = "alias", 70.0
+                self._offer(
+                    results, "term", row["entity_id"], row["title"], row["path"],
+                    metadata, 0, 0, match, score, "", filter_values,
+                )
 
-        for row in sources:
-            if not _entity_allowed(allowed_entities, "source", row["entity_id"]):
-                continue
-            metadata = json.loads(row["metadata_json"])
-            match = _canonical_match(query, normalized_query, row["entity_id"], row["title"])
-            score = 100.0 if match == "exact id" else 80.0 if match == "title" else 0.0
-            self._offer(
-                results, "source", row["entity_id"], row["title"], row["path"],
-                metadata, 0, 0, match, score, "", filter_values,
+        for batch in _entity_id_batches(allowed_entities, "source"):
+            scope_clause = "" if batch is None else " WHERE entity_id IN ({})".format(
+                ", ".join("?" for _ in batch)
             )
+            sources = self.connection.execute(
+                "SELECT * FROM source_index{}".format(scope_clause),
+                () if batch is None else tuple(batch),
+            ).fetchall()
+            for row in sources:
+                metadata = json.loads(row["metadata_json"])
+                match = _canonical_match(query, normalized_query, row["entity_id"], row["title"])
+                score = 100.0 if match == "exact id" else 80.0 if match == "title" else 0.0
+                self._offer(
+                    results, "source", row["entity_id"], row["title"], row["path"],
+                    metadata, 0, 0, match, score, "", filter_values,
+                )
 
         if query:
             fts_query = _fts_query(query)
@@ -175,23 +191,8 @@ class SearchService:
         else:
             usage_columns = ", 0 AS view_count, 0 AS search_click_count"
             usage_join = ""
-        allowed_ids = (
-            None
-            if allowed_entities is None
-            else sorted(
-                entity_id
-                for allowed_type, entity_id in allowed_entities
-                if allowed_type == entity_type
-            )
-        )
-        batches = (
-            [None]
-            if allowed_ids is None
-            else [allowed_ids[start : start + 500] for start in range(0, len(allowed_ids), 500)]
-        )
+        batches = _entity_id_batches(allowed_entities, entity_type)
         for batch in batches:
-            if batch == []:
-                continue
             scope_clause = (
                 ""
                 if batch is None
@@ -248,28 +249,23 @@ class SearchService:
         else:
             rows = []
             for entity_type in ("document", "term"):
-                allowed_ids = sorted(
-                    entity_id
-                    for allowed_type, entity_id in allowed_entities
-                    if allowed_type == entity_type
-                )
-                for start in range(0, len(allowed_ids), 500):
-                    batch = allowed_ids[start : start + 500]
+                for batch in _entity_id_batches(allowed_entities, entity_type):
                     placeholders = ", ".join("?" for _ in batch)
-                    rows.extend(
-                        self.connection.execute(
-                            """SELECT evidence_fts.evidence_id, evidence_index.entity_id,
-                                      bm25(evidence_fts, 1.0, 0.0, 1.0) AS rank,
-                                      snippet(evidence_fts, 2, '<mark>', '</mark>', '…', 12) AS snippet
-                               FROM evidence_fts JOIN evidence_index
-                                 ON evidence_index.id = evidence_fts.evidence_id
-                               WHERE evidence_fts MATCH ?
-                                 AND evidence_index.entity_type = ?
-                                 AND evidence_index.entity_id IN ({})
-                               ORDER BY rank""".format(placeholders),
-                            (fts_query, entity_type, *batch),
-                        ).fetchall()
-                    )
+                    batch_rows = self.connection.execute(
+                        """SELECT evidence_fts.evidence_id, evidence_index.entity_id,
+                                  bm25(evidence_fts, 1.0, 0.0, 1.0) AS rank,
+                                  snippet(evidence_fts, 2, '<mark>', '</mark>', '…', 12) AS snippet
+                           FROM evidence_fts JOIN evidence_index
+                             ON evidence_index.id = evidence_fts.evidence_id
+                           WHERE evidence_fts MATCH ?
+                             AND evidence_index.entity_type = ?
+                             AND evidence_index.entity_id IN ({})
+                           ORDER BY rank LIMIT ?""".format(placeholders),
+                        (fts_query, entity_type, *batch, _MAX_SCOPED_EVIDENCE_RESULTS),
+                    ).fetchall()
+                    rows.extend(batch_rows)
+                    rows.sort(key=lambda row: (float(row["rank"]), row["evidence_id"]))
+                    del rows[_MAX_SCOPED_EVIDENCE_RESULTS:]
         for match in rows:
             evidence = self.connection.execute(
                 "SELECT * FROM evidence_index WHERE id = ?", (match["evidence_id"],)
@@ -321,48 +317,73 @@ class SearchService:
             predicates = " OR ".join(
                 "{} LIKE ? ESCAPE '\\'".format(column) for column in columns
             )
-            matches = self.connection.execute(
-                "SELECT entity_id FROM {} WHERE {}".format(table, predicates),
-                tuple(pattern for _ in columns),
-            ).fetchall()
-            for match in matches:
-                if not _entity_allowed(allowed_entities, entity_type, match["entity_id"]):
-                    continue
-                if entity_type == "document":
-                    row = self.connection.execute(
-                        """SELECT d.*, COALESCE(s.view_count, 0) AS view_count,
-                                  COALESCE(s.search_click_count, 0) AS search_click_count
-                           FROM document_index d LEFT JOIN document_stats s
-                             ON s.document_id = d.entity_id WHERE d.entity_id = ?""",
-                        (match["entity_id"],),
-                    ).fetchone()
-                else:
-                    row = self.connection.execute(
-                        "SELECT * FROM {} WHERE entity_id = ?".format(index_table),
-                        (match["entity_id"],),
-                    ).fetchone()
-                if row is None:
-                    continue
-                metadata = json.loads(row["metadata_json"])
-                self._offer(
-                    results,
-                    entity_type,
-                    row["entity_id"],
-                    row["title"],
-                    row["path"],
-                    metadata,
-                    row["view_count"] if entity_type == "document" else 0,
-                    row["search_click_count"] if entity_type == "document" else 0,
-                    "full text",
-                    40.0,
-                    "…{}…".format(query),
-                    filters,
+            for batch in _entity_id_batches(allowed_entities, entity_type):
+                scope_clause = "" if batch is None else "entity_id IN ({}) AND ".format(
+                    ", ".join("?" for _ in batch)
                 )
+                matches = self.connection.execute(
+                    "SELECT entity_id FROM {} WHERE {}({})".format(
+                        table, scope_clause, predicates
+                    ),
+                    (() if batch is None else tuple(batch))
+                    + tuple(pattern for _ in columns),
+                ).fetchall()
+                for match in matches:
+                    if entity_type == "document":
+                        row = self.connection.execute(
+                            """SELECT d.*, COALESCE(s.view_count, 0) AS view_count,
+                                      COALESCE(s.search_click_count, 0) AS search_click_count
+                               FROM document_index d LEFT JOIN document_stats s
+                                 ON s.document_id = d.entity_id WHERE d.entity_id = ?""",
+                            (match["entity_id"],),
+                        ).fetchone()
+                    else:
+                        row = self.connection.execute(
+                            "SELECT * FROM {} WHERE entity_id = ?".format(index_table),
+                            (match["entity_id"],),
+                        ).fetchone()
+                    if row is None:
+                        continue
+                    metadata = json.loads(row["metadata_json"])
+                    self._offer(
+                        results,
+                        entity_type,
+                        row["entity_id"],
+                        row["title"],
+                        row["path"],
+                        metadata,
+                        row["view_count"] if entity_type == "document" else 0,
+                        row["search_click_count"] if entity_type == "document" else 0,
+                        "full text",
+                        40.0,
+                        "…{}…".format(query),
+                        filters,
+                    )
 
-        evidence_ids = self.connection.execute(
-            "SELECT evidence_id FROM evidence_fts WHERE claim LIKE ? ESCAPE '\\'",
-            (pattern,),
-        ).fetchall()
+        if allowed_entities is None:
+            evidence_ids = self.connection.execute(
+                """SELECT evidence_id FROM evidence_fts
+                   WHERE claim LIKE ? ESCAPE '\\' ORDER BY evidence_id LIMIT ?""",
+                (pattern, _MAX_SCOPED_EVIDENCE_RESULTS),
+            ).fetchall()
+        else:
+            evidence_ids = []
+            for entity_type in ("document", "term"):
+                for batch in _entity_id_batches(allowed_entities, entity_type):
+                    placeholders = ", ".join("?" for _ in batch)
+                    batch_rows = self.connection.execute(
+                        """SELECT evidence_fts.evidence_id
+                           FROM evidence_fts JOIN evidence_index
+                             ON evidence_index.id = evidence_fts.evidence_id
+                           WHERE evidence_fts.claim LIKE ? ESCAPE '\\'
+                             AND evidence_index.entity_type = ?
+                             AND evidence_index.entity_id IN ({})
+                           ORDER BY evidence_fts.evidence_id LIMIT ?""".format(placeholders),
+                        (pattern, entity_type, *batch, _MAX_SCOPED_EVIDENCE_RESULTS),
+                    ).fetchall()
+                    evidence_ids.extend(batch_rows)
+                    evidence_ids.sort(key=lambda row: row["evidence_id"])
+                    del evidence_ids[_MAX_SCOPED_EVIDENCE_RESULTS:]
         for match in evidence_ids:
             evidence = self.connection.execute(
                 "SELECT * FROM evidence_index WHERE id = ?", (match["evidence_id"],)
@@ -463,6 +484,22 @@ def _entity_allowed(
     entity_id: str,
 ) -> bool:
     return allowed_entities is None or (entity_type, entity_id) in allowed_entities
+
+
+def _entity_id_batches(
+    allowed_entities: Optional[set[tuple[str, str]]], entity_type: str
+) -> list[Optional[list[str]]]:
+    if allowed_entities is None:
+        return [None]
+    allowed_ids = sorted(
+        entity_id
+        for allowed_type, entity_id in allowed_entities
+        if allowed_type == entity_type
+    )
+    return [
+        allowed_ids[start : start + _ENTITY_ID_BATCH_SIZE]
+        for start in range(0, len(allowed_ids), _ENTITY_ID_BATCH_SIZE)
+    ]
 
 
 def _filters_dict(filters) -> dict:

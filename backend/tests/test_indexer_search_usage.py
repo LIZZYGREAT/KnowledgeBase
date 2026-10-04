@@ -160,16 +160,94 @@ def test_search_allowed_entities_contract_excludes_unselected_entities(tmp_path)
     repository = _create_knowledge_tree(tmp_path / "repo")
     connection = connect_database(":memory:")
     Indexer(repository, connection).full_rebuild()
-
-    results = SearchService(connection).search(
-        "retains canonical facts",
-        allowed_entities={("document", "neural-indexing")},
-    )
-
-    assert results
-    assert {(result.entity_type, result.entity_id) for result in results} == {
-        ("document", "neural-indexing")
+    statements = []
+    connection.set_trace_callback(statements.append)
+    allowed_entities = {
+        ("document", "neural-indexing"),
+        ("term", "neural-indexing"),
+        ("source", "source-alpha"),
     }
+
+    results = SearchService(connection).search("", allowed_entities=allowed_entities)
+    connection.set_trace_callback(None)
+
+    assert {(result.entity_type, result.entity_id) for result in results} == allowed_entities
+    for table in ("document_index", "term_index", "source_index"):
+        table_reads = [
+            statement.casefold()
+            for statement in statements
+            if "from {} ".format(table) in statement.casefold()
+        ]
+        assert table_reads
+        assert all(" where " in statement for statement in table_reads)
+    connection.close()
+
+
+def test_scoped_evidence_search_caps_results_across_entity_batches(tmp_path):
+    repository = _create_knowledge_tree(tmp_path / "repo")
+    connection = connect_database(":memory:")
+    Indexer(repository, connection).full_rebuild()
+    template = connection.execute(
+        "SELECT * FROM document_index WHERE entity_id = ?", ("neural-indexing",)
+    ).fetchone()
+    for entity_id in ("a-scoped", "z-scoped"):
+        connection.execute(
+            """INSERT INTO document_index (
+                   entity_id, path, title, document_type, metadata_json, content_hash
+               ) VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                entity_id,
+                "knowledge/documents/{}.md".format(entity_id),
+                entity_id,
+                template["document_type"],
+                template["metadata_json"],
+                template["content_hash"],
+            ),
+        )
+
+    evidence = []
+    for entity_id in ("a-scoped", "z-scoped"):
+        for index in range(150):
+            evidence_id = "{}-evidence-{:03d}".format(entity_id, index)
+            claim = "bounded evidence result"
+            evidence.append(
+                (
+                    evidence_id,
+                    "document",
+                    entity_id,
+                    "knowledge/documents/{}.md".format(entity_id),
+                    "source-alpha",
+                    None,
+                    index + 1,
+                    "",
+                    claim,
+                )
+            )
+    connection.executemany(
+        """INSERT INTO evidence_index (
+               id, entity_type, entity_id, entity_path, source_id, locator,
+               line, citation, claim
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        evidence,
+    )
+    connection.executemany(
+        "INSERT INTO evidence_fts (evidence_id, entity_id, claim) VALUES (?, ?, ?)",
+        [(row[0], row[2], row[8]) for row in evidence],
+    )
+    connection.commit()
+
+    allowed_entities = {
+        ("document", "a-scoped"),
+        ("document", "z-scoped"),
+        *(('document', "b-{:03d}".format(index)) for index in range(499)),
+    }
+    offered = []
+    search = SearchService(connection)
+    search._offer = lambda *args, **kwargs: offered.append(args)
+
+    search._search_evidence({}, "bounded", {}, allowed_entities)
+
+    assert len(offered) == 200
     connection.close()
 
 
@@ -248,6 +326,12 @@ def test_search_supports_cjk_literal_substrings_in_canonical_text(tmp_path):
     assert not search.search("参数%")
     assert any(result.entity_type == "term" for result in search.search("术语定义"))
     assert any(result.entity_type == "source" for result in search.search("张三"))
+    scoped = search.search(
+        "参数", allowed_entities={("document", "chinese-note")}
+    )
+    assert [(result.entity_type, result.entity_id) for result in scoped] == [
+        ("document", "chinese-note")
+    ]
     connection.close()
 
 
