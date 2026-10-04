@@ -22,8 +22,6 @@ from backend.app.api.research_schemas import (
     ResearchQueuedRunView,
     ResearchResumeRequest,
     ResearchResumeResultView,
-    ResearchReactivationReviewRequest,
-    ResearchReactivationReviewView,
     ResearchSaveSourceResultView,
     ResearchRunListView,
     ResearchRunSummaryView,
@@ -67,31 +65,6 @@ async def get_profile(profile_id: str, request: Request):
         "latest_run": _run_summary(latest[0]) if latest else None,
         "resume_options": resume_options,
     }
-
-
-@router.post(
-    "/profiles/{profile_id}/reactivation-review",
-    response_model=ResearchReactivationReviewView,
-)
-async def review_profile_reactivation(
-    profile_id: str, body: ResearchReactivationReviewRequest, request: Request
-):
-    service = request.app.state.research_service
-    _require_profile(service, profile_id)
-    draft = request.app.state.draft_service.get(body.draft_id)
-    if draft.entity_type != "research_profile" or draft.entity_id != profile_id:
-        raise HTTPException(
-            status_code=422,
-            detail="Reactivation Review requires a Draft for this Research Profile",
-        )
-    preflight = request.app.state.publisher.preflight(draft.id)
-    if not preflight.valid:
-        raise HTTPException(
-            status_code=422,
-            detail="Research Profile Draft must pass preflight before Reactivation Review",
-        )
-    candidate = service.parse_profile_candidate(profile_id, draft.content)
-    return service.reactivation_review(candidate)
 
 
 @router.post(

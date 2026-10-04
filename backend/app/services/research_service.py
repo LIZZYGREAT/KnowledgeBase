@@ -192,245 +192,6 @@ class ResearchService:
         )
         return candidate
 
-    def reactivation_review(self, candidate: ResearchProfile) -> dict:
-        current = self.profile_registry.get(candidate.id)
-        if current is None:
-            return {
-                "required": False,
-                "triggers": [],
-                "streams": [],
-                "max_catchup_days": candidate.search.max_catchup_days,
-                "strategies": [],
-            }
-
-        triggers = []
-        if not current.enabled and candidate.enabled:
-            triggers.append("profile_enabled")
-        if not current.ai_analysis.enabled and candidate.ai_analysis.enabled:
-            triggers.append("ai_analysis_enabled")
-        if current.schedule.mode == "manual" and candidate.schedule.mode != "manual":
-            triggers.append("schedule_enabled")
-
-        if not _profile_can_discover(candidate):
-            return {
-                "required": False,
-                "triggers": [],
-                "streams": [],
-                "max_catchup_days": candidate.search.max_catchup_days,
-                "strategies": [],
-            }
-
-        candidate_streams = _active_search_stream_specs(candidate, self.query_builder)
-        current_streams = _active_search_stream_specs(current, self.query_builder)
-        whole_profile_reactivated = (
-            (not current.enabled and candidate.enabled)
-            or (not current.ai_analysis.enabled and candidate.ai_analysis.enabled)
-            or (current.schedule.mode == "manual" and candidate.schedule.mode != "manual")
-        )
-        if whole_profile_reactivated or not _profile_can_discover(current):
-            affected_streams = candidate_streams
-        else:
-            current_keys = {_stream_key(stream) for stream in current_streams}
-            affected_streams = tuple(
-                stream for stream in candidate_streams if _stream_key(stream) not in current_keys
-            )
-
-        if not affected_streams:
-            return {
-                "required": False,
-                "triggers": [],
-                "streams": [],
-                "max_catchup_days": candidate.search.max_catchup_days,
-                "strategies": [],
-            }
-
-        now = self._now()
-        cutoff = timedelta(days=candidate.search.max_catchup_days)
-        stale_streams = tuple(
-            stream
-            for stream in affected_streams
-            if (state := self.search_repository.get_state(
-                candidate.id, stream["lens_id"], stream["provider"], stream["query_key"]
-            )) is not None
-            and state.completed_through is not None
-            and now - _parse_timestamp(state.completed_through) > cutoff
-        )
-        if not stale_streams:
-            return {
-                "required": False,
-                "triggers": [],
-                "streams": [],
-                "max_catchup_days": candidate.search.max_catchup_days,
-                "strategies": [],
-            }
-
-        current_lenses = {lens.id: lens for lens in current.lenses}
-        for stream in stale_streams:
-            lens = next(lens for lens in candidate.lenses if lens.id == stream["lens_id"])
-            previous_lens = current_lenses.get(lens.id)
-            if lens.enabled and (previous_lens is None or not previous_lens.enabled):
-                trigger = "lens_enabled:{}".format(lens.id)
-                if trigger not in triggers:
-                    triggers.append(trigger)
-            if stream["provider"] not in current.providers.discovery:
-                trigger = "provider_enabled:{}".format(stream["provider"])
-                if trigger not in triggers:
-                    triggers.append(trigger)
-            if (
-                previous_lens is not None
-                and previous_lens.enabled
-                and stream["provider"] in current.providers.discovery
-                and all(
-                    _stream_key(existing) != _stream_key(stream)
-                    for existing in current_streams
-                )
-                and not whole_profile_reactivated
-            ):
-                trigger = "query_enabled:{}:{}".format(lens.id, stream["query_key"])
-                if trigger not in triggers:
-                    triggers.append(trigger)
-
-        if not triggers:
-            triggers.append("stream_enabled")
-        return {
-            "required": True,
-            "triggers": triggers,
-            "streams": list(stale_streams),
-            "max_catchup_days": candidate.search.max_catchup_days,
-            "strategies": ["last_window", "all", "from_now"],
-        }
-
-    def record_reactivation_choice(
-        self,
-        profile_id: str,
-        profile_content_hash: str,
-        strategy: str,
-        catchup_days: Optional[int] = None,
-        streams: Optional[Sequence[Mapping[str, str]]] = None,
-        now: Optional[datetime] = None,
-    ):
-        profile = self.profile_registry.get(profile_id)
-        if profile is None:
-            raise LookupError("Research Profile '{}' does not exist".format(profile_id))
-        if (
-            not isinstance(profile_content_hash, str)
-            or len(profile_content_hash) != 64
-            or any(character not in "0123456789abcdef" for character in profile_content_hash)
-        ):
-            raise ValueError("Research Profile content hash must be a lowercase SHA-256 digest")
-        if strategy not in {"last_window", "all", "from_now"}:
-            raise ValueError("Unknown Research reactivation strategy")
-        if strategy == "last_window":
-            if catchup_days is None:
-                catchup_days = profile.search.max_catchup_days
-            if isinstance(catchup_days, bool) or not isinstance(catchup_days, int) or catchup_days < 1:
-                raise ValueError("catchup_days must be a positive integer")
-        elif catchup_days is not None:
-            raise ValueError("catchup_days is only valid for the last_window strategy")
-        if streams is None:
-            normalized_streams = _active_search_stream_specs(profile, self.query_builder)
-        else:
-            normalized_streams = _normalize_stream_specs(streams)
-        timestamp = self._now() if now is None else _aware_utc(now, "now")
-        return self.control_event_repository.create(
-            profile_id,
-            "reactivation_choice",
-            {
-                "profile_content_hash": profile_content_hash,
-                "strategy": strategy,
-                "catchup_days": catchup_days,
-                "streams": list(normalized_streams),
-            },
-            timestamp,
-        )
-
-    def resolve_effective_resume_policy(
-        self, profile_id: str, profile_hash: str
-    ) -> Optional[tuple[ResumeStrategy, Optional[int], Optional[datetime]]]:
-        """Resolve a published reactivation choice for scheduled or incremental work."""
-        choice = self.control_event_repository.latest_reactivation_choice_for_hash(
-            profile_id, profile_hash
-        )
-        if choice is None:
-            return None
-
-        chosen_at = _parse_timestamp(choice["created_at"])
-        state = self.profile_state_repository.get(profile_id)
-        last_success = (
-            _parse_timestamp(state.last_successful_scheduled_run_at)
-            if state is not None and state.last_successful_scheduled_run_at is not None
-            else None
-        )
-        if last_success is not None and last_success >= chosen_at:
-            return None
-
-        latest_resume = self.control_event_repository.latest_resume(profile_id)
-        if latest_resume is not None and _parse_timestamp(latest_resume["created_at"]) >= chosen_at:
-            return None
-
-        strategy = choice["payload"].get("strategy")
-        catchup_days = choice["payload"].get("catchup_days")
-        if strategy not in {"last_window", "all", "from_now"}:
-            raise ValueError("Stored Research reactivation choice has an invalid strategy")
-        if strategy == "last_window":
-            if isinstance(catchup_days, bool) or not isinstance(catchup_days, int) or catchup_days < 1:
-                raise ValueError("Stored Research catchup_days must be a positive integer")
-        else:
-            catchup_days = None
-
-        if strategy in {"last_window", "from_now"}:
-            profile = self.profile_registry.get(profile_id)
-            if profile is None:
-                raise LookupError("Research Profile '{}' does not exist".format(profile_id))
-            active_streams = _active_search_stream_specs(profile, self.query_builder)
-            stored_streams = choice["payload"].get("streams")
-            if stored_streams is None:
-                stream_keys = {_stream_key(stream) for stream in active_streams}
-            else:
-                normalized_streams = _normalize_stream_specs(stored_streams)
-                active_keys = {_stream_key(stream) for stream in active_streams}
-                stream_keys = {_stream_key(stream) for stream in normalized_streams}
-                if stream_keys - active_keys:
-                    raise ValueError(
-                        "Stored Research reactivation choice references an inactive stream"
-                    )
-            floor = (
-                chosen_at
-                if strategy == "from_now"
-                else chosen_at - timedelta(days=catchup_days)
-            )
-            if not stream_keys or all(
-                (state := self.search_repository.get_state(
-                    profile_id,
-                    stream["lens_id"],
-                    stream["provider"],
-                    stream["query_key"],
-                )) is not None
-                and state.completed_through is not None
-                and _parse_timestamp(state.completed_through) >= floor
-                for stream in active_streams
-                if _stream_key(stream) in stream_keys
-            ):
-                return "all", None, None
-            self.watermarks.advance_streams_to_floor(
-                profile,
-                floor,
-                stream_keys=stream_keys,
-                audit_strategy="from_now" if strategy == "from_now" else None,
-                recorded_at=self._now(),
-            )
-            return strategy, catchup_days, chosen_at
-        return strategy, catchup_days, None
-
-    def materialize_pending_reactivation_boundary(
-        self, profile_id: str
-    ) -> Optional[tuple[ResumeStrategy, Optional[int], Optional[datetime]]]:
-        """Persist any pending boundary for the Profile's current canonical version."""
-        if self.profile_registry.get(profile_id) is None:
-            return None
-        profile_hash = self.profile_registry.content_hash(profile_id)
-        return self.resolve_effective_resume_policy(profile_id, profile_hash)
-
     def pause_profile(
         self, profile_id: str, paused_until: datetime, now: Optional[datetime] = None
     ):
@@ -683,11 +444,6 @@ class ResearchService:
         if canonical_profile is None:
             raise LookupError("Research Profile '{}' does not exist".format(profile_id))
         profile_hash = self.profile_registry.content_hash(profile_id)
-        reactivation_effective_at = None
-        if trigger == "scheduled" or manual_incremental:
-            policy = self.resolve_effective_resume_policy(profile_id, profile_hash)
-            if policy is not None:
-                resume_strategy, catchup_days_override, reactivation_effective_at = policy
         effective_config = _effective_config(
             canonical_profile,
             lens_overrides,
@@ -702,13 +458,7 @@ class ResearchService:
         execution_resume_strategy = resume_strategy
         execution_catchup_days_override = catchup_days_override
         execution_catchup_effective_at = catchup_effective_at
-        if reactivation_effective_at is not None:
-            # The stream-scoped floor is already durable. Apply ordinary incremental
-            # planning so unaffected streams keep their normal watermark behavior.
-            execution_resume_strategy = "all"
-            execution_catchup_days_override = None
-            execution_catchup_effective_at = None
-        elif execution_catchup_effective_at is not None:
+        if execution_catchup_effective_at is not None:
             # Resume catch-up already persisted its lower boundary at resume time.
             execution_resume_strategy = "all"
             execution_catchup_days_override = None
@@ -801,6 +551,20 @@ class ResearchService:
             self.watermarks.skip_profile_to_now(profile, now, queries)
             return self.run_repository.finish(
                 run.id, "success", {}, None, self._now()
+            )
+
+        latest_resume = self.control_event_repository.latest_resume(profile.id)
+        resume_is_pending = (
+            latest_resume is not None
+            and (
+                profile_state.last_successful_scheduled_run_at is None
+                or _parse_timestamp(latest_resume["created_at"])
+                > _parse_timestamp(profile_state.last_successful_scheduled_run_at)
+            )
+        )
+        if trigger == "scheduled" and not resume_is_pending:
+            self.watermarks.cap_stale_streams_to_max_catchup(
+                profile, queries, now
             )
 
         all_provider_names = tuple(
@@ -1347,83 +1111,6 @@ def _lens_for(profile: ResearchProfile, query: ResearchQuery):
     return lens
 
 
-def _active_search_stream_specs(
-    profile: ResearchProfile, query_builder: ResearchQueryBuilder
-) -> tuple[dict[str, str], ...]:
-    streams = [
-        {
-            "lens_id": query.lens_id,
-            "provider": provider,
-            "query_key": query.query_key,
-            "query_text": query.text,
-        }
-        for query in query_builder.build(profile)
-        for provider in profile.providers.discovery
-    ]
-    return tuple(
-        sorted(
-            streams,
-            key=lambda stream: (
-                stream["lens_id"],
-                stream["provider"],
-                stream["query_key"],
-            ),
-        )
-    )
-
-
-def _stream_key(stream: Mapping[str, str]) -> tuple[str, str, str]:
-    return stream["lens_id"], stream["provider"], stream["query_key"]
-
-
-def _normalize_stream_specs(
-    streams: Sequence[Mapping[str, str]],
-) -> tuple[dict[str, str], ...]:
-    if not isinstance(streams, (list, tuple)):
-        raise ValueError("Research reactivation streams must be a list")
-    normalized = []
-    seen = set()
-    for stream in streams:
-        if not isinstance(stream, Mapping):
-            raise ValueError("Research reactivation stream must be an object")
-        lens_id = stream.get("lens_id")
-        provider = stream.get("provider")
-        query_key = stream.get("query_key")
-        query_text = stream.get("query_text")
-        if (
-            not isinstance(lens_id, str)
-            or not lens_id.strip()
-            or not isinstance(provider, str)
-            or not provider.strip()
-            or not isinstance(query_text, str)
-            or not query_text.strip()
-            or not isinstance(query_key, str)
-            or len(query_key) != 64
-            or any(character not in "0123456789abcdef" for character in query_key)
-        ):
-            raise ValueError("Research reactivation stream is malformed")
-        normalized_stream = {
-            "lens_id": lens_id,
-            "provider": provider,
-            "query_key": query_key,
-            "query_text": query_text,
-        }
-        key = _stream_key(normalized_stream)
-        if key not in seen:
-            normalized.append(normalized_stream)
-            seen.add(key)
-    return tuple(
-        sorted(
-            normalized,
-            key=lambda stream: (
-                stream["lens_id"],
-                stream["provider"],
-                stream["query_key"],
-            ),
-        )
-    )
-
-
 def _parse_timestamp(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None or parsed.utcoffset() is None:
@@ -1558,12 +1245,3 @@ def _parse_override_datetime(value) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("Manual Research Run timestamps must include a timezone")
     return parsed.astimezone(timezone.utc)
-
-
-def _profile_can_discover(profile: ResearchProfile) -> bool:
-    return (
-        profile.enabled
-        and profile.ai_analysis.enabled
-        and any(lens.enabled for lens in profile.lenses)
-        and bool(profile.providers.discovery)
-    )

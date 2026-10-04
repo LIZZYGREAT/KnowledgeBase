@@ -1,7 +1,6 @@
 """Draft publishing API routes."""
 
 from dataclasses import asdict
-import hashlib
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -31,11 +30,6 @@ async def publish(body: PublishRequest, request: Request):
     publisher = request.app.state.publisher
     draft = request.app.state.draft_service.get(body.draft_id)
     if draft.entity_type != "research_profile":
-        if body.reactivation_strategy is not None:
-            raise HTTPException(
-                status_code=422,
-                detail="Reactivation strategy is only valid for a Research Profile Draft",
-            )
         return _published_view(
             publisher.publish(
                 body.draft_id,
@@ -58,33 +52,7 @@ async def publish(body: PublishRequest, request: Request):
                 status_code=409,
                 detail="Draft changed after review. Refresh the Publish Review before publishing.",
             )
-        service.materialize_pending_reactivation_boundary(draft.entity_id)
-        candidate = service.parse_profile_candidate(draft.entity_id, draft.content)
-        review = service.reactivation_review(candidate)
-        if review["required"] and body.reactivation_strategy is None:
-            raise HTTPException(
-                status_code=409,
-                detail="This Research Profile requires Reactivation Review before publishing.",
-            )
-        if not review["required"] and body.reactivation_strategy is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="The Profile reactivation state changed; review the Draft again.",
-            )
-
-        if body.reactivation_strategy is not None:
-            service.record_reactivation_choice(
-                draft.entity_id,
-                hashlib.sha256(draft.content.encode("utf-8")).hexdigest(),
-                body.reactivation_strategy,
-                catchup_days=(
-                    candidate.search.max_catchup_days
-                    if body.reactivation_strategy == "last_window"
-                    else None
-                ),
-                streams=review.get("streams", []),
-                now=service.now(),
-            )
+        service.parse_profile_candidate(draft.entity_id, draft.content)
         result = publisher.publish(
             body.draft_id,
             expected_revision=body.expected_revision,
@@ -111,13 +79,7 @@ async def publish_batch(body: BatchPublishRequest, request: Request):
             )
         try:
             for draft in profile_drafts:
-                service.materialize_pending_reactivation_boundary(draft.entity_id)
-                candidate = service.parse_profile_candidate(draft.entity_id, draft.content)
-                if service.reactivation_review(candidate)["required"]:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="Publish this Research Profile Draft individually to complete Reactivation Review.",
-                    )
+                service.parse_profile_candidate(draft.entity_id, draft.content)
             result = publisher.publish_batch(entries, body.commit_message)
         finally:
             lock.release()

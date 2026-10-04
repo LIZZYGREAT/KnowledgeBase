@@ -26,7 +26,6 @@ describe("Research workspace", () => {
   let responseDocuments: Array<{ id: string; title: string }> = [];
   let researchProfileDraft: Record<string, unknown> | null = null;
   let createDraftCreatedInThisFlow = true;
-  let reactivationReviewResponse = { required: false, triggers: [], streams: [], max_catchup_days: 30, strategies: [] };
 
   beforeEach(() => {
     responseProfileDetail = profileDetail;
@@ -36,7 +35,6 @@ describe("Research workspace", () => {
     responseDocuments = [];
     researchProfileDraft = null;
     createDraftCreatedInThisFlow = true;
-    reactivationReviewResponse = { required: false, triggers: [], streams: [], max_catchup_days: 30, strategies: [] };
     window.history.replaceState({}, "", "/research");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -62,7 +60,6 @@ describe("Research workspace", () => {
         return jsonResponse({ draft: researchProfileDraft, base_content: canonical, current_content: canonical, current_git_revision: "abc123", current_content_hash: "a".repeat(64), canonical_changed: false });
       }
       if (path === "/api/drafts/profile-draft-1/preflight") return jsonResponse({ draft_id: "profile-draft-1", valid: true, conflict: false, errors: [], warnings: [] });
-      if (path === "/api/research/profiles/continual-learning/reactivation-review" && init?.method === "POST") return jsonResponse(reactivationReviewResponse);
       if (path === "/api/publish" && init?.method === "POST") return jsonResponse({ draft_id: "profile-draft-1", entity_type: "research_profile", entity_id: "continual-learning", commit_revision: "def456", warnings: [] });
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
       if (path === "/api/research/candidates/candidate-1") return jsonResponse(responseCandidateDetail);
@@ -677,29 +674,19 @@ describe("Research workspace", () => {
     expect((screen.getByRole("checkbox", { name: "Alpha Research Notes" }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it("requires a reactivation choice before publishing an enabled Profile with an old watermark", async () => {
+  it("publishes a re-enabled Profile without a general catch-up review", async () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: { ...profile, enabled: false },
       canonical_content: stringify({ ...profile, enabled: false }, { lineWidth: 0 }),
     };
     responseProfileSummary = { ...profileSummary, enabled: false };
-    reactivationReviewResponse = {
-      required: true,
-      triggers: ["profile_enabled"],
-      streams: [{ lens_id: "regularization", provider: "arxiv", query_key: "a".repeat(64), query_text: "fisher information" }],
-      max_catchup_days: 30,
-      strategies: ["last_window", "all", "from_now"],
-    };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Edit Defaults" }));
     fireEvent.click(await screen.findByLabelText("Enable Research Profile"));
     fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
 
-    expect(await screen.findByRole("group", { name: "Reactivation Review" })).toBeTruthy();
-    const publishButton = screen.getByRole("button", { name: "Publish Defaults" });
-    expect(publishButton.hasAttribute("disabled")).toBe(true);
-    fireEvent.click(screen.getByLabelText("Catch up last 30 days"));
+    const publishButton = await screen.findByRole("button", { name: "Publish Defaults" });
     expect(publishButton.hasAttribute("disabled")).toBe(false);
     fireEvent.click(publishButton);
 
@@ -708,25 +695,8 @@ describe("Research workspace", () => {
       expect(JSON.parse(String(call?.[1]?.body))).toEqual({
         draft_id: "profile-draft-1",
         expected_revision: 1,
-        reactivation_strategy: "last_window",
       });
     });
-  });
-
-  it("labels a re-enabled Discovery Provider in Reactivation Review", async () => {
-    reactivationReviewResponse = {
-      required: true,
-      triggers: ["provider_enabled:openalex"],
-      streams: [{ lens_id: "regularization", provider: "openalex", query_key: "b".repeat(64), query_text: "fisher information" }],
-      max_catchup_days: 30,
-      strategies: ["last_window", "all", "from_now"],
-    };
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Defaults" }));
-    fireEvent.click(await screen.findByLabelText("Discovery Provider openalex"));
-    fireEvent.click(await screen.findByRole("button", { name: "Review Diff" }));
-
-    expect(await screen.findByText("启用 Discovery Provider：OpenAlex")).toBeTruthy();
   });
 
   it("opens the Source Draft in the Unified Workspace", async () => {

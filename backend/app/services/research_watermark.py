@@ -175,6 +175,43 @@ class ResearchWatermarkService:
                     return ("last_window", "all", "from_now")
         return ("all",)
 
+    def cap_stale_streams_to_max_catchup(
+        self,
+        profile: ResearchProfile,
+        queries: tuple[ResearchQuery, ...],
+        now: datetime,
+    ) -> tuple[ResearchSearchStateRecord, ...]:
+        """Persist a stable bounded catch-up floor for stale active streams."""
+        now_utc = _as_utc(now, "now")
+        cutoff = timedelta(days=profile.search.max_catchup_days)
+        stale_stream_keys = set()
+        for query in queries:
+            for provider in profile.providers.discovery:
+                state = self.repository.get_state(
+                    profile.id, query.lens_id, provider, query.query_key
+                )
+                watermark = _parse_stored_timestamp(
+                    state.completed_through if state is not None else None
+                )
+                overlap_floor = _parse_stored_timestamp(
+                    state.overlap_floor if state is not None else None
+                )
+                if (
+                    watermark is not None
+                    and overlap_floor is None
+                    and now_utc - watermark > cutoff
+                ):
+                    stale_stream_keys.add((query.lens_id, provider, query.query_key))
+        if not stale_stream_keys:
+            return ()
+        return self.advance_streams_to_floor(
+            profile,
+            now_utc - cutoff,
+            queries=queries,
+            stream_keys=stale_stream_keys,
+            recorded_at=now_utc,
+        )
+
     def mark_attempt(
         self,
         plan: ResearchSearchPlan,

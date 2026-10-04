@@ -320,14 +320,6 @@ export interface ResearchProfileDetail {
   latest_run: ResearchRunSummary | null;
   resume_options: Array<"catch_up" | "from_now">;
 }
-export type ResearchReactivationStrategy = "last_window" | "all" | "from_now";
-export interface ResearchReactivationReview {
-  required: boolean;
-  triggers: string[];
-  streams: Array<{ lens_id: string; provider: string; query_key: string; query_text: string }>;
-  max_catchup_days: number;
-  strategies: ResearchReactivationStrategy[];
-}
 export interface ResearchWork {
   id: string;
   canonical_key: string;
@@ -671,24 +663,15 @@ export function discardDraft(draftId: string, expectedRevision: number) {
   });
 }
 
-export function reviewResearchReactivation(profileId: string, draftId: string) {
-  return request<ResearchReactivationReview>(
-    `/api/research/profiles/${encodeURIComponent(profileId)}/reactivation-review`,
-    { method: "POST", body: JSON.stringify({ draft_id: draftId }) },
-  );
-}
-
 export function publishDraft(
   draftId: string,
   expectedRevision: number,
-  reactivationStrategy?: ResearchReactivationStrategy,
 ) {
   return request<PublishedDraft>("/api/publish", {
     method: "POST",
     body: JSON.stringify({
       draft_id: draftId,
       expected_revision: expectedRevision,
-      ...(reactivationStrategy ? { reactivation_strategy: reactivationStrategy } : {}),
     }),
   });
 }

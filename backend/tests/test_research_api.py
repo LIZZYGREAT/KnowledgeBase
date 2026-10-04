@@ -187,99 +187,9 @@ def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_pa
     connection.close()
 
 
-def test_profile_reactivation_review_and_publish_require_a_selected_strategy(tmp_path):
-    connection = _connection()
-    service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
-    profile = service.profile_registry.get("continual-learning")
-    draft = Draft(
-        id="profile-draft",
-        entity_type="research_profile",
-        entity_id=profile.id,
-        base_git_revision="revision",
-        base_content_hash="hash",
-        content="profile draft",
-        revision=1,
-        created_at=_NOW.isoformat(),
-        updated_at=_NOW.isoformat(),
-    )
-    publish_calls = []
-
-    def publish(*args, **kwargs):
-        publish_calls.append((args, kwargs))
-        return PublishedResult(
-            draft_id=draft.id,
-            entity_type="research_profile",
-            entity_id=profile.id,
-            path="config/research/profiles/continual-learning.yaml",
-            commit_revision="commit",
-        )
-
-    publisher = SimpleNamespace(
-        preflight=lambda draft_id: SimpleNamespace(valid=True),
-        publish=publish,
-    )
-    service.parse_profile_candidate = lambda profile_id, content: profile
-    review = {
-        "required": True,
-        "triggers": ["profile_enabled"],
-        "streams": [],
-        "max_catchup_days": profile.search.max_catchup_days,
-        "strategies": ["last_window", "all", "from_now"],
-    }
-    service.reactivation_review = lambda candidate: review
-    recorded = []
-    service.record_reactivation_choice = lambda profile_id, profile_content_hash, strategy, **kwargs: recorded.append(
-        (profile_id, profile_content_hash, strategy, kwargs)
-    )
-
-    application = FastAPI()
-    application.include_router(router)
-    application.include_router(publishing_router)
-    application.state.research_service = service
-    application.state.draft_service = SimpleNamespace(get=lambda draft_id: draft)
-    application.state.publisher = publisher
-
-    async def exercise_routes():
-        async with AsyncClient(
-            transport=ASGITransport(app=application), base_url="http://test"
-        ) as client:
-            reviewed = await client.post(
-                "/api/research/profiles/{}/reactivation-review".format(profile.id),
-                json={"draft_id": draft.id},
-            )
-            assert reviewed.status_code == 200
-            assert reviewed.json() == review
-
-            blocked = await client.post(
-                "/api/publish",
-                json={"draft_id": draft.id, "expected_revision": draft.revision},
-            )
-            assert blocked.status_code == 409
-            assert publish_calls == []
-            assert recorded == []
-
-            published = await client.post(
-                "/api/publish",
-                json={
-                    "draft_id": draft.id,
-                    "expected_revision": draft.revision,
-                    "reactivation_strategy": "last_window",
-                },
-            )
-            assert published.status_code == 200, published.json()
-            assert published.json()["commit_revision"] == "commit"
-            assert len(publish_calls) == 1
-            assert recorded[0][0] == profile.id
-            assert recorded[0][1] == hashlib.sha256(b"profile draft").hexdigest()
-            assert recorded[0][2] == "last_window"
-            assert recorded[0][3]["catchup_days"] == profile.search.max_catchup_days
-            assert recorded[0][3]["streams"] == []
-
-    asyncio.run(exercise_routes())
-    connection.close()
 
 
-def test_new_research_profile_can_publish_without_reactivation_review(tmp_path):
+def test_research_profile_publish_does_not_expose_reactivation_review(tmp_path):
     connection = _connection()
     service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
     profile = _profile().model_copy(update={"id": "llm-agents", "title": "LLM Agents"})
@@ -318,6 +228,11 @@ def test_new_research_profile_can_publish_without_reactivation_review(tmp_path):
         async with AsyncClient(
             transport=ASGITransport(app=application), base_url="http://test"
         ) as client:
+            removed_review = await client.post(
+                "/api/research/profiles/llm-agents/reactivation-review",
+                json={"draft_id": draft.id},
+            )
+            assert removed_review.status_code == 404
             response = await client.post(
                 "/api/publish",
                 json={"draft_id": draft.id, "expected_revision": draft.revision},

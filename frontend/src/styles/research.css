@@ -205,12 +205,6 @@
 .research-profile-preflight { display: grid; gap: 5px; }
 .research-profile-preflight p { margin: 0; }
 .research-profile-preflight ul { margin: 0; padding-left: 20px; }
-.research-profile-reactivation { display: grid; gap: 8px; margin: 0; border: 1px solid #e6d4a5; border-radius: 8px; padding: 12px; color: #68542b; background: #fffaf0; }
-.research-profile-reactivation legend { padding: 0 5px; font-size: var(--text-sm); font-weight: 700; }
-.research-profile-reactivation p, .research-profile-reactivation ul { margin: 0; font-size: var(--text-xs); line-height: 1.5; }
-.research-profile-reactivation ul { padding-left: 19px; }
-.research-profile-reactivation label { display: flex; align-items: flex-start; gap: 8px; color: #5f563f; font-size: var(--text-sm); cursor: pointer; }
-.research-profile-reactivation input { margin-top: 3px; accent-color: #977525; }
 .research-profile-editor-footer { align-items: center; justify-content: space-between; padding: 12px 22px 15px; }
 .research-profile-editor-footer > span { color: #929d95; font-size: var(--text-xs); }
 

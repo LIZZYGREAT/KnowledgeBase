@@ -223,7 +223,6 @@ class PublishRequest(APIModel):
     draft_id: str
     expected_revision: int = Field(ge=1)
     commit_message: Optional[str] = None
-    reactivation_strategy: Optional[Literal["last_window", "all", "from_now"]] = None
 
 
 class PublishedView(APIModel):
