@@ -246,9 +246,9 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("Initial Lens ID"), { target: { value: "rendering-quality" } });
     fireEvent.change(screen.getByLabelText("Initial Lens title"), { target: { value: "Rendering Quality" } });
     fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning regularization" } });
-    fireEvent.change(screen.getByLabelText("New Profile schedule"), { target: { value: "weekly" } });
-    fireEvent.change(screen.getByLabelText("New Profile breadth"), { target: { value: "explore" } });
-    fireEvent.change(screen.getByLabelText("New Profile inbox cap"), { target: { value: "12" } });
+    expect(screen.queryByLabelText("New Profile schedule")).toBeNull();
+    expect(screen.queryByLabelText("New Profile breadth")).toBeNull();
+    expect(screen.queryByLabelText("New Profile inbox cap")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));
 
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
@@ -261,9 +261,9 @@ describe("Research workspace", () => {
       title: "3D Gaussian Splatting",
       description: "New view synthesis work.",
       lenses: [{ id: "rendering-quality", title: "Rendering Quality", queries: ["continual learning regularization"] }],
-      schedule: { mode: "weekly" },
-      search: { breadth: "explore" },
-      inbox: { max_new_candidates: 12 },
+      schedule: { mode: "daily" },
+      search: { breadth: "balanced" },
+      inbox: { max_new_candidates: 20 },
       providers: { discovery: ["arxiv"], enrichment: [] },
     });
   });
@@ -271,6 +271,9 @@ describe("Research workspace", () => {
   it("duplicates a Profile's canonical settings into a new Draft", async () => {
     const created = vi.fn();
     render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={profile as unknown as ResearchProfile} onClose={() => undefined} onCreated={created} />);
+    expect(screen.queryByLabelText("Initial Lens ID")).toBeNull();
+    expect(screen.queryByLabelText("Initial Query")).toBeNull();
+    expect(screen.queryByLabelText("New Profile schedule")).toBeNull();
     fireEvent.change(screen.getByLabelText("New Profile ID"), { target: { value: "continual-learning-copy" } });
     fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Continual Learning Copy" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Draft" }));

@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { stringify } from "yaml";
 import {
   createDraft,
-  type ResearchBreadth,
   type ResearchProfile,
   type ResearchProfileSummary,
 } from "./api";
@@ -25,9 +24,6 @@ export function ResearchProfileCreateDialog({
   const [lensId, setLensId] = useState("initial-lens");
   const [lensTitle, setLensTitle] = useState("Initial Research Lens");
   const [initialQuery, setInitialQuery] = useState("");
-  const [schedule, setSchedule] = useState<ResearchProfile["schedule"]["mode"]>(sourceProfile?.schedule.mode ?? "daily");
-  const [breadth, setBreadth] = useState<ResearchBreadth>(sourceProfile?.search.breadth ?? "balanced");
-  const [inboxCapacity, setInboxCapacity] = useState(sourceProfile?.inbox.max_new_candidates ?? 20);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -59,11 +55,6 @@ export function ResearchProfileCreateDialog({
       setError("Initial Query 不能为空。");
       return;
     }
-    if (!Number.isInteger(inboxCapacity) || inboxCapacity < 0) {
-      setError("Inbox cap 必须是 0 或更大的整数。");
-      return;
-    }
-
     const profile: ResearchProfile = sourceProfile
       ? { ...sourceProfile, id: normalizedId, title: normalizedTitle, description: description.trim() || null }
       : {
@@ -84,9 +75,9 @@ export function ResearchProfileCreateDialog({
         exclude_terms: [],
         providers: { discovery: ["arxiv"], enrichment: [] },
         context: { collections: [], documents: [], dynamic_retrieval: { enabled: true, scope: "entire-library" } },
-        schedule: { mode: schedule },
-        search: { breadth, initial_lookback_days: 30, max_catchup_days: 30, max_candidates_per_run: 10, max_analyses_per_run: 30 },
-        inbox: { max_new_candidates: inboxCapacity },
+        schedule: { mode: "daily" },
+        search: { breadth: "balanced", initial_lookback_days: 30, max_catchup_days: 30, max_candidates_per_run: 10, max_analyses_per_run: 30 },
+        inbox: { max_new_candidates: 20 },
         ai_analysis: { enabled: true, provider: "deepseek" },
       };
 
@@ -115,13 +106,10 @@ export function ResearchProfileCreateDialog({
         <label className="field-label">Profile ID<input aria-label="New Profile ID" value={id} onChange={(event) => setId(event.target.value)} placeholder="e.g. llm-agents" autoFocus /></label>
         <label className="field-label">Profile title<input aria-label="New Profile title" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <label className="field-label">Description<textarea aria-label="New Profile description" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-        {sourceProfile ? <p className="field-hint">复制 Providers、Context、Lens 和搜索限制；创建后仍可在 Defaults 编辑。</p> : <>
+        {sourceProfile ? <p className="field-hint">复制现有 Defaults；下一步可检查并调整。</p> : <>
           <label className="field-label">Initial Lens ID<input aria-label="Initial Lens ID" value={lensId} onChange={(event) => setLensId(event.target.value)} /></label>
           <label className="field-label">Initial Lens title<input aria-label="Initial Lens title" value={lensTitle} onChange={(event) => setLensTitle(event.target.value)} /></label>
           <label className="field-label">Initial Query<input aria-label="Initial Query" value={initialQuery} onChange={(event) => setInitialQuery(event.target.value)} placeholder="e.g. regularization continual learning" /></label>
-          <label className="field-label">Schedule<select aria-label="New Profile schedule" value={schedule} onChange={(event) => setSchedule(event.target.value as ResearchProfile["schedule"]["mode"])}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="manual">Manual only</option></select></label>
-          <label className="field-label">Breadth<select aria-label="New Profile breadth" value={breadth} onChange={(event) => setBreadth(event.target.value as ResearchBreadth)}><option value="strict">Strict</option><option value="balanced">Balanced</option><option value="explore">Explore</option></select></label>
-          <label className="field-label">Inbox cap<input aria-label="New Profile inbox cap" type="number" min={0} step={1} value={inboxCapacity} onChange={(event) => setInboxCapacity(event.target.value === "" ? -1 : Number(event.target.value))} /></label>
         </>}
         <footer className="research-dialog-actions">
           <button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button>
