@@ -12,7 +12,13 @@ import type { ResearchCandidateListItem, ResearchProfile, ResearchRun, ResearchR
 
 vi.mock("../../src/Workspace", async () => {
   const React = await import("react");
-  return { WorkspacePage: () => React.createElement("div", null, "Source Workspace") };
+  return {
+    WorkspacePage: (props: { openMetadataOnLoad?: boolean }) => React.createElement(
+      "div",
+      null,
+      props.openMetadataOnLoad ? "Source Metadata Editor" : "Source Workspace",
+    ),
+  };
 });
 
 const runRequestId = "research-request-123";
@@ -167,6 +173,18 @@ describe("Research workspace", () => {
     />);
     fireEvent.click(screen.getByRole("button", { name: "Open to fix" }));
     expect(openEntity).toHaveBeenCalledWith("/sources/source-one?edit=1");
+  });
+
+  it("routes the ambiguity repair link to Source metadata editing", async () => {
+    responseCandidateDetail = {
+      ...candidateDetail,
+      conversion_blocker: "ambiguous_source",
+      source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["title_author_year"] }],
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Why this candidate/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open to fix" }));
+    expect(await screen.findByText("Source Metadata Editor")).toBeTruthy();
   });
 
   it("queues a manual run without executing it in the page request", async () => {
@@ -835,7 +853,7 @@ describe("Research workspace", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Save Source" }));
 
-    expect(await screen.findByText("Source Workspace")).toBeTruthy();
+    expect(await screen.findByText("Source Metadata Editor")).toBeTruthy();
     expect(window.location.pathname).toBe("/sources/research-paper");
     expect(window.location.search).toBe("?edit=1");
   });

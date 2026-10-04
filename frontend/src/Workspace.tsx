@@ -20,6 +20,7 @@ export function WorkspacePage({
   batchCollectionId,
   additionalDraftIds = [],
   researchGroupId,
+  openMetadataOnLoad = false,
 }: {
   type: EntityType;
   id: string;
@@ -29,6 +30,7 @@ export function WorkspacePage({
   batchCollectionId?: string;
   additionalDraftIds?: string[];
   researchGroupId?: string;
+  openMetadataOnLoad?: boolean;
 }) {
   const workspaceDraft = useWorkspaceDraft(type, id);
   useEffect(() => {
@@ -54,6 +56,9 @@ export function WorkspacePage({
     researchGroupId,
     returnCollectionId: collectionId ?? batchCollectionId,
   });
+  useEffect(() => {
+    if (openMetadataOnLoad) workspaceEditorController.setActiveDrawer("metadata");
+  }, [id, openMetadataOnLoad, type, workspaceEditorController.setActiveDrawer]);
   const batchMode = Boolean(batchCollectionId || additionalDraftIds.length);
 
   return (

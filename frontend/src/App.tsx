@@ -245,10 +245,11 @@ export default function App() {
   } else if (route.kind === "reader") {
     const query = new URLSearchParams(location.search);
     const collectionId = query.get("collection") ?? undefined;
+    const openMetadataOnLoad = route.entityType === "source" && query.get("edit") === "1";
     const batchCollectionId = query.get("publishAll") === "1" ? collectionId : undefined;
     const additionalDraftIds = query.get("publishAll") === "1" ? query.getAll("relatedDraft") : [];
     const researchGroupId = query.get("researchGroup") ?? undefined;
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} collectionId={collectionId} batchCollectionId={batchCollectionId} additionalDraftIds={additionalDraftIds} researchGroupId={researchGroupId} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} collectionId={collectionId} batchCollectionId={batchCollectionId} additionalDraftIds={additionalDraftIds} researchGroupId={researchGroupId} openMetadataOnLoad={openMetadataOnLoad} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;
