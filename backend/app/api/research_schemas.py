@@ -210,6 +210,13 @@ class ResearchSourceMatchCandidateView(APIModel):
     id: str
     title: str
     matched_by: list[str]
+    conflicts: list["ResearchSourceMatchConflictView"] = Field(default_factory=list)
+
+
+class ResearchSourceMatchConflictView(APIModel):
+    field: str
+    existing_value: str
+    discovered_value: str
 
 
 class ResearchPendingLinkView(APIModel):
@@ -226,6 +233,7 @@ class ResearchCandidateDetailView(APIModel):
     candidate: ResearchCandidateRecord
     work: ResearchWorkRecord
     analysis: ResearchWorkAnalysisRecord
+    recommended_score: float
     conversion_blocker: Optional[Literal["ambiguous_source"]] = None
     source_match_candidates: list[ResearchSourceMatchCandidateView] = Field(
         default_factory=list

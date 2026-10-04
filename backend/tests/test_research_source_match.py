@@ -107,6 +107,23 @@ def test_strong_identifiers_pointing_to_different_sources_are_ambiguous():
     ]
 
 
+def test_matching_strong_identifier_reports_conflicting_identifier_values():
+    work = _work(doi="10.1234/shared", openalex_id="W222")
+    source = _source(
+        doi="10.1234/shared",
+        openalex_id="W111",
+    )
+
+    result = find_matching_source((source,), work)
+
+    assert result.ambiguous is True
+    assert result.candidates[0].matched_by == ("doi",)
+    assert [
+        (item.field, item.existing_value, item.discovered_value)
+        for item in result.candidates[0].conflicts
+    ] == [("openalex_id", "W111", "W222")]
+
+
 def test_multiple_weak_source_candidates_are_ambiguous():
     work = _work(title="Same Research Paper", authors=("Ada Lovelace",), year=2026)
     first = _source(

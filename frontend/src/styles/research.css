@@ -111,6 +111,9 @@
 .research-source-ambiguity { display: grid; gap: 8px; border: 1px solid #efd4c7; border-radius: 9px; padding: 12px; background: #fff9f5; }
 .research-source-ambiguity > strong { color: #895b41; font-size: var(--text-sm); }
 .research-source-ambiguity > p { margin: 0; color: #896c5c; font-size: var(--text-xs); line-height: 1.6; }
+.research-source-conflict { display: grid; gap: 2px; border-left: 2px solid #d4a18d; padding-left: 8px; }
+.research-source-conflict strong { color: #895b41; }
+.research-source-conflict span { overflow-wrap: anywhere; }
 .research-technical-provenance, .research-run-technical-details { margin-top: 1px; }
 .research-technical-provenance > .research-detail-section, .research-run-technical-details > .research-detail-section { border-top: 1px solid #edf1ed; padding-top: 12px; }
 .research-detail-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-radius: 6px; padding: 7px 9px; background: #f8faf8; font-size: var(--text-xs); }

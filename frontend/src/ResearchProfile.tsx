@@ -41,7 +41,7 @@ export function ResearchProfilePanel({
   summary: ResearchProfileSummary;
   detail: ResearchProfileDetail;
   onRefresh: () => void;
-  onQueued: (requestId: string) => void;
+  onQueued: () => void;
   onEditDefaults: () => void;
 }) {
   const profile = detail.profile;
@@ -191,8 +191,8 @@ export function ResearchProfilePanel({
       ...(queryLines.length && additionalQueryTarget ? { additional_query_lens: additionalQueryTarget } : {}),
     };
     try {
-      const queued = await queueResearchRun(profile.id, input);
-      onQueued(queued.request_id);
+      await queueResearchRun(profile.id, input);
+      onQueued();
       setSearchOpen(false);
     } catch (reason) {
       setError(errorMessage(reason));
@@ -214,7 +214,7 @@ export function ResearchProfilePanel({
     <div className="research-profile-heading">
       <div>
         <div className="research-status-line">
-          <Chip tone={isPaused ? "amber" : summary.enabled ? "green" : "rose"}>{isPaused ? "Paused" : summary.enabled ? "Active" : "Disabled"}</Chip>
+          <Chip tone={isPaused ? "amber" : summary.enabled ? "green" : "rose"}>{isPaused ? "Auto paused" : summary.enabled ? "Active" : "Disabled"}</Chip>
           {!profile.ai_analysis.enabled && <Chip tone="amber">DeepSeek analysis off</Chip>}
           <span>{scheduledText}</span>
         </div>
@@ -230,8 +230,8 @@ export function ResearchProfilePanel({
     </div>
 
     {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 Search Now。</p>}
-    {isPaused && <p className="research-search-block-note" role="status">Automatic research is paused until {formatDate(pausedUntil)}. Manual Search Now remains available.</p>}
-    {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">DeepSeek analysis is off · 检索、确定性筛选和元数据补全仍会运行并保存 Discovery；不会构建或发送 Context，也不会生成 Candidate。重新启用后，每次 Run 最多分析 10 条符合当前 Lens 和 Query 的未分析 Discovery。</p>}
+    {isPaused && <p className="research-search-block-note" role="status">自动检索已暂停至 {formatDate(pausedUntil)}。手动搜索仍可使用。</p>}
+    {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">AI 分析已关闭。系统仍会收集论文，但不会向 DeepSeek 发送论文或知识库内容，也不会生成推荐候选。重新开启后，系统会逐步处理之前收集但尚未分析的论文。</p>}
     {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Lens。</p>}
 
     {isPaused && <div className="research-resume-bar">
@@ -266,7 +266,7 @@ export function ResearchProfilePanel({
       <div className="research-search-controls">
         <label className="field-label">时间范围<select value={dateMode === "incremental" ? "last_30_days" : dateMode} onChange={(event) => setDateMode(event.target.value as typeof dateMode)}><option value="last_7_days">最近 7 天</option><option value="last_30_days">最近 30 天</option><option value="last_90_days">最近 90 天</option><option value="custom">自定义</option></select></label>
       </div>
-      {dateMode === "incremental" && <p className="field-hint research-incremental-help">从已有的 Lens / Provider / Query Watermark 窗口检索；没有水位的新增 query 使用 Profile 初始回看天数。这是手动 Run，不会推进 scheduled Watermark。</p>}
+      {dateMode === "incremental" && <p className="field-hint research-incremental-help">从自动检索尚未覆盖的位置继续查到现在。这次手动搜索不会改变自动检索的进度。</p>}
       {dateMode === "custom" && <><div className="research-search-controls"><label className="field-label">开始日期<input type="date" max={localDateInputValue(new Date())} value={dateStart} onChange={(event) => setDateStart(event.target.value)} /></label><label className="field-label">结束日期<input type="date" max={localDateInputValue(new Date())} value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} /></label></div><p className="field-hint">结束日期按本地日历包含整天；选择今天时截至当前时刻。</p></>}
       <label className="field-label">额外检索词 <span className="field-hint">每行一条，最多 20 条</span><textarea rows={3} maxLength={40000} value={queries} onChange={(event) => setQueries(event.target.value)} placeholder="dynamic fisher continual learning" /></label>
       <details className="research-advanced-settings">
@@ -276,7 +276,7 @@ export function ResearchProfilePanel({
         {queries.split(/\r?\n/).some((query) => query.trim()) && selectedLenses.length > 1 && <label className="field-label">Additional Query Lens<select value={additionalQueryLens} onChange={(event) => setAdditionalQueryLens(event.target.value)}><option value="">自动选择相关性最高的 Search Focus</option>{profile.lenses.filter((lens) => selectedLenses.includes(lens.id)).map((lens) => <option key={lens.id} value={lens.id}>{lens.title} · {lens.priority}</option>)}</select><span className="field-hint">额外检索词默认使用所选 Search Focus 中相关性最高的一项，并继承其筛选规则。</span></label>}
       </details>
       {error && <p className="error-copy" role="alert">{error}</p>}
-      <div className="research-search-footer"><span>请求会进入本地队列，由 Research 调度器执行。</span><button className="button button-primary" disabled={busy || !selectedLenses.length}>{busy ? "正在排队…" : "加入搜索队列"}</button></div>
+      <div className="research-search-footer"><span>搜索会在后台排队执行，完成后结果会出现在 Inbox。</span><button className="button button-primary" disabled={busy || !selectedLenses.length}>{busy ? "正在排队…" : "加入搜索队列"}</button></div>
     </form>}
     {error && !searchOpen && <p className="error-copy research-inline-error" role="alert">{error}</p>}
     {notice && <p className="notice research-inline-notice" role="status">{notice}</p>}

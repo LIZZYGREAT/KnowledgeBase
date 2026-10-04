@@ -70,6 +70,7 @@ describe("Research workspace", () => {
       if (path === "/api/drafts/profile-draft-1/preflight") return jsonResponse({ draft_id: "profile-draft-1", valid: true, conflict: false, errors: [], warnings: [] });
       if (path === "/api/publish" && init?.method === "POST") return jsonResponse({ draft_id: "profile-draft-1", entity_type: "research_profile", entity_id: "continual-learning", commit_revision: "def456", warnings: [] });
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
+      if (path.startsWith("/api/research/candidates?") && path.includes("status=dismissed")) return jsonResponse({ candidates: [{ ...candidateListItem, candidate: { ...candidate, status: "dismissed" } }], count: 1, offset: 0, limit: 50 });
       if (path === "/api/research/candidates/candidate-1") return jsonResponse(responseCandidateDetail);
       if (path === "/api/research/runs?offset=0&limit=50&profile_id=continual-learning") return jsonResponse({ runs: [], count: 0 });
       if (path === "/api/research/profiles/continual-learning/runs" && init?.method === "POST") {
@@ -84,6 +85,7 @@ describe("Research workspace", () => {
         const body = JSON.parse(String(init.body));
         return jsonResponse({ ...candidate, status: "dismissed", dismiss_reason: body.reason ?? null });
       }
+      if (path === "/api/research/candidates/candidate-1/restore" && init?.method === "POST") return jsonResponse({ ...candidate, status: "new", dismiss_reason: null, decided_at: null });
       if (path === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH") return jsonResponse({ ...candidate, ...JSON.parse(String(init.body)), status: "shortlisted" });
       if (path === "/api/research/candidates/candidate-1/save-source" && init?.method === "POST") return jsonResponse({ action: "draft_created", source_id: "research-paper", draft_id: "source-draft-1", candidate });
       if (path === "/api/research/candidates/candidate-1/create-note" && init?.method === "POST") return jsonResponse({ group_id: "group-1", source_draft_id: "source-draft-1", document_draft_id: "document-draft-1", collection_draft_id: "collection-draft-1", collection_id: "continual-learning", document_id: "research-note-1", source_id: "research-paper" });
@@ -104,8 +106,8 @@ describe("Research workspace", () => {
       candidate: { ...candidateDetail.candidate, status: "shortlisted", user_note: "Read after the current batch." },
       conversion_blocker: "ambiguous_source",
       source_match_candidates: [
-        { id: "source-one", title: "A New Regularization Method", matched_by: ["title_author_year"] },
-        { id: "source-two", title: "A New Regularization Method (2017)", matched_by: ["title_author_year"] },
+        { id: "source-one", title: "A New Regularization Method", matched_by: ["title_author_year"], conflicts: [] },
+        { id: "source-two", title: "A New Regularization Method (2017)", matched_by: ["title_author_year"], conflicts: [] },
       ],
     };
     render(<App />);
@@ -116,21 +118,28 @@ describe("Research workspace", () => {
     expect(screen.getByText("Related knowledge")).toBeTruthy();
     expect(screen.getByText("Why read it")).toBeTruthy();
     expect(screen.queryByText("What may be new")).toBeNull();
-    expect(screen.getByText("Relevance: High")).toBeTruthy();
-    expect(screen.getByText("Library novelty: Medium")).toBeTruthy();
-    expect(screen.getByText(/排序信号/)).toBeTruthy();
+    expect(screen.queryByText("Relevance: High")).toBeNull();
+    expect(screen.queryByText("Library novelty: Medium")).toBeNull();
+    expect(screen.queryByText(/排序信号/)).toBeNull();
     expect(screen.queryByText("73% library novelty")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Why this candidate/ }));
     expect(await screen.findByRole("heading", { name: "Why this candidate" })).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toContain("为避免重复记录");
     expect(screen.getByText("可能已存在 2 个 Source")).toBeTruthy();
+    expect(screen.getByText("有多条 Source 同时匹配标题、第一作者和年份，请检查是否存在重复 Source。")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Open to fix" })).toHaveLength(2);
-    expect(screen.getByText(/模型语义信号（0–1）/)).toBeTruthy();
-    expect(screen.getByText("0.91")).toBeTruthy();
     const technical = screen.getByText("Technical provenance").closest("details") as HTMLDetailsElement;
     expect(technical.open).toBe(false);
+    const modelSignals = screen.getByText("Model signals").closest("details") as HTMLDetailsElement;
+    expect(modelSignals.open).toBe(false);
     fireEvent.click(screen.getByText("Technical provenance"));
+    expect(technical.open).toBe(true);
+    expect(modelSignals.open).toBe(false);
+    fireEvent.click(screen.getByText("Model signals"));
+    expect(screen.getByText("These are uncalibrated model signals. They are not paper quality scores or probabilities.")).toBeTruthy();
+    expect(screen.getByText("Recommended ranking score")).toBeTruthy();
+    expect(screen.getByText("0.84")).toBeTruthy();
     expect(screen.getByText("Matched query")).toBeTruthy();
     expect(screen.getByText("research-candidate-analysis-v1")).toBeTruthy();
     expect(screen.getAllByText("fisher information catastrophic forgetting").length).toBeGreaterThan(1);
@@ -162,24 +171,28 @@ describe("Research workspace", () => {
       detail={{
         ...candidateDetail,
         conversion_blocker: "ambiguous_source",
-        source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["title_author_year"] }],
+        source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["doi"], conflicts: [{ field: "openalex_id", existing_value: "W111", discovered_value: "W222" }] }],
       }}
       profile={profile as unknown as ResearchProfile}
       noteBusy={false}
       noteError=""
       onClose={() => undefined}
       onOpenEntity={openEntity}
+      onSaveSource={() => undefined}
       onSaveNote={() => undefined}
     />);
     fireEvent.click(screen.getByRole("button", { name: "Open to fix" }));
     expect(openEntity).toHaveBeenCalledWith("/sources/source-one?edit=1");
+    expect(screen.getByText("冲突：OpenAlex ID")).toBeTruthy();
+    expect(screen.getByText("现有：W111")).toBeTruthy();
+    expect(screen.getByText("本次发现：W222")).toBeTruthy();
   });
 
   it("routes the ambiguity repair link to Source metadata editing", async () => {
     responseCandidateDetail = {
       ...candidateDetail,
       conversion_blocker: "ambiguous_source",
-      source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["title_author_year"] }],
+      source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["title_author_year"], conflicts: [] }],
     };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: /Why this candidate/ }));
@@ -193,13 +206,24 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText(/额外检索词/), { target: { value: "dynamic fisher continual learning" } });
     fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
 
-    expect(await screen.findByText(/Search queued/)).toBeTruthy();
+    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
     expect(await screen.findByText("1 manual search queued")).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(call).toBeTruthy();
     const body = JSON.parse(String(call?.[1]?.body));
     expect(body).toMatchObject({ lenses: ["regularization"], breadth: "balanced", additional_queries: ["dynamic fisher continual learning"], additional_query_lens: "regularization" });
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
+  });
+
+  it("restores a dismissed candidate from History to the Inbox", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "History" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Restore to Inbox" }));
+
+    await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/restore" && init?.method === "POST")).toBe(true));
+    const newTab = await screen.findByRole("tab", { name: /New/ });
+    expect(newTab.getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByRole("heading", { name: "A New Regularization Method" })).toBeTruthy();
   });
 
   it("dismisses one candidate immediately without a reason prompt", async () => {
@@ -312,7 +336,7 @@ describe("Research workspace", () => {
     } satisfies ResearchRun;
     render(<ResearchRunDrawer run={run} onClose={() => undefined} />);
     expect(screen.getByText("42")).toBeTruthy();
-    expect(screen.getByText("Papers checked")).toBeTruthy();
+    expect(screen.getByText("Results checked")).toBeTruthy();
     expect(screen.getByText("8")).toBeTruthy();
     expect(screen.getByText("New works")).toBeTruthy();
     const overview = screen.getByRole("dialog", { name: "Research Run" }).querySelector(".research-run-overview") as HTMLElement;
@@ -377,7 +401,7 @@ describe("Research workspace", () => {
       onDetails={() => undefined}
       onShortlist={() => undefined}
       onDismiss={() => undefined}
-      onSaveSource={() => undefined}
+      onRestore={() => undefined}
       onCreateNote={() => undefined}
     />);
 
@@ -470,6 +494,22 @@ describe("Research workspace", () => {
       inbox: profile.inbox,
       ai_analysis: profile.ai_analysis,
     });
+  });
+
+  it("automatically adds a unique copy suffix when duplicating an existing Profile", async () => {
+    const created = vi.fn();
+    render(<ResearchProfileCreateDialog
+      profiles={[profileSummary, { ...profileSummary, id: "continual-learning-copy" }]}
+      sourceProfile={profile as unknown as ResearchProfile}
+      onClose={() => undefined}
+      onCreated={created}
+    />);
+
+    expect((screen.getByLabelText("New Profile ID") as HTMLInputElement).value).toBe("continual-learning-copy-2");
+    fireEvent.click(screen.getByRole("button", { name: "Create Research Profile" }));
+    await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
+    const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ entity_id: "continual-learning-copy-2" });
   });
 
   it("blocks Note creation until the suggested Section is resolved", async () => {
@@ -565,7 +605,7 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: endDate } });
     fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
 
-    expect(await screen.findByText(/Search queued/)).toBeTruthy();
+    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(call).toBeTruthy();
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
@@ -588,9 +628,9 @@ describe("Research workspace", () => {
 
     expect(screen.getByLabelText(/Additional Query Lens/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("从上次自动检索进度继续"));
-    expect(screen.getByText("从已有的 Lens / Provider / Query Watermark 窗口检索；没有水位的新增 query 使用 Profile 初始回看天数。这是手动 Run，不会推进 scheduled Watermark。")).toBeTruthy();
+    expect(screen.getByText("从自动检索尚未覆盖的位置继续查到现在。这次手动搜索不会改变自动检索的进度。")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
-    expect(await screen.findByText(/Search queued/)).toBeTruthy();
+    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
       lenses: ["regularization", "replay"],
@@ -611,7 +651,7 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(await screen.findByText(
-      "DeepSeek analysis is off · 检索、确定性筛选和元数据补全仍会运行并保存 Discovery；不会构建或发送 Context，也不会生成 Candidate。重新启用后，每次 Run 最多分析 10 条符合当前 Lens 和 Query 的未分析 Discovery。",
+      "AI 分析已关闭。系统仍会收集论文，但不会向 DeepSeek 发送论文或知识库内容，也不会生成推荐候选。重新开启后，系统会逐步处理之前收集但尚未分析的论文。",
     )).toBeTruthy();
     expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(false);
   });
@@ -667,12 +707,12 @@ describe("Research workspace", () => {
     };
     render(<App />);
 
-    expect(await screen.findByText(/Automatic research is paused until .* Manual Search Now remains available\./)).toBeTruthy();
+    expect(await screen.findByText(/自动检索已暂停至 .*。手动搜索仍可使用。/)).toBeTruthy();
     const searchButton = screen.getByRole("button", { name: "Search Now" });
     expect(searchButton.hasAttribute("disabled")).toBe(false);
     fireEvent.click(searchButton);
     fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
-    expect(await screen.findByText(/Search queued/)).toBeTruthy();
+    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
   });
 
   it("blocks manual search when the Inbox is full", async () => {
@@ -718,8 +758,8 @@ describe("Research workspace", () => {
 
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
     expect(screen.getByLabelText("Enable unattended DeepSeek analysis")).toBeTruthy();
-    expect(screen.getByText(/此选项只控制 AI 分析授权/)).toBeTruthy();
-    expect(screen.getByText(/重新启用后，每次 Run 最多分析 10 条/)).toBeTruthy();
+    expect(screen.getByText(/AI 分析已开启/)).toBeTruthy();
+    expect(screen.getByText(/论文标题、作者、摘要和所选或检索到的相关知识片段会发送给 DeepSeek/)).toBeTruthy();
     expect(screen.getByText(/筛选规则和搜索默认值的修改只影响后续 Research Run/)).toBeTruthy();
     fireEvent.click(screen.getByText("高级设置"));
     fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
@@ -733,10 +773,9 @@ describe("Research workspace", () => {
     fireEvent.click(screen.getByLabelText("Enrichment Provider crossref"));
     fireEvent.change(screen.getByLabelText("Profile title"), { target: { value: "Continual Learning Research" } });
     fireEvent.change(screen.getByLabelText("Profile description"), { target: { value: "Updated research direction." } });
-    fireEvent.change(screen.getByLabelText("New Lens ID"), { target: { value: "replay-methods" } });
-    fireEvent.change(screen.getByLabelText("New Lens title"), { target: { value: "Replay Methods" } });
-    fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "replay continual learning" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add Lens" }));
+    fireEvent.change(screen.getByLabelText("New Research Focus name"), { target: { value: "Regularization" } });
+    fireEvent.change(screen.getByLabelText("Initial search query"), { target: { value: "replay continual learning" } });
+    fireEvent.click(screen.getByRole("button", { name: "+ Add Research Focus" }));
     const originalLens = screen.getByLabelText("Lens regularization title").closest("article");
     fireEvent.click(within(originalLens as HTMLElement).getByText("高级筛选与标识"));
     fireEvent.click(within(originalLens as HTMLElement).getByRole("button", { name: "Remove Lens regularization" }));
@@ -757,9 +796,9 @@ describe("Research workspace", () => {
     const draftContent = String(researchProfileDraft?.content);
     expect(draftContent).toContain("title: Continual Learning Research");
     expect(draftContent).toContain("description: Updated research direction.");
-    expect(draftContent).toContain("id: replay-methods");
-    expect(draftContent).toContain("title: Replay Methods");
-    expect(draftContent).not.toContain("id: regularization");
+    expect(draftContent).toContain("id: regularization-2");
+    expect(draftContent).toContain("title: Regularization");
+    expect(parse(draftContent).lenses.map((lens: { id: string }) => lens.id)).toEqual(["regularization-2"]);
     expect(parse(draftContent)).toMatchObject({ lenses: [{ queries: ["query one", "query two"] }] });
     expect(draftContent).toContain("scope: selected-context");
     expect(draftContent).toContain("max_analyses_per_run: 30");
@@ -849,8 +888,9 @@ describe("Research workspace", () => {
     });
   });
 
-  it("opens the Source Draft in the Unified Workspace", async () => {
+  it("opens Save Source from candidate details in the Unified Workspace", async () => {
     render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Why this candidate/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Save Source" }));
 
     expect(await screen.findByText("Source Metadata Editor")).toBeTruthy();
@@ -957,6 +997,7 @@ const candidateListItem = { candidate, work, analysis, recommended_score: 0.84 }
 const candidateDetail = {
   candidate: { ...candidate, first_viewed_at: "2026-10-03T00:00:00+00:00", last_viewed_at: "2026-10-03T00:00:00+00:00" },
   work,
+  recommended_score: 0.84,
   analysis: { id: "analysis-1", work_id: work.id, profile_id: profile.id, input_hash: "sha256:abc", outcome: "surface", analysis, provider: "deepseek", model: "deepseek-chat", prompt_version: "research-candidate-analysis-v1", analysis_version: 1, context_entity_ids: ["gem-sgd"], input_context: { analysis_version: 1, prompt_version: "research-candidate-analysis-v1", provider: "deepseek", model: "deepseek-chat", work: { ...work }, profile: { id: profile.id, title: profile.title, description: profile.description, breadth: "balanced", breadth_policy: "Include work related to the core topic and adjacent methods." }, matched_lens: { ...profile.lenses[0] }, knowledge_context: { focus_query: "fisher information catastrophic forgetting", budget: 5, omitted_count: 0, cards: [{ entity_type: "document", entity_id: "gem-sgd", title: "Elastic Weight Consolidation", review_status: "reviewed", topics: ["continual-learning"], domains: [], relevant_sections: [{ heading: "Method", excerpt: "Snapshot excerpt used at analysis time." }], metadata: {}, pinned: true, retrieval_score: 0.9 }] } }, analyzed_at: "2026-10-03T00:00:00+00:00" },
   conversion_blocker: null,
   source_match_candidates: [],

@@ -18,8 +18,8 @@ export function ResearchProfileCreateDialog({
   onClose: () => void;
   onCreated: (profile: ResearchProfile, draftContent: string, draftCreatedInThisFlow: boolean) => void;
 }) {
-  const [id, setId] = useState(sourceProfile ? `${sourceProfile.id}-copy` : "");
-  const [profileIdManuallyEdited, setProfileIdManuallyEdited] = useState(Boolean(sourceProfile));
+  const [id, setId] = useState("");
+  const [profileIdManuallyEdited, setProfileIdManuallyEdited] = useState(false);
   const [title, setTitle] = useState(sourceProfile ? `${sourceProfile.title} Copy` : "");
   const [description, setDescription] = useState(sourceProfile?.description ?? "");
   const [lensId, setLensId] = useState("main");
@@ -30,7 +30,11 @@ export function ResearchProfileCreateDialog({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedTitle = title.trim();
-    const normalizedId = profileIdManuallyEdited ? id.trim() : uniqueProfileId(normalizedTitle, profiles);
+    const normalizedId = profileIdManuallyEdited
+      ? id.trim()
+      : sourceProfile
+        ? uniqueCopyProfileId(sourceProfile.id, profiles)
+        : uniqueProfileId(normalizedTitle, profiles);
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalizedId)) {
       setError("Profile ID 只能使用小写字母、数字和连字符。");
       return;
@@ -99,7 +103,7 @@ export function ResearchProfileCreateDialog({
       </header>
       <form onSubmit={(event) => void submit(event)}>
         {error && <p className="error-copy" role="alert">{error}</p>}
-        {sourceProfile && <label className="field-label">Profile ID<input aria-label="New Profile ID" value={id} onChange={(event) => setId(event.target.value)} placeholder="e.g. llm-agents" autoFocus /></label>}
+        {sourceProfile && <label className="field-label">Profile ID<input aria-label="New Profile ID" value={profileIdManuallyEdited ? id : uniqueCopyProfileId(sourceProfile.id, profiles)} onChange={(event) => { setId(event.target.value); setProfileIdManuallyEdited(true); }} placeholder="e.g. llm-agents" autoFocus /></label>}
         <label className="field-label">Profile name<input aria-label="New Profile title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus={!sourceProfile} /></label>
         <label className="field-label">Description<textarea aria-label="New Profile description" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
         {sourceProfile ? <p className="field-hint">复制现有 Defaults；下一步可检查并调整。</p> : <label className="field-label">Research focus<textarea aria-label="Initial Query" rows={3} value={initialQuery} onChange={(event) => setInitialQuery(event.target.value)} placeholder="e.g. regularization continual learning" /></label>}
@@ -119,6 +123,14 @@ export function ResearchProfileCreateDialog({
 
 function uniqueProfileId(title: string, profiles: ResearchProfileSummary[]) {
   const base = title.trim().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "research-profile";
+  return uniqueId(base, profiles);
+}
+
+function uniqueCopyProfileId(sourceId: string, profiles: ResearchProfileSummary[]) {
+  return uniqueId(`${sourceId}-copy`, profiles);
+}
+
+function uniqueId(base: string, profiles: ResearchProfileSummary[]) {
   const usedIds = new Set(profiles.map((profile) => profile.id));
   if (!usedIds.has(base)) return base;
   let suffix = 2;

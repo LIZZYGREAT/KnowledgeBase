@@ -22,10 +22,18 @@ _IDENTIFIER_NORMALIZERS = (
 
 
 @dataclass(frozen=True)
+class SourceMatchConflict:
+    field: str
+    existing_value: str
+    discovered_value: str
+
+
+@dataclass(frozen=True)
 class SourceMatchCandidate:
     id: str
     title: str
     matched_by: tuple[str, ...]
+    conflicts: tuple[SourceMatchConflict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -43,7 +51,9 @@ def find_matching_source(
         field: normalize_identifier(getattr(work, field))
         for field, normalize_identifier in _IDENTIFIER_NORMALIZERS
     }
-    strong_sources: dict[str, tuple[SourceMetadata, set[str]]] = {}
+    strong_sources: dict[
+        str, tuple[SourceMetadata, set[str], tuple[SourceMatchConflict, ...]]
+    ] = {}
     conflicting_strong_source_ids = set()
 
     for source in sources:
@@ -66,7 +76,18 @@ def find_matching_source(
             and source_identifiers[field] is not None
             and source_identifiers[field] != work_identifier
         }
-        strong_sources[source.id] = (source, matched_fields)
+        conflict_details = tuple(
+            SourceMatchConflict(
+                field=field,
+                existing_value=_display_identifier(
+                    field, getattr(source.identifiers, field)
+                ),
+                discovered_value=_display_identifier(field, getattr(work, field)),
+            )
+            for field, _ in _IDENTIFIER_NORMALIZERS
+            if field in conflicts
+        )
+        strong_sources[source.id] = (source, matched_fields, conflict_details)
         if conflicts:
             conflicting_strong_source_ids.add(source.id)
 
@@ -78,8 +99,9 @@ def find_matching_source(
                     id=source.id,
                     title=source.title,
                     matched_by=tuple(sorted(matched_fields)),
+                    conflicts=conflict_details,
                 )
-                for source, matched_fields in sorted(
+                for source, matched_fields, conflict_details in sorted(
                     strong_sources.values(), key=lambda item: item[0].id
                 )
             ),
@@ -130,3 +152,11 @@ def find_matching_source(
     if weak_sources:
         return SourceMatch(source=weak_sources[0])
     return SourceMatch()
+
+
+def _display_identifier(field: str, value: Optional[str]) -> str:
+    if value is None:
+        return ""
+    if field == "openalex_id" and value:
+        return value[0].upper() + value[1:]
+    return value

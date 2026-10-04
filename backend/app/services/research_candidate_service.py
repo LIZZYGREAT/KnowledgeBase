@@ -118,6 +118,17 @@ class ResearchCandidateService:
             decided_at=now,
         )
 
+    def restore(self, candidate_id: str) -> ResearchCandidateRecord:
+        """Return a dismissed Candidate to the Inbox and keep its note."""
+        return self.repository.transition(
+            candidate_id=candidate_id,
+            allowed_statuses=("dismissed",),
+            status="new",
+            now=self._now(),
+            dismiss_reason=None,
+            decided_at=None,
+        )
+
     def update_user_note(
         self, candidate_id: str, user_note: Optional[str]
     ) -> ResearchCandidateRecord:

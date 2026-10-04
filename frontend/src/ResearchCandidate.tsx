@@ -13,7 +13,7 @@ export function ResearchCandidateCard({
   onDetails,
   onShortlist,
   onDismiss,
-  onSaveSource,
+  onRestore,
   onCreateNote,
 }: {
   item: ResearchCandidateListItem;
@@ -25,11 +25,10 @@ export function ResearchCandidateCard({
   onDetails: () => void;
   onShortlist: () => void;
   onDismiss: () => void;
-  onSaveSource: () => void;
+  onRestore: () => void;
   onCreateNote: () => void;
 }) {
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
-  const relevance = item.analysis.profile_relevance;
   const externalUrl = safeExternalUrl(item.work.url);
 
   return <article className="research-candidate-card">
@@ -42,20 +41,21 @@ export function ResearchCandidateCard({
       <button className="text-button" onClick={onDetails}>Why this candidate <span aria-hidden="true">↗</span></button>
     </div>
     <div className="research-candidate-tags">{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
-    <div className="research-candidate-summary"><p>{item.analysis.summary}</p><div className="research-score-pills"><Chip tone="green">Relevance: {signalLevel(relevance)}</Chip><Chip tone="blue">Library novelty: {signalLevel(item.analysis.novelty_to_library)}</Chip></div></div>
+    <div className="research-candidate-summary"><p>{item.analysis.summary}</p></div>
     <div className="research-candidate-insight-grid">
       <div><span>Why shown</span><p>{item.analysis.why_relevant}</p></div>
-      <div><span>Related knowledge</span>{item.analysis.existing_relations.length ? <ul>{item.analysis.existing_relations.slice(0, 2).map((relation) => <li key={`${relation.entity_type}:${relation.entity_id}`}><strong>{relation.entity_id}</strong><small>{relation.reason}</small></li>)}</ul> : <p>尚未找到明确的已有知识关联。</p>}</div>
+      <div><span>Related knowledge</span><p>{item.analysis.existing_relations.length ? `与 ${item.analysis.existing_relations.length} 条现有知识有关。` : "尚未找到明确的已有知识关联。"}</p></div>
       <div><span>Why read it</span><p>{item.analysis.reading_reason}</p></div>
     </div>
     <div className="research-candidate-footer">
-      <span>排序信号 {Math.round(item.recommended_score * 100)} · 收录于 {formatDate(item.candidate.created_at)}</span>
+      <span>收录于 {formatDate(item.candidate.created_at)}</span>
       <div className="research-card-actions">
         {externalUrl && <a className="button button-quiet" href={externalUrl} target="_blank" rel="noreferrer">Open Paper ↗</a>}
-        {(item.candidate.status === "new" || item.candidate.status === "shortlisted") && <button className="button button-secondary" disabled={busy} onClick={onSaveSource}>Save Source</button>}
+        {item.candidate.status === "new" && <button className="button button-secondary" disabled={busy} onClick={onShortlist}>Shortlist</button>}
         {item.candidate.status !== "dismissed" && item.candidate.status !== "note_created" && <button className="button button-primary" disabled={busy} onClick={onCreateNote}>Create Note</button>}
-        {item.candidate.status === "new" && <><button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button><button className="button button-secondary" disabled={busy} onClick={onShortlist}>Shortlist</button></>}
-        {item.candidate.status === "shortlisted" && <><button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button><button className="button button-secondary" disabled>Shortlisted</button></>}
+        {item.candidate.status === "new" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
+        {item.candidate.status === "shortlisted" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
+        {item.candidate.status === "dismissed" && <button className="button button-secondary" disabled={busy} onClick={onRestore}>Restore to Inbox</button>}
       </div>
     </div>
   </article>;
@@ -192,7 +192,7 @@ export function ResearchCreateNoteDialog({
       {destinationResolving && <p className="field-hint" role="status">Resolving suggested destination…</p>}
       {destinationHint && <p className="field-hint" role="status">{destinationHint}</p>}
       {loadError && <p className="error-copy" role="alert">{loadError}</p>}
-      <p className="subtle-copy">只创建笔记骨架。Source、Document 与可选 Collection 会作为 Draft 进入 Workspace 批量审阅。</p>
+      <p className="subtle-copy">创建后会进入编辑工作区。确认内容后再发布到知识库。</p>
       <div className="editor-main-actions"><button className="button button-secondary" type="button" disabled={busy} onClick={onClose}>取消</button><button className="button button-primary" type="submit" disabled={busy || destinationResolving}>{busy ? "正在创建…" : "Create"}</button></div>
     </form>
   </div>;
@@ -223,6 +223,7 @@ export function ResearchCandidateDrawer({
   noteError,
   onClose,
   onOpenEntity,
+  onSaveSource,
   onSaveNote,
 }: {
   detail: ResearchCandidateDetail;
@@ -231,6 +232,7 @@ export function ResearchCandidateDrawer({
   noteError: string;
   onClose: () => void;
   onOpenEntity: (path: string) => void;
+  onSaveSource: () => void;
   onSaveNote: (note: string) => void;
 }) {
   const { candidate, work, analysis } = detail;
@@ -297,6 +299,11 @@ export function ResearchCandidateDrawer({
         {detail.conversion_blocker === "ambiguous_source" && <section className="research-source-ambiguity" role="alert">
           <strong>可能已存在 {detail.source_match_candidates.length} 个 Source</strong>
           <p>先检查并修正现有 Source 的元数据，再保存或创建笔记。为避免重复记录，当前转换操作已阻止。</p>
+          {detail.source_match_candidates.every((source) => source.matched_by.includes("title_author_year") && source.conflicts.length === 0)
+            ? <p>有多条 Source 同时匹配标题、第一作者和年份，请检查是否存在重复 Source。</p>
+            : detail.source_match_candidates.some((source) => source.conflicts.length > 0)
+              ? detail.source_match_candidates.flatMap((source) => source.conflicts.map((conflict) => <p className="research-source-conflict" key={`${source.id}:${conflict.field}`}><strong>冲突：{sourceConflictLabel(conflict.field)}</strong><span>现有：{conflict.existing_value}</span><span>本次发现：{conflict.discovered_value}</span></p>))
+              : <p>多个 Source 与这篇论文的标识匹配，请检查是否存在重复记录。</p>}
           {detail.source_match_candidates.map((source) => {
             const path = entityPath("source", source.id);
             return <div className="research-related-row" key={source.id}>
@@ -305,10 +312,11 @@ export function ResearchCandidateDrawer({
             </div>;
           })}
         </section>}
-        <section className="research-detail-section"><h3>Why this paper</h3><p>{analysis.analysis.summary}</p><p>{analysis.analysis.why_relevant}</p><p className="field-hint">以下为模型语义信号（0–1），未经概率校准，也不代表论文质量或学术原创性。</p><div className="research-detail-score-grid"><Score label="Profile relevance" value={analysis.analysis.profile_relevance} /><Score label="Knowledge relevance" value={analysis.analysis.knowledge_relevance} /><Score label="Novelty to library" value={analysis.analysis.novelty_to_library} /></div></section>
+        <section className="research-detail-section"><h3>Why this paper</h3><p>{analysis.analysis.summary}</p><p>{analysis.analysis.why_relevant}</p></section>
         <section className="research-detail-section"><h3>Why read it</h3><p>{analysis.analysis.reading_reason}</p></section>
         <section className="research-detail-section"><h3>Paper</h3><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Year" value={work.year == null ? undefined : String(work.year)} /><DetailRow label="Venue" value={work.venue} /><DetailRow label="Abstract" value={work.abstract} /></section>
         <section className="research-detail-section"><h3>Research focus</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Focus" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} /></section>
+        {(candidate.status === "new" || candidate.status === "shortlisted") && <section className="research-detail-section"><h3>Save Source</h3><p className="subtle-copy">只保存论文引用，不创建笔记。</p><button className="button button-secondary" disabled={noteBusy || detail.conversion_blocker === "ambiguous_source"} onClick={onSaveSource}>Save Source</button></section>}
         {(analysis.analysis.suggested_collection || analysis.analysis.suggested_section) && <section className="research-detail-section"><h3>Suggested destination</h3><p className="subtle-copy">AI suggestion only. Check the current Collection before creating the Note.</p>{analysis.analysis.suggested_collection && <div className="research-related-row"><div><strong>{relationTitle("collection", analysis.analysis.suggested_collection)}</strong><small>Collection · {analysis.analysis.suggested_collection}</small></div></div>}{analysis.analysis.suggested_section && <DetailRow label="Section" value={analysis.analysis.suggested_section} />}</section>}
         <section className="research-detail-section"><h3>Related knowledge</h3>{detail.knowledge_relations.length ? detail.knowledge_relations.map((relation) => {
           const path = entityPath(relation.entity_type, relation.entity_id);
@@ -327,6 +335,7 @@ export function ResearchCandidateDrawer({
           <summary>Technical provenance</summary>
           <section className="research-detail-section"><h3>Discovery records</h3>{detail.discoveries.map((discovery) => <div className="research-provenance-card" key={discovery.id}><div><Chip tone="blue">{discovery.provider}</Chip><span>{formatDate(discovery.discovered_at)}</span></div><DetailRow label="Matched query" value={discovery.query_text} /><DetailRow label="Provider record ID" value={discovery.provider_record_id} /><DetailRow label="Lens" value={profile.lenses.find((lens) => lens.id === discovery.lens_id)?.title ?? discovery.lens_id} /></div>)}</section>
           <section className="research-detail-section"><h3>Analysis provenance</h3><DetailRow label="Provider" value={analysis.provider} /><DetailRow label="Model" value={analysis.model} /><DetailRow label="Analysis version" value={String(analysis.analysis_version)} /><DetailRow label="Prompt version" value={analysis.prompt_version} /><DetailRow label="Analyzed at" value={formatDate(analysis.analyzed_at)} /><DetailRow label="Input hash" value={analysis.input_hash} /></section>
+          <details className="research-advanced-settings"><summary>Model signals</summary><section className="research-detail-section"><p className="field-hint">These are uncalibrated model signals. They are not paper quality scores or probabilities.</p><div className="research-detail-score-grid"><Score label="Profile relevance" value={analysis.analysis.profile_relevance} /><Score label="Knowledge relevance" value={analysis.analysis.knowledge_relevance} /><Score label="Novelty to library" value={analysis.analysis.novelty_to_library} /><Score label="Recommended ranking score" value={detail.recommended_score} /></div></section></details>
           <AnalysisTimeContext detail={detail} />
           <section className="research-detail-section"><h3>Matched terms</h3><div className="research-candidate-tags">{analysis.analysis.matched_topics.length ? analysis.analysis.matched_topics.map((term) => <Chip key={term}>{term}</Chip>) : <span className="subtle-copy">No matched topics recorded.</span>}</div></section>
           {(work.doi || work.arxiv_id || work.openalex_id || work.semantic_scholar_id || work.url) && <section className="research-detail-section"><h3>Identifiers and links</h3><DetailRow label="DOI" value={work.doi} /><DetailRow label="arXiv" value={work.arxiv_id} /><DetailRow label="OpenAlex" value={work.openalex_id} /><DetailRow label="Semantic Scholar" value={work.semantic_scholar_id} /><DetailRow label="URL" value={work.url} /></section>}
@@ -437,10 +446,6 @@ function Score({ label, value }: { label: string; value: number }) {
   return <div className="research-score"><span>{label}</span><strong>{value.toFixed(2)}</strong><div><span style={{ width: `${value * 100}%` }} /></div></div>;
 }
 
-function signalLevel(value: number): "High" | "Medium" | "Low" {
-  return value >= 0.8 ? "High" : value >= 0.6 ? "Medium" : "Low";
-}
-
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   return <div className="research-detail-row"><span>{label}</span><strong>{value || "—"}</strong></div>;
 }
@@ -462,6 +467,11 @@ function matchMethodLabel(value: string) {
     openalex_id: "OpenAlex ID",
     title_author_year: "title, author, and year",
   };
+  return labels[value] ?? value.replaceAll("_", " ");
+}
+
+function sourceConflictLabel(value: string) {
+  const labels: Record<string, string> = { doi: "DOI", arxiv_id: "arXiv ID", openalex_id: "OpenAlex ID" };
   return labels[value] ?? value.replaceAll("_", " ");
 }
 

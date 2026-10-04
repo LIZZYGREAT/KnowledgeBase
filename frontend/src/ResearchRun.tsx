@@ -66,7 +66,7 @@ export function ResearchRunDrawer({ run, onClose }: { run: ResearchRun; onClose:
         <section className="research-run-overview">
           <div className="research-run-overview-status"><Chip tone={runTone(run.status)}>{run.status.replaceAll("_", " ")}</Chip><span>{run.trigger === "scheduled" ? "Scheduled research" : "Manual search"}</span></div>
           <div className="research-run-times"><Detail label="Started" value={formatDate(run.started_at)} /><Detail label="Finished" value={formatDate(run.finished_at)} /><Detail label="Duration" value={runDuration(run)} /></div>
-          <div className="research-run-stats">{[["Papers checked", run.fetched_count], ["New works", run.new_work_count], ["Candidates", run.surfaced_count]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>
+          <div className="research-run-stats">{[["Results checked", run.fetched_count], ["New works", run.new_work_count], ["Candidates", run.surfaced_count]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>
         </section>
         {run.error_summary && <section className="research-detail-section"><h3>Run issues</h3><p className="research-run-error">{run.error_summary}</p></section>}
         <details className="research-advanced-settings research-run-technical-details">

@@ -37,8 +37,18 @@ export function WorkspaceMetadataDrawer({
   const associatedSourceIds = readStringArray(readFrontmatterField(content, type, "sources"));
   const paperSkills = readPaperSkillArtifacts(readFrontmatterField(content, type, "external_artifacts"));
   const pdfAttachment = readSourcePdf(content);
+  const sourceIdentifiers = readRecord(readFrontmatterField(content, type, "identifiers"));
+  const sourceAuthors = readStringArray(readFrontmatterField(content, type, "authors"));
+  const sourceYear = readFrontmatterField(content, type, "year");
   const body = type === "source" ? "" : content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
   const citations = readDraftCitations(body);
+
+  function updateSourceIdentifier(key: "doi" | "arxiv_id" | "openalex_id", value: string) {
+    onFrontmatterUpdate("identifiers", {
+      ...sourceIdentifiers,
+      [key]: value.trim() || null,
+    });
+  }
 
   function addPaperSkill(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,11 +66,21 @@ export function WorkspaceMetadataDrawer({
 
   return <WorkspaceDrawer title="元数据" description="结构化字段会写入 Draft frontmatter，发布仍由 Publisher 完成。" onClose={onClose}>
     <section className="drawer-section">
-      <SectionHeading title="基本信息" detail="实体类型决定 Canonical 路径，不能在这里更改。" />
+      <SectionHeading title={type === "source" ? "Source metadata" : "基本信息"} detail={type === "source" ? "直接编辑引用信息；修改会保存为 Draft，发布仍由 Publisher 完成。" : "实体类型决定 Canonical 路径，不能在这里更改。"} />
       <label className="field-label">标题<input value={stringValue(readFrontmatterField(content, type, "title"))} onChange={(event) => onFrontmatterUpdate("title", event.target.value)} /></label>
       <div className="drawer-readonly-row"><span>实体 ID</span><strong>{id}</strong></div>
-      <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
-      {type !== "source" && <>
+      {type === "source" ? <>
+        <label className="field-label">Type<select value={stringValue(readFrontmatterField(content, type, "type")) || "paper"} onChange={(event) => onFrontmatterUpdate("type", event.target.value)}><option value="paper">Paper</option><option value="book">Book</option><option value="course">Course</option><option value="web">Web</option><option value="personal">Personal</option></select></label>
+        <label className="field-label">Authors<textarea rows={4} value={sourceAuthors.join("\n")} onChange={(event) => onFrontmatterUpdate("authors", event.target.value.split(/\r?\n/).map((author) => author.trim()).filter(Boolean))} placeholder="每行一位作者" /></label>
+        <label className="field-label">Year<input type="number" min="1000" max="9999" value={typeof sourceYear === "number" ? sourceYear : stringValue(sourceYear)} onChange={(event) => onFrontmatterUpdate("year", event.target.value ? Number(event.target.value) : null)} /></label>
+        <SectionHeading title="Identifiers" />
+        <label className="field-label">DOI<input value={stringValue(sourceIdentifiers.doi)} onChange={(event) => updateSourceIdentifier("doi", event.target.value)} /></label>
+        <label className="field-label">arXiv ID<input value={stringValue(sourceIdentifiers.arxiv_id)} onChange={(event) => updateSourceIdentifier("arxiv_id", event.target.value)} /></label>
+        <label className="field-label">OpenAlex ID<input value={stringValue(sourceIdentifiers.openalex_id)} onChange={(event) => updateSourceIdentifier("openalex_id", event.target.value)} /></label>
+        <label className="field-label">URL<input type="url" value={stringValue(readFrontmatterField(content, type, "url"))} onChange={(event) => onFrontmatterUpdate("url", event.target.value.trim() || null)} /></label>
+        <details className="workspace-metadata-advanced"><summary>Advanced</summary><label className="field-label">Zotero Key<input value={stringValue(readFrontmatterField(content, type, "zotero_key"))} onChange={(event) => onFrontmatterUpdate("zotero_key", event.target.value.trim() || null)} /></label></details>
+      </> : <>
+        <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
         <label className="field-label">Domains<input value={readStringArray(readFrontmatterField(content, type, "domains")).join(", ")} onChange={(event) => onFrontmatterListUpdate("domains", event.target.value)} placeholder="用逗号分隔 ID" /></label>
         <label className="field-label">Topics<input value={readStringArray(readFrontmatterField(content, type, "topics")).join(", ")} onChange={(event) => onFrontmatterListUpdate("topics", event.target.value)} placeholder="用逗号分隔 ID" /></label>
         <label className="field-label">Tags<input value={readStringArray(readFrontmatterField(content, type, "tags")).join(", ")} onChange={(event) => onFrontmatterListUpdate("tags", event.target.value)} placeholder="用逗号分隔 ID" /></label>
@@ -97,4 +117,10 @@ export function WorkspaceMetadataDrawer({
     </section>}
     <div className="drawer-footer"><span>自动保存到运行时 Draft</span><button className="button button-primary" onClick={onSave}>保存草稿</button></div>
   </WorkspaceDrawer>;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }

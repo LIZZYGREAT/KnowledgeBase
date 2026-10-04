@@ -356,11 +356,13 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
                     "id": "candidate-match-one",
                     "title": provider_work.title,
                     "matched_by": ["title_author_year"],
+                    "conflicts": [],
                 },
                 {
                     "id": "candidate-match-two",
                     "title": provider_work.title,
                     "matched_by": ["title_author_year"],
+                    "conflicts": [],
                 },
             ]
             assert {
@@ -374,6 +376,43 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             )
             assert details.status_code == 200, details.json()
             assert details.json()["conversion_blocker"] is None
+
+            service.screening.sources = SourceRegistry(
+                (
+                    SourceMetadata.model_validate(
+                        {
+                            "schema_version": 1,
+                            "id": "conflicting-source",
+                            "type": "paper",
+                            "title": provider_work.title,
+                            "authors": list(provider_work.authors),
+                            "year": provider_work.year,
+                            "identifiers": {
+                                "arxiv_id": provider_work.arxiv_id,
+                                "openalex_id": "W111111111",
+                            },
+                        }
+                    ),
+                )
+            )
+            details = await client.get(
+                "/api/research/candidates/{}".format(generated.candidate.id)
+            )
+            assert details.status_code == 200, details.json()
+            assert details.json()["source_match_candidates"] == [
+                {
+                    "id": "conflicting-source",
+                    "title": provider_work.title,
+                    "matched_by": ["arxiv_id"],
+                    "conflicts": [
+                        {
+                            "field": "openalex_id",
+                            "existing_value": "W111111111",
+                            "discovered_value": "W987654321",
+                        }
+                    ],
+                }
+            ]
 
             shortlist = await client.post(
                 "/api/research/candidates/{}/shortlist".format(generated.candidate.id),
@@ -408,6 +447,13 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             )
             assert dismiss_without_reason.status_code == 200
             assert dismiss_without_reason.json()["dismiss_reason"] is None
+            restored = await client.post(
+                "/api/research/candidates/{}/restore".format(generated.candidate.id)
+            )
+            assert restored.status_code == 200, restored.json()
+            assert restored.json()["status"] == "new"
+            assert restored.json()["dismiss_reason"] is None
+            assert restored.json()["decided_at"] is None
 
     asyncio.run(exercise_routes())
     connection.close()

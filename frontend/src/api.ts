@@ -437,8 +437,14 @@ export interface ResearchCandidateDetail {
   candidate: ResearchCandidate;
   work: ResearchWork;
   analysis: ResearchWorkAnalysis;
+  recommended_score: number;
   conversion_blocker: "ambiguous_source" | null;
-  source_match_candidates: Array<{ id: string; title: string; matched_by: string[] }>;
+  source_match_candidates: Array<{
+    id: string;
+    title: string;
+    matched_by: string[];
+    conflicts: Array<{ field: string; existing_value: string; discovered_value: string }>;
+  }>;
   discoveries: ResearchDiscovery[];
   knowledge_relations: ResearchRelation[];
   linked_entities: Array<{ entity_type: "source" | "document"; entity_id: string; relation_type: "source" | "note"; created_at: string }>;
@@ -906,6 +912,12 @@ export function updateResearchCandidateNote(candidateId: string, note: string) {
 export function dismissResearchCandidate(candidateId: string, reason?: ResearchDismissReason, note?: string) {
   return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/dismiss`, {
     method: "POST", body: JSON.stringify({ ...(reason ? { reason } : {}), ...(note ? { note } : {}) }),
+  });
+}
+
+export function restoreResearchCandidate(candidateId: string) {
+  return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/restore`, {
+    method: "POST",
   });
 }
 

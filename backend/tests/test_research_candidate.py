@@ -70,7 +70,7 @@ def test_shortlist_and_dismiss_manage_notes_views_and_inbox_capacity():
     times = iter(
         [
             datetime(2026, 10, 3, hour, tzinfo=timezone.utc)
-            for hour in range(8)
+            for hour in range(9)
         ]
     )
     service = ResearchCandidateService(repository, clock=lambda: next(times))
@@ -104,9 +104,14 @@ def test_shortlist_and_dismiss_manage_notes_views_and_inbox_capacity():
     assert dismissed.dismiss_reason == "too_redundant"
     assert dismissed.user_note == "Update the comparison section."
     assert dismissed.decided_at == "2026-10-03T07:00:00+00:00"
+    restored = service.restore(first.id)
+    assert restored.status == "new"
+    assert restored.dismiss_reason is None
+    assert restored.decided_at is None
+    assert restored.user_note == "Update the comparison section."
     repeated = service.generate(analysis_one, profile, profile.lenses[0])
     assert repeated.outcome == "existing"
-    assert repeated.candidate.status == "dismissed"
+    assert repeated.candidate.status == "new"
     connection.close()
 
 
@@ -122,6 +127,9 @@ def test_candidate_transitions_validate_inputs_and_keep_terminal_states():
     candidate = service.generate(analysis, profile, profile.lenses[0]).candidate
     assert candidate is not None
 
+    with pytest.raises(ValueError, match="Cannot move Research Candidate"):
+        service.restore(candidate.id)
+
     with pytest.raises(ValueError, match="cannot exceed 4000"):
         service.shortlist(candidate.id, "x" * 4001)
     with pytest.raises(ValueError, match="dismiss reason"):
@@ -130,6 +138,8 @@ def test_candidate_transitions_validate_inputs_and_keep_terminal_states():
     dismissed = service.dismiss(candidate.id, "already_known")
     with pytest.raises(ValueError, match="Cannot move Research Candidate"):
         service.shortlist(dismissed.id)
+    restored = service.restore(dismissed.id)
+    assert restored.status == "new"
     connection.close()
 
 

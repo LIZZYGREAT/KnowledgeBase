@@ -57,8 +57,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState<ProfileReview | null>(null);
-  const [newLensId, setNewLensId] = useState("");
-  const [newLensTitle, setNewLensTitle] = useState("");
+  const [newLensFocusName, setNewLensFocusName] = useState("");
   const [newLensQuery, setNewLensQuery] = useState("");
 
   useEffect(() => {
@@ -142,25 +141,17 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
 
   function addLens() {
     if (!editableProfile) return;
-    const id = newLensId.trim();
-    const title = newLensTitle.trim();
+    const title = newLensFocusName.trim();
     const query = newLensQuery.trim();
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
-      setError("Lens ID 只能使用小写字母、数字和连字符。");
-      return;
-    }
-    if (editableProfile.lenses.some((lens) => lens.id === id)) {
-      setError("Lens ID 必须唯一。");
-      return;
-    }
     if (!title) {
-      setError("Lens title 不能为空。");
+      setError("Research Focus 名称不能为空。");
       return;
     }
     if (!query) {
-      setError("Initial Query 不能为空。");
+      setError("初始搜索词不能为空。");
       return;
     }
+    const id = uniqueLensId(title, editableProfile.lenses);
     updateYamlDocument((document) => document.addIn(["lenses"], {
       id,
       title,
@@ -170,8 +161,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
       include_terms: [],
       exclude_terms: [],
     }));
-    setNewLensId("");
-    setNewLensTitle("");
+    setNewLensFocusName("");
     setNewLensQuery("");
   }
 
@@ -301,7 +291,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
               </div>
               <details className="research-advanced-settings research-lens-advanced">
                 <summary>高级筛选与标识</summary>
-                <p className="field-hint">Lens ID：{lens.id}（创建后固定）</p>
+                <p className="field-hint">Technical identifier：{lens.id}（创建后固定）</p>
                 <label className="field-label">优先级<select value={lens.priority} onChange={(event) => updateProfile((current) => updateLens(current, index, { priority: event.target.value as typeof lens.priority }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
                 <div className="research-defaults-grid">
                   <TextListField label="Include terms" value={lens.include_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { include_terms: value }))} />
@@ -310,6 +300,11 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
                 <button className="button button-quiet" type="button" aria-label={"Remove Lens " + lens.id} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>Remove Focus</button>
               </details>
             </article>)}
+            <div className="research-default-add-lens">
+              <label className="field-label">Focus name<input aria-label="New Research Focus name" value={newLensFocusName} onChange={(event) => setNewLensFocusName(event.target.value)} /></label>
+              <label className="field-label">Initial search query<input aria-label="Initial search query" value={newLensQuery} onChange={(event) => setNewLensQuery(event.target.value)} /></label>
+              <button className="button button-secondary" type="button" onClick={addLens}>+ Add Research Focus</button>
+            </div>
           </section>
 
           <section className="research-defaults-section">
@@ -329,7 +324,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
             </div>}
             <div className="research-default-ai-analysis">
               <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.ai_analysis.enabled} onChange={(event) => updateProfile((current) => ({ ...current, ai_analysis: { ...current.ai_analysis, enabled: event.target.checked } }))} /><span>Enable unattended DeepSeek analysis</span></label>
-              <p className="field-hint">此选项只控制 AI 分析授权。关闭时，检索、确定性筛选、元数据补全和 Discovery 保存仍会继续；不会构建或发送 Context Pack，也不会生成 Candidate。重新启用后，每次 Run 最多分析 10 条符合当前 Lens 与 Query 的未分析 Discovery。启用时，论文元数据、摘要和受 Context Budget 限制的知识片段会发送给 DeepSeek。</p>
+              <p className="field-hint">{editableProfile.ai_analysis.enabled ? "AI 分析已开启。论文标题、作者、摘要和所选或检索到的相关知识片段会发送给 DeepSeek，以生成推荐。" : "AI 分析已关闭。系统仍会收集论文，但不会向 DeepSeek 发送论文或知识库内容，也不会生成推荐候选。重新开启后，系统会逐步处理之前收集但尚未分析的论文。"}</p>
             </div>
           </section>
 
@@ -366,12 +361,6 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
             <section className="research-defaults-section">
               <div className="research-section-heading"><div><h3>Additional rules</h3><p>调整 Profile 筛选词、增加 Lens 和动态知识检索行为。</p></div></div>
               <TextListField label="Profile exclude terms" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
-              <div className="research-default-add-lens">
-                <label className="field-label">New Lens ID<input aria-label="New Lens ID" value={newLensId} onChange={(event) => setNewLensId(event.target.value)} placeholder="e.g. retrieval-augmented" /><span className="field-hint">小写字母、数字和连字符；创建后固定。</span></label>
-                <label className="field-label">New Lens title<input aria-label="New Lens title" value={newLensTitle} onChange={(event) => setNewLensTitle(event.target.value)} /></label>
-                <label className="field-label">Initial Query<input aria-label="Initial Query" value={newLensQuery} onChange={(event) => setNewLensQuery(event.target.value)} placeholder="e.g. retrieval augmented generation" /></label>
-                <button className="button button-secondary" type="button" onClick={addLens}>Add Lens</button>
-              </div>
               <div className="research-defaults-grid research-defaults-fields">
                 <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.context.dynamic_retrieval.enabled} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, enabled: event.target.checked } } }))} /><span>Enable dynamic retrieval</span></label>
                 <label className="field-label">Dynamic Retrieval scope<select aria-label="Dynamic Retrieval scope" value={editableProfile.context.dynamic_retrieval.scope} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, scope: event.target.value as ResearchProfile["context"]["dynamic_retrieval"]["scope"] } } }))}><option value="entire-library">Entire library</option><option value="selected-context">Selected Collections and Documents</option></select><span className="field-hint">Selected context limits retrieved and analyzed material to pinned Documents and Collection members.</span></label>
@@ -460,6 +449,15 @@ function SelectionList({ label, items, selected, onChange }: { label: string; it
 
 function updateLens(profile: ResearchProfile, index: number, patch: Partial<ResearchProfile["lenses"][number]>): ResearchProfile {
   return { ...profile, lenses: profile.lenses.map((lens, lensIndex) => lensIndex === index ? { ...lens, ...patch } : lens) };
+}
+
+function uniqueLensId(title: string, lenses: ResearchProfile["lenses"]) {
+  const base = title.trim().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "focus";
+  const usedIds = new Set(lenses.map((lens) => lens.id));
+  if (!usedIds.has(base)) return base;
+  let suffix = 2;
+  while (usedIds.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
 }
 
 function applyYamlDiff(document: ReturnType<typeof parseDocument>, path: Array<string | number>, current: unknown, next: unknown) {

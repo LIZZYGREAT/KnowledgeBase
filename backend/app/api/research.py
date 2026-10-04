@@ -243,17 +243,37 @@ async def get_candidate(candidate_id: str, request: Request):
     analysis = service.work_repository.get_analysis_by_id(candidate.analysis_id)
     if work is None or analysis is None:
         raise RuntimeError("Research Candidate is missing its Work or Analysis")
+    profile = _require_profile(service, candidate.profile_id)
+    ranking = getattr(
+        service.profile_registry.global_config.ranking,
+        profile.search.breadth,
+    )
+    output = analysis.analysis
+    recommended_score = (
+        ranking.profile_relevance_weight * output.profile_relevance
+        + ranking.knowledge_relevance_weight * output.knowledge_relevance
+        + ranking.novelty_weight * output.novelty_to_library
+    )
     source_match = find_matching_source(service.screening.sources.sources, work)
     return {
         "candidate": candidate,
         "work": work,
         "analysis": analysis,
+        "recommended_score": recommended_score,
         "conversion_blocker": "ambiguous_source" if source_match.ambiguous else None,
         "source_match_candidates": [
             {
                 "id": candidate.id,
                 "title": candidate.title,
                 "matched_by": list(candidate.matched_by),
+                "conflicts": [
+                    {
+                        "field": conflict.field,
+                        "existing_value": conflict.existing_value,
+                        "discovered_value": conflict.discovered_value,
+                    }
+                    for conflict in candidate.conflicts
+                ],
             }
             for candidate in source_match.candidates
         ],
@@ -345,6 +365,13 @@ async def dismiss_candidate(
         reason=body.reason,
         user_note=body.note,
     )
+
+
+@router.post(
+    "/candidates/{candidate_id}/restore", response_model=ResearchCandidateRecord
+)
+async def restore_candidate(candidate_id: str, request: Request):
+    return request.app.state.research_service.candidate_service.restore(candidate_id)
 
 
 def _profile_summary(service, profile):
