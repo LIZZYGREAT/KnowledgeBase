@@ -64,7 +64,13 @@ describe("Research workspace", () => {
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
       if (path === "/api/research/candidates/candidate-1") return jsonResponse(responseCandidateDetail);
       if (path === "/api/research/runs?offset=0&limit=50&profile_id=continual-learning") return jsonResponse({ runs: [], count: 0 });
-      if (path === "/api/research/profiles/continual-learning/runs" && init?.method === "POST") return jsonResponse({ request_id: runRequestId, status: "pending" }, 202);
+      if (path === "/api/research/profiles/continual-learning/runs" && init?.method === "POST") {
+        responseProfileSummary = {
+          ...responseProfileSummary,
+          manual_queue: { ...responseProfileSummary.manual_queue, pending: responseProfileSummary.manual_queue.pending + 1 },
+        };
+        return jsonResponse({ request_id: runRequestId, status: "pending" }, 202);
+      }
       if (path === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST") return jsonResponse({ ...candidate, status: "shortlisted" });
       if (path === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH") return jsonResponse({ ...candidate, ...JSON.parse(String(init.body)), status: "shortlisted" });
       if (path === "/api/research/candidates/candidate-1/save-source" && init?.method === "POST") return jsonResponse({ action: "draft_created", source_id: "research-paper", draft_id: "source-draft-1", candidate });
@@ -134,11 +140,26 @@ describe("Research workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
 
     expect(await screen.findByText(/Search queued/)).toBeTruthy();
+    expect(await screen.findByText("1 manual search queued")).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(call).toBeTruthy();
     const body = JSON.parse(String(call?.[1]?.body));
     expect(body).toMatchObject({ lenses: ["regularization"], breadth: "balanced", additional_queries: ["dynamic fisher continual learning"], additional_query_lens: "regularization" });
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
+  });
+
+  it("shows pending and claimed manual requests from the persisted Profile summary", async () => {
+    responseProfileSummary = {
+      ...profileSummary,
+      manual_queue: { pending: 2, claimed: 1 },
+    };
+    render(<App />);
+
+    const status = await screen.findByText((_, element) =>
+      element?.classList.contains("research-search-block-note")
+      && element.textContent?.includes("2 manual searches queued") === true,
+    );
+    expect(status.textContent).toContain("1 Research request running");
   });
 
   it("shows the Lens configuration captured by the Run, including per-run overrides", async () => {
@@ -720,6 +741,7 @@ const profileSummary = {
   paused_until: null,
   last_successful_scheduled_run_at: null,
   inbox: { new_count: 1, capacity: 20, remaining: 19 },
+  manual_queue: { pending: 0, claimed: 0 },
   latest_run: null,
 };
 

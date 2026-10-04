@@ -25,6 +25,11 @@ class ResearchInboxUsageView(APIModel):
     remaining: int = Field(ge=0)
 
 
+class ResearchManualQueueView(APIModel):
+    pending: int = Field(ge=0)
+    claimed: int = Field(ge=0)
+
+
 class ResearchRunSummaryView(APIModel):
     id: str
     trigger: Literal["scheduled", "manual"]
@@ -47,6 +52,7 @@ class ResearchProfileSummaryView(APIModel):
     paused_until: Optional[str] = None
     last_successful_scheduled_run_at: Optional[str] = None
     inbox: ResearchInboxUsageView
+    manual_queue: ResearchManualQueueView
     latest_run: Optional[ResearchRunSummaryView] = None
 
 

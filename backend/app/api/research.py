@@ -29,6 +29,7 @@ from backend.app.api.research_schemas import (
     ResearchRunSummaryView,
     ResearchShortlistRequest,
     ResearchInboxUsageView,
+    ResearchManualQueueView,
 )
 from backend.app.domain.research_runtime import ResearchCandidateStatus
 from backend.app.domain.research_runtime import ResearchCandidateRecord, ResearchRunRecord
@@ -365,6 +366,9 @@ async def dismiss_candidate(
 def _profile_summary(service, profile):
     state = service.profile_state_repository.get(profile.id)
     latest = service.run_repository.list_for_profile(profile.id, limit=1)
+    pending_requests, claimed_requests = service.run_request_repository.count_pending_and_claimed(
+        profile.id
+    )
     return ResearchProfileSummaryView(
         id=profile.id,
         title=profile.title,
@@ -379,6 +383,9 @@ def _profile_summary(service, profile):
             state.last_successful_scheduled_run_at if state else None
         ),
         inbox=_inbox(service, profile),
+        manual_queue=ResearchManualQueueView(
+            pending=pending_requests, claimed=claimed_requests
+        ),
         latest_run=_run_summary(latest[0]) if latest else None,
     )
 

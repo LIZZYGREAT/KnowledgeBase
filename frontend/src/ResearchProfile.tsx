@@ -253,6 +253,11 @@ export function ResearchProfilePanel({
       <div className="research-meter-track" role="progressbar" aria-label="Inbox 使用量" aria-valuemin={0} aria-valuemax={summary.inbox.capacity} aria-valuenow={summary.inbox.new_count}><span style={{ width: `${capacityPercent}%` }} /></div>
       {summary.inbox.remaining === 0 && <p className="research-capacity-note" role="status"><strong>Inbox Full</strong> · 处理候选后才能运行 Search Now。</p>}
     </div>
+    {(summary.manual_queue.pending > 0 || summary.manual_queue.claimed > 0) && <p className="research-search-block-note" role="status">
+      {summary.manual_queue.pending > 0 && `${summary.manual_queue.pending} manual ${summary.manual_queue.pending === 1 ? "search" : "searches"} queued`}
+      {summary.manual_queue.pending > 0 && summary.manual_queue.claimed > 0 && " · "}
+      {summary.manual_queue.claimed > 0 && `${summary.manual_queue.claimed} Research ${summary.manual_queue.claimed === 1 ? "request" : "requests"} running`}
+    </p>}
 
     {searchOpen && canSearch && <form className="research-search-form" onSubmit={(event) => void submitSearch(event)}>
       <div className="research-section-heading"><div><h3>Search Focus</h3><p>设置仅对本次搜索生效，不会修改 Profile 默认值。</p></div></div>

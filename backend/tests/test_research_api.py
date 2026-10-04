@@ -97,6 +97,15 @@ def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_pa
                 "dynamic fisher continual learning"
             ]
             assert request.override["additional_query_lens"] == "regularization"
+            manual_queue = (await client.get("/api/research/profiles")).json()[0][
+                "manual_queue"
+            ]
+            assert manual_queue == {"pending": 1, "claimed": 0}
+            service.run_request_repository.claim_next(_NOW)
+            manual_queue = (await client.get("/api/research/profiles")).json()[0][
+                "manual_queue"
+            ]
+            assert manual_queue == {"pending": 0, "claimed": 1}
 
             incremental = await client.post(
                 "/api/research/profiles/continual-learning/runs",

@@ -309,6 +309,7 @@ export interface ResearchProfileSummary {
   paused_until: string | null;
   last_successful_scheduled_run_at: string | null;
   inbox: ResearchInboxUsage;
+  manual_queue: { pending: number; claimed: number };
   latest_run: ResearchRunSummary | null;
 }
 export interface ResearchProfileDetail {
