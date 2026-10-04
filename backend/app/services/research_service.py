@@ -818,14 +818,17 @@ class ResearchService:
             if remaining_inbox <= 0:
                 errors.append("Inbox capacity reached before the slice completed")
                 return False, "capacity_reached"
+            if remaining_analysis_budget <= 0:
+                warnings.append(
+                    "Analysis budget reached; the current search slice remains incomplete and its watermark was not advanced."
+                )
+            if remaining_candidate_budget <= 0:
+                warnings.append(
+                    "Candidate budget reached; the current search slice remains incomplete and its watermark was not advanced."
+                )
             if remaining_analysis_budget <= 0 or remaining_candidate_budget <= 0:
                 return False, "success"
-            request_limit = min(
-                self.profile_registry.global_config.runtime.discovery_page_size,
-                remaining_inbox,
-                remaining_analysis_budget,
-                remaining_candidate_budget,
-            )
+            request_limit = self.profile_registry.global_config.runtime.discovery_page_size
             provider_summary["requests"] += 1
             try:
                 page = provider.search(
@@ -1009,6 +1012,9 @@ class ResearchService:
                             self.run_repository.get(run.id).surfaced_count
                             >= profile.search.max_candidates_per_run
                         ):
+                            warnings.append(
+                                "Candidate budget reached; the current search slice remains incomplete and its watermark was not advanced."
+                            )
                             return False, "success"
                 except AIGatewayError as error:
                     errors.append("DeepSeek: {}".format(str(error)[:240]))
@@ -1020,6 +1026,9 @@ class ResearchService:
             if not complete_page:
                 return False, None
             if analysis_budget_reached:
+                warnings.append(
+                    "Analysis budget reached; the current search slice remains incomplete and its watermark was not advanced."
+                )
                 return False, "success"
             if page.next_cursor is None:
                 return True, None

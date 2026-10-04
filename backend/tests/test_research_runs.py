@@ -240,7 +240,7 @@ def test_capacity_reached_mid_slice_stops_pagination_without_advancing_watermark
     connection.close()
 
 
-def test_provider_request_is_bounded_by_one_remaining_inbox_slot(tmp_path):
+def test_provider_request_uses_configured_page_size_with_one_remaining_inbox_slot(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
     profile = _profile(max_new_candidates=2)
@@ -251,8 +251,45 @@ def test_provider_request_is_bounded_by_one_remaining_inbox_slot(tmp_path):
 
     assert run is not None and run.status == "capacity_reached"
     assert run.surfaced_count == 1
-    assert provider.limit_requests == [1]
+    assert provider.limit_requests == [20]
     assert provider.calls == 1
+    connection.close()
+
+
+def test_filling_inbox_during_a_bounded_page_does_not_request_the_next_page(tmp_path):
+    connection = connect_database(":memory:")
+    first_work = _provider_work()
+    second_work = ProviderWork(
+        provider="arxiv",
+        provider_record_id="2402.00001",
+        title="Fisher Information and Parameter Importance",
+        abstract="Fisher information measures parameter importance.",
+        authors=("Grace Hopper",),
+        year=2026,
+        published_at="2026-10-03",
+        arxiv_id="2402.00001",
+    )
+    provider = FakeProvider(
+        [
+            ProviderPage(works=(first_work,), next_cursor="page-two"),
+            ProviderPage(works=(second_work,)),
+        ]
+    )
+    profile = _profile(max_new_candidates=1)
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "capacity_reached"
+    assert run.surfaced_count == 1
+    assert provider.calls == 1
+    assert provider.limit_requests == [20]
+    state = search_repository.get_state(
+        profile.id, "regularization", "arxiv", _query_key(service)
+    )
+    assert state is not None and state.completed_through is None
     connection.close()
 
 
@@ -296,6 +333,7 @@ def test_per_run_candidate_limit_succeeds_without_advancing_incomplete_slice(
 
     assert first_run is not None and first_run.status == "success"
     assert first_run.surfaced_count == 1
+    assert "Candidate budget reached" in (first_run.error_summary or "")
     assert service.candidate_service.remaining_capacity(profile) == 9
     assert provider.calls == 1
     state = search_repository.get_state(
@@ -407,6 +445,7 @@ def test_analysis_budget_counts_new_deepseek_calls_not_cached_analyses(tmp_path)
     assert run.analysis_attempt_count == 1
     assert run.analyzed_count == 1
     assert run.surfaced_count == 2
+    assert "Analysis budget reached" in (run.error_summary or "")
     assert ai_client.calls == ["research_candidate_analysis"]
     assert service.candidate_repository.count_new(profile.id) == 2
     state = search_repository.get_state(
