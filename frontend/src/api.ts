@@ -438,6 +438,7 @@ export interface ResearchCandidateDetail {
   work: ResearchWork;
   analysis: ResearchWorkAnalysis;
   conversion_blocker: "ambiguous_source" | null;
+  source_match_candidates: Array<{ id: string; title: string; matched_by: string[] }>;
   discoveries: ResearchDiscovery[];
   knowledge_relations: ResearchRelation[];
   linked_entities: Array<{ entity_type: "source" | "document"; entity_id: string; relation_type: "source" | "note"; created_at: string }>;
@@ -902,9 +903,9 @@ export function updateResearchCandidateNote(candidateId: string, note: string) {
   });
 }
 
-export function dismissResearchCandidate(candidateId: string, reason: ResearchDismissReason, note?: string) {
+export function dismissResearchCandidate(candidateId: string, reason?: ResearchDismissReason, note?: string) {
   return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/dismiss`, {
-    method: "POST", body: JSON.stringify({ reason, ...(note ? { note } : {}) }),
+    method: "POST", body: JSON.stringify({ ...(reason ? { reason } : {}), ...(note ? { note } : {}) }),
   });
 }
 

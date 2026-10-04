@@ -351,6 +351,18 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             assert details.status_code == 200, details.json()
             assert details.json()["candidate"]["first_viewed_at"] == _NOW.isoformat()
             assert details.json()["conversion_blocker"] == "ambiguous_source"
+            assert details.json()["source_match_candidates"] == [
+                {
+                    "id": "candidate-match-one",
+                    "title": provider_work.title,
+                    "matched_by": ["title_author_year"],
+                },
+                {
+                    "id": "candidate-match-two",
+                    "title": provider_work.title,
+                    "matched_by": ["title_author_year"],
+                },
+            ]
             assert {
                 discovery["profile_id"] for discovery in details.json()["discoveries"]
             } == {profile.id}
@@ -390,6 +402,12 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             assert dismiss.status_code == 200
             assert dismiss.json()["dismiss_reason"] == "too_redundant"
             assert dismiss.json()["status"] == "dismissed"
+            dismiss_without_reason = await client.post(
+                "/api/research/candidates/{}/dismiss".format(generated.candidate.id),
+                json={},
+            )
+            assert dismiss_without_reason.status_code == 200
+            assert dismiss_without_reason.json()["dismiss_reason"] is None
 
     asyncio.run(exercise_routes())
     connection.close()

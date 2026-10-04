@@ -249,6 +249,14 @@ async def get_candidate(candidate_id: str, request: Request):
         "work": work,
         "analysis": analysis,
         "conversion_blocker": "ambiguous_source" if source_match.ambiguous else None,
+        "source_match_candidates": [
+            {
+                "id": candidate.id,
+                "title": candidate.title,
+                "matched_by": list(candidate.matched_by),
+            }
+            for candidate in source_match.candidates
+        ],
         "discoveries": service.work_repository.list_discoveries_for_candidate_context(
             work.id, candidate.profile_id
         ),

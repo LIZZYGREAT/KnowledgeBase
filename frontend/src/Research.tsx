@@ -199,7 +199,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     setSelectedCandidates([]);
   }
 
-  async function shortlist(ids: string[], note: string) {
+  async function shortlist(ids: string[], note = "") {
     setActionBusy(true);
     setActionError("");
     try {
@@ -267,8 +267,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     }
   }
 
-  async function dismiss(reason: ResearchDismissReason, note: string) {
-    const ids = dismissTargets ?? [];
+  async function dismiss(ids: string[], reason?: ResearchDismissReason, note = "") {
     setActionBusy(true);
     setActionError("");
     try {
@@ -343,7 +342,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
         {tab !== "history" && (tab === "new" || tab === "shortlisted") && items.length > 0 && <div className="research-batch-toolbar"><label><input type="checkbox" checked={items.length > 0 && items.every((item) => selectedCandidates.includes(item.candidate.id))} onChange={(event) => setSelectedCandidates(event.target.checked ? items.map((item) => item.candidate.id) : [])} /> Select visible</label><span>{selectedCandidates.length} selected</span><div>{selectedCandidates.length > 0 && <>{tab === "new" && <button className="button button-secondary" disabled={actionBusy} onClick={() => setShortlistTargets(selectedCandidates)}>Shortlist selected</button>}<button className="button button-quiet" disabled={actionBusy} onClick={() => setDismissTargets(selectedCandidates)}>Dismiss selected</button></>}</div></div>}
         {actionError && <p className="error-copy research-inline-error" role="alert">{actionError}</p>}
         {candidateError && <ErrorState message={candidateError} retry={refresh} />}
-        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={() => { setActionError(""); setDetailId(item.candidate.id); }} onShortlist={() => setShortlistTargets([item.candidate.id])} onDismiss={() => setDismissTargets([item.candidate.id])} onSaveSource={() => void saveSource(item.candidate.id)} onCreateNote={() => { setActionError(""); setCreateNoteTarget(item); }} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
+        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={() => { setActionError(""); setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => void dismiss([item.candidate.id])} onSaveSource={() => void saveSource(item.candidate.id)} onCreateNote={() => { setActionError(""); setCreateNoteTarget(item); }} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
         {items.length > 0 && items.length < candidateCount && <div className="research-load-more"><button className="button button-secondary" disabled={candidateLoading} onClick={() => setOffset(items.length)}>{candidateLoading ? "Loading…" : "Load more"}</button></div>}
       </>}
       {tab === "runs" && <>
@@ -354,7 +353,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
 
     {detailId && (detailLoading ? <div className="research-drawer-overlay"><aside className="research-drawer" role="dialog" aria-modal="true"><LoadingState label="正在载入 Candidate provenance…" /><button className="button button-secondary" onClick={() => setDetailId("")}>Close</button></aside></div> : candidateDetail && profile && <ResearchCandidateDrawer detail={candidateDetail} profile={profile.profile} noteBusy={actionBusy} noteError={actionError} onSaveNote={(note) => void updateCandidateNote(note)} onClose={() => { setDetailId(""); setCandidateDetail(null); }} onOpenEntity={(path) => { setDetailId(""); navigate(path); }} />)}
     {runDetail && <ResearchRunDrawer run={runDetail} onClose={() => setRunDetail(null)} />}
-    {dismissTargets && <ResearchDismissDialog count={dismissTargets.length} busy={actionBusy} onClose={() => setDismissTargets(null)} onSubmit={(reason, note) => void dismiss(reason, note)} />}
+    {dismissTargets && <ResearchDismissDialog count={dismissTargets.length} busy={actionBusy} onClose={() => setDismissTargets(null)} onSubmit={(reason, note) => void dismiss(dismissTargets, reason, note)} />}
     {shortlistTargets && <ResearchShortlistDialog count={shortlistTargets.length} busy={actionBusy} error={actionError} onClose={() => setShortlistTargets(null)} onSubmit={(note) => void shortlist(shortlistTargets, note)} />}
     {createNoteTarget && <ResearchCreateNoteDialog title={createNoteTarget.work.title} busy={actionBusy} suggestedCollectionId={createNoteTarget.analysis.suggested_collection ?? null} suggestedSection={createNoteTarget.analysis.suggested_section ?? null} allowedCollectionIds={profile?.profile.id === selectedProfileId ? profile.profile.context.collections : []} onClose={() => setCreateNoteTarget(null)} onCreate={(options) => void createNote(createNoteTarget.candidate.id, options)} />}
     {profileLayers}

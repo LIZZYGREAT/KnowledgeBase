@@ -101,6 +101,10 @@ def test_strong_identifiers_pointing_to_different_sources_are_ambiguous():
 
     assert result.source is None
     assert result.ambiguous is True
+    assert [(item.id, item.matched_by) for item in result.candidates] == [
+        ("arxiv-source", ("arxiv_id",)),
+        ("doi-source", ("doi",)),
+    ]
 
 
 def test_multiple_weak_source_candidates_are_ambiguous():
@@ -122,6 +126,10 @@ def test_multiple_weak_source_candidates_are_ambiguous():
 
     assert result.source is None
     assert result.ambiguous is True
+    assert [(item.id, item.title, item.matched_by) for item in result.candidates] == [
+        ("first-source", "Same Research Paper", ("title_author_year",)),
+        ("second-source", "Same Research Paper", ("title_author_year",)),
+    ]
 
 
 def _work(**overrides):

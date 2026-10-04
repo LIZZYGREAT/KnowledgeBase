@@ -148,9 +148,9 @@ class ResearchQueuedRunView(APIModel):
 
 
 class ResearchDismissRequest(APIModel):
-    reason: Literal[
+    reason: Optional[Literal[
         "not_relevant", "already_known", "too_redundant", "not_interested", "other"
-    ]
+    ]] = None
     note: Optional[Annotated[str, Field(max_length=4000)]] = None
 
 
@@ -206,6 +206,12 @@ class ResearchLinkedEntityView(APIModel):
     created_at: str
 
 
+class ResearchSourceMatchCandidateView(APIModel):
+    id: str
+    title: str
+    matched_by: list[str]
+
+
 class ResearchPendingLinkView(APIModel):
     id: str
     group_id: str
@@ -221,6 +227,9 @@ class ResearchCandidateDetailView(APIModel):
     work: ResearchWorkRecord
     analysis: ResearchWorkAnalysisRecord
     conversion_blocker: Optional[Literal["ambiguous_source"]] = None
+    source_match_candidates: list[ResearchSourceMatchCandidateView] = Field(
+        default_factory=list
+    )
     discoveries: list[ResearchDiscoveryRecord]
     knowledge_relations: list[ResearchRelation]
     linked_entities: list[ResearchLinkedEntityView]

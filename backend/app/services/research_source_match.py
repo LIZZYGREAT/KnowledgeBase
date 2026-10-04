@@ -22,9 +22,17 @@ _IDENTIFIER_NORMALIZERS = (
 
 
 @dataclass(frozen=True)
+class SourceMatchCandidate:
+    id: str
+    title: str
+    matched_by: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class SourceMatch:
     source: Optional[SourceMetadata] = None
     ambiguous: bool = False
+    candidates: tuple[SourceMatchCandidate, ...] = ()
 
 
 def find_matching_source(
@@ -35,7 +43,7 @@ def find_matching_source(
         field: normalize_identifier(getattr(work, field))
         for field, normalize_identifier in _IDENTIFIER_NORMALIZERS
     }
-    strong_sources: dict[str, SourceMetadata] = {}
+    strong_sources: dict[str, tuple[SourceMetadata, set[str]]] = {}
     conflicting_strong_source_ids = set()
 
     for source in sources:
@@ -58,14 +66,26 @@ def find_matching_source(
             and source_identifiers[field] is not None
             and source_identifiers[field] != work_identifier
         }
-        strong_sources[source.id] = source
+        strong_sources[source.id] = (source, matched_fields)
         if conflicts:
             conflicting_strong_source_ids.add(source.id)
 
     if len(strong_sources) > 1 or conflicting_strong_source_ids:
-        return SourceMatch(ambiguous=True)
+        return SourceMatch(
+            ambiguous=True,
+            candidates=tuple(
+                SourceMatchCandidate(
+                    id=source.id,
+                    title=source.title,
+                    matched_by=tuple(sorted(matched_fields)),
+                )
+                for source, matched_fields in sorted(
+                    strong_sources.values(), key=lambda item: item[0].id
+                )
+            ),
+        )
     if strong_sources:
-        return SourceMatch(source=next(iter(strong_sources.values())))
+        return SourceMatch(source=next(iter(strong_sources.values()))[0])
 
     if work.year is None or not work.authors:
         return SourceMatch()
@@ -96,7 +116,17 @@ def find_matching_source(
             weak_sources.append(source)
 
     if len(weak_sources) > 1:
-        return SourceMatch(ambiguous=True)
+        return SourceMatch(
+            ambiguous=True,
+            candidates=tuple(
+                SourceMatchCandidate(
+                    id=source.id,
+                    title=source.title,
+                    matched_by=("title_author_year",),
+                )
+                for source in sorted(weak_sources, key=lambda item: item.id)
+            ),
+        )
     if weak_sources:
         return SourceMatch(source=weak_sources[0])
     return SourceMatch()

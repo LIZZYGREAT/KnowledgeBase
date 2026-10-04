@@ -108,6 +108,11 @@
 .research-detail-section + .research-detail-section { border-top: 1px solid #edf1ed; padding-top: 15px; }
 .research-detail-section h3 { margin: 0 0 2px; color: #48604e; font-size: var(--text-sm); font-weight: 700; }
 .research-detail-section > p { margin: 0; color: #718076; font-size: var(--text-sm); line-height: 1.65; }
+.research-source-ambiguity { display: grid; gap: 8px; border: 1px solid #efd4c7; border-radius: 9px; padding: 12px; background: #fff9f5; }
+.research-source-ambiguity > strong { color: #895b41; font-size: var(--text-sm); }
+.research-source-ambiguity > p { margin: 0; color: #896c5c; font-size: var(--text-xs); line-height: 1.6; }
+.research-technical-provenance, .research-run-technical-details { margin-top: 1px; }
+.research-technical-provenance > .research-detail-section, .research-run-technical-details > .research-detail-section { border-top: 1px solid #edf1ed; padding-top: 12px; }
 .research-detail-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-radius: 6px; padding: 7px 9px; background: #f8faf8; font-size: var(--text-xs); }
 .research-detail-row > span { flex: 0 0 auto; color: #8b978f; }
 .research-detail-row > strong { color: #4e6555; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
@@ -149,6 +154,11 @@
 .research-run-row-main { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .research-run-row-main strong { overflow: hidden; color: #52665a; font-size: var(--text-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .research-run-row-main small { color: #97a198; font-size: var(--text-xs); }
+.research-run-row-main .research-run-row-issue { color: #a15d56; }
+.research-run-overview { display: grid; gap: 13px; }
+.research-run-overview-status { display: flex; align-items: center; gap: 9px; color: #819087; font-size: var(--text-xs); }
+.research-run-times { display: grid; gap: 5px; }
+.research-run-technical-details { width: 100%; }
 .research-run-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .research-run-stats > div { display: grid; gap: 2px; border: 1px solid #e9eee9; border-radius: 7px; padding: 9px; background: #fbfcfb; }
 .research-run-stats strong { color: #4d7256; font-family: Manrope, sans-serif; font-size: 19px; font-weight: 650; }

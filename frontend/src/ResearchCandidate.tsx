@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getCollection, listCollections, listDrafts, type Collection, type CollectionNode, type CollectionSummary, type ResearchCandidateDetail, type ResearchCandidateListItem, type ResearchDismissReason, type ResearchProfile } from "./api";
+import { getCollection, getEntity, listCollections, listDrafts, type Collection, type CollectionNode, type CollectionSummary, type EntityType, type ResearchCandidateDetail, type ResearchCandidateListItem, type ResearchDismissReason, type ResearchProfile, type ResearchRelation } from "./api";
 import { Chip, formatDate } from "./ui";
 import { parseCollectionDraft } from "./collectionDraftModel";
 
@@ -237,36 +237,101 @@ export function ResearchCandidateDrawer({
   const candidateLens = profile.lenses.find((lens) => lens.id === candidate.primary_lens_id);
   const [editingNote, setEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState(candidate.user_note ?? "");
+  const [entityTitles, setEntityTitles] = useState<Record<string, string>>({});
   useEffect(() => {
     setNoteDraft(candidate.user_note ?? "");
     setEditingNote(false);
   }, [candidate.id, candidate.user_note]);
+  useEffect(() => {
+    let active = true;
+    const relations = [
+      ...detail.knowledge_relations,
+      ...detail.linked_entities.map((link) => ({
+        entity_type: link.entity_type,
+        entity_id: link.entity_id,
+      })),
+    ];
+    const lookups = [...new Map(
+      relations
+        .filter((relation) => relation.entity_type !== "collection")
+        .map((relation) => [relation.entity_type + ":" + relation.entity_id, relation]),
+    ).values()];
+    const collectionIds = [...new Set([
+      ...relations.filter((relation) => relation.entity_type === "collection").map((relation) => relation.entity_id),
+      analysis.analysis.suggested_collection,
+    ].filter((id): id is string => Boolean(id)))];
+
+    void Promise.all([
+      Promise.all(lookups.map(async (relation) => {
+        try {
+          const entity = await getEntity(relation.entity_type as EntityType, relation.entity_id);
+          return [relation.entity_type + ":" + relation.entity_id, entity.title] as const;
+        } catch {
+          return null;
+        }
+      })),
+      collectionIds.length
+        ? listCollections("active").then((collections) => collections
+          .filter((collection) => collectionIds.includes(collection.id))
+          .map((collection) => ["collection:" + collection.id, collection.title] as const))
+          .catch(() => [])
+        : Promise.resolve([]),
+    ]).then(([entityEntries, collectionEntries]) => {
+      if (active) {
+        setEntityTitles(Object.fromEntries([
+          ...entityEntries.filter((entry): entry is readonly [string, string] => entry !== null),
+          ...collectionEntries,
+        ]));
+      }
+    });
+    return () => { active = false; };
+  }, [candidate.id, detail.knowledge_relations, detail.linked_entities, analysis.analysis.suggested_collection]);
+
+  function relationTitle(entityType: ResearchRelation["entity_type"], entityId: string) {
+    return entityTitles[entityType + ":" + entityId] ?? entityId;
+  }
   return <div className="research-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="research-drawer" role="dialog" aria-modal="true" aria-labelledby="research-drawer-title">
       <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">Why this candidate</h2><p>{work.title}</p></div><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></header>
       <div className="research-drawer-body">
-        {detail.conversion_blocker === "ambiguous_source" && <p className="error-copy" role="alert">Canonical Source metadata is ambiguous. Resolve the Source before Save Source / Create Note.</p>}
-        <section className="research-detail-section"><h3>Recommendation</h3><p>{analysis.analysis.why_relevant}</p><p className="field-hint">以下为模型语义信号（0–1），未经概率校准，也不代表论文质量或学术原创性。</p><div className="research-detail-score-grid"><Score label="Profile relevance" value={analysis.analysis.profile_relevance} /><Score label="Knowledge relevance" value={analysis.analysis.knowledge_relevance} /><Score label="Novelty to library" value={analysis.analysis.novelty_to_library} /></div></section>
-        <section className="research-detail-section"><h3>Discovery</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Lens" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} />
-          {detail.discoveries.map((discovery) => <div className="research-provenance-card" key={discovery.id}><div><Chip tone="blue">{discovery.provider}</Chip><span>{formatDate(discovery.discovered_at)}</span></div><DetailRow label="Matched query" value={discovery.query_text} /><DetailRow label="Provider record" value={discovery.provider_record_id} /><DetailRow label="Lens" value={profile.lenses.find((lens) => lens.id === discovery.lens_id)?.title ?? discovery.lens_id} /></div>)}
-        </section>
-        <AnalysisTimeContext detail={detail} />
-        <section className="research-detail-section"><h3>Analysis provenance</h3><DetailRow label="Provider" value={analysis.provider} /><DetailRow label="Model" value={analysis.model} /><DetailRow label="Analysis version" value={String(analysis.analysis_version)} /><DetailRow label="Prompt version" value={analysis.prompt_version} /><DetailRow label="Analyzed at" value={formatDate(analysis.analyzed_at)} /><DetailRow label="Input hash" value={analysis.input_hash} /></section>
-        <section className="research-detail-section"><h3>Matched terms</h3><div className="research-candidate-tags">{analysis.analysis.matched_topics.length ? analysis.analysis.matched_topics.map((term) => <Chip key={term}>{term}</Chip>) : <span className="subtle-copy">No matched topics recorded.</span>}</div></section>
-        {(analysis.analysis.suggested_collection || analysis.analysis.suggested_section) && <section className="research-detail-section"><h3>Suggested destination</h3><p className="subtle-copy">AI suggestion only. Check the current Collection before creating the Note.</p>{analysis.analysis.suggested_collection && <DetailRow label="Collection ID" value={analysis.analysis.suggested_collection} />}{analysis.analysis.suggested_section && <DetailRow label="Section title" value={analysis.analysis.suggested_section} />}</section>}
+        {detail.conversion_blocker === "ambiguous_source" && <section className="research-source-ambiguity" role="alert">
+          <strong>可能已存在 {detail.source_match_candidates.length} 个 Source</strong>
+          <p>先检查并修正现有 Source 的元数据，再保存或创建笔记。为避免重复记录，当前转换操作已阻止。</p>
+          {detail.source_match_candidates.map((source) => {
+            const path = entityPath("source", source.id);
+            return <div className="research-related-row" key={source.id}>
+              <div><strong>{source.title}</strong><small>{source.id} · 匹配依据：{source.matched_by.map(matchMethodLabel).join("、")}</small></div>
+              {path && <button className="button button-secondary" onClick={() => onOpenEntity(path + "?edit=1")}>Open to fix</button>}
+            </div>;
+          })}
+        </section>}
+        <section className="research-detail-section"><h3>Why this paper</h3><p>{analysis.analysis.summary}</p><p>{analysis.analysis.why_relevant}</p><p className="field-hint">以下为模型语义信号（0–1），未经概率校准，也不代表论文质量或学术原创性。</p><div className="research-detail-score-grid"><Score label="Profile relevance" value={analysis.analysis.profile_relevance} /><Score label="Knowledge relevance" value={analysis.analysis.knowledge_relevance} /><Score label="Novelty to library" value={analysis.analysis.novelty_to_library} /></div></section>
+        <section className="research-detail-section"><h3>Why read it</h3><p>{analysis.analysis.reading_reason}</p></section>
+        <section className="research-detail-section"><h3>Paper</h3><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Year" value={work.year == null ? undefined : String(work.year)} /><DetailRow label="Venue" value={work.venue} /><DetailRow label="Abstract" value={work.abstract} /></section>
+        <section className="research-detail-section"><h3>Research focus</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Focus" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} /></section>
+        {(analysis.analysis.suggested_collection || analysis.analysis.suggested_section) && <section className="research-detail-section"><h3>Suggested destination</h3><p className="subtle-copy">AI suggestion only. Check the current Collection before creating the Note.</p>{analysis.analysis.suggested_collection && <div className="research-related-row"><div><strong>{relationTitle("collection", analysis.analysis.suggested_collection)}</strong><small>Collection · {analysis.analysis.suggested_collection}</small></div></div>}{analysis.analysis.suggested_section && <DetailRow label="Section" value={analysis.analysis.suggested_section} />}</section>}
         <section className="research-detail-section"><h3>Related knowledge</h3>{detail.knowledge_relations.length ? detail.knowledge_relations.map((relation) => {
           const path = entityPath(relation.entity_type, relation.entity_id);
-          return <div className="research-related-row" key={`${relation.entity_type}:${relation.entity_id}`}>
-            <div><strong>{relation.entity_id}</strong><small>{relation.relation} · {relation.reason}</small></div>
+          return <div className="research-related-row" key={relation.entity_type + ":" + relation.entity_id}>
+            <div><strong>{relationTitle(relation.entity_type, relation.entity_id)}</strong><small>{relation.entity_type} · {relation.entity_id} · {relation.relation} · {relation.reason}</small></div>
             {path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}
           </div>;
         }) : <p className="subtle-copy">没有关联记录。</p>}</section>
-        <section className="research-detail-section"><h3>Candidate history</h3><DetailRow label="Added" value={formatDate(candidate.created_at)} /><DetailRow label="First viewed" value={formatDate(candidate.first_viewed_at)} /><DetailRow label="Last viewed" value={formatDate(candidate.last_viewed_at)} />{candidate.status === "shortlisted" ? editingNote ? <form className="research-candidate-note-editor" onSubmit={(event) => { event.preventDefault(); onSaveNote(noteDraft.trim()); }}><label className="field-label">Candidate note<textarea aria-label="Candidate note" rows={3} maxLength={4000} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label>{noteError && <p className="error-copy" role="alert">{noteError}</p>}<div className="research-inline-actions"><button className="button button-quiet" type="button" disabled={noteBusy} onClick={() => { setNoteDraft(candidate.user_note ?? ""); setEditingNote(false); }}>Cancel</button><button className="button button-secondary" type="submit" disabled={noteBusy || noteDraft.trim() === (candidate.user_note ?? "")}>{noteBusy ? "Saving…" : "Save note"}</button></div></form> : <div className="research-candidate-note"><DetailRow label="Your note" value={candidate.user_note ?? "No note added"} /><button className="text-button" disabled={noteBusy} onClick={() => setEditingNote(true)}>Edit note</button></div> : candidate.user_note && <DetailRow label="Your note" value={candidate.user_note} />}{candidate.dismiss_reason && <DetailRow label="Dismiss reason" value={candidate.dismiss_reason} />}</section>
-        {(detail.linked_entities.length > 0 || detail.pending_links.length > 0) && <section className="research-detail-section"><h3>Current knowledge links</h3>{detail.linked_entities.map((link) => {
+        {detail.linked_entities.length > 0 && <section className="research-detail-section"><h3>Current knowledge links</h3>{detail.linked_entities.map((link) => {
           const path = entityPath(link.entity_type, link.entity_id);
-          return <div className="research-related-row" key={`${link.entity_type}:${link.entity_id}`}><div><strong>{link.relation_type === "source" ? "Source" : "Note"} · {link.entity_id}</strong><small>Published canonical link</small></div>{path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}</div>;
-        })}{detail.pending_links.map((link) => <DetailRow key={link.id} label={`${link.intended_entity_type} draft`} value={link.intended_entity_id} />)}</section>}
-        <section className="research-detail-section"><h3>Paper details</h3><DetailRow label="DOI" value={work.doi} /><DetailRow label="arXiv" value={work.arxiv_id} /><DetailRow label="OpenAlex" value={work.openalex_id} /><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Abstract" value={work.abstract} /></section>
+          return <div className="research-related-row" key={link.entity_type + ":" + link.entity_id}><div><strong>{link.relation_type === "source" ? "Source" : "Note"} · {relationTitle(link.entity_type, link.entity_id)}</strong><small>{link.entity_id} · Published canonical link</small></div>{path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}</div>;
+        })}</section>}
+        <section className="research-detail-section"><h3>Candidate note</h3>{candidate.status === "shortlisted" ? editingNote ? <form className="research-candidate-note-editor" onSubmit={(event) => { event.preventDefault(); onSaveNote(noteDraft.trim()); }}><label className="field-label">Candidate note<textarea aria-label="Candidate note" rows={3} maxLength={4000} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label>{noteError && <p className="error-copy" role="alert">{noteError}</p>}<div className="research-inline-actions"><button className="button button-quiet" type="button" disabled={noteBusy} onClick={() => { setNoteDraft(candidate.user_note ?? ""); setEditingNote(false); }}>Cancel</button><button className="button button-secondary" type="submit" disabled={noteBusy || noteDraft.trim() === (candidate.user_note ?? "")}>{noteBusy ? "Saving…" : "Save note"}</button></div></form> : <div className="research-candidate-note"><DetailRow label="Your note" value={candidate.user_note ?? "No note added"} /><button className="text-button" disabled={noteBusy} onClick={() => setEditingNote(true)}>Edit note</button></div> : candidate.user_note ? <DetailRow label="Your note" value={candidate.user_note} /> : <p className="subtle-copy">No note added.</p>}</section>
+        <section className="research-detail-section"><h3>Candidate history</h3><DetailRow label="Added" value={formatDate(candidate.created_at)} /><DetailRow label="First viewed" value={formatDate(candidate.first_viewed_at)} /><DetailRow label="Last viewed" value={formatDate(candidate.last_viewed_at)} />{candidate.dismiss_reason && <DetailRow label="Dismiss reason" value={candidate.dismiss_reason} />}</section>
+        <details className="research-advanced-settings research-technical-provenance">
+          <summary>Technical provenance</summary>
+          <section className="research-detail-section"><h3>Discovery records</h3>{detail.discoveries.map((discovery) => <div className="research-provenance-card" key={discovery.id}><div><Chip tone="blue">{discovery.provider}</Chip><span>{formatDate(discovery.discovered_at)}</span></div><DetailRow label="Matched query" value={discovery.query_text} /><DetailRow label="Provider record ID" value={discovery.provider_record_id} /><DetailRow label="Lens" value={profile.lenses.find((lens) => lens.id === discovery.lens_id)?.title ?? discovery.lens_id} /></div>)}</section>
+          <section className="research-detail-section"><h3>Analysis provenance</h3><DetailRow label="Provider" value={analysis.provider} /><DetailRow label="Model" value={analysis.model} /><DetailRow label="Analysis version" value={String(analysis.analysis_version)} /><DetailRow label="Prompt version" value={analysis.prompt_version} /><DetailRow label="Analyzed at" value={formatDate(analysis.analyzed_at)} /><DetailRow label="Input hash" value={analysis.input_hash} /></section>
+          <AnalysisTimeContext detail={detail} />
+          <section className="research-detail-section"><h3>Matched terms</h3><div className="research-candidate-tags">{analysis.analysis.matched_topics.length ? analysis.analysis.matched_topics.map((term) => <Chip key={term}>{term}</Chip>) : <span className="subtle-copy">No matched topics recorded.</span>}</div></section>
+          {(work.doi || work.arxiv_id || work.openalex_id || work.semantic_scholar_id || work.url) && <section className="research-detail-section"><h3>Identifiers and links</h3><DetailRow label="DOI" value={work.doi} /><DetailRow label="arXiv" value={work.arxiv_id} /><DetailRow label="OpenAlex" value={work.openalex_id} /><DetailRow label="Semantic Scholar" value={work.semantic_scholar_id} /><DetailRow label="URL" value={work.url} /></section>}
+          {detail.pending_links.length > 0 && <section className="research-detail-section"><h3>Pending knowledge links</h3>{detail.pending_links.map((link) => <DetailRow key={link.id} label={link.intended_entity_type + " draft"} value={link.intended_entity_id} />)}</section>}
+        </details>
       </div>
       <footer className="research-drawer-footer"><span>Candidate actions remain in Runtime until you publish a Draft.</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>
     </aside>
@@ -330,14 +395,14 @@ export function ResearchDismissDialog({
   count: number;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (reason: ResearchDismissReason, note: string) => void;
+  onSubmit: (reason: ResearchDismissReason | undefined, note: string) => void;
 }) {
-  const [reason, setReason] = useState<ResearchDismissReason>("not_relevant");
+  const [reason, setReason] = useState<ResearchDismissReason | "">("");
   const [note, setNote] = useState("");
   return <div className="research-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <form className="research-dismiss-dialog" role="dialog" aria-modal="true" aria-labelledby="dismiss-dialog-title" onSubmit={(event) => { event.preventDefault(); onSubmit(reason, note.trim()); }}>
+    <form className="research-dismiss-dialog" role="dialog" aria-modal="true" aria-labelledby="dismiss-dialog-title" onSubmit={(event) => { event.preventDefault(); onSubmit(reason || undefined, note.trim()); }}>
       <div><p className="eyebrow">CANDIDATE ACTION</p><h2 id="dismiss-dialog-title">Dismiss {count === 1 ? "candidate" : `${count} candidates`}</h2><p>This decision is stored in Research Runtime history.</p></div>
-      <label className="field-label">Reason<select value={reason} onChange={(event) => setReason(event.target.value as typeof reason)}><option value="not_relevant">Not relevant</option><option value="already_known">Already known</option><option value="too_redundant">Too redundant</option><option value="not_interested">Not following this subfield</option><option value="other">Other</option></select></label>
+      <label className="field-label">Reason (optional)<select value={reason} onChange={(event) => setReason(event.target.value as typeof reason)}><option value="">Skip reason</option><option value="not_relevant">Not relevant</option><option value="already_known">Already known</option><option value="too_redundant">Too redundant</option><option value="not_interested">Not following this subfield</option><option value="other">Other</option></select></label>
       <label className="field-label">Note (optional)<textarea rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a short note for future reference" /></label>
       <div className="research-dialog-actions"><button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="button button-danger" type="submit" disabled={busy}>{busy ? "Saving…" : "Confirm Dismiss"}</button></div>
     </form>
@@ -388,6 +453,16 @@ function safeExternalUrl(value: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function matchMethodLabel(value: string) {
+  const labels: Record<string, string> = {
+    doi: "DOI",
+    arxiv_id: "arXiv ID",
+    openalex_id: "OpenAlex ID",
+    title_author_year: "title, author, and year",
+  };
+  return labels[value] ?? value.replaceAll("_", " ");
 }
 
 function entityPath(type: string, id: string): string | null {
