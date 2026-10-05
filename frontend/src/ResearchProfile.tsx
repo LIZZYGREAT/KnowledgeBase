@@ -234,12 +234,19 @@ export function ResearchProfilePanel({
     {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">AI 分析已关闭。系统仍会收集论文，但不会向 DeepSeek 发送论文或知识库内容，也不会生成推荐候选。重新开启后，系统会逐步处理之前收集但尚未分析的论文。</p>}
     {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Research Focus。</p>}
 
-    {isPaused && <div className="research-resume-bar">
-      <label className="field-label">恢复方式<select value={resumeStrategy} onChange={(event) => setResumeStrategy(event.target.value as typeof resumeStrategy)}><option value="catch_up">追赶暂停期间的内容</option><option value="from_now">从现在开始，不补历史</option></select></label>
-      {resumeStrategy === "catch_up" && <p className="field-hint">恢复后会补回暂停期间的内容，最多回看 {profile.search.max_catchup_days} 天。</p>}
-      {resumeStrategy === "catch_up" && <details className="research-advanced-settings"><summary>高级恢复选项</summary><label className="field-label">自定义追赶天数<input type="number" min="1" max="3650" value={catchupDays} onChange={(event) => setCatchupDays(event.target.value)} /><span className="field-hint">留空时使用 Profile 的最多回看天数。</span></label></details>}
-      <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume Research</button>
-    </div>}
+    {isPaused && <section className="research-resume-bar" aria-labelledby="research-resume-heading">
+      <h3 id="research-resume-heading">恢复 Research</h3>
+      <div className="research-resume-content">
+        <label className="field-label research-resume-mode">恢复方式<select value={resumeStrategy} onChange={(event) => setResumeStrategy(event.target.value as typeof resumeStrategy)}><option value="catch_up">追赶暂停期间的内容</option><option value="from_now">从现在开始，不补历史</option></select></label>
+        <p className="research-resume-copy">{resumeStrategy === "catch_up"
+          ? `从暂停前尚未完成的 scheduled watermark 继续搜索，补查暂停期间遗漏的时间窗；最多回看 ${catchupDays || profile.search.max_catchup_days} 天。`
+          : "把 scheduled watermark 推进到现在，跳过暂停期间遗漏的时间窗，只搜索现在之后的新内容。"}</p>
+      </div>
+      <div className="research-resume-footer">
+        {resumeStrategy === "catch_up" && <details className="research-advanced-settings research-resume-advanced"><summary>高级选项</summary><label className="field-label">自定义追赶天数<input aria-label="自定义追赶天数" type="number" min="1" max="3650" value={catchupDays} onChange={(event) => setCatchupDays(event.target.value)} /><span className="field-hint">留空时使用 Profile 配置的 {profile.search.max_catchup_days} 天。</span></label></details>}
+        <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume Research</button>
+      </div>
+    </section>}
 
     {pauseOpen && <div className="research-pause-options">
       <strong>Pause automatic research</strong>

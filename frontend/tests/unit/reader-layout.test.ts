@@ -38,12 +38,19 @@ test("reader outline is a sticky independent scroll area and follows intersectin
   assert.ok(readerModel.includes('const match = /^(#{1,5})'));
 });
 
-test("reader shortcut actions stay below the app header", () => {
+test("reader shortcut actions are grouped and back to top floats after scrolling", () => {
   assert.match(reader, /reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作/);
+  assert.match(reader, /reader-toolbar-group" role="group" aria-label="编辑/);
+  assert.match(reader, /reader-toolbar-status" role="group" aria-label="状态/);
+  assert.match(reader, /reader-toolbar-reading" role="group" aria-label="阅读/);
   assert.match(reader, /navigate\("\/review"\)/);
   assert.match(reader, /window\.scrollTo\(\{ top: 0, behavior: "smooth" \}\)/);
+  assert.match(reader, /window\.scrollY > 480/);
+  assert.match(reader, /className="button button-secondary reader-back-to-top"/);
+  assert.doesNotMatch(reader, />Back to top<\/button>/);
   assert.match(reader, /aria-expanded=\{contextExpanded\} aria-controls="reader-context-panel"/);
   assert.match(styles, /\.reader-sticky-actions\s*\{[^}]*position:\s*sticky;[^}]*top:\s*72px/);
+  assert.match(styles, /\.reader-back-to-top\s*\{[^}]*position:\s*fixed/);
 });
 
 test("Workspace Explorer is a floating overlay and does not allocate a content column", () => {

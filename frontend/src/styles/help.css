@@ -1,0 +1,16 @@
+.help-page { width: min(1040px, 100%); margin-inline: auto; }
+.help-language-switch { display: inline-flex; align-items: center; gap: 2px; border: 1px solid #e0e8e1; border-radius: 8px; padding: 3px; background: #fbfcfb; }
+.help-language-switch button { min-height: 31px; border: 0; border-radius: 6px; padding: 0 10px; color: #79877e; background: transparent; font-size: var(--text-xs); cursor: pointer; }
+.help-language-switch button[aria-pressed="true"] { color: #3b684b; background: #eaf2eb; font-weight: 650; }
+.help-sections { display: grid; gap: 14px; }
+.help-section { display: grid; gap: 12px; padding: 18px 20px; }
+.help-section > h2 { margin: 0; color: #40574a; font-size: var(--text-md); font-weight: 650; }
+.help-topics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
+.help-topic { border-top: 1px solid #eef1ee; padding: 12px 0; }
+.help-topic h3 { margin: 0 0 5px; color: #52675a; font-size: var(--text-sm); font-weight: 650; }
+.help-topic p { margin: 0; color: #77837b; font-size: var(--text-sm); line-height: 1.65; }
+@media (max-width: 680px) {
+  .help-section { padding: 15px 13px; }
+  .help-topics { grid-template-columns: 1fr; }
+  .page-header-action { align-self: flex-end; }
+}

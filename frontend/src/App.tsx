@@ -12,6 +12,7 @@ const LibraryPage = lazy(() => import("./Pages").then((module) => ({ default: mo
 const TermsPage = lazy(() => import("./Pages").then((module) => ({ default: module.TermsPage })));
 const TopicsPage = lazy(() => import("./Pages").then((module) => ({ default: module.TopicsPage })));
 const ResearchPage = lazy(() => import("./Research"));
+const HelpPage = lazy(() => import("./Help").then((module) => ({ default: module.HelpPage })));
 const ReviewPage = lazy(() => import("./Pages").then((module) => ({ default: module.ReviewPage })));
 const ExplorerPage = lazy(() => import("./Explorer").then((module) => ({ default: module.ExplorerPage })));
 const WorkspacePage = lazy(() => import("./Workspace").then((module) => ({ default: module.WorkspacePage })));
@@ -46,6 +47,7 @@ const navigation = [
   { route: "/topics", title: "Topics", translation: "主题", icon: "✳" },
   { route: "/research", title: "Research", translation: "研究发现", icon: "⌕" },
   { route: "/review", title: "Review", translation: "审阅", icon: "✓" },
+  { route: "/help", title: "Help", translation: "帮助", icon: "?" },
   { route: "/explorer", title: "Explorer", translation: "知识探索", icon: "⌘" },
 ];
 
@@ -263,6 +265,8 @@ export default function App() {
     page = <Suspense fallback={<LoadingState />}><ResearchPage navigate={navigate} /></Suspense>;
   } else if (route.path === "/review") {
     page = <Suspense fallback={<LoadingState />}><ReviewPage onOpen={openEntity} navigate={navigate} /></Suspense>;
+  } else if (route.path === "/help") {
+    page = <Suspense fallback={<LoadingState />}><HelpPage /></Suspense>;
   } else if (route.path === "/explorer") {
     page = <Suspense fallback={<LoadingState />}><ExplorerPage onOpen={openEntity} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} /></Suspense>;
   } else {

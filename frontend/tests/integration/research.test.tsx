@@ -816,6 +816,31 @@ describe("Research workspace", () => {
     expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
   });
 
+  it("explains both resume policies and keeps advanced catch-up settings inline", () => {
+    render(<ResearchProfilePanel
+      summary={profileSummary}
+      detail={{
+        ...profileDetail,
+        runtime_state: { ...profileDetail.runtime_state!, paused_until: new Date(Date.now() + 86_400_000).toISOString() },
+      }}
+      onRefresh={() => undefined}
+      onQueued={() => undefined}
+      onEditDefaults={() => undefined}
+    />);
+
+    expect(screen.getByRole("heading", { name: "恢复 Research" })).toBeTruthy();
+    expect(screen.getByText(/从暂停前尚未完成的 scheduled watermark 继续搜索/)).toBeTruthy();
+    const advanced = screen.getByText("高级选项").closest("details") as HTMLDetailsElement;
+    expect(advanced.open).toBe(false);
+    fireEvent.click(screen.getByText("高级选项"));
+    expect(advanced.open).toBe(true);
+    expect(screen.getByLabelText("自定义追赶天数")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("恢复方式"), { target: { value: "from_now" } });
+    expect(screen.getByText("把 scheduled watermark 推进到现在，跳过暂停期间遗漏的时间窗，只搜索现在之后的新内容。")).toBeTruthy();
+    expect(screen.queryByText("高级选项")).toBeNull();
+  });
+
   it("blocks manual search when the Inbox is full", async () => {
     const fullInbox = { new_count: 20, capacity: 20, remaining: 0 };
     responseProfileSummary = { ...profileSummary, inbox: fullInbox };

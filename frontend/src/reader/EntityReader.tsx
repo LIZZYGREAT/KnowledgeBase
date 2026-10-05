@@ -61,8 +61,15 @@ export function EntityPage({
   const [aiDrawerOpen, setAIDrawerOpen] = useState(false);
   const [contextExpanded, setContextExpanded] = useState(false);
   const [activeHeading, setActiveHeading] = useState("");
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const readerMarkdownRef = useRef<HTMLDivElement>(null);
   const contextPanelRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const updateVisibility = () => setShowBackToTop(window.scrollY > 480);
+    updateVisibility();
+    window.addEventListener("scroll", updateVisibility, { passive: true });
+    return () => window.removeEventListener("scroll", updateVisibility);
+  }, []);
   const workspaceEnvelope = useMemo(() => splitMarkdownFrontmatter(workspaceDraft.content), [workspaceDraft.content]);
   const draftOnlyEntity = useMemo(() => {
     if (resource.data || !workspaceDraft.draft || workspaceDraft.canonicalEntity) return null;
@@ -296,32 +303,37 @@ export function EntityPage({
         <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{entity.title}</h1><div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
       </div>
       <div className="reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作">
-        <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("source")}>Source</button>
-        <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("metadata")}>元数据</button>
-        <button className="button button-secondary" disabled={type === "source"} onClick={() => workspaceEditorController.setActiveDrawer("ai")}>AI 审阅</button>
-        <button
-          className="button button-secondary"
-          disabled={workspaceEditorController.publishing || hasDraftConflict || Boolean(workspaceEditorController.publishedRevision) || (!workspaceEditorController.draft && !workspaceEditorController.isDirty)}
-          onClick={() => {
-            workspaceEditorController.setPublishReview(null);
-            workspaceEditorController.setActiveDrawer("publish");
-            void workspaceEditorController.runPreflight();
-          }}
-        >{workspaceEditorController.batchCollectionId || workspaceEditorController.additionalDraftIds.length ? "Publish All" : "发布"}</button>
-        {workspaceEditorController.draft && <button
-          className="button button-danger"
-          disabled={workspaceEditorController.publishing || discardBlocked}
-          title={discardBlocked ? "请等待保存完成或先处理冲突" : undefined}
-          aria-describedby={discardBlocked ? "reader-discard-disabled-reason" : undefined}
-          onClick={() => void workspaceEditorController.discardCurrentDraft()}
-        >{workspaceEditorController.batchCollectionId || workspaceEditorController.researchGroupId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button>}
-        {discardBlocked && <span id="reader-discard-disabled-reason" className="subtle-copy" role="status">请等待保存完成或先处理冲突</span>}
-        <span className={`workspace-reader-save-state ${hasDraftConflict ? "conflict" : workspaceDraft.saveState}`} role="status">{saveStateLabel}</span>
-        {workspaceDraft.saveState === "canonical-conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}
-        <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
-        {type === "document" && sourceIds.length > 0 && <button className="button button-secondary" onClick={openSources}>Sources</button>}
-        <button className="button button-secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to top</button>
-        <button className="button button-secondary reader-action-more" aria-expanded={contextExpanded} aria-controls="reader-context-panel" onClick={toggleContextPanel}>{contextExpanded ? "Less" : "More"}</button>
+        <div className="reader-toolbar-group" role="group" aria-label="编辑">
+          <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("source")}>Source</button>
+          <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("metadata")}>元数据</button>
+          <button className="button button-secondary" disabled={type === "source"} onClick={() => workspaceEditorController.setActiveDrawer("ai")}>AI 审阅</button>
+          <button
+            className="button button-secondary"
+            disabled={workspaceEditorController.publishing || hasDraftConflict || Boolean(workspaceEditorController.publishedRevision) || (!workspaceEditorController.draft && !workspaceEditorController.isDirty)}
+            onClick={() => {
+              workspaceEditorController.setPublishReview(null);
+              workspaceEditorController.setActiveDrawer("publish");
+              void workspaceEditorController.runPreflight();
+            }}
+          >{workspaceEditorController.batchCollectionId || workspaceEditorController.additionalDraftIds.length ? "Publish All" : "发布"}</button>
+          {workspaceEditorController.draft && <button
+            className="button button-danger"
+            disabled={workspaceEditorController.publishing || discardBlocked}
+            title={discardBlocked ? "请等待保存完成或先处理冲突" : undefined}
+            aria-describedby={discardBlocked ? "reader-discard-disabled-reason" : undefined}
+            onClick={() => void workspaceEditorController.discardCurrentDraft()}
+          >{workspaceEditorController.batchCollectionId || workspaceEditorController.researchGroupId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button>}
+        </div>
+        <div className="reader-toolbar-group reader-toolbar-status" role="group" aria-label="状态">
+          {discardBlocked && <span id="reader-discard-disabled-reason" className="subtle-copy" role="status">请等待保存完成或先处理冲突</span>}
+          <span className={`workspace-reader-save-state ${hasDraftConflict ? "conflict" : workspaceDraft.saveState}`} role="status">{saveStateLabel}</span>
+          {workspaceDraft.saveState === "canonical-conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}
+        </div>
+        <div className="reader-toolbar-group reader-toolbar-reading" role="group" aria-label="阅读">
+          <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
+          {type === "document" && sourceIds.length > 0 && <button className="button button-secondary" onClick={openSources}>Sources</button>}
+          <button className="button button-secondary reader-action-more" aria-expanded={contextExpanded} aria-controls="reader-context-panel" onClick={toggleContextPanel}>{contextExpanded ? "Less" : "More"}</button>
+        </div>
       </div>
       {workspaceDraft.error && workspaceEditorController.activeDrawer !== "metadata" && <p className="workspace-reader-save-error" role="alert">保存失败：{workspaceDraft.error}</p>}
       <details id="reader-context-panel" ref={contextPanelRef} className="reader-context-panel surface" open={contextExpanded} onToggle={(event) => setContextExpanded(event.currentTarget.open)}>
@@ -390,6 +402,7 @@ export function EntityPage({
           </div>}
         </article>
       </div>
+      {showBackToTop && <button className="button button-secondary reader-back-to-top" type="button" aria-label="回到顶部" title="回到顶部" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><span aria-hidden="true">↑</span>回到顶部</button>}
       {aiDrawerOpen && type === "document" && <WorkspaceSelectionAIDrawer
         selectedText={aiSelection}
         workspaceDraft={workspaceDraft}
