@@ -54,8 +54,8 @@ Validate configuration without contacting providers with `docker compose -f dock
 The Research timer runs code from the mounted checkout, while the Web backend runs code from its built image. Pause both during upgrades so a timer tick cannot migrate the shared Runtime database with a different code version:
 
 ```sh
-./scripts/production-backup.sh
 sudo systemctl stop knowledgebase-research.timer
+./scripts/production-backup.sh
 docker compose --env-file .env -f docker-compose.production.yml stop frontend backend
 git pull --ff-only
 docker compose --env-file .env -f docker-compose.production.yml config -q
