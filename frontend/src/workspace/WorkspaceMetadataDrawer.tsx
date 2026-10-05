@@ -11,6 +11,7 @@ export function WorkspaceMetadataDrawer({
   type,
   id,
   content,
+  canonicalSourceMetadata = null,
   error = "",
   sourceEntries,
   sourceError,
@@ -25,6 +26,7 @@ export function WorkspaceMetadataDrawer({
   type: EntityType;
   id: string;
   content: string;
+  canonicalSourceMetadata?: Record<string, unknown> | null;
   error?: string;
   sourceEntries: EntitySummary[];
   sourceError: string;
@@ -41,6 +43,13 @@ export function WorkspaceMetadataDrawer({
   const associatedSourceIds = readStringArray(readFrontmatterField(content, type, "sources"));
   const paperSkills = readPaperSkillArtifacts(readFrontmatterField(content, type, "external_artifacts"));
   const pdfAttachment = readSourcePdf(content);
+  const canonicalPdfAttachment = stringValue(readRecord(canonicalSourceMetadata?.attachments).local_pdf);
+  const canOpenPdf = Boolean(pdfAttachment && pdfAttachment === canonicalPdfAttachment);
+  const pdfDescription = !pdfAttachment
+    ? "可通过 Review 导入并关联 PDF。"
+    : canOpenPdf
+      ? "文件保存在本机私有存储中。"
+      : "发布后可在这里打开 PDF。";
   const pdfFileName = pdfAttachment.slice(pdfAttachment.lastIndexOf("/") + 1) || pdfAttachment;
   const sourceIdentifiers = readRecord(readFrontmatterField(content, type, "identifiers"));
   const sourceAuthors = readStringArray(readFrontmatterField(content, type, "authors"));
@@ -315,11 +324,11 @@ export function WorkspaceMetadataDrawer({
         <span className="attachment-icon">PDF</span>
         <span>
           <strong>{pdfAttachment ? `已关联：${pdfFileName}` : "尚未关联 PDF"}</strong>
-          <small>{pdfAttachment ? "文件保存在本机私有存储中。" : "可通过 Review 导入并关联 PDF。"}</small>
+          <small>{pdfDescription}</small>
         </span>
       </div>
       <div className="metadata-pdf-actions">
-        {pdfAttachment && <a className="button button-secondary" href={`/api/sources/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noreferrer">打开 PDF</a>}
+        {canOpenPdf && <a className="button button-secondary" href={`/api/sources/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noreferrer">打开 PDF</a>}
         <button className="button button-secondary" onClick={() => onNavigate("/review#imports")}>{pdfAttachment ? "通过 Review 检查" : "通过 Review 添加 PDF"}</button>
       </div>
     </section>}

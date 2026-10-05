@@ -28,6 +28,7 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       type={type}
       id={id}
       content={content}
+      canonicalSourceMetadata={canonicalEntity?.entity_type === "source" ? canonicalEntity.metadata : null}
       error={saveError || draftError}
       sourceEntries={sourceEntries}
       sourceError={sourceError}

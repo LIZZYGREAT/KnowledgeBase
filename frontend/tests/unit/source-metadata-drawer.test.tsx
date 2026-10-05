@@ -10,6 +10,7 @@ describe("Source metadata drawer", () => {
     render(<WorkspaceMetadataDrawer
       type="source"
       id="ewc-2017"
+      canonicalSourceMetadata={{ attachments: { local_pdf: "storage://papers/ewc.pdf" } }}
       content={[
         "schema_version: 1",
         "id: ewc-2017",
@@ -189,5 +190,27 @@ describe("Source metadata drawer", () => {
     expect(onNavigate).toHaveBeenCalledWith("/review#imports");
     fireEvent.click(screen.getByText("高级信息"));
     expect((screen.getByLabelText("附件 URI") as HTMLInputElement).value).toBe("");
+  });
+
+  it("does not offer a PDF URL that exists only in an unpublished Draft", () => {
+    render(<WorkspaceMetadataDrawer
+      type="source"
+      id="ewc-2017"
+      content={["schema_version: 1", "id: ewc-2017", "type: paper", "title: Paper", "attachments:", "  local_pdf: storage://papers/ewc.pdf"].join("\n")}
+      canonicalSourceMetadata={{ attachments: {} }}
+      sourceEntries={[]}
+      sourceError=""
+      canonicalEvidenceCount={0}
+      onFrontmatterUpdate={vi.fn()}
+      onFrontmatterListUpdate={vi.fn()}
+      onSourcePdfChange={vi.fn()}
+      onNavigate={vi.fn()}
+      onClose={vi.fn()}
+      onError={vi.fn()}
+    />);
+
+    expect(screen.getByText("已关联：ewc.pdf")).toBeTruthy();
+    expect(screen.getByText("发布后可在这里打开 PDF。")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "打开 PDF" })).toBeNull();
   });
 });
