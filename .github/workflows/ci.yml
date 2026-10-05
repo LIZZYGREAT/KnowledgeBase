@@ -16,8 +16,10 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check backend entrypoint syntax
-        run: sh -n backend/entrypoint.sh
+      - name: Check production shell script syntax
+        run: |
+          sh -n backend/entrypoint.sh
+          sh -n scripts/production-backup.sh
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5

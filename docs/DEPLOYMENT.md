@@ -89,14 +89,19 @@ The backup command creates one archive containing:
 
 The entire Git worktree must be clean before a backup, including Research Profiles under `config/research/profiles/` and `config/research/research.yaml`; the script stops if it finds tracked or untracked changes. Git-ignored Runtime, Storage, and `.env` files do not trigger the check. Runtime and storage data are included in the archive. The default destination is a sibling `KnowledgeBase-backups` directory. Production Compose mounts `KB_BACKUP_DIRECTORY` at `/backups`.
 
-Create an archive:
+The production backup entrypoint stops the frontend and backend, runs `backup.py` in a one-off container with the production mounts, then restarts both services even when the backup fails or the script is interrupted. This causes a short service interruption. Run it from the repository root:
 
 ```sh
-docker compose -f docker-compose.production.yml exec -T backend \
-  python /workspace/scripts/backup.py
+./scripts/production-backup.sh
 ```
 
-Schedule that command on the server and copy completed archives to a second private storage location. The archive does not contain `.env` or DeepSeek credentials; back those up through the server's secret-management process.
+Use the same script for production cron jobs, and copy completed archives to a second private storage location:
+
+```cron
+0 2 * * * cd /srv/KnowledgeBase && ./scripts/production-backup.sh >> "$HOME/.local/state/knowledgebase/backup.log" 2>&1
+```
+
+Create the log directory for the deployment account before enabling the job. A Research timer tick that lands during the brief stop may fail once and retry on its next scheduled interval. The archive does not contain `.env` or DeepSeek credentials; back those up through the server's secret-management process.
 
 Restore to a new, empty checkout location:
 
