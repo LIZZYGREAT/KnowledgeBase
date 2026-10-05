@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { requestAIProposal, rejectProposal as rejectProposalRequest, type Proposal } from "../api";
 import type { WorkspaceDraftController } from "../useWorkspaceDraft";
 import { WorkspaceDrawer } from "../WorkspaceDrawer";
+import { WorkspaceProposalPresentation } from "./WorkspaceProposalPresentation";
 
 export function WorkspaceSelectionAIDrawer({
   selectedText,
@@ -85,7 +86,7 @@ export function WorkspaceSelectionAIDrawer({
       {proposal && <article className="proposal-card">
         <div className="proposal-card-top"><div><strong>Selection Review</strong><small>{proposal.provider ?? proposal.created_by} · {proposal.status}</small></div><span className="chip chip-amber">Proposal</span></div>
         {proposal.diff_text && <pre className="proposal-diff">{proposal.diff_text}</pre>}
-        <pre className="proposal-payload">{JSON.stringify(proposal.payload.result ?? proposal.payload, null, 2)}</pre>
+        <WorkspaceProposalPresentation proposal={proposal} />
         {typeof proposal.payload.applied_content_hash === "string" && <p className="proposal-message" role="status">已写入当前 Draft；完成检查后发布，Proposal 会随最终内容结算。</p>}
         <div className="proposal-card-actions">
           {typeof proposal.payload.content === "string" && typeof proposal.payload.applied_content_hash !== "string" && <button className="button button-primary" type="button" disabled={busy} onClick={() => void applyCandidate()}>Apply to Draft</button>}

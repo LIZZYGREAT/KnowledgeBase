@@ -21,6 +21,24 @@
 .proposal-card-top strong { color: #405449; font-size: var(--text-sm); }
 .proposal-card-top small { color: #96a198; font-size: var(--text-xs); }
 .proposal-diff, .proposal-payload { max-height: 180px; overflow: auto; margin: 0; border-radius: 6px; padding: 9px; color: #63736a; background: #f1f5f1; font: var(--text-sm)/1.6 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.proposal-raw-data { border-top: 1px solid #edf0ed; padding-top: 8px; }
+.proposal-raw-data > summary { color: #7c8a80; font-size: var(--text-xs); cursor: pointer; }
+.proposal-raw-data .proposal-payload { margin-top: 8px; }
+.proposal-human-view { display: grid; gap: 11px; color: #526359; }
+.proposal-result-section { display: grid; gap: 6px; min-width: 0; }
+.proposal-result-section h4 { margin: 0; color: #52665a; font-size: var(--text-sm); font-weight: 650; }
+.proposal-result-section .markdown-content { padding-top: 0; font-size: var(--text-base); }
+.proposal-result-section .markdown-content > :first-child { margin-top: 0; }
+.proposal-result-section .markdown-content > :last-child { margin-bottom: 0; }
+.proposal-result-list { display: grid; gap: 8px; }
+.proposal-result-item { display: grid; gap: 7px; border-top: 1px solid #edf0ed; padding: 9px 0 0; }
+.proposal-result-item > strong { color: #405449; font-size: var(--text-sm); }
+.proposal-result-item > p { margin: 0; color: #66766c; font-size: var(--text-sm); }
+.proposal-term-title { margin: 0; color: #405449; font-size: var(--text-md); font-weight: 650; }
+.proposal-metadata-changes, .proposal-term-metadata { display: grid; gap: 7px; margin: 0; }
+.proposal-metadata-changes > div, .proposal-term-metadata > div { display: grid; grid-template-columns: minmax(96px, .35fr) minmax(0, 1fr); align-items: start; gap: 8px; border-top: 1px solid #edf0ed; padding-top: 7px; }
+.proposal-metadata-changes dt, .proposal-term-metadata dt { color: #87948b; font-size: var(--text-xs); }
+.proposal-metadata-changes dd, .proposal-term-metadata dd { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; color: #526359; font-size: var(--text-sm); }
 .proposal-card-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
 .new-note-form { display: grid; max-width: 610px; gap: 18px; padding: 22px; }
 .new-note-form .editor-main-actions { margin-top: 4px; }

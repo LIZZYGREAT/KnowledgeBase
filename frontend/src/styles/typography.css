@@ -45,7 +45,7 @@
 .markdown-content code:not(pre code) { border-radius: 4px; padding: 2px 4px; color: #537257; background: #f1f5f1; font-family: "Cascadia Code", Consolas, monospace; font-size: .88em; }
 .markdown-content pre { overflow-x: auto; border: 1px solid #e8ede8; border-radius: 8px; margin: 1em 0; padding: 16px; color: #dfeee3; background: #23362d; font-size: var(--text-base); line-height: 1.65; }
 .markdown-content pre code { font-family: "Cascadia Code", Consolas, monospace; }
-.markdown-content .katex-display { overflow-x: auto; overflow-y: hidden; margin: 1.5em 0; padding: 4px 0; }
+.markdown-content .katex-display { display: block; width: 100%; overflow-x: auto; overflow-y: hidden; margin: 1.5em 0; padding: 4px 0; text-align: center; }
 .mermaid-diagram { overflow-x: auto; margin: 18px 0; border: 1px solid #e8ede8; border-radius: 8px; padding: 12px; background: #fcfdfc; text-align: center; }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
 .diagram-error { margin: 16px 0; border: 1px solid #f0dfd1; border-radius: 7px; padding: 10px 12px; color: #9b7051; background: #fcf6ef; font-size: var(--text-xs); }

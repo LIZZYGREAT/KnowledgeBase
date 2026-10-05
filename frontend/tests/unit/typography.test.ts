@@ -29,6 +29,7 @@ test("long-form reading and Markdown controls use a clear size hierarchy", () =>
   assert.match(styles, /\.markdown-content h4\s*\{[^}]*font-size:\s*18px/);
   assert.match(styles, /\.markdown-content pre\s*\{[^}]*padding:\s*16px;[^}]*font-size:\s*var\(--text-base\);[^}]*line-height:\s*1\.65/);
   assert.match(styles, /\.knowledge-editor\s*\{[^}]*font-size:\s*var\(--text-base\)/);
+  assert.match(styles, /\.markdown-content \.katex-display\s*\{[^}]*display:\s*block;[^}]*width:\s*100%;[^}]*text-align:\s*center/);
 });
 
 test("Context Export keeps readable controls on one line when the card has room", () => {
