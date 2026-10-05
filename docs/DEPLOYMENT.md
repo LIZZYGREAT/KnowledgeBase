@@ -18,6 +18,8 @@ cd /srv/KnowledgeBase
 cp .env.example .env
 ```
 
+Before entering private Canonical content, using Publisher, or pushing commits, check the server checkout's Git remote with `git remote -v` and confirm its visibility policy. If Canonical content may be personal or otherwise private, use a private production remote. Tailscale or another VPN protects access to the application server; it does not make a public Git hosting repository private. Never push private Canonical content to a public remote.
+
 Set `DEEPSEEK_API_KEY` through the server's protected environment or secret manager. Keep `.env` out of Git. Check the configured host port and backup directory, then start the services:
 
 Before starting production, run `id -u` and `id -g` as the deployment account and set `KB_RUNTIME_UID` and `KB_RUNTIME_GID` in `.env` to those values. The backend uses that identity when writing the mounted checkout, Runtime database, and storage.
@@ -153,6 +155,31 @@ git clone /tmp/kb-restore/knowledge.bundle /srv/KnowledgeBase
 mkdir -p /srv/KnowledgeBase/runtime
 cp /tmp/kb-restore/runtime/knowledge.db /srv/KnowledgeBase/runtime/knowledge.db
 tar -xzf /tmp/kb-restore/storage.tar.gz -C /srv/KnowledgeBase
+```
+
+Cloning the bundle sets `origin` to the temporary bundle path. Before deleting `/tmp/kb-restore` or using Git sync, restore the intended remote from the deployment account:
+
+```sh
+cd /srv/KnowledgeBase
+git remote -v
+```
+
+If production uses a private Git remote, replace the temporary bundle remote and verify it before pushing any Canonical commits:
+
+```sh
+git remote remove origin
+git remote add origin <your-private-git-remote>
+git fetch origin
+git remote -v
+git status
+```
+
+If production does not use a remote, remove the temporary bundle remote instead:
+
+```sh
+git remote remove origin
+git remote -v
+git status
 ```
 
 Recreate `.env` securely, verify ownership and permissions, then follow the production startup steps. Restoring over a running or populated checkout requires stopping the services and preserving that checkout first.
