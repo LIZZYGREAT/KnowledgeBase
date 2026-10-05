@@ -35,6 +35,14 @@ export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigat
     const [groups, imports, linkIssues, staleAnnotations] = rest as [Proposal[][], ImportJob[], LinkIssue[], PresentationAnnotation[]];
     return { entities: [...documents, ...terms, ...sources], proposals: groups.flat(), imports, linkIssues, staleAnnotations };
   });
+  useEffect(() => {
+    if (resource.loading || !resource.data || window.location.hash !== "#imports") return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("imports")?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [resource.loading, resource.data]);
+
   if (resource.loading) return <LoadingState />;
   if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
   const { entities, proposals, imports, linkIssues, staleAnnotations } = resource.data;
