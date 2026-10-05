@@ -49,6 +49,24 @@ systemctl list-timers knowledgebase-research.timer
 
 Validate configuration without contacting providers with `docker compose -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check`. Use `profiles` to inspect configured Profiles and `status` to review Inbox capacity, pauses, and recent Runs. A scheduled tick exits successfully when another process holds the global Research lock or when nothing is due.
 
+### Safe upgrades
+
+The Research timer runs code from the mounted checkout, while the Web backend runs code from its built image. Pause both during upgrades so a timer tick cannot migrate the shared Runtime database with a different code version:
+
+```sh
+./scripts/production-backup.sh
+sudo systemctl stop knowledgebase-research.timer
+docker compose --env-file .env -f docker-compose.production.yml stop frontend backend
+git pull --ff-only
+docker compose --env-file .env -f docker-compose.production.yml config -q
+docker compose --env-file .env -f docker-compose.production.yml up -d --build
+docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/kb.py check
+docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check --root .
+sudo systemctl start knowledgebase-research.timer
+```
+
+Start the timer only after both checks succeed. If a check fails, leave the timer stopped while resolving the issue.
+
 ### Tailscale
 
 Install and sign in to Tailscale on the server host, then serve the loopback-only Hub to the tailnet:
