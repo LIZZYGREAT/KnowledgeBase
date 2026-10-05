@@ -107,7 +107,7 @@ The backup command creates one archive containing:
 
 The entire Git worktree must be clean before a backup, including Research Profiles under `config/research/profiles/` and `config/research/research.yaml`; the script stops if it finds tracked or untracked changes. Git-ignored Runtime, Storage, and `.env` files do not trigger the check. Runtime and storage data are included in the archive. The default destination is a sibling `KnowledgeBase-backups` directory. Production Compose mounts `KB_BACKUP_DIRECTORY` at `/backups`.
 
-The production backup entrypoint stops the frontend and backend, runs `backup.py` in a one-off container with the production mounts, then restarts both services even when the backup fails or the script is interrupted. This causes a short service interruption. Run it from the repository root:
+The production backup entrypoint uses the host's `flock` command to wait up to 45 minutes for the shared `runtime/research.lock`. A Research run already holding the lock can finish; new ticks skip while the backup owns it. If the wait times out, the script exits before stopping services. After acquiring the lock, it stops the frontend and backend, runs `backup.py` in a one-off container with the production mounts, then restarts both services even when the backup fails or the script is interrupted. This causes a short service interruption. Run it from the repository root:
 
 ```sh
 ./scripts/production-backup.sh
@@ -119,7 +119,7 @@ Use the same script for production cron jobs, and copy completed archives to a s
 0 2 * * * cd /srv/KnowledgeBase && ./scripts/production-backup.sh >> "$HOME/.local/state/knowledgebase/backup.log" 2>&1
 ```
 
-Create the log directory for the deployment account before enabling the job. A Research timer tick that lands during the brief stop may fail once and retry on its next scheduled interval. The archive does not contain `.env` or DeepSeek credentials; back those up through the server's secret-management process.
+Create the log directory for the deployment account before enabling the job. If a timer command lands during the brief service stop, it may fail once and retry on its next scheduled interval. The archive does not contain `.env` or DeepSeek credentials; back those up through the server's secret-management process.
 
 Restore to a new, empty checkout location:
 
