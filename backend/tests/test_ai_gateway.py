@@ -100,6 +100,40 @@ def test_ai_task_registry_declares_output_contracts():
     assert TASKS["research_candidate_analysis"].proposal_kind is None
 
 
+def test_research_analysis_prompt_limits_collection_suggestions_to_profile_context():
+    client = MockDeepSeekClient(
+        {
+            "research_candidate_analysis": {
+                "relevant": False,
+                "profile_relevance": 0.2,
+                "knowledge_relevance": 0.1,
+                "novelty_to_library": 0.5,
+                "matched_lenses": [],
+                "matched_topics": [],
+                "summary": "A paper summary.",
+                "why_relevant": "It is not relevant.",
+                "reading_reason": "No action is needed.",
+                "existing_relations": [],
+                "suggested_collection": None,
+                "suggested_section": None,
+            }
+        }
+    )
+
+    AIGateway(client).run(
+        "research_candidate_analysis", {"profile": {"allowed_collection_ids": []}}
+    )
+
+    prompt = client.messages[0][0]["content"]
+    assert (
+        "suggested_collection may only be one of profile.allowed_collection_ids"
+        in prompt
+    )
+    assert "if that list is empty, suggested_collection must be null" in prompt
+    assert "If suggested_collection is null, suggested_section must also be null" in prompt
+    assert "Never invent a Collection id" in prompt
+
+
 def test_research_analysis_cannot_be_persisted_as_a_proposal():
     connection = connect_database(":memory:")
     drafts = DraftService(DraftRepository(connection))

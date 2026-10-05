@@ -80,6 +80,86 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     connection.close()
 
 
+def test_research_analysis_with_empty_collection_context_sends_empty_allowlist():
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    output = _analysis_output()
+    output["suggested_collection"] = None
+    output["suggested_section"] = None
+    client = MockDeepSeekClient({"research_candidate_analysis": output})
+    service = ResearchAnalysisService(repository, AIGateway(client))
+    profile = _profile()
+    profile = profile.model_copy(
+        update={"context": profile.context.model_copy(update={"collections": []})}
+    )
+
+    analysis = service.analyze(work, profile, profile.lenses[0], _context_pack())
+
+    assert analysis is not None
+    sent_input = json.loads(client.messages[0][1]["content"])
+    assert sent_input["profile"]["allowed_collection_ids"] == []
+    assert analysis.analysis.suggested_collection is None
+    assert analysis.analysis.suggested_section is None
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    ("collections", "suggested_collection", "suggested_section", "error"),
+    [
+        ([], "research-core", None, "outside the Profile context"),
+        (["research-core"], "another-collection", None, "outside the Profile context"),
+        (["research-core"], None, "Regularization", "Section without a Collection"),
+    ],
+)
+def test_research_analysis_rejects_invalid_collection_suggestions(
+    collections, suggested_collection, suggested_section, error
+):
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    output = _analysis_output()
+    output["suggested_collection"] = suggested_collection
+    output["suggested_section"] = suggested_section
+    client = MockDeepSeekClient({"research_candidate_analysis": output})
+    service = ResearchAnalysisService(repository, AIGateway(client))
+    profile = _profile()
+    profile = profile.model_copy(
+        update={
+            "context": profile.context.model_copy(update={"collections": collections})
+        }
+    )
+
+    with pytest.raises(AIResponseError, match=error):
+        service.analyze(work, profile, profile.lenses[0], _context_pack())
+
+    connection.close()
+
+
+def test_research_analysis_accepts_a_suggested_collection_in_profile_context():
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    output = _analysis_output()
+    output["suggested_collection"] = "research-core"
+    output["suggested_section"] = "Regularization"
+    service = ResearchAnalysisService(
+        repository,
+        AIGateway(MockDeepSeekClient({"research_candidate_analysis": output})),
+    )
+    profile = _profile()
+
+    analysis = service.analyze(work, profile, profile.lenses[0], _context_pack())
+
+    assert analysis is not None
+    assert analysis.analysis.suggested_collection == "research-core"
+    assert analysis.analysis.suggested_section == "Regularization"
+    connection.close()
+
+
 def test_analysis_hash_uses_semantic_input_not_runtime_budgets_and_tracks_model(monkeypatch):
     connection = connect_database(":memory:")
     service = ResearchAnalysisService(

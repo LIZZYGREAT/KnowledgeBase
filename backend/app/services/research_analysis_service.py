@@ -18,8 +18,8 @@ from backend.app.services.ai_client import AIProviderError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v3"
-RESEARCH_ANALYSIS_VERSION = 3
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v4"
+RESEARCH_ANALYSIS_VERSION = 4
 
 
 class ResearchAnalysisCircuitBreaker:
@@ -103,6 +103,7 @@ class ResearchAnalysisService:
                 "description": profile.description,
                 "breadth": breadth,
                 "breadth_policy": _breadth_policy(breadth),
+                "allowed_collection_ids": list(profile.context.collections),
             },
             "matched_lens": matched_lens.model_dump(mode="json"),
             "knowledge_context": context_pack.model_dump(mode="json"),
@@ -232,3 +233,10 @@ def _validate_analysis_references(
         and output.suggested_collection not in allowed_collections
     ):
         raise AIResponseError("Research analysis suggested a Collection outside the Profile context")
+    if (
+        output.suggested_collection is None
+        and output.suggested_section is not None
+    ):
+        raise AIResponseError(
+            "Research analysis suggested a Section without a Collection"
+        )
