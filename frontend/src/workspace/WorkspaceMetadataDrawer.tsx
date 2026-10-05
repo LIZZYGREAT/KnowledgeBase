@@ -39,14 +39,36 @@ export function WorkspaceMetadataDrawer({
   const pdfAttachment = readSourcePdf(content);
   const sourceIdentifiers = readRecord(readFrontmatterField(content, type, "identifiers"));
   const sourceAuthors = readStringArray(readFrontmatterField(content, type, "authors"));
+  const sourceAuthorsValue = sourceAuthors.join("\n");
+  const domains = readStringArray(readFrontmatterField(content, type, "domains"));
+  const topics = readStringArray(readFrontmatterField(content, type, "topics"));
+  const tags = readStringArray(readFrontmatterField(content, type, "tags"));
+  const domainsValue = domains.join(", ");
+  const topicsValue = topics.join(", ");
+  const tagsValue = tags.join(", ");
   const sourceYear = readFrontmatterField(content, type, "year");
   const sourceUrl = stringValue(readFrontmatterField(content, type, "url"));
+  const [sourceAuthorsText, setSourceAuthorsText] = useState(sourceAuthorsValue);
+  const [domainsText, setDomainsText] = useState(domainsValue);
+  const [topicsText, setTopicsText] = useState(topicsValue);
+  const [tagsText, setTagsText] = useState(tagsValue);
+  const [pdfAttachmentText, setPdfAttachmentText] = useState(pdfAttachment);
+  const [pdfAttachmentError, setPdfAttachmentError] = useState("");
   const [sourceYearText, setSourceYearText] = useState(() => sourceYear == null ? "" : String(sourceYear));
   const [sourceYearError, setSourceYearError] = useState("");
   const [sourceUrlText, setSourceUrlText] = useState(sourceUrl);
   const [sourceUrlError, setSourceUrlError] = useState("");
   const body = type === "source" ? "" : content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
   const citations = readDraftCitations(body);
+
+  useEffect(() => setSourceAuthorsText(sourceAuthorsValue), [id, sourceAuthorsValue]);
+  useEffect(() => setDomainsText(domainsValue), [id, domainsValue]);
+  useEffect(() => setTopicsText(topicsValue), [id, topicsValue]);
+  useEffect(() => setTagsText(tagsValue), [id, tagsValue]);
+  useEffect(() => {
+    setPdfAttachmentText(pdfAttachment);
+    setPdfAttachmentError("");
+  }, [id, pdfAttachment]);
 
   useEffect(() => {
     setSourceYearText(sourceYear == null ? "" : String(sourceYear));
@@ -106,6 +128,40 @@ export function WorkspaceMetadataDrawer({
     if (sourceUrl !== raw) onFrontmatterUpdate("url", raw);
   }
 
+  function commitSourceAuthors() {
+    const authors = sourceAuthorsText.split(/\r?\n/).map((author) => author.trim()).filter(Boolean);
+    setSourceAuthorsText(authors.join("\n"));
+    if (!sameStringArray(sourceAuthors, authors)) onFrontmatterUpdate("authors", authors);
+  }
+
+  function commitDelimitedList(
+    key: string,
+    raw: string,
+    current: string[],
+    setRaw: (value: string) => void,
+  ) {
+    const values = splitCommaSeparatedValues(raw);
+    setRaw(values.join(", "));
+    if (!sameStringArray(current, values)) onFrontmatterListUpdate(key, values.join(", "));
+  }
+
+  function commitSourcePdf() {
+    const value = pdfAttachmentText.trim();
+    if (!value) {
+      setPdfAttachmentError("");
+      setPdfAttachmentText("");
+      if (pdfAttachment) onSourcePdfChange("");
+      return;
+    }
+    if (!/^storage:\/\/[A-Za-z0-9_./-]+$/.test(value)) {
+      setPdfAttachmentError("附件 URI 须为空，或符合 storage://... 格式。");
+      return;
+    }
+    setPdfAttachmentError("");
+    setPdfAttachmentText(value);
+    if (pdfAttachment !== value) onSourcePdfChange(value);
+  }
+
   function updateSourceIdentifier(key: "doi" | "arxiv_id" | "openalex_id", value: string) {
     onFrontmatterUpdate("identifiers", {
       ...sourceIdentifiers,
@@ -134,7 +190,7 @@ export function WorkspaceMetadataDrawer({
       <div className="drawer-readonly-row"><span>实体 ID</span><strong>{id}</strong></div>
       {type === "source" ? <>
         <label className="field-label">Type<select value={stringValue(readFrontmatterField(content, type, "type")) || "paper"} onChange={(event) => onFrontmatterUpdate("type", event.target.value)}><option value="paper">Paper</option><option value="book">Book</option><option value="course">Course</option><option value="web">Web</option><option value="personal">Personal</option></select></label>
-        <label className="field-label">Authors<textarea rows={4} value={sourceAuthors.join("\n")} onChange={(event) => onFrontmatterUpdate("authors", event.target.value.split(/\r?\n/).map((author) => author.trim()).filter(Boolean))} placeholder="每行一位作者" /></label>
+        <label className="field-label">Authors<textarea rows={4} value={sourceAuthorsText} onChange={(event) => setSourceAuthorsText(event.target.value)} onBlur={commitSourceAuthors} placeholder="每行一位作者" /></label>
         <div><label className="field-label">Year<input type="text" inputMode="numeric" value={sourceYearText} onChange={(event) => { setSourceYearText(event.target.value); setSourceYearError(""); }} onBlur={commitSourceYear} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourceYear(); } }} /></label>{sourceYearError && <p className="error-copy" role="alert">{sourceYearError}</p>}</div>
         <SectionHeading title="Identifiers" />
         <label className="field-label">DOI<input value={stringValue(sourceIdentifiers.doi)} onChange={(event) => updateSourceIdentifier("doi", event.target.value)} /></label>
@@ -144,9 +200,9 @@ export function WorkspaceMetadataDrawer({
         <details className="workspace-metadata-advanced"><summary>Advanced</summary><label className="field-label">Zotero Key<input value={stringValue(readFrontmatterField(content, type, "zotero_key"))} onChange={(event) => onFrontmatterUpdate("zotero_key", event.target.value.trim() || null)} /></label></details>
       </> : <>
         <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
-        <label className="field-label">Domains<input value={readStringArray(readFrontmatterField(content, type, "domains")).join(", ")} onChange={(event) => onFrontmatterListUpdate("domains", event.target.value)} placeholder="用逗号分隔 ID" /></label>
-        <label className="field-label">Topics<input value={readStringArray(readFrontmatterField(content, type, "topics")).join(", ")} onChange={(event) => onFrontmatterListUpdate("topics", event.target.value)} placeholder="用逗号分隔 ID" /></label>
-        <label className="field-label">Tags<input value={readStringArray(readFrontmatterField(content, type, "tags")).join(", ")} onChange={(event) => onFrontmatterListUpdate("tags", event.target.value)} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">Domains<input value={domainsText} onChange={(event) => setDomainsText(event.target.value)} onBlur={() => commitDelimitedList("domains", domainsText, domains, setDomainsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("domains", domainsText, domains, setDomainsText); } }} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">Topics<input value={topicsText} onChange={(event) => setTopicsText(event.target.value)} onBlur={() => commitDelimitedList("topics", topicsText, topics, setTopicsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("topics", topicsText, topics, setTopicsText); } }} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">Tags<input value={tagsText} onChange={(event) => setTagsText(event.target.value)} onBlur={() => commitDelimitedList("tags", tagsText, tags, setTagsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("tags", tagsText, tags, setTagsText); } }} placeholder="用逗号分隔 ID" /></label>
       </>}
     </section>
 
@@ -175,7 +231,8 @@ export function WorkspaceMetadataDrawer({
 
     {type === "source" && <section className="drawer-section">
       <SectionHeading title="本地 PDF 关联" detail="文件需先通过 Import Pipeline 放入 storage/papers；发布会检查关联文件。" />
-      <label className="field-label">附件 URI<input value={pdfAttachment} onChange={(event) => onSourcePdfChange(event.target.value)} placeholder="storage://papers/source-id.pdf" /></label>
+      <label className="field-label">附件 URI<input value={pdfAttachmentText} onChange={(event) => { setPdfAttachmentText(event.target.value); setPdfAttachmentError(""); }} onBlur={commitSourcePdf} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourcePdf(); } }} placeholder="storage://papers/source-id.pdf" aria-invalid={Boolean(pdfAttachmentError)} /></label>
+      {pdfAttachmentError && <p className="error-copy" role="alert">{pdfAttachmentError}</p>}
       <p className="trust-note">此处只设置 Source 元数据引用，不会上传或复制文件。</p>
     </section>}
     <div className="drawer-footer"><span>自动保存到运行时 Draft</span><button className="button button-primary" onClick={onSave}>保存草稿</button></div>
@@ -184,4 +241,12 @@ export function WorkspaceMetadataDrawer({
 
 function readRecord(value: unknown): Record<string, unknown> {
   return isPlainRecord(value) ? value : {};
+}
+
+function splitCommaSeparatedValues(raw: string): string[] {
+  return raw.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }

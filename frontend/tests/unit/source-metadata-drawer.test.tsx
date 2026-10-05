@@ -5,6 +5,7 @@ import { WorkspaceMetadataDrawer } from "../../src/workspace/WorkspaceMetadataDr
 describe("Source metadata drawer", () => {
   it("edits Source identity fields as structured Draft metadata", () => {
     const onFrontmatterUpdate = vi.fn();
+    const onSourcePdfChange = vi.fn();
     render(<WorkspaceMetadataDrawer
       type="source"
       id="ewc-2017"
@@ -30,7 +31,7 @@ describe("Source metadata drawer", () => {
       canonicalEvidenceCount={0}
       onFrontmatterUpdate={onFrontmatterUpdate}
       onFrontmatterListUpdate={vi.fn()}
-      onSourcePdfChange={vi.fn()}
+      onSourcePdfChange={onSourcePdfChange}
       onSave={vi.fn()}
       onClose={vi.fn()}
       onError={vi.fn()}
@@ -46,7 +47,11 @@ describe("Source metadata drawer", () => {
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("title", "Updated paper title");
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "book" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("type", "book");
-    fireEvent.change(screen.getByLabelText("Authors"), { target: { value: "Ada Lovelace\nGrace Hopper" } });
+    const authors = screen.getByLabelText("Authors");
+    fireEvent.change(authors, { target: { value: "Ada Lovelace\nGrace Hopper\n" } });
+    expect((authors as HTMLTextAreaElement).value).toBe("Ada Lovelace\nGrace Hopper\n");
+    expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("authors", ["Ada Lovelace", "Grace Hopper"]);
+    fireEvent.blur(authors);
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("authors", ["Ada Lovelace", "Grace Hopper"]);
     fireEvent.change(screen.getByLabelText("Year"), { target: { value: "2025" } });
     expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("year", 2025);
@@ -65,5 +70,20 @@ describe("Source metadata drawer", () => {
     fireEvent.click(screen.getByText("Advanced"));
     fireEvent.change(screen.getByLabelText("Zotero Key"), { target: { value: "XYZ789" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("zotero_key", "XYZ789");
+
+    const pdfAttachment = screen.getByLabelText("附件 URI");
+    fireEvent.change(pdfAttachment, { target: { value: "not-a-storage-uri" } });
+    expect(onSourcePdfChange).not.toHaveBeenCalled();
+    fireEvent.blur(pdfAttachment);
+    expect(onSourcePdfChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("storage://");
+    fireEvent.change(pdfAttachment, { target: { value: "storage://papers/updated.pdf" } });
+    expect(onSourcePdfChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(pdfAttachment, { key: "Enter" });
+    expect(onSourcePdfChange).toHaveBeenCalledWith("storage://papers/updated.pdf");
+    fireEvent.change(pdfAttachment, { target: { value: "" } });
+    expect(onSourcePdfChange).not.toHaveBeenCalledWith("");
+    fireEvent.blur(pdfAttachment);
+    expect(onSourcePdfChange).toHaveBeenCalledWith("");
   });
 });

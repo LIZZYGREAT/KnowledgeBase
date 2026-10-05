@@ -54,6 +54,14 @@ def test_source_schema_accepts_storage_uri_and_rejects_machine_path():
         SourceMetadata.model_validate(invalid)
 
 
+def test_source_arxiv_identifier_rejects_yaml_number():
+    data = parse_yaml((FIXTURES / "valid_source.yaml").read_text(encoding="utf-8"))
+    data["identifiers"]["arxiv_id"] = 1701.00001
+
+    with pytest.raises(ValidationError):
+        SourceMetadata.model_validate(data)
+
+
 def test_taxonomy_registry_rejects_duplicate_ids():
     registry = {
         "schema_version": 1,
