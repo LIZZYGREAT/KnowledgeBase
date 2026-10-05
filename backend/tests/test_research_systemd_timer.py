@@ -5,7 +5,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TIMER_PATH = REPOSITORY_ROOT / "deploy" / "systemd" / "knowledgebase-research.timer"
 
 
-def test_research_timer_waits_after_the_previous_service_becomes_inactive():
+def test_research_timer_seeds_first_tick_at_activation_then_waits_after_service_exit():
     content = TIMER_PATH.read_text(encoding="utf-8")
     timer_section = content.split("[Timer]", 1)[1].split("[Install]", 1)[0]
     settings = {
@@ -15,7 +15,8 @@ def test_research_timer_waits_after_the_previous_service_becomes_inactive():
         for key, value in [line.split("=", 1)]
     }
 
-    assert settings["OnBootSec"] == "2min"
+    assert settings["OnActiveSec"] == "2min"
     assert settings["OnUnitInactiveSec"] == "2min"
+    assert "OnBootSec" not in settings
     assert "OnUnitActiveSec" not in settings
     assert "Persistent" not in settings
