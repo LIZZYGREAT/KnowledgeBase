@@ -138,7 +138,7 @@ export function ResearchProfilePanel({
     event.preventDefault();
     setError("");
     if (!selectedLenses.length) {
-      setError("至少选择一个 Search Focus。 ");
+      setError("至少选择一个 Research Focus。");
       return;
     }
     if (dateMode === "custom" && (!dateStart || !dateEnd)) {
@@ -207,7 +207,7 @@ export function ResearchProfilePanel({
     });
   }
 
-  const scheduledText = !hasActiveDefaultLens ? "No active default Lens · 自动发现当前不会执行" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
+  const scheduledText = !hasActiveDefaultLens ? "No active default Focus · 自动发现当前不会执行" : profile.schedule.mode === "manual" ? "仅手动搜索" : profile.schedule.mode === "daily" ? "每日由调度器检查" : "每周由调度器检查";
   const capacityPercent = summary.inbox.capacity === 0 ? 100 : Math.min(100, summary.inbox.new_count / summary.inbox.capacity * 100);
 
   return <section className="surface research-profile-panel">
@@ -232,7 +232,7 @@ export function ResearchProfilePanel({
     {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 Search Now。</p>}
     {isPaused && <p className="research-search-block-note" role="status">自动检索已暂停至 {formatDate(pausedUntil)}。手动搜索仍可使用。</p>}
     {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">AI 分析已关闭。系统仍会收集论文，但不会向 DeepSeek 发送论文或知识库内容，也不会生成推荐候选。重新开启后，系统会逐步处理之前收集但尚未分析的论文。</p>}
-    {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Lens。</p>}
+    {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Research Focus。</p>}
 
     {isPaused && <div className="research-resume-bar">
       <label className="field-label">恢复方式<select value={resumeStrategy} onChange={(event) => setResumeStrategy(event.target.value as typeof resumeStrategy)}><option value="catch_up">追赶暂停期间的内容</option><option value="from_now">从现在开始，不补历史</option></select></label>
@@ -261,7 +261,7 @@ export function ResearchProfilePanel({
     </p>}
 
     {searchOpen && canSearch && <form className="research-search-form" onSubmit={(event) => void submitSearch(event)}>
-      <div className="research-section-heading"><div><h3>Search Focus</h3><p>选择本次搜索的主题和时间范围；这些设置不会修改 Profile 默认值。</p></div></div>
+      <div className="research-section-heading"><div><h3>Research Focus</h3><p>选择本次搜索的主题和时间范围；这些设置不会修改 Profile 默认值。</p></div></div>
       <div className="research-lens-options">{profile.lenses.map((lens) => <label className="research-lens-option" key={lens.id}><input type="checkbox" checked={selectedLenses.includes(lens.id)} onChange={() => toggleLens(lens.id)} /><span><strong>{lens.title}</strong></span></label>)}</div>
       <div className="research-search-controls">
         <label className="field-label">时间范围<select value={dateMode === "incremental" ? "last_30_days" : dateMode} onChange={(event) => setDateMode(event.target.value as typeof dateMode)}><option value="last_7_days">最近 7 天</option><option value="last_30_days">最近 30 天</option><option value="last_90_days">最近 90 天</option><option value="custom">自定义</option></select></label>
@@ -273,7 +273,7 @@ export function ResearchProfilePanel({
         <summary>高级搜索选项</summary>
         <label className="field-label">相关性范围<select aria-label="相关性范围" value={breadth} onChange={(event) => setBreadth(event.target.value as ResearchBreadth)}><option value="strict">Strict · 高相关</option><option value="balanced">Balanced · 均衡</option><option value="explore">Explore · 强调新颖性</option></select></label>
         <label className="research-default-toggle"><input type="checkbox" checked={dateMode === "incremental"} onChange={(event) => setDateMode(event.target.checked ? "incremental" : "last_30_days")} /><span>从上次自动检索进度继续</span></label>
-        {queries.split(/\r?\n/).some((query) => query.trim()) && selectedLenses.length > 1 && <label className="field-label">Additional Query Lens<select value={additionalQueryLens} onChange={(event) => setAdditionalQueryLens(event.target.value)}><option value="">自动选择相关性最高的 Search Focus</option>{profile.lenses.filter((lens) => selectedLenses.includes(lens.id)).map((lens) => <option key={lens.id} value={lens.id}>{lens.title} · {lens.priority}</option>)}</select><span className="field-hint">额外检索词默认使用所选 Search Focus 中相关性最高的一项，并继承其筛选规则。</span></label>}
+        {queries.split(/\r?\n/).some((query) => query.trim()) && selectedLenses.length > 1 && <label className="field-label">额外检索词应用到<select aria-label="额外检索词应用到" value={additionalQueryLens} onChange={(event) => setAdditionalQueryLens(event.target.value)}><option value="">自动选择优先级最高的 Research Focus</option>{profile.lenses.filter((lens) => selectedLenses.includes(lens.id)).map((lens) => <option key={lens.id} value={lens.id}>{lens.title} · {lens.priority}</option>)}</select><span className="field-hint">默认使用本次所选 Research Focus 中优先级最高的一项，并沿用该主题的筛选规则。</span></label>}
       </details>
       {error && <p className="error-copy" role="alert">{error}</p>}
       <div className="research-search-footer"><span>搜索会在后台排队执行，完成后结果会出现在 Inbox。</span><button className="button button-primary" disabled={busy || !selectedLenses.length}>{busy ? "正在排队…" : "加入搜索队列"}</button></div>

@@ -35,7 +35,7 @@ export function ResearchCandidateCard({
     <div className="research-card-topline">
       {selectable && <label className="research-select-box"><input type="checkbox" aria-label={`选择 ${item.work.title}`} checked={selected} onChange={(event) => onSelect(event.target.checked)} /></label>}
       <div className="research-candidate-copy">
-        <div className="research-candidate-title-row"><h3>{item.work.title}</h3><Chip tone={item.candidate.status === "shortlisted" ? "blue" : "green"}>{statusLabel(item.candidate.status)}</Chip></div>
+        <div className="research-candidate-title-row"><h3>{item.work.title}</h3><Chip tone={candidateStatusTone(item.candidate.status)}>{statusLabel(item.candidate.status)}</Chip></div>
         <p className="research-candidate-meta">{[item.work.year, item.work.venue, item.work.authors.slice(0, 3).join(", ")].filter(Boolean).join(" · ") || "出版信息待补充"}</p>
       </div>
       <button className="text-button" onClick={onDetails}>Why this candidate <span aria-hidden="true">↗</span></button>
@@ -298,7 +298,7 @@ export function ResearchCandidateDrawer({
       <div className="research-drawer-body">
         {detail.conversion_blocker === "ambiguous_source" && <section className="research-source-ambiguity" role="alert">
           <strong>可能已存在 {detail.source_match_candidates.length} 个 Source</strong>
-          <p>先检查并修正现有 Source 的元数据，再保存或创建笔记。为避免重复记录，当前转换操作已阻止。</p>
+          <p>请先修复下面显示的 Source 冲突，再创建笔记或保存 Source。为避免重复记录，当前转换操作已阻止。</p>
           {detail.source_match_candidates.every((source) => source.matched_by.includes("title_author_year") && source.conflicts.length === 0)
             ? <p>有多条 Source 同时匹配标题、第一作者和年份，请检查是否存在重复 Source。</p>
             : detail.source_match_candidates.some((source) => source.conflicts.length > 0)
@@ -342,7 +342,7 @@ export function ResearchCandidateDrawer({
           {detail.pending_links.length > 0 && <section className="research-detail-section"><h3>Pending knowledge links</h3>{detail.pending_links.map((link) => <DetailRow key={link.id} label={link.intended_entity_type + " draft"} value={link.intended_entity_id} />)}</section>}
         </details>
       </div>
-      <footer className="research-drawer-footer"><span>Candidate actions remain in Runtime until you publish a Draft.</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>
+      <footer className="research-drawer-footer"><span>Shortlist、Dismiss 和备注会直接保存。Save Source / Create Note 只有发布后才进入正式知识库。</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>
     </aside>
   </div>;
 }
@@ -485,6 +485,12 @@ function entityPath(type: string, id: string): string | null {
 export function statusLabel(status: string): string {
   const labels: Record<string, string> = { new: "New", shortlisted: "Shortlisted", dismissed: "Dismissed", saved_source: "Saved Source", note_created: "Note Created" };
   return labels[status] ?? status.replaceAll("_", " ");
+}
+
+function candidateStatusTone(status: string): string {
+  if (status === "shortlisted") return "blue";
+  if (status === "dismissed") return "neutral";
+  return "green";
 }
 
 export function MetadataLine({ children }: { children: ReactNode }) {

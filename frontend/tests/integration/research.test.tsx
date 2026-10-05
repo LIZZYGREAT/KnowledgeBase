@@ -32,6 +32,8 @@ describe("Research workspace", () => {
   let responseDocuments: Array<{ id: string; title: string }> = [];
   let researchProfileDraft: Record<string, unknown> | null = null;
   let createDraftCreatedInThisFlow = true;
+  let restoreCapacityFull = false;
+  let candidateRestored = false;
 
   beforeEach(() => {
     responseProfileDetail = profileDetail;
@@ -41,6 +43,8 @@ describe("Research workspace", () => {
     responseDocuments = [];
     researchProfileDraft = null;
     createDraftCreatedInThisFlow = true;
+    restoreCapacityFull = false;
+    candidateRestored = false;
     window.history.replaceState({}, "", "/research");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -70,7 +74,7 @@ describe("Research workspace", () => {
       if (path === "/api/drafts/profile-draft-1/preflight") return jsonResponse({ draft_id: "profile-draft-1", valid: true, conflict: false, errors: [], warnings: [] });
       if (path === "/api/publish" && init?.method === "POST") return jsonResponse({ draft_id: "profile-draft-1", entity_type: "research_profile", entity_id: "continual-learning", commit_revision: "def456", warnings: [] });
       if (path.startsWith("/api/research/candidates?") && path.includes("status=new")) return jsonResponse({ candidates: [candidateListItem], count: 1, offset: 0, limit: 50 });
-      if (path.startsWith("/api/research/candidates?") && path.includes("status=dismissed")) return jsonResponse({ candidates: [{ ...candidateListItem, candidate: { ...candidate, status: "dismissed" } }], count: 1, offset: 0, limit: 50 });
+      if (path.startsWith("/api/research/candidates?") && path.includes("status=dismissed")) return jsonResponse({ candidates: candidateRestored ? [] : [{ ...candidateListItem, candidate: { ...candidate, status: "dismissed" } }], count: candidateRestored ? 0 : 1, offset: 0, limit: 50 });
       if (path === "/api/research/candidates/candidate-1") return jsonResponse(responseCandidateDetail);
       if (path === "/api/research/runs?offset=0&limit=50&profile_id=continual-learning") return jsonResponse({ runs: [], count: 0 });
       if (path === "/api/research/profiles/continual-learning/runs" && init?.method === "POST") {
@@ -85,7 +89,11 @@ describe("Research workspace", () => {
         const body = JSON.parse(String(init.body));
         return jsonResponse({ ...candidate, status: "dismissed", dismiss_reason: body.reason ?? null });
       }
-      if (path === "/api/research/candidates/candidate-1/restore" && init?.method === "POST") return jsonResponse({ ...candidate, status: "new", dismiss_reason: null, decided_at: null });
+      if (path === "/api/research/candidates/candidate-1/restore" && init?.method === "POST") {
+        if (restoreCapacityFull) return jsonResponse({ detail: "Research Inbox is full" }, 409);
+        candidateRestored = true;
+        return jsonResponse({ ...candidate, status: "new", dismiss_reason: null, decided_at: null });
+      }
       if (path === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH") return jsonResponse({ ...candidate, ...JSON.parse(String(init.body)), status: "shortlisted" });
       if (path === "/api/research/candidates/candidate-1/save-source" && init?.method === "POST") return jsonResponse({ action: "draft_created", source_id: "research-paper", draft_id: "source-draft-1", candidate });
       if (path === "/api/research/candidates/candidate-1/create-note" && init?.method === "POST") return jsonResponse({ group_id: "group-1", source_draft_id: "source-draft-1", document_draft_id: "document-draft-1", collection_draft_id: "collection-draft-1", collection_id: "continual-learning", document_id: "research-note-1", source_id: "research-paper" });
@@ -215,15 +223,47 @@ describe("Research workspace", () => {
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
   });
 
-  it("restores a dismissed candidate from History to the Inbox", async () => {
+  it("restores a dismissed candidate and stays in History until the user opens the Inbox", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "History" }));
+    const restoreButton = await screen.findByRole("button", { name: "Restore to Inbox" });
+    expect(screen.getByText("Dismissed", { selector: ".chip" }).className).toBe("chip chip-neutral");
+    fireEvent.click(restoreButton);
+
+    await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/restore" && init?.method === "POST")).toBe(true));
+    expect((await screen.findByRole("tab", { name: "History" })).getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByText("已恢复到 Inbox。")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "A New Regularization Method" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "View Inbox" }));
+    const newTab = await screen.findByRole("tab", { name: /New/ });
+    expect(newTab.getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByRole("heading", { name: "A New Regularization Method" })).toBeTruthy();
+  });
+
+  it("keeps a dismissed candidate in History when Restore is blocked by a full Inbox", async () => {
+    restoreCapacityFull = true;
     render(<App />);
     fireEvent.click(await screen.findByRole("tab", { name: "History" }));
     fireEvent.click(await screen.findByRole("button", { name: "Restore to Inbox" }));
 
-    await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/restore" && init?.method === "POST")).toBe(true));
-    const newTab = await screen.findByRole("tab", { name: /New/ });
-    expect(newTab.getAttribute("aria-selected")).toBe("true");
-    expect(await screen.findByRole("heading", { name: "A New Regularization Method" })).toBeTruthy();
+    expect(await screen.findByText("Research Inbox is full")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("heading", { name: "A New Regularization Method" })).toBeTruthy();
+  });
+
+  it("checks Source ambiguity before opening the Create Note form", async () => {
+    responseCandidateDetail = {
+      ...candidateDetail,
+      conversion_blocker: "ambiguous_source",
+      source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["doi"], conflicts: [{ field: "openalex_id", existing_value: "W111", discovered_value: "W222" }] }],
+    };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Create Note" }));
+
+    expect(await screen.findByRole("heading", { name: "Why this candidate" })).toBeTruthy();
+    expect(screen.getByText("请先修复下面显示的 Source 冲突，再创建笔记或保存 Source。为避免重复记录，当前转换操作已阻止。")).toBeTruthy();
+    expect(screen.getByText("冲突：OpenAlex ID")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Create Research Note" })).toBeNull();
   });
 
   it("dismisses one candidate immediately without a reason prompt", async () => {
@@ -626,7 +666,7 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText(/额外检索词/), { target: { value: "replay distillation" } });
     fireEvent.click(screen.getByText("高级搜索选项"));
 
-    expect(screen.getByLabelText(/Additional Query Lens/)).toBeTruthy();
+    expect(screen.getByLabelText("额外检索词应用到")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("从上次自动检索进度继续"));
     expect(screen.getByText("从自动检索尚未覆盖的位置继续查到现在。这次手动搜索不会改变自动检索的进度。")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
@@ -667,14 +707,14 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(await screen.findByText(
-      "No active default Lens · 自动发现当前不会执行",
+      "No active default Focus · 自动发现当前不会执行",
     )).toBeTruthy();
-    expect(screen.getByText("Search Now 仍可临时选择 Lens。")).toBeTruthy();
+    expect(screen.getByText("Search Now 仍可临时选择 Research Focus。")).toBeTruthy();
     const searchButton = screen.getByRole("button", { name: "Search Now" });
     expect(searchButton.hasAttribute("disabled")).toBe(false);
     fireEvent.click(searchButton);
 
-    const searchForm = screen.getByText("Search Focus").closest("form");
+    const searchForm = screen.getByRole("heading", { name: "Research Focus" }).closest("form");
     expect(searchForm).not.toBeNull();
     const lens = within(searchForm as HTMLElement).getByRole("checkbox", { name: /Regularization/ });
     expect((lens as HTMLInputElement).checked).toBe(false);
@@ -776,9 +816,9 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("New Research Focus name"), { target: { value: "Regularization" } });
     fireEvent.change(screen.getByLabelText("Initial search query"), { target: { value: "replay continual learning" } });
     fireEvent.click(screen.getByRole("button", { name: "+ Add Research Focus" }));
-    const originalLens = screen.getByLabelText("Lens regularization title").closest("article");
+    const originalLens = screen.getByLabelText("Focus regularization name").closest("article");
     fireEvent.click(within(originalLens as HTMLElement).getByText("高级筛选与标识"));
-    fireEvent.click(within(originalLens as HTMLElement).getByRole("button", { name: "Remove Lens regularization" }));
+    fireEvent.click(within(originalLens as HTMLElement).getByRole("button", { name: "Remove Research Focus regularization" }));
     const queriesField = screen.getByLabelText(/Queries/) as HTMLTextAreaElement;
     expect(queriesField.value).toBe("replay continual learning");
     await user.clear(queriesField);

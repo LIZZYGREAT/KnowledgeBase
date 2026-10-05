@@ -85,7 +85,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
     try {
       const value: unknown = parse(session.content);
       if (!isRecord(value) || value.id !== profile.id || !Array.isArray(value.lenses)) {
-        throw new Error("Draft 的 Profile ID 或 Lens 结构无效。");
+        throw new Error("Draft 的 Profile ID 或 Research Focus 结构无效。");
       }
       editableProfile = value as unknown as ResearchProfile;
     } catch (reason) {
@@ -286,7 +286,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
             {editableProfile.lenses.map((lens, index) => <article className="research-default-lens" key={lens.id}>
               <div className="research-default-lens-heading"><label><input type="checkbox" checked={lens.enabled} onChange={(event) => updateProfile((current) => updateLens(current, index, { enabled: event.target.checked }))} /><span><strong>{lens.title}</strong><small>{lens.enabled ? "Included in automatic research" : "Excluded from automatic research"}</small></span></label></div>
               <div className="research-defaults-grid">
-                <label className="field-label">Focus name<input aria-label={"Lens " + lens.id + " title"} value={lens.title} onChange={(event) => updateProfile((current) => updateLens(current, index, { title: event.target.value }))} /></label>
+                <label className="field-label">Focus name<input aria-label={"Focus " + lens.id + " name"} value={lens.title} onChange={(event) => updateProfile((current) => updateLens(current, index, { title: event.target.value }))} /></label>
                 <TextListField label="Queries" value={lens.queries} onChange={(value) => updateProfile((current) => updateLens(current, index, { queries: value }))} />
               </div>
               <details className="research-advanced-settings research-lens-advanced">
@@ -295,9 +295,9 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
                 <label className="field-label">优先级<select value={lens.priority} onChange={(event) => updateProfile((current) => updateLens(current, index, { priority: event.target.value as typeof lens.priority }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
                 <div className="research-defaults-grid">
                   <TextListField label="Include terms" value={lens.include_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { include_terms: value }))} />
-                  <TextListField label="Lens exclude terms" value={lens.exclude_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { exclude_terms: value }))} />
+                  <TextListField label="Focus exclude terms" value={lens.exclude_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { exclude_terms: value }))} />
                 </div>
-                <button className="button button-quiet" type="button" aria-label={"Remove Lens " + lens.id} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>Remove Focus</button>
+                <button className="button button-quiet" type="button" aria-label={"Remove Research Focus " + lens.id} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>Remove Focus</button>
               </details>
             </article>)}
             <div className="research-default-add-lens">
@@ -359,7 +359,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
               </div>
             </section>
             <section className="research-defaults-section">
-              <div className="research-section-heading"><div><h3>Additional rules</h3><p>调整 Profile 筛选词、增加 Lens 和动态知识检索行为。</p></div></div>
+              <div className="research-section-heading"><div><h3>Additional rules</h3><p>调整 Profile 筛选词、增加 Research Focus 和动态知识检索行为。</p></div></div>
               <TextListField label="Profile exclude terms" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
               <div className="research-defaults-grid research-defaults-fields">
                 <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.context.dynamic_retrieval.enabled} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, enabled: event.target.checked } } }))} /><span>Enable dynamic retrieval</span></label>
