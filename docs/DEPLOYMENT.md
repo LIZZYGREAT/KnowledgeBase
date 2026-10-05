@@ -86,7 +86,7 @@ git pull --ff-only
 docker compose --env-file .env -f docker-compose.production.yml config -q
 docker compose --env-file .env -f docker-compose.production.yml up -d --build
 docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/kb.py check
-docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check --root .
+docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check
 sudo systemctl start knowledgebase-research.timer
 ```
 
