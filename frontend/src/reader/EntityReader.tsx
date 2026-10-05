@@ -323,7 +323,7 @@ export function EntityPage({
         <button className="button button-secondary" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to top</button>
         <button className="button button-secondary reader-action-more" aria-expanded={contextExpanded} aria-controls="reader-context-panel" onClick={toggleContextPanel}>{contextExpanded ? "Less" : "More"}</button>
       </div>
-      {workspaceDraft.error && <p className="workspace-reader-save-error" role="alert">Draft 保存失败：{workspaceDraft.error}</p>}
+      {workspaceDraft.error && workspaceEditorController.activeDrawer !== "metadata" && <p className="workspace-reader-save-error" role="alert">保存失败：{workspaceDraft.error}</p>}
       <details id="reader-context-panel" ref={contextPanelRef} className="reader-context-panel surface" open={contextExpanded} onToggle={(event) => setContextExpanded(event.currentTarget.open)}>
         <summary className="reader-context-summary">
           <span className="reader-context-status"><strong>{typeLabel(entity)}</strong><span>·</span><span>{titleCase(status)}</span><span>·</span><span>{titleCase(maintenanceStatus(entity))}</span></span>

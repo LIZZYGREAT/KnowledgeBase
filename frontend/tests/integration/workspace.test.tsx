@@ -416,7 +416,7 @@ describe("Workspace React integration", () => {
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", null);
   });
 
-  it("shows Source autosave failures in the shared reader toolbar area", async () => {
+  it("shows Source autosave failures in the open metadata drawer and hands them back to the reader on close", async () => {
     const user = userEvent.setup();
     const id = "ewc-2017";
     const content = [
@@ -453,7 +453,14 @@ describe("Workspace React integration", () => {
     await user.clear(title);
     await user.type(title, "Updated title");
 
-    await waitFor(() => expect(document.querySelector(".workspace-reader-save-error")?.textContent).toContain("Draft 保存失败：runtime write failed"), { timeout: 4000 });
+    const metadataDrawer = screen.getByRole("dialog", { name: "元数据" });
+    await waitFor(() => {
+      expect(metadataDrawer.querySelector('[role="alert"]')?.textContent).toContain("runtime write failed");
+      expect(document.querySelector(".workspace-reader-save-error")).toBeNull();
+    }, { timeout: 4000 });
+
+    await user.click(screen.getByRole("button", { name: "关闭抽屉" }));
+    await waitFor(() => expect(document.querySelector(".workspace-reader-save-error")?.textContent).toContain("保存失败：runtime write failed"), { timeout: 4000 });
   });
 
   it("keeps reading and inline editing in one Workspace, autosaves, then publishes through the review drawer", async () => {
