@@ -46,3 +46,21 @@ it("gives code blocks a full-width source, rendered preview, and larger height r
   expect(container.querySelector(".workspace-inline-preview")).toBeTruthy();
   expect(readStyles()).toMatch(/\.workspace-inline-block-editing\[data-block-type="code"\] \.workspace-inline-textarea\s*\{[^}]*min-height:\s*140px;[^}]*max-height:\s*420px/);
 });
+
+it("maps display math to one editable Workspace block while inline math stays in its paragraph", async () => {
+  const body = "Inline $x^2$ stays in this paragraph.\n\n$$\nE = mc^2\n$$\n\nA final paragraph.";
+  const { container } = render(<WorkspaceInlineEditor body={body} annotations={[]} onBodyChange={() => undefined} onNavigate={() => undefined} />);
+
+  const mathBlock = await screen.findByRole("button", { name: "编辑第 2 个区块" });
+  const block = container.querySelector<HTMLElement>('[data-block-index="1"]');
+  expect(container.querySelectorAll(".workspace-inline-block")).toHaveLength(3);
+  expect(block?.querySelector(".katex-display")).toBeTruthy();
+  expect(block?.dataset.sourceStart).toBe(String(body.indexOf("$$")));
+  expect(block?.querySelectorAll(".workspace-inline-edit-button")).toHaveLength(1);
+
+  await userEvent.setup().click(mathBlock);
+  const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
+  expect(editor.closest(".workspace-inline-block-editing")?.getAttribute("data-block-type")).toBe("math");
+  expect((editor as HTMLTextAreaElement).value).toBe("$$\nE = mc^2\n$$");
+  await waitFor(() => expect(container.querySelector(".workspace-inline-preview .katex-display")).toBeTruthy());
+});

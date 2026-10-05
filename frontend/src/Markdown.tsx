@@ -1,4 +1,4 @@
-import { createElement, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { createElement, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -9,15 +9,72 @@ import { remarkPresentationAnnotations } from "./markdownAnnotations";
 
 interface MarkdownNode {
   type: string;
+  tagName?: string;
   value?: string;
   url?: string;
+  properties?: Record<string, string | string[]>;
   children?: MarkdownNode[];
+  position?: { start?: { offset?: number } };
+  data?: { hProperties?: Record<string, string> };
 }
 
 const knowledgeLink = /\[\[([^\]]+)\]\]|\[@([a-z0-9][a-z0-9-]*)(?:,\s*([^\]\n]+?))?\]/gi;
 
 function remarkKnowledgeLinks() {
   return (tree: MarkdownNode) => transformKnowledgeLinks(tree);
+}
+
+function remarkWorkspaceMath(blockRanges?: MarkdownBlockRange[]) {
+  return () => (tree: MarkdownNode) => {
+    if (!blockRanges) return;
+    const annotateMath = (node: MarkdownNode) => {
+      if (node.type === "math") {
+        const start = node.position?.start?.offset;
+        if (typeof start === "number" && blockRanges.some((block) => block.type === "math" && block.start === start)) {
+          node.data = {
+            ...node.data,
+            hProperties: {
+              ...node.data?.hProperties,
+              "data-workspace-math-start": String(start),
+            },
+          };
+        }
+      }
+      node.children?.forEach(annotateMath);
+    };
+    annotateMath(tree);
+  };
+}
+
+function rehypeWorkspaceMath() {
+  return (tree: MarkdownNode) => {
+    const hasClass = (node: MarkdownNode, className: string) => {
+      const classes = node.properties?.className;
+      return Array.isArray(classes) && classes.includes(className);
+    };
+    const wrapDisplayMath = (node: MarkdownNode) => {
+      if (!node.children) return;
+      node.children = node.children.flatMap((child) => {
+        wrapDisplayMath(child);
+        const isDisplayMath = child.type === "element" && (
+          (child.tagName === "div" && hasClass(child, "math-display"))
+          || (child.tagName === "pre" && child.children?.some((candidate) => candidate.tagName === "code" && hasClass(candidate, "math-display")))
+        );
+        const sourceStart = child.properties?.["data-workspace-math-start"];
+        if (!isDisplayMath || typeof sourceStart !== "string") return [child];
+        const properties = { ...child.properties };
+        delete properties["data-workspace-math-start"];
+        child.properties = properties;
+        return [{
+          type: "element",
+          tagName: "div",
+          properties: { "data-workspace-math-start": sourceStart },
+          children: [child],
+        }];
+      });
+    };
+    wrapDisplayMath(tree);
+  };
 }
 
 function transformKnowledgeLinks(node: MarkdownNode) {
@@ -64,34 +121,60 @@ function MermaidDiagram({ source }: { source: string }) {
   const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const [svg, setSvg] = useState("");
   const [error, setError] = useState("");
+  const renderHostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
-    import("mermaid")
-      .then(({ default: mermaid }) => {
-        if (!active) return;
+    const renderRoot = renderHostRef.current;
+    if (!renderRoot) return;
+    const renderHost = document.createElement("div");
+    renderHost.className = "mermaid-render-sandbox";
+    renderRoot.replaceChildren(renderHost);
+    setSvg("");
+    setError("");
+
+    void import("mermaid")
+      .then(async ({ default: mermaid }) => {
+        if (!active) return null;
         mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
-        return mermaid.render(`diagram-${reactId}`, source);
+        const parsed = await mermaid.parse(source, { suppressErrors: true });
+        if (!active) return null;
+        if (parsed === false) {
+          renderHost.replaceChildren();
+          renderHost.remove();
+          setError("Mermaid 图表语法有误。其余笔记内容仍可正常阅读。");
+          return null;
+        }
+        const result = await mermaid.render(`diagram-${reactId}`, source, renderHost);
+        renderHost.replaceChildren();
+        renderHost.remove();
+        return result;
       })
       .then((result) => {
-        if (!result) return;
-        if (!active) return;
+        if (!result || !active) return;
         setSvg(result.svg);
-        setError("");
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (!active) return;
+        renderHost.replaceChildren();
+        renderHost.remove();
         setSvg("");
-        setError("This diagram has a syntax issue. The rest of the note is still available.");
+        console.error("Mermaid diagram rendering failed", cause);
+        setError("Mermaid 图表暂时无法渲染。其余笔记内容仍可正常阅读。");
       });
     return () => {
       active = false;
+      renderHost.replaceChildren();
+      renderHost.remove();
     };
   }, [reactId, source]);
 
-  if (error) return <div className="diagram-error" role="status">{error}</div>;
-  if (!svg) return <div className="diagram-loading" aria-label="Rendering diagram" />;
-  return <div className="mermaid-diagram" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return <>
+    <div className="mermaid-render-host" ref={renderHostRef} aria-hidden="true" />
+    {error ? <div className="diagram-error" role="status">{error}</div>
+      : !svg ? <div className="diagram-loading" aria-label="Rendering diagram" />
+        : <div className="mermaid-diagram" dangerouslySetInnerHTML={{ __html: svg }} />}
+  </>;
 }
 
 function plainText(value: ReactNode): string {
@@ -177,9 +260,17 @@ function makeWorkspaceComponents(
   const wrap = (renderer: PositionedRenderer): PositionedRenderer => (props) => {
     const { node, ...renderProps } = props;
     const rendered = renderer(renderProps);
-    const start = node?.position?.start?.offset;
+    const annotatedStart = props["data-workspace-math-start"];
+    const start = typeof annotatedStart === "string" ? Number(annotatedStart) : node?.position?.start?.offset;
     const index = blockRanges.findIndex((block) => block.start === start);
-    return index >= 0 ? renderBlock(blockRanges[index], index, rendered) : rendered;
+    if (index < 0) return rendered;
+    const block = blockRanges[index];
+    const isDisplayMath = typeof props.className === "string"
+      && props.className.split(/\s+/).includes("katex-display");
+    const isMappedMathRoot = block.type === "math" && typeof annotatedStart === "string";
+    if (block.type === "math" && !isDisplayMath && !isMappedMathRoot) return rendered;
+    if (isDisplayMath && block.type !== "math") return rendered;
+    return renderBlock(block, index, rendered);
   };
 
   const components = { ...base } as Record<string, PositionedRenderer>;
@@ -198,6 +289,17 @@ function makeWorkspaceComponents(
   ] as const) {
     components[name] = wrap(original(name, tag));
   }
+  components.span = (props) => {
+    const { node, children, ...renderProps } = props;
+    const rendered = createElement("span", renderProps, children);
+    const isDisplayMath = typeof props.className === "string"
+      && props.className.split(/\s+/).includes("katex-display");
+    if (!isDisplayMath) return rendered;
+    const annotatedStart = props["data-workspace-math-start"];
+    const start = typeof annotatedStart === "string" ? Number(annotatedStart) : node?.position?.start?.offset;
+    const index = blockRanges.findIndex((block) => block.type === "math" && block.start === start);
+    return index >= 0 ? renderBlock(blockRanges[index], index, rendered) : rendered;
+  };
   return components as Components;
 }
 
@@ -222,8 +324,8 @@ export function MarkdownContent({
   return (
     <div className="markdown-content">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath, [remarkPresentationAnnotations, { annotations }], remarkKnowledgeLinks]}
-        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkWorkspaceMath(blockRanges), [remarkPresentationAnnotations, { annotations }], remarkKnowledgeLinks]}
+        rehypePlugins={[rehypeWorkspaceMath, rehypeKatex]}
         components={components}
       >
         {content}
