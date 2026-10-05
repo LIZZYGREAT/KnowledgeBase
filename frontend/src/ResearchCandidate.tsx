@@ -2,7 +2,17 @@ import { useEffect, useState, type ReactNode } from "react";
 import { getCollection, getEntity, listCollections, listDrafts, type Collection, type CollectionNode, type CollectionSummary, type EntityType, type ResearchCandidateDetail, type ResearchCandidateListItem, type ResearchDismissReason, type ResearchProfile, type ResearchRelation } from "./api";
 import { Chip, formatDate } from "./ui";
 import { parseCollectionDraft } from "./collectionDraftModel";
-import { ResearchLanguageToggle, useResearchLanguage } from "./ResearchLanguage";
+import { ResearchLanguageToggle, type ResearchLanguage } from "./ResearchLanguage";
+
+function hasChineseResearchAnalysis(analysis: {
+  summary_zh?: string | null;
+  why_relevant_zh?: string | null;
+  reading_reason_zh?: string | null;
+  existing_relations: ResearchRelation[];
+}) {
+  return Boolean(analysis.summary_zh && analysis.why_relevant_zh && analysis.reading_reason_zh)
+    && analysis.existing_relations.every((relation) => Boolean(relation.reason_zh));
+}
 
 export function ResearchCandidateCard({
   item,
@@ -23,14 +33,15 @@ export function ResearchCandidateCard({
   selectable: boolean;
   busy: boolean;
   onSelect: (checked: boolean) => void;
-  onDetails: () => void;
+  onDetails: (language: ResearchLanguage, onLanguageChange: (language: ResearchLanguage) => void) => void;
   onShortlist: () => void;
   onDismiss: () => void;
   onRestore: () => void;
   onCreateNote: () => void;
 }) {
-  const [language] = useResearchLanguage();
+  const [language, setLanguage] = useState<ResearchLanguage>("en");
   const chinese = language === "zh";
+  const hasChineseAnalysis = hasChineseResearchAnalysis(item.analysis);
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
   const externalUrl = safeExternalUrl(item.work.url);
   const summary = chinese ? item.analysis.summary_zh || item.analysis.summary : item.analysis.summary;
@@ -44,10 +55,10 @@ export function ResearchCandidateCard({
         <div className="research-candidate-title-row"><h3>{item.work.title}</h3><Chip tone={candidateStatusTone(item.candidate.status)}>{statusLabel(item.candidate.status)}</Chip></div>
         <p className="research-candidate-meta">{[item.work.year, item.work.venue, item.work.authors.slice(0, 3).join(", ")].filter(Boolean).join(" · ") || "出版信息待补充"}</p>
       </div>
-      <div className="research-card-tools"><ResearchLanguageToggle /><button className="text-button" onClick={onDetails}>Why this candidate <span aria-hidden="true">↗</span></button></div>
+      <div className="research-card-tools"><ResearchLanguageToggle language={language} onChange={setLanguage} /><button className="text-button" onClick={() => onDetails(language, setLanguage)}>Why this candidate <span aria-hidden="true">↗</span></button></div>
     </div>
     <div className="research-candidate-tags">{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
-    <div className="research-candidate-summary"><p>{summary}</p></div>
+    <div className="research-candidate-summary"><p>{summary}</p>{chinese && !hasChineseAnalysis && <p className="subtle-copy research-translation-note">此历史候选暂无中文分析</p>}</div>
     <div className="research-candidate-insight-grid">
       <div><span>{chinese ? "推荐理由" : "Why shown"}</span><p>{relevance}</p></div>
       <div><span>{chinese ? "关联知识" : "Related knowledge"}</span><p>{item.analysis.existing_relations.length
@@ -227,6 +238,8 @@ function normalizeSectionTitle(value: string): string {
 export function ResearchCandidateDrawer({
   detail,
   profile,
+  language,
+  onLanguageChange,
   noteBusy,
   noteError,
   onClose,
@@ -236,6 +249,8 @@ export function ResearchCandidateDrawer({
 }: {
   detail: ResearchCandidateDetail;
   profile: ResearchProfile;
+  language: ResearchLanguage;
+  onLanguageChange: (language: ResearchLanguage) => void;
   noteBusy: boolean;
   noteError: string;
   onClose: () => void;
@@ -244,8 +259,8 @@ export function ResearchCandidateDrawer({
   onSaveNote: (note: string) => void;
 }) {
   const { candidate, work, analysis } = detail;
-  const [language] = useResearchLanguage();
   const chinese = language === "zh";
+  const hasChineseAnalysis = hasChineseResearchAnalysis(analysis.analysis);
   const summary = chinese ? analysis.analysis.summary_zh || analysis.analysis.summary : analysis.analysis.summary;
   const relevance = chinese ? analysis.analysis.why_relevant_zh || analysis.analysis.why_relevant : analysis.analysis.why_relevant;
   const readingReason = chinese ? analysis.analysis.reading_reason_zh || analysis.analysis.reading_reason : analysis.analysis.reading_reason;
@@ -307,7 +322,7 @@ export function ResearchCandidateDrawer({
   }
   return <div className="research-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="research-drawer" role="dialog" aria-modal="true" aria-labelledby="research-drawer-title">
-      <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">Why this candidate</h2><p>{work.title}</p></div><div className="research-drawer-tools"><ResearchLanguageToggle /><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></div></header>
+      <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">Why this candidate</h2><p>{work.title}</p></div><div className="research-drawer-tools"><ResearchLanguageToggle language={language} onChange={onLanguageChange} /><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></div></header>
       <div className="research-drawer-body">
         {detail.conversion_blocker === "ambiguous_source" && <section className="research-source-ambiguity" role="alert">
           <strong>可能已存在 {detail.source_match_candidates.length} 个 Source</strong>
@@ -325,7 +340,7 @@ export function ResearchCandidateDrawer({
             </div>;
           })}
         </section>}
-        <section className="research-detail-section"><h3>{chinese ? "论文简介与相关性" : "Why this paper"}</h3><p>{summary}</p><p>{relevance}</p></section>
+        <section className="research-detail-section"><h3>{chinese ? "论文简介与相关性" : "Why this paper"}</h3><p>{summary}</p><p>{relevance}</p>{chinese && !hasChineseAnalysis && <p className="subtle-copy research-translation-note">此历史候选暂无中文分析</p>}</section>
         <section className="research-detail-section"><h3>{chinese ? "为什么值得读" : "Why read it"}</h3><p>{readingReason}</p></section>
         <section className="research-detail-section"><h3>Paper</h3><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Year" value={work.year == null ? undefined : String(work.year)} /><DetailRow label="Venue" value={work.venue} /><DetailRow label="Abstract" value={work.abstract} /></section>
         <section className="research-detail-section"><h3>Research focus</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Focus" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} /></section>

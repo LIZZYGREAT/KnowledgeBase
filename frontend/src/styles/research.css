@@ -90,7 +90,7 @@
 .research-card-topline > .research-card-tools { margin-left: auto; }
 .research-card-tools > .text-button { flex: 0 0 auto; }
 .research-language-switch { display: inline-flex; flex: 0 0 auto; align-items: center; border: 1px solid #e4ebe5; border-radius: 7px; padding: 2px; background: #fafcfb; }
-.research-language-switch button { min-height: 25px; border: 0; border-radius: 5px; padding: 0 7px; color: #87958b; background: transparent; font-size: 11px; cursor: pointer; }
+.research-language-switch button { min-height: 25px; border: 0; border-radius: 5px; padding: 0 7px; color: #87958b; background: transparent; font-size: 12px; cursor: pointer; }
 .research-language-switch button[aria-pressed="true"] { color: #42684d; background: #eaf2eb; font-weight: 650; }
 .research-candidate-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .research-candidate-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

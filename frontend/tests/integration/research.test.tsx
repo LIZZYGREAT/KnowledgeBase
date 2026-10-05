@@ -123,6 +123,7 @@ describe("Research workspace", () => {
     expect(screen.getByRole("button", { name: /Research/ }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByText("Discoveries", {}, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("heading", { name: "A New Regularization Method" }).closest(".research-candidate-card") as HTMLElement).getByRole("button", { name: "中文" }));
     expect(screen.getByText("关联知识")).toBeTruthy();
     expect(screen.getByText("为什么值得读")).toBeTruthy();
     expect(screen.queryByText("What may be new")).toBeNull();
@@ -182,6 +183,8 @@ describe("Research workspace", () => {
         source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["doi"], conflicts: [{ field: "openalex_id", existing_value: "W111", discovered_value: "W222" }] }],
       }}
       profile={profile as unknown as ResearchProfile}
+      language="en"
+      onLanguageChange={() => undefined}
       noteBusy={false}
       noteError=""
       onClose={() => undefined}
@@ -430,44 +433,46 @@ describe("Research workspace", () => {
     }
   });
 
-  it("defaults candidate analysis to Chinese and persists the English language choice", () => {
-    const view = render(<ResearchCandidateCard
-      item={candidateListItem as ResearchCandidateListItem}
-      profile={profile as ResearchProfile}
-      selected={false}
-      selectable={false}
-      busy={false}
-      onSelect={() => undefined}
-      onDetails={() => undefined}
-      onShortlist={() => undefined}
-      onDismiss={() => undefined}
-      onRestore={() => undefined}
-      onCreateNote={() => undefined}
-    />);
+  it("defaults each candidate to English and keeps language choices independent", () => {
+    const secondItem = {
+      ...candidateListItem,
+      candidate: { ...candidateListItem.candidate, id: "candidate-2" },
+      work: { ...candidateListItem.work, title: "Second Candidate" },
+      analysis: { ...analysis, summary: "B English summary", summary_zh: "B 中文摘要" },
+    } as ResearchCandidateListItem;
+    render(<>
+      <ResearchCandidateCard item={candidateListItem as ResearchCandidateListItem} profile={profile as ResearchProfile} selected={false} selectable={false} busy={false} onSelect={() => undefined} onDetails={() => undefined} onShortlist={() => undefined} onDismiss={() => undefined} onRestore={() => undefined} onCreateNote={() => undefined} />
+      <ResearchCandidateCard item={secondItem} profile={profile as ResearchProfile} selected={false} selectable={false} busy={false} onSelect={() => undefined} onDetails={() => undefined} onShortlist={() => undefined} onDismiss={() => undefined} onRestore={() => undefined} onCreateNote={() => undefined} />
+    </>);
 
+    const groups = screen.getAllByRole("group", { name: "Candidate language" });
+    expect(groups).toHaveLength(2);
+    expect(within(groups[0]).getByRole("button", { name: "EN" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(groups[1]).getByRole("button", { name: "EN" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
+    expect(screen.getByText("B English summary")).toBeTruthy();
+
+    fireEvent.click(within(groups[0]).getByRole("button", { name: "中文" }));
     expect(screen.getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
-    expect(screen.getByText("它与正则化方向相关，并研究参数重要性。")).toBeTruthy();
-    expect(screen.getByText("将其自适应估计结果与 EWC 进行比较。")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "English" }));
-    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
-    expect(window.localStorage.getItem("knowledgebase.research-language")).toBe("en");
+    expect(screen.getByText("B English summary")).toBeTruthy();
+    expect(within(groups[0]).getByRole("button", { name: "中文" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(groups[1]).getByRole("button", { name: "EN" }).getAttribute("aria-pressed")).toBe("true");
+    expect(window.localStorage.getItem("knowledgebase.research-language")).toBeNull();
+  });
 
-    view.unmount();
-    render(<ResearchCandidateCard
-      item={candidateListItem as ResearchCandidateListItem}
-      profile={profile as ResearchProfile}
-      selected={false}
-      selectable={false}
-      busy={false}
-      onSelect={() => undefined}
-      onDetails={() => undefined}
-      onShortlist={() => undefined}
-      onDismiss={() => undefined}
-      onRestore={() => undefined}
-      onCreateNote={() => undefined}
-    />);
-    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
-    expect(screen.getByText("Why read it")).toBeTruthy();
+  it("opens the detail drawer in its card language and keeps both controls in sync", async () => {
+    render(<App />);
+    const card = await screen.findByRole("heading", { name: "A New Regularization Method" }).then((heading) => heading.closest(".research-candidate-card") as HTMLElement);
+    fireEvent.click(within(card).getByRole("button", { name: "中文" }));
+    expect(within(card).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: /Why this candidate/ }));
+
+    const drawer = await screen.findByRole("dialog", { name: "Why this candidate" });
+    expect(within(drawer).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "中文" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(drawer).getByRole("button", { name: "EN" }));
+    expect(within(drawer).getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
+    expect(within(card).getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
   });
 
   it("labels the candidate reading reason as why to read it", () => {
@@ -485,6 +490,7 @@ describe("Research workspace", () => {
       onCreateNote={() => undefined}
     />);
 
+    fireEvent.click(screen.getByRole("button", { name: "中文" }));
     expect(screen.getByText("为什么值得读")).toBeTruthy();
     expect(screen.getByText("将其自适应估计结果与 EWC 进行比较。")).toBeTruthy();
   });
@@ -508,6 +514,9 @@ describe("Research workspace", () => {
     expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
     expect(screen.getByText("It matches the regularization Lens and studies parameter importance.")).toBeTruthy();
     expect(screen.getByText("Compare its adaptive estimates against EWC.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "中文" }));
+    expect(screen.getByText("此历史候选暂无中文分析")).toBeTruthy();
+    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
   });
 
   it("creates a Research Profile from name and focus, generating stable default identifiers", async () => {

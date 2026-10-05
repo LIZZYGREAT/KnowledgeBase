@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parse } from "yaml";
 import {
   dismissResearchCandidate,
@@ -32,6 +32,7 @@ import { ResearchRunDrawer, ResearchRunList } from "./ResearchRun";
 import { ErrorState, LoadingState, PageHeader } from "./ui";
 import { errorMessage } from "./errors";
 import { entityWorkspaceUrl } from "./workspaceRoute";
+import type { ResearchLanguage } from "./ResearchLanguage";
 
 type ResearchTab = "new" | "shortlisted" | "history" | "runs";
 type HistoryStatus = Extract<ResearchCandidateStatus, "dismissed" | "saved_source" | "note_created">;
@@ -67,6 +68,8 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [searchQueued, setSearchQueued] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState(false);
   const [detailId, setDetailId] = useState("");
+  const [detailLanguage, setDetailLanguage] = useState<ResearchLanguage>("en");
+  const detailLanguageUpdater = useRef<(language: ResearchLanguage) => void>(() => undefined);
   const [candidateDetail, setCandidateDetail] = useState<ResearchCandidateDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [runRecords, setRunRecords] = useState<ResearchRun[]>([]);
@@ -385,7 +388,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
         {tab !== "history" && (tab === "new" || tab === "shortlisted") && items.length > 0 && <div className="research-batch-toolbar"><label><input type="checkbox" checked={items.length > 0 && items.every((item) => selectedCandidates.includes(item.candidate.id))} onChange={(event) => setSelectedCandidates(event.target.checked ? items.map((item) => item.candidate.id) : [])} /> Select visible</label><span>{selectedCandidates.length} selected</span><div>{selectedCandidates.length > 0 && <>{tab === "new" && <button className="button button-secondary" disabled={actionBusy} onClick={() => setShortlistTargets(selectedCandidates)}>Shortlist selected</button>}<button className="button button-quiet" disabled={actionBusy} onClick={() => setDismissTargets(selectedCandidates)}>Dismiss selected</button></>}</div></div>}
         {actionError && <p className="error-copy research-inline-error" role="alert">{actionError}</p>}
         {candidateError && <ErrorState message={candidateError} retry={refresh} />}
-        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={() => { setActionError(""); setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => void dismiss([item.candidate.id])} onRestore={() => void restoreCandidate(item.candidate.id)} onCreateNote={() => void beginCreateNote(item)} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
+        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={(language, onLanguageChange) => { setActionError(""); setDetailLanguage(language); detailLanguageUpdater.current = onLanguageChange; setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => void dismiss([item.candidate.id])} onRestore={() => void restoreCandidate(item.candidate.id)} onCreateNote={() => void beginCreateNote(item)} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
         {items.length > 0 && items.length < candidateCount && <div className="research-load-more"><button className="button button-secondary" disabled={candidateLoading} onClick={() => setOffset(items.length)}>{candidateLoading ? "Loading…" : "Load more"}</button></div>}
       </>}
       {tab === "runs" && <>
@@ -394,7 +397,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
       </>}
     </section>
 
-    {detailId && (detailLoading ? <div className="research-drawer-overlay"><aside className="research-drawer" role="dialog" aria-modal="true"><LoadingState label="正在载入 Candidate provenance…" /><button className="button button-secondary" onClick={() => setDetailId("")}>Close</button></aside></div> : candidateDetail && profile && <ResearchCandidateDrawer detail={candidateDetail} profile={profile.profile} noteBusy={actionBusy} noteError={actionError} onSaveSource={() => void saveSource(candidateDetail.candidate.id)} onSaveNote={(note) => void updateCandidateNote(note)} onClose={() => { setDetailId(""); setCandidateDetail(null); }} onOpenEntity={(path) => { setDetailId(""); navigate(path); }} />)}
+    {detailId && (detailLoading ? <div className="research-drawer-overlay"><aside className="research-drawer" role="dialog" aria-modal="true"><LoadingState label="正在载入 Candidate provenance…" /><button className="button button-secondary" onClick={() => setDetailId("")}>Close</button></aside></div> : candidateDetail && profile && <ResearchCandidateDrawer detail={candidateDetail} profile={profile.profile} language={detailLanguage} onLanguageChange={(language) => { setDetailLanguage(language); detailLanguageUpdater.current(language); }} noteBusy={actionBusy} noteError={actionError} onSaveSource={() => void saveSource(candidateDetail.candidate.id)} onSaveNote={(note) => void updateCandidateNote(note)} onClose={() => { setDetailId(""); setCandidateDetail(null); detailLanguageUpdater.current = () => undefined; }} onOpenEntity={(path) => { setDetailId(""); detailLanguageUpdater.current = () => undefined; navigate(path); }} />)}
     {runDetail && <ResearchRunDrawer run={runDetail} onClose={() => setRunDetail(null)} />}
     {dismissTargets && <ResearchDismissDialog count={dismissTargets.length} busy={actionBusy} onClose={() => setDismissTargets(null)} onSubmit={(reason, note) => void dismiss(dismissTargets, reason, note)} />}
     {shortlistTargets && <ResearchShortlistDialog count={shortlistTargets.length} busy={actionBusy} error={actionError} onClose={() => setShortlistTargets(null)} onSubmit={(note) => void shortlist(shortlistTargets, note)} />}
