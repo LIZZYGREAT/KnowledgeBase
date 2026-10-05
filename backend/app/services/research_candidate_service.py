@@ -118,15 +118,14 @@ class ResearchCandidateService:
             decided_at=now,
         )
 
-    def restore(self, candidate_id: str) -> ResearchCandidateRecord:
+    def restore(
+        self, candidate_id: str, max_new_candidates: int
+    ) -> ResearchCandidateRecord:
         """Return a dismissed Candidate to the Inbox and keep its note."""
-        return self.repository.transition(
-            candidate_id=candidate_id,
-            allowed_statuses=("dismissed",),
-            status="new",
+        return self.repository.restore_if_capacity(
+            candidate_id,
+            max_new_candidates=max_new_candidates,
             now=self._now(),
-            dismiss_reason=None,
-            decided_at=None,
         )
 
     def update_user_note(

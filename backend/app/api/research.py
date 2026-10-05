@@ -371,7 +371,18 @@ async def dismiss_candidate(
     "/candidates/{candidate_id}/restore", response_model=ResearchCandidateRecord
 )
 async def restore_candidate(candidate_id: str, request: Request):
-    return request.app.state.research_service.candidate_service.restore(candidate_id)
+    service = request.app.state.research_service
+    candidate = service.candidate_repository.get(candidate_id)
+    if candidate is None:
+        raise LookupError("Research Candidate '{}' does not exist".format(candidate_id))
+    profile = _require_profile(service, candidate.profile_id)
+    try:
+        return service.candidate_service.restore(
+            candidate_id,
+            max_new_candidates=profile.inbox.max_new_candidates,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 def _profile_summary(service, profile):

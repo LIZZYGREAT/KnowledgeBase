@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -447,6 +448,45 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             )
             assert dismiss_without_reason.status_code == 200
             assert dismiss_without_reason.json()["dismiss_reason"] is None
+            no_capacity_profile = profile.model_copy(
+                update={
+                    "enabled": False,
+                    "inbox": profile.inbox.model_copy(
+                        update={"max_new_candidates": 0}
+                    ),
+                }
+            )
+            original_registry = service.profile_registry
+            service.profile_registry = replace(
+                original_registry,
+                profiles=tuple(
+                    no_capacity_profile if item.id == profile.id else item
+                    for item in original_registry.profiles
+                ),
+            )
+            full = await client.post(
+                "/api/research/candidates/{}/restore".format(generated.candidate.id)
+            )
+            assert full.status_code == 409, full.json()
+            assert full.json()["detail"] == "Research Inbox is full"
+            assert service.candidate_repository.get(generated.candidate.id).status == "dismissed"
+
+            disabled_profile_with_capacity = no_capacity_profile.model_copy(
+                update={
+                    "inbox": no_capacity_profile.inbox.model_copy(
+                        update={"max_new_candidates": 1}
+                    )
+                }
+            )
+            service.profile_registry = replace(
+                original_registry,
+                profiles=tuple(
+                    disabled_profile_with_capacity
+                    if item.id == profile.id
+                    else item
+                    for item in original_registry.profiles
+                ),
+            )
             restored = await client.post(
                 "/api/research/candidates/{}/restore".format(generated.candidate.id)
             )

@@ -70,7 +70,7 @@ def test_shortlist_and_dismiss_manage_notes_views_and_inbox_capacity():
     times = iter(
         [
             datetime(2026, 10, 3, hour, tzinfo=timezone.utc)
-            for hour in range(9)
+            for hour in range(10)
         ]
     )
     service = ResearchCandidateService(repository, clock=lambda: next(times))
@@ -104,7 +104,8 @@ def test_shortlist_and_dismiss_manage_notes_views_and_inbox_capacity():
     assert dismissed.dismiss_reason == "too_redundant"
     assert dismissed.user_note == "Update the comparison section."
     assert dismissed.decided_at == "2026-10-03T07:00:00+00:00"
-    restored = service.restore(first.id)
+    service.dismiss(second.candidate.id, "already_known")
+    restored = service.restore(first.id, max_new_candidates=profile.inbox.max_new_candidates)
     assert restored.status == "new"
     assert restored.dismiss_reason is None
     assert restored.decided_at is None
@@ -112,6 +113,40 @@ def test_shortlist_and_dismiss_manage_notes_views_and_inbox_capacity():
     repeated = service.generate(analysis_one, profile, profile.lenses[0])
     assert repeated.outcome == "existing"
     assert repeated.candidate.status == "new"
+    connection.close()
+
+
+def test_restore_rejects_when_inbox_is_full_or_has_zero_capacity():
+    connection = connect_database(":memory:")
+    work = _work("work-restore-capacity")
+    analysis = _analysis("work-restore-capacity")
+    _persist_work_and_analysis(connection, work, analysis)
+    service = ResearchCandidateService(
+        ResearchCandidateRepository(connection), clock=_clock
+    )
+    profile = _profile(max_new_candidates=1)
+    candidate = service.generate(analysis, profile, profile.lenses[0]).candidate
+    assert candidate is not None
+    service.dismiss(candidate.id, "not_relevant", "Keep this note")
+
+    with pytest.raises(ValueError, match="Research Inbox is full"):
+        service.restore(candidate.id, max_new_candidates=0)
+    assert service.remaining_capacity(profile) == 1
+
+    _persist_work_and_analysis(
+        connection,
+        _work("work-fills-inbox"),
+        _analysis("work-fills-inbox"),
+    )
+    second = service.generate(
+        _analysis("work-fills-inbox"), profile, profile.lenses[0]
+    ).candidate
+    assert second is not None
+    with pytest.raises(ValueError, match="Research Inbox is full"):
+        service.restore(candidate.id, max_new_candidates=profile.inbox.max_new_candidates)
+    assert service.remaining_capacity(profile) == 0
+    assert service.repository.get(candidate.id).status == "dismissed"
+    assert service.repository.get(candidate.id).user_note == "Keep this note"
     connection.close()
 
 
@@ -128,7 +163,7 @@ def test_candidate_transitions_validate_inputs_and_keep_terminal_states():
     assert candidate is not None
 
     with pytest.raises(ValueError, match="Cannot move Research Candidate"):
-        service.restore(candidate.id)
+        service.restore(candidate.id, max_new_candidates=profile.inbox.max_new_candidates)
 
     with pytest.raises(ValueError, match="cannot exceed 4000"):
         service.shortlist(candidate.id, "x" * 4001)
@@ -138,7 +173,9 @@ def test_candidate_transitions_validate_inputs_and_keep_terminal_states():
     dismissed = service.dismiss(candidate.id, "already_known")
     with pytest.raises(ValueError, match="Cannot move Research Candidate"):
         service.shortlist(dismissed.id)
-    restored = service.restore(dismissed.id)
+    restored = service.restore(
+        dismissed.id, max_new_candidates=profile.inbox.max_new_candidates
+    )
     assert restored.status == "new"
     connection.close()
 

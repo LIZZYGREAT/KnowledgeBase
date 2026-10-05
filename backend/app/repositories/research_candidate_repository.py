@@ -186,6 +186,35 @@ class ResearchCandidateRepository:
             )
             return candidate, True, False
 
+    def restore_if_capacity(
+        self, candidate_id: str, max_new_candidates: int, now: datetime
+    ) -> ResearchCandidateRecord:
+        """Restore a dismissed Candidate only when its Inbox has room."""
+        with self.transactions.write_transaction():
+            candidate = self.get(candidate_id)
+            if candidate is None:
+                raise LookupError(
+                    "Research Candidate '{}' does not exist".format(candidate_id)
+                )
+            if candidate.status != "dismissed":
+                raise ValueError(
+                    "Cannot move Research Candidate from '{}' to 'new'".format(
+                        candidate.status
+                    )
+                )
+            if self.count_new(candidate.profile_id) >= max_new_candidates:
+                raise ValueError("Research Inbox is full")
+            self.connection.execute(
+                """UPDATE research_candidates SET status = 'new',
+                       dismiss_reason = NULL, updated_at = ?, decided_at = NULL
+                   WHERE id = ? AND status = 'dismissed'""",
+                (now.isoformat(), candidate_id),
+            )
+            updated = self.get(candidate_id)
+        if updated is None:
+            raise RuntimeError("Research Candidate disappeared during restore")
+        return updated
+
     def transition(
         self,
         candidate_id: str,
