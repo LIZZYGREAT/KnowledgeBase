@@ -33,6 +33,29 @@ Confirm the container's UID and GID match the deployment account before using Pu
 
 The repository is mounted at `/workspace` so Publisher commits go into the server's Git checkout. `runtime/` and `storage/` persist on that host and are ignored by Git. The Compose file does not publish the API port. Do not change `KB_HTTP_BIND` to `0.0.0.0` on an internet-facing server.
 
+### Existing deployments with root-owned files
+
+This is a one-time migration for an existing deployment whose older root-run backend created root-owned files. Fresh deployments do not need it. Before switching an existing server to the deployment-account backend, make a backup and stop writers: if the Research timer is installed, stop it first, run the production backup entrypoint so an active Research run can finish, then stop the frontend and backend. Inspect ownership as the deployment account:
+
+```sh
+cd /srv/KnowledgeBase
+id -u
+id -g
+find .git runtime storage -user root -print
+```
+
+Only if the listed files were created by the old KnowledgeBase container and the deployment account should own the whole checkout and its backup/import directories, run once:
+
+```sh
+sudo chown -R "$(id -u):$(id -g)" \
+  /srv/KnowledgeBase \
+  /srv/KnowledgeBase-backups \
+  /srv/KnowledgeBase-imports
+git status
+```
+
+Use the actual paths if the deployment uses custom directories. Confirm `git status` works before starting the updated services. Do not add recursive ownership changes to startup scripts or run them automatically.
+
 ### Research Agent scheduler
 
 The Research Agent runs one queued manual request or one due Profile per tick. Install the supplied systemd units on the host; they execute the CLI inside the production backend container and do not require a host Python environment.
