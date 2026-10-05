@@ -32,6 +32,7 @@ describe("Document metadata drawer", () => {
       onFrontmatterUpdate={onFrontmatterUpdate}
       onFrontmatterListUpdate={onFrontmatterListUpdate}
       onSourcePdfChange={vi.fn()}
+      onNavigate={vi.fn()}
       onClose={onClose}
       onError={vi.fn()}
     />);

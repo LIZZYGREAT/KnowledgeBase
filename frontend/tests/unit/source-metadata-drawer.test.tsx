@@ -6,6 +6,7 @@ describe("Source metadata drawer", () => {
   it("edits Source identity fields as structured Draft metadata", () => {
     const onFrontmatterUpdate = vi.fn();
     const onSourcePdfChange = vi.fn();
+    const onNavigate = vi.fn();
     render(<WorkspaceMetadataDrawer
       type="source"
       id="ewc-2017"
@@ -32,6 +33,7 @@ describe("Source metadata drawer", () => {
       onFrontmatterUpdate={onFrontmatterUpdate}
       onFrontmatterListUpdate={vi.fn()}
       onSourcePdfChange={onSourcePdfChange}
+      onNavigate={onNavigate}
       onClose={vi.fn()}
       onError={vi.fn()}
     />);
@@ -43,7 +45,12 @@ describe("Source metadata drawer", () => {
     expect((screen.getByLabelText("DOI") as HTMLInputElement).value).toBe("10.1234/ewc");
     expect((screen.getByLabelText("arXiv ID") as HTMLInputElement).value).toBe("1701.00001");
     expect((screen.getByLabelText("OpenAlex ID") as HTMLInputElement).value).toBe("W111");
-    expect((screen.getByLabelText("附件 URI") as HTMLInputElement).value).toBe("storage://papers/ewc.pdf");
+    expect(screen.getByText("已关联：ewc.pdf")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "打开 PDF" }).getAttribute("href")).toBe("/api/sources/ewc-2017/pdf");
+    const advanced = document.querySelector("details.workspace-metadata-advanced") as HTMLDetailsElement;
+    expect(advanced.open).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "通过 Review 检查" }));
+    expect(onNavigate).toHaveBeenCalledWith("/review#imports");
     fireEvent.change(screen.getByLabelText("标题"), { target: { value: "Updated paper title" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("title", "Updated paper title");
     fireEvent.change(screen.getByLabelText("资料类型"), { target: { value: "book" } });
@@ -69,10 +76,12 @@ describe("Source metadata drawer", () => {
     fireEvent.blur(screen.getByLabelText("URL"));
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("url", "https://example.org/updated");
     fireEvent.click(screen.getByText("高级信息"));
+    expect(advanced.open).toBe(true);
     fireEvent.change(screen.getByLabelText("Zotero Key"), { target: { value: "XYZ789" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("zotero_key", "XYZ789");
 
     const pdfAttachment = screen.getByLabelText("附件 URI");
+    expect((pdfAttachment as HTMLInputElement).value).toBe("storage://papers/ewc.pdf");
     fireEvent.change(pdfAttachment, { target: { value: "not-a-storage-uri" } });
     expect(onSourcePdfChange).not.toHaveBeenCalled();
     fireEvent.blur(pdfAttachment);
@@ -101,6 +110,7 @@ describe("Source metadata drawer", () => {
       onFrontmatterUpdate={onFrontmatterUpdate}
       onFrontmatterListUpdate={vi.fn()}
       onSourcePdfChange={vi.fn()}
+      onNavigate={vi.fn()}
       onClose={onClose}
       onError={vi.fn()}
     />);
@@ -131,6 +141,7 @@ describe("Source metadata drawer", () => {
       onFrontmatterUpdate: vi.fn(),
       onFrontmatterListUpdate: vi.fn(),
       onSourcePdfChange: vi.fn(),
+      onNavigate: vi.fn(),
       onClose: vi.fn(),
       onError: vi.fn(),
     };
@@ -152,5 +163,31 @@ describe("Source metadata drawer", () => {
 
     expect((screen.getByLabelText("URL") as HTMLInputElement).value).toBe("https://example.org/next");
     expect(screen.queryByText("URL 须为空，或使用有效的 http:// / https:// 地址。")).toBeNull();
+  });
+
+  it("routes an unlinked Source to Review to add a PDF", () => {
+    const onNavigate = vi.fn();
+    render(<WorkspaceMetadataDrawer
+      type="source"
+      id="ewc-2017"
+      content={["schema_version: 1", "id: ewc-2017", "type: paper", "title: Paper", "attachments: {}"].join("\n")}
+      sourceEntries={[]}
+      sourceError=""
+      canonicalEvidenceCount={0}
+      onFrontmatterUpdate={vi.fn()}
+      onFrontmatterListUpdate={vi.fn()}
+      onSourcePdfChange={vi.fn()}
+      onNavigate={onNavigate}
+      onClose={vi.fn()}
+      onError={vi.fn()}
+    />);
+
+    expect(screen.getByText("尚未关联 PDF")).toBeTruthy();
+    const advanced = document.querySelector("details.workspace-metadata-advanced") as HTMLDetailsElement;
+    expect(advanced.open).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "通过 Review 添加 PDF" }));
+    expect(onNavigate).toHaveBeenCalledWith("/review#imports");
+    fireEvent.click(screen.getByText("高级信息"));
+    expect((screen.getByLabelText("附件 URI") as HTMLInputElement).value).toBe("");
   });
 });

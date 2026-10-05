@@ -27,6 +27,7 @@
 .error-copy { margin: 0; color: #a75a50; font-size: var(--text-sm); }
 .source-pdf-button { margin-left: auto; white-space: nowrap; }
 .attachment-note { flex-wrap: wrap; }
+.metadata-pdf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .source-association-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .source-association-option { display: flex; min-width: 0; align-items: center; gap: 9px; border: 1px solid #e9eee9; border-radius: 7px; padding: 9px; background: #fbfcfb; cursor: pointer; }
 .source-association-option input { accent-color: #31745a; }

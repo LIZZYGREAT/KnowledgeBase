@@ -35,6 +35,7 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       onFrontmatterUpdate={updateFrontmatter}
       onFrontmatterListUpdate={updateFrontmatterList}
       onSourcePdfChange={updateSourcePdf}
+      onNavigate={navigate}
       onClose={() => setActiveDrawer(null)}
       onError={setSaveError}
     />}

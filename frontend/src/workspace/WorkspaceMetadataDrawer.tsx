@@ -18,6 +18,7 @@ export function WorkspaceMetadataDrawer({
   onFrontmatterUpdate,
   onFrontmatterListUpdate,
   onSourcePdfChange,
+  onNavigate,
   onClose,
   onError,
 }: {
@@ -31,6 +32,7 @@ export function WorkspaceMetadataDrawer({
   onFrontmatterUpdate: (key: string, value: unknown) => void;
   onFrontmatterListUpdate: (key: string, value: string) => void;
   onSourcePdfChange: (value: string) => void;
+  onNavigate: (path: string) => void;
   onClose: () => void;
   onError: (message: string) => void;
 }) {
@@ -39,6 +41,7 @@ export function WorkspaceMetadataDrawer({
   const associatedSourceIds = readStringArray(readFrontmatterField(content, type, "sources"));
   const paperSkills = readPaperSkillArtifacts(readFrontmatterField(content, type, "external_artifacts"));
   const pdfAttachment = readSourcePdf(content);
+  const pdfFileName = pdfAttachment.slice(pdfAttachment.lastIndexOf("/") + 1) || pdfAttachment;
   const sourceIdentifiers = readRecord(readFrontmatterField(content, type, "identifiers"));
   const sourceAuthors = readStringArray(readFrontmatterField(content, type, "authors"));
   const sourceAuthorsValue = sourceAuthors.join("\n");
@@ -268,7 +271,12 @@ export function WorkspaceMetadataDrawer({
         <label className="field-label">arXiv ID<input value={stringValue(sourceIdentifiers.arxiv_id)} onChange={(event) => updateSourceIdentifier("arxiv_id", event.target.value)} /></label>
         <label className="field-label">OpenAlex ID<input value={stringValue(sourceIdentifiers.openalex_id)} onChange={(event) => updateSourceIdentifier("openalex_id", event.target.value)} /></label>
         <div><label className="field-label">URL<input type="url" value={sourceUrlText} onFocus={() => setEditingField("url")} onChange={(event) => updateSourceUrl(event.target.value)} onBlur={commitSourceUrl} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourceUrl(); } }} /></label>{sourceUrlError && <p className="error-copy" role="alert">{sourceUrlError}</p>}</div>
-        <details className="workspace-metadata-advanced"><summary>高级信息</summary><label className="field-label">Zotero Key<input value={stringValue(readFrontmatterField(content, type, "zotero_key"))} onChange={(event) => onFrontmatterUpdate("zotero_key", event.target.value.trim() || null)} /></label></details>
+        <details className="workspace-metadata-advanced"><summary>高级信息</summary>
+          <label className="field-label">Zotero Key<input value={stringValue(readFrontmatterField(content, type, "zotero_key"))} onChange={(event) => onFrontmatterUpdate("zotero_key", event.target.value.trim() || null)} /></label>
+          <p className="subtle-copy">仅用于修复已有本地文件关联。</p>
+          <label className="field-label">附件 URI<input value={pdfAttachmentText} onFocus={() => setEditingField("pdf")} onChange={(event) => updateSourcePdf(event.target.value)} onBlur={commitSourcePdf} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourcePdf(); } }} placeholder="storage://papers/source-id.pdf" aria-invalid={Boolean(pdfAttachmentError)} /></label>
+          {pdfAttachmentError && <p className="error-copy" role="alert">{pdfAttachmentError}</p>}
+        </details>
       </> : <>
         <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
         <label className="field-label">Domains<input value={domainsText} onFocus={() => setEditingField("domains")} onChange={(event) => updateDelimitedList("domains", event.target.value)} onBlur={() => commitDelimitedList("domains", domainsText, domains, setDomainsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("domains", domainsText, domains, setDomainsText); } }} placeholder="用逗号分隔 ID" /></label>
@@ -302,10 +310,18 @@ export function WorkspaceMetadataDrawer({
     </section>}
 
     {type === "source" && <section className="drawer-section">
-      <SectionHeading title="本地 PDF 关联" detail="文件需先通过 Import Pipeline 放入 storage/papers；发布会检查关联文件。" />
-      <label className="field-label">附件 URI<input value={pdfAttachmentText} onFocus={() => setEditingField("pdf")} onChange={(event) => updateSourcePdf(event.target.value)} onBlur={commitSourcePdf} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourcePdf(); } }} placeholder="storage://papers/source-id.pdf" aria-invalid={Boolean(pdfAttachmentError)} /></label>
-      {pdfAttachmentError && <p className="error-copy" role="alert">{pdfAttachmentError}</p>}
-      <p className="trust-note">此处只设置 Source 元数据引用，不会上传或复制文件。</p>
+      <SectionHeading title="本地 PDF" />
+      <div className="attachment-note">
+        <span className="attachment-icon">PDF</span>
+        <span>
+          <strong>{pdfAttachment ? `已关联：${pdfFileName}` : "尚未关联 PDF"}</strong>
+          <small>{pdfAttachment ? "文件保存在本机私有存储中。" : "可通过 Review 导入并关联 PDF。"}</small>
+        </span>
+      </div>
+      <div className="metadata-pdf-actions">
+        {pdfAttachment && <a className="button button-secondary" href={`/api/sources/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noreferrer">打开 PDF</a>}
+        <button className="button button-secondary" onClick={() => onNavigate("/review#imports")}>{pdfAttachment ? "通过 Review 检查" : "通过 Review 添加 PDF"}</button>
+      </div>
     </section>}
     {error && <p className="error-copy" role="alert">{error}</p>}
     <div className="drawer-footer"><span>更改会自动保存</span></div>
