@@ -57,6 +57,12 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert first.model == "mock"
     assert first.context_entity_ids == ("document:ewc",)
     assert isinstance(first.analysis, ResearchCandidateAnalysisOutput)
+    assert first.analysis.summary_zh == "这篇论文研究参数重要性。"
+    assert first.analysis.why_relevant_zh == "这与正则化研究主题相符。"
+    assert first.analysis.reading_reason_zh == "这可能有助于理解巩固方法。"
+    assert first.analysis.existing_relations[0].reason_zh == "它扩展了置顶的 EWC 笔记。"
+    assert first.analysis_version == 6
+    assert first.prompt_version == "research-candidate-analysis-v6"
     assert [
         (relation.entity_type, relation.entity_id)
         for relation in first.analysis.existing_relations
@@ -266,6 +272,7 @@ def test_research_analysis_rejects_relations_outside_the_context_pack():
             "entity_id": "not-in-context",
             "relation": "extends",
             "reason": "The model invented an entity.",
+            "reason_zh": "模型编造了一个实体。",
         }
     ]
     client = MockDeepSeekClient({"research_candidate_analysis": output})
@@ -291,6 +298,7 @@ def test_research_analysis_rejects_relation_with_matching_id_but_wrong_entity_ty
             "entity_id": "ewc",
             "relation": "related",
             "reason": "The identifier matches a context Document.",
+            "reason_zh": "该标识与上下文中的文档相同。",
         }
     ]
     service = ResearchAnalysisService(
@@ -500,12 +508,16 @@ def _analysis_output():
         "summary": "The paper studies parameter importance.",
         "why_relevant": "It matches the regularization lens.",
         "reading_reason": "It may clarify consolidation methods.",
+        "summary_zh": "这篇论文研究参数重要性。",
+        "why_relevant_zh": "这与正则化研究主题相符。",
+        "reading_reason_zh": "这可能有助于理解巩固方法。",
         "existing_relations": [
             {
                 "entity_type": "document",
                 "entity_id": "ewc",
                 "relation": "extends",
                 "reason": "It extends the pinned EWC note.",
+                "reason_zh": "它扩展了置顶的 EWC 笔记。",
             }
         ],
         "suggested_collection": "research-core",

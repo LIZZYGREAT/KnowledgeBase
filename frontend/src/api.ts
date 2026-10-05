@@ -338,7 +338,7 @@ export interface ResearchWork {
   created_at: string;
   updated_at: string;
 }
-export interface ResearchRelation { entity_type: "document" | "term" | "source" | "collection"; entity_id: string; relation: "extends" | "alternative" | "contrasts" | "applies" | "reviews" | "related"; reason: string }
+export interface ResearchRelation { entity_type: "document" | "term" | "source" | "collection"; entity_id: string; relation: "extends" | "alternative" | "contrasts" | "applies" | "reviews" | "related"; reason: string; reason_zh?: string | null }
 export interface ResearchAnalysis {
   relevant: boolean;
   profile_relevance: number;
@@ -349,6 +349,9 @@ export interface ResearchAnalysis {
   summary: string;
   why_relevant: string;
   reading_reason: string;
+  summary_zh?: string | null;
+  why_relevant_zh?: string | null;
+  reading_reason_zh?: string | null;
   existing_relations: ResearchRelation[];
   suggested_collection?: string | null;
   suggested_section?: string | null;

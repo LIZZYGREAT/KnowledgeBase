@@ -113,6 +113,9 @@ def test_research_analysis_prompt_limits_collection_suggestions_to_profile_conte
                 "summary": "A paper summary.",
                 "why_relevant": "It is not relevant.",
                 "reading_reason": "No action is needed.",
+                "summary_zh": "论文摘要。",
+                "why_relevant_zh": "这篇论文与主题无关。",
+                "reading_reason_zh": "无需采取行动。",
                 "existing_relations": [],
                 "suggested_collection": None,
                 "suggested_section": None,
@@ -142,6 +145,8 @@ def test_research_analysis_prompt_limits_collection_suggestions_to_profile_conte
     assert "present in knowledge_context.cards" in prompt
     assert "Never invent, normalize, rename, or infer an entity id" in prompt
     assert "return an empty existing_relations list" in prompt
+    assert "summary_zh" in prompt
+    assert "reason_zh" in prompt
 
 
 def test_research_analysis_cannot_be_persisted_as_a_proposal():

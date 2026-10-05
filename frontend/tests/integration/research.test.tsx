@@ -123,8 +123,8 @@ describe("Research workspace", () => {
     expect(screen.getByRole("button", { name: /Research/ }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByText("Discoveries", {}, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
-    expect(screen.getByText("Related knowledge")).toBeTruthy();
-    expect(screen.getByText("Why read it")).toBeTruthy();
+    expect(screen.getByText("关联知识")).toBeTruthy();
+    expect(screen.getByText("为什么值得读")).toBeTruthy();
     expect(screen.queryByText("What may be new")).toBeNull();
     expect(screen.queryByText("Relevance: High")).toBeNull();
     expect(screen.queryByText("Library novelty: Medium")).toBeNull();
@@ -430,6 +430,46 @@ describe("Research workspace", () => {
     }
   });
 
+  it("defaults candidate analysis to Chinese and persists the English language choice", () => {
+    const view = render(<ResearchCandidateCard
+      item={candidateListItem as ResearchCandidateListItem}
+      profile={profile as ResearchProfile}
+      selected={false}
+      selectable={false}
+      busy={false}
+      onSelect={() => undefined}
+      onDetails={() => undefined}
+      onShortlist={() => undefined}
+      onDismiss={() => undefined}
+      onRestore={() => undefined}
+      onCreateNote={() => undefined}
+    />);
+
+    expect(screen.getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
+    expect(screen.getByText("它与正则化方向相关，并研究参数重要性。")).toBeTruthy();
+    expect(screen.getByText("将其自适应估计结果与 EWC 进行比较。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
+    expect(window.localStorage.getItem("knowledgebase.research-language")).toBe("en");
+
+    view.unmount();
+    render(<ResearchCandidateCard
+      item={candidateListItem as ResearchCandidateListItem}
+      profile={profile as ResearchProfile}
+      selected={false}
+      selectable={false}
+      busy={false}
+      onSelect={() => undefined}
+      onDetails={() => undefined}
+      onShortlist={() => undefined}
+      onDismiss={() => undefined}
+      onRestore={() => undefined}
+      onCreateNote={() => undefined}
+    />);
+    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
+    expect(screen.getByText("Why read it")).toBeTruthy();
+  });
+
   it("labels the candidate reading reason as why to read it", () => {
     render(<ResearchCandidateCard
       item={candidateListItem as ResearchCandidateListItem}
@@ -445,7 +485,28 @@ describe("Research workspace", () => {
       onCreateNote={() => undefined}
     />);
 
-    expect(screen.getByText("Why read it")).toBeTruthy();
+    expect(screen.getByText("为什么值得读")).toBeTruthy();
+    expect(screen.getByText("将其自适应估计结果与 EWC 进行比较。")).toBeTruthy();
+  });
+
+  it("falls back to English analysis for older candidates without Chinese fields", () => {
+    const legacyAnalysis = Object.fromEntries(Object.entries(analysis).filter(([key]) => !key.endsWith("_zh")));
+    render(<ResearchCandidateCard
+      item={{ ...candidateListItem, analysis: legacyAnalysis } as ResearchCandidateListItem}
+      profile={profile as ResearchProfile}
+      selected={false}
+      selectable={false}
+      busy={false}
+      onSelect={() => undefined}
+      onDetails={() => undefined}
+      onShortlist={() => undefined}
+      onDismiss={() => undefined}
+      onRestore={() => undefined}
+      onCreateNote={() => undefined}
+    />);
+
+    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
+    expect(screen.getByText("It matches the regularization Lens and studies parameter importance.")).toBeTruthy();
     expect(screen.getByText("Compare its adaptive estimates against EWC.")).toBeTruthy();
   });
 
@@ -1029,7 +1090,9 @@ const work = {
 
 const analysis = {
   relevant: true, profile_relevance: 0.91, knowledge_relevance: 0.8, novelty_to_library: 0.73, matched_lenses: ["regularization"], matched_topics: ["Fisher information", "Catastrophic forgetting"],
-  summary: "A new importance estimation method for continual learning.", why_relevant: "It matches the regularization Lens and studies parameter importance.", reading_reason: "Compare its adaptive estimates against EWC.", existing_relations: [{ entity_type: "term", entity_id: "fisher-information", relation: "extends", reason: "Uses Fisher information to estimate parameter importance." }],
+  summary: "A new parameter importance estimation method for continual learning.", why_relevant: "It matches the regularization Lens and studies parameter importance.", reading_reason: "Compare its adaptive estimates against EWC.",
+  summary_zh: "这篇论文提出一种新的持续学习参数重要性估计方法。", why_relevant_zh: "它与正则化方向相关，并研究参数重要性。", reading_reason_zh: "将其自适应估计结果与 EWC 进行比较。",
+  existing_relations: [{ entity_type: "term", entity_id: "fisher-information", relation: "extends", reason: "Uses Fisher information to estimate parameter importance.", reason_zh: "使用 Fisher 信息估计参数重要性。" }],
   suggested_collection: "continual-learning", suggested_section: "Regularization",
 };
 

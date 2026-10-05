@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { getCollection, getEntity, listCollections, listDrafts, type Collection, type CollectionNode, type CollectionSummary, type EntityType, type ResearchCandidateDetail, type ResearchCandidateListItem, type ResearchDismissReason, type ResearchProfile, type ResearchRelation } from "./api";
 import { Chip, formatDate } from "./ui";
 import { parseCollectionDraft } from "./collectionDraftModel";
+import { ResearchLanguageToggle, useResearchLanguage } from "./ResearchLanguage";
 
 export function ResearchCandidateCard({
   item,
@@ -28,8 +29,13 @@ export function ResearchCandidateCard({
   onRestore: () => void;
   onCreateNote: () => void;
 }) {
+  const [language] = useResearchLanguage();
+  const chinese = language === "zh";
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
   const externalUrl = safeExternalUrl(item.work.url);
+  const summary = chinese ? item.analysis.summary_zh || item.analysis.summary : item.analysis.summary;
+  const relevance = chinese ? item.analysis.why_relevant_zh || item.analysis.why_relevant : item.analysis.why_relevant;
+  const readingReason = chinese ? item.analysis.reading_reason_zh || item.analysis.reading_reason : item.analysis.reading_reason;
 
   return <article className="research-candidate-card">
     <div className="research-card-topline">
@@ -38,14 +44,16 @@ export function ResearchCandidateCard({
         <div className="research-candidate-title-row"><h3>{item.work.title}</h3><Chip tone={candidateStatusTone(item.candidate.status)}>{statusLabel(item.candidate.status)}</Chip></div>
         <p className="research-candidate-meta">{[item.work.year, item.work.venue, item.work.authors.slice(0, 3).join(", ")].filter(Boolean).join(" · ") || "出版信息待补充"}</p>
       </div>
-      <button className="text-button" onClick={onDetails}>Why this candidate <span aria-hidden="true">↗</span></button>
+      <div className="research-card-tools"><ResearchLanguageToggle /><button className="text-button" onClick={onDetails}>Why this candidate <span aria-hidden="true">↗</span></button></div>
     </div>
     <div className="research-candidate-tags">{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
-    <div className="research-candidate-summary"><p>{item.analysis.summary}</p></div>
+    <div className="research-candidate-summary"><p>{summary}</p></div>
     <div className="research-candidate-insight-grid">
-      <div><span>Why shown</span><p>{item.analysis.why_relevant}</p></div>
-      <div><span>Related knowledge</span><p>{item.analysis.existing_relations.length ? `与 ${item.analysis.existing_relations.length} 条现有知识有关。` : "尚未找到明确的已有知识关联。"}</p></div>
-      <div><span>Why read it</span><p>{item.analysis.reading_reason}</p></div>
+      <div><span>{chinese ? "推荐理由" : "Why shown"}</span><p>{relevance}</p></div>
+      <div><span>{chinese ? "关联知识" : "Related knowledge"}</span><p>{item.analysis.existing_relations.length
+        ? chinese ? `与 ${item.analysis.existing_relations.length} 条现有知识有关。` : `Related to ${item.analysis.existing_relations.length} existing knowledge items.`
+        : chinese ? "尚未找到明确的已有知识关联。" : "No clear links to existing knowledge were found."}</p></div>
+      <div><span>{chinese ? "为什么值得读" : "Why read it"}</span><p>{readingReason}</p></div>
     </div>
     <div className="research-candidate-footer">
       <span>收录于 {formatDate(item.candidate.created_at)}</span>
@@ -236,6 +244,11 @@ export function ResearchCandidateDrawer({
   onSaveNote: (note: string) => void;
 }) {
   const { candidate, work, analysis } = detail;
+  const [language] = useResearchLanguage();
+  const chinese = language === "zh";
+  const summary = chinese ? analysis.analysis.summary_zh || analysis.analysis.summary : analysis.analysis.summary;
+  const relevance = chinese ? analysis.analysis.why_relevant_zh || analysis.analysis.why_relevant : analysis.analysis.why_relevant;
+  const readingReason = chinese ? analysis.analysis.reading_reason_zh || analysis.analysis.reading_reason : analysis.analysis.reading_reason;
   const candidateLens = profile.lenses.find((lens) => lens.id === candidate.primary_lens_id);
   const [editingNote, setEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState(candidate.user_note ?? "");
@@ -294,7 +307,7 @@ export function ResearchCandidateDrawer({
   }
   return <div className="research-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="research-drawer" role="dialog" aria-modal="true" aria-labelledby="research-drawer-title">
-      <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">Why this candidate</h2><p>{work.title}</p></div><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></header>
+      <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">Why this candidate</h2><p>{work.title}</p></div><div className="research-drawer-tools"><ResearchLanguageToggle /><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></div></header>
       <div className="research-drawer-body">
         {detail.conversion_blocker === "ambiguous_source" && <section className="research-source-ambiguity" role="alert">
           <strong>可能已存在 {detail.source_match_candidates.length} 个 Source</strong>
@@ -312,16 +325,17 @@ export function ResearchCandidateDrawer({
             </div>;
           })}
         </section>}
-        <section className="research-detail-section"><h3>Why this paper</h3><p>{analysis.analysis.summary}</p><p>{analysis.analysis.why_relevant}</p></section>
-        <section className="research-detail-section"><h3>Why read it</h3><p>{analysis.analysis.reading_reason}</p></section>
+        <section className="research-detail-section"><h3>{chinese ? "论文简介与相关性" : "Why this paper"}</h3><p>{summary}</p><p>{relevance}</p></section>
+        <section className="research-detail-section"><h3>{chinese ? "为什么值得读" : "Why read it"}</h3><p>{readingReason}</p></section>
         <section className="research-detail-section"><h3>Paper</h3><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Year" value={work.year == null ? undefined : String(work.year)} /><DetailRow label="Venue" value={work.venue} /><DetailRow label="Abstract" value={work.abstract} /></section>
         <section className="research-detail-section"><h3>Research focus</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Focus" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} /></section>
         {(candidate.status === "new" || candidate.status === "shortlisted") && <section className="research-detail-section"><h3>Save Source</h3><p className="subtle-copy">只保存论文引用，不创建笔记。</p><button className="button button-secondary" disabled={noteBusy || detail.conversion_blocker === "ambiguous_source"} onClick={onSaveSource}>Save Source</button></section>}
         {(analysis.analysis.suggested_collection || analysis.analysis.suggested_section) && <section className="research-detail-section"><h3>Suggested destination</h3><p className="subtle-copy">AI suggestion only. Check the current Collection before creating the Note.</p>{analysis.analysis.suggested_collection && <div className="research-related-row"><div><strong>{relationTitle("collection", analysis.analysis.suggested_collection)}</strong><small>Collection · {analysis.analysis.suggested_collection}</small></div></div>}{analysis.analysis.suggested_section && <DetailRow label="Section" value={analysis.analysis.suggested_section} />}</section>}
-        <section className="research-detail-section"><h3>Related knowledge</h3>{detail.knowledge_relations.length ? detail.knowledge_relations.map((relation) => {
+        <section className="research-detail-section"><h3>{chinese ? "关联知识" : "Related knowledge"}</h3>{detail.knowledge_relations.length ? detail.knowledge_relations.map((relation) => {
           const path = entityPath(relation.entity_type, relation.entity_id);
+          const reason = chinese ? relation.reason_zh || relation.reason : relation.reason;
           return <div className="research-related-row" key={relation.entity_type + ":" + relation.entity_id}>
-            <div><strong>{relationTitle(relation.entity_type, relation.entity_id)}</strong><small>{relation.entity_type} · {relation.entity_id} · {relation.relation} · {relation.reason}</small></div>
+            <div><strong>{relationTitle(relation.entity_type, relation.entity_id)}</strong><small>{relation.entity_type} · {relation.entity_id} · {relation.relation} · {reason}</small></div>
             {path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}
           </div>;
         }) : <p className="subtle-copy">没有关联记录。</p>}</section>

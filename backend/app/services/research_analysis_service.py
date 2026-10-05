@@ -6,7 +6,10 @@ import json
 from typing import Callable, Optional
 import uuid
 
-from backend.app.domain.ai import ResearchCandidateAnalysisOutput
+from backend.app.domain.ai import (
+    ResearchCandidateAnalysisAIOutput,
+    ResearchCandidateAnalysisOutput,
+)
 from backend.app.domain.research import ResearchLens, ResearchProfile
 from backend.app.domain.research_runtime import (
     ResearchContextPack,
@@ -18,8 +21,8 @@ from backend.app.services.ai_client import AIProviderError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v5"
-RESEARCH_ANALYSIS_VERSION = 5
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v6"
+RESEARCH_ANALYSIS_VERSION = 6
 
 
 class ResearchAnalysisCircuitBreaker:
@@ -137,7 +140,7 @@ class ResearchAnalysisService:
         output = circuit_breaker.call(invoke) if circuit_breaker else invoke()
         if output is None:
             return None
-        if not isinstance(output, ResearchCandidateAnalysisOutput):
+        if not isinstance(output, ResearchCandidateAnalysisAIOutput):
             raise AIResponseError("Research analysis returned an unexpected output model")
         _validate_analysis_references(output, profile, matched_lens, context_pack)
 
@@ -150,7 +153,9 @@ class ResearchAnalysisService:
             profile_id=profile.id,
             input_hash=input_hash,
             outcome="surface" if output.relevant else "filtered",
-            analysis=output,
+            analysis=ResearchCandidateAnalysisOutput.model_validate(
+                output.model_dump(mode="json")
+            ),
             provider=self.gateway.provider,
             model=self.gateway.model,
             prompt_version=RESEARCH_ANALYSIS_PROMPT_VERSION,

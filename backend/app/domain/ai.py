@@ -98,6 +98,11 @@ class ResearchRelation(AIOutput):
     entity_id: NonEmptyText
     relation: Literal["extends", "alternative", "contrasts", "applies", "reviews", "related"]
     reason: NonEmptyText
+    reason_zh: Optional[NonEmptyText] = None
+
+
+class ResearchRelationAnalysisOutput(ResearchRelation):
+    reason_zh: NonEmptyText
 
 
 class ResearchCandidateAnalysisOutput(AIOutput):
@@ -110,9 +115,19 @@ class ResearchCandidateAnalysisOutput(AIOutput):
     summary: NonEmptyText
     why_relevant: NonEmptyText
     reading_reason: NonEmptyText
+    summary_zh: Optional[NonEmptyText] = None
+    why_relevant_zh: Optional[NonEmptyText] = None
+    reading_reason_zh: Optional[NonEmptyText] = None
     existing_relations: list[ResearchRelation] = Field(default_factory=list, max_length=12)
     suggested_collection: Optional[Slug] = None
     suggested_section: Optional[NonEmptyText] = None
+
+
+class ResearchCandidateAnalysisAIOutput(ResearchCandidateAnalysisOutput):
+    summary_zh: NonEmptyText
+    why_relevant_zh: NonEmptyText
+    reading_reason_zh: NonEmptyText
+    existing_relations: list[ResearchRelationAnalysisOutput] = Field(default_factory=list, max_length=12)
 
 
 TASK_OUTPUTS = {
@@ -123,5 +138,5 @@ TASK_OUTPUTS = {
     "draft_term": DraftTermOutput,
     "suggest_revision": SuggestRevisionOutput,
     "suggest_evidence": SuggestEvidenceOutput,
-    "research_candidate_analysis": ResearchCandidateAnalysisOutput,
+    "research_candidate_analysis": ResearchCandidateAnalysisAIOutput,
 }

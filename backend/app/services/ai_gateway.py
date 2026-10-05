@@ -61,6 +61,9 @@ TASKS = {
         (),
         (
             "Analyze a discovered Work against its Research Profile and selected Knowledge Context. "
+            "Write summary, why_relevant, reading_reason, and each relation reason in English; also provide "
+            "summary_zh, why_relevant_zh, reading_reason_zh, and reason_zh as faithful, natural Simplified Chinese. "
+            "Keep each pair semantically aligned, and do not translate bibliographic metadata or entity IDs. "
             "The supplied profile.breadth_policy is the admission policy: set relevant=false whenever "
             "the Work does not meet it, even if the Work is novel. "
             "suggested_collection may only be one of profile.allowed_collection_ids; if that list is "

@@ -78,7 +78,12 @@
 .research-candidate-title-row { display: flex; align-items: flex-start; gap: 10px; }
 .research-candidate-title-row h3 { min-width: 0; margin: 0; color: #33483b; font-family: Manrope, "Noto Sans SC", sans-serif; font-size: 17px; font-weight: 650; line-height: 1.45; }
 .research-candidate-meta { margin: 0; color: #97a199; font-size: var(--text-xs); }
-.research-card-topline > .text-button { flex: 0 0 auto; }
+.research-card-tools, .research-drawer-tools { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.research-card-topline > .research-card-tools { margin-left: auto; }
+.research-card-tools > .text-button { flex: 0 0 auto; }
+.research-language-switch { display: inline-flex; flex: 0 0 auto; align-items: center; border: 1px solid #e4ebe5; border-radius: 7px; padding: 2px; background: #fafcfb; }
+.research-language-switch button { min-height: 25px; border: 0; border-radius: 5px; padding: 0 7px; color: #87958b; background: transparent; font-size: 11px; cursor: pointer; }
+.research-language-switch button[aria-pressed="true"] { color: #42684d; background: #eaf2eb; font-weight: 650; }
 .research-candidate-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .research-candidate-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .research-candidate-summary > p { max-width: 800px; margin: 0; color: #67776d; font-size: var(--text-sm); line-height: 1.7; }
@@ -233,8 +238,8 @@
   .research-lens-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .research-inbox-heading { align-items: flex-start; flex-direction: column; }
   .research-tab-list { width: 100%; overflow-x: auto; }
-  .research-candidate-insight-grid { grid-template-columns: 1fr 1fr; }
-  .research-candidate-insight-grid > div:last-child { grid-column: 1 / -1; }
+  .research-candidate-insight-grid { grid-template-columns: 1fr; }
+  .research-candidate-insight-grid > div:last-child { grid-column: auto; }
   .research-profile-editor-header, .research-profile-editor-footer { padding-right: 15px; padding-left: 15px; }
   .research-profile-editor-body { padding-right: 15px; padding-left: 15px; }
 }
@@ -261,7 +266,7 @@
   .research-batch-toolbar > div .button { flex: 1; }
   .research-card-topline { flex-wrap: wrap; }
   .research-candidate-title-row { flex-direction: column; align-items: flex-start; }
-  .research-card-topline > .text-button { margin-left: auto; }
+  .research-card-tools { width: 100%; justify-content: flex-end; }
   .research-candidate-summary { flex-direction: column; }
   .research-score-pills { justify-content: flex-start; }
   .research-candidate-insight-grid { grid-template-columns: 1fr; }
