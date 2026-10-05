@@ -18,8 +18,8 @@ from backend.app.services.ai_client import AIProviderError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v4"
-RESEARCH_ANALYSIS_VERSION = 4
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v5"
+RESEARCH_ANALYSIS_VERSION = 5
 
 
 class ResearchAnalysisCircuitBreaker:

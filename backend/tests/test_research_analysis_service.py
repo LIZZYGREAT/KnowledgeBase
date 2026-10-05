@@ -57,6 +57,10 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert first.model == "mock"
     assert first.context_entity_ids == ("document:ewc",)
     assert isinstance(first.analysis, ResearchCandidateAnalysisOutput)
+    assert [
+        (relation.entity_type, relation.entity_id)
+        for relation in first.analysis.existing_relations
+    ] == [("document", "ewc")]
     assert client.calls == ["research_candidate_analysis"]
     assert attempts == ["call"]
     sent_input = json.loads(client.messages[0][1]["content"])
@@ -272,6 +276,54 @@ def test_research_analysis_rejects_relations_outside_the_context_pack():
         # The output is schema-valid but its entity reference must still be rejected.
         service.analyze(work, profile, profile.lenses[0], _context_pack())
 
+    connection.close()
+
+
+def test_research_analysis_rejects_relation_with_matching_id_but_wrong_entity_type():
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    output = _analysis_output()
+    output["existing_relations"] = [
+        {
+            "entity_type": "term",
+            "entity_id": "ewc",
+            "relation": "related",
+            "reason": "The identifier matches a context Document.",
+        }
+    ]
+    service = ResearchAnalysisService(
+        repository,
+        AIGateway(MockDeepSeekClient({"research_candidate_analysis": output})),
+    )
+    profile = _profile()
+    work = _work()
+
+    with pytest.raises(AIResponseError, match="outside its Context Pack"):
+        service.analyze(work, profile, profile.lenses[0], _context_pack())
+
+    assert connection.execute("SELECT COUNT(*) FROM research_work_analyses").fetchone()[0] == 0
+    connection.close()
+
+
+def test_research_analysis_accepts_empty_existing_relations():
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    output = _analysis_output()
+    output["existing_relations"] = []
+    service = ResearchAnalysisService(
+        repository,
+        AIGateway(MockDeepSeekClient({"research_candidate_analysis": output})),
+    )
+    profile = _profile()
+
+    analysis = service.analyze(work, profile, profile.lenses[0], _context_pack())
+
+    assert analysis is not None
+    assert analysis.analysis.existing_relations == []
     connection.close()
 
 

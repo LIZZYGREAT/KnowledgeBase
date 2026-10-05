@@ -130,8 +130,18 @@ def test_research_analysis_prompt_limits_collection_suggestions_to_profile_conte
         in prompt
     )
     assert "if that list is empty, suggested_collection must be null" in prompt
-    assert "If suggested_collection is null, suggested_section must also be null" in prompt
+    assert (
+        "If suggested_collection is null, suggested_section must also be null"
+        in prompt
+    )
     assert "Never invent a Collection id" in prompt
+    assert (
+        "existing_relations may reference only the exact (entity_type, entity_id) pairs"
+        in prompt
+    )
+    assert "present in knowledge_context.cards" in prompt
+    assert "Never invent, normalize, rename, or infer an entity id" in prompt
+    assert "return an empty existing_relations list" in prompt
 
 
 def test_research_analysis_cannot_be_persisted_as_a_proposal():
