@@ -3,8 +3,7 @@ Description=KnowledgeBase Research Agent Scheduler
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=2min
-Persistent=true
+OnUnitInactiveSec=2min
 Unit=knowledgebase-research.service
 
 [Install]

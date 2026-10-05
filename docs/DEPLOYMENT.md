@@ -60,7 +60,7 @@ Use the actual paths if the deployment uses custom directories. Confirm `git sta
 
 ### Research Agent scheduler
 
-The Research Agent runs one queued manual request or one due Profile per tick. Install the supplied systemd units on the host; they execute the CLI inside the production backend container and do not require a host Python environment.
+The Research Agent runs one queued manual request or one due Profile per tick. The timer schedules its first tick about two minutes after boot; later ticks start about two minutes after the previous Research service becomes inactive. The service runtime is added to that idle interval, so this is not a fixed wall-clock two-minute cadence. The monotonic timer does not replay intervals missed while the host is shut down. Install the supplied systemd units on the host; they execute the CLI inside the production backend container and do not require a host Python environment.
 
 Before installing, set `WorkingDirectory` in `deploy/systemd/knowledgebase-research.service` to the server checkout and replace `/usr/bin/docker` with the path returned by `command -v docker` if it differs. Then install and enable the timer:
 
