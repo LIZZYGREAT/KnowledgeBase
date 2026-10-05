@@ -5,10 +5,13 @@ import { WorkspaceDrawer } from "../WorkspaceDrawer";
 import { SectionHeading, titleCase } from "../ui";
 import { readDraftCitations, readPaperSkillArtifacts, readSourcePdf, readStringArray, stringValue } from "./workspaceEditingModel";
 
+type BufferedField = "authors" | "domains" | "topics" | "tags" | "year" | "url" | "pdf";
+
 export function WorkspaceMetadataDrawer({
   type,
   id,
   content,
+  error = "",
   sourceEntries,
   sourceError,
   canonicalEvidenceCount,
@@ -22,6 +25,7 @@ export function WorkspaceMetadataDrawer({
   type: EntityType;
   id: string;
   content: string;
+  error?: string;
   sourceEntries: EntitySummary[];
   sourceError: string;
   canonicalEvidenceCount: number;
@@ -52,6 +56,7 @@ export function WorkspaceMetadataDrawer({
   const [domainsText, setDomainsText] = useState(domainsValue);
   const [topicsText, setTopicsText] = useState(topicsValue);
   const [tagsText, setTagsText] = useState(tagsValue);
+  const [editingField, setEditingField] = useState<BufferedField | null>(null);
   const [pdfAttachmentText, setPdfAttachmentText] = useState(pdfAttachment);
   const [pdfAttachmentError, setPdfAttachmentError] = useState("");
   const [sourceYearText, setSourceYearText] = useState(() => sourceYear == null ? "" : String(sourceYear));
@@ -61,81 +66,130 @@ export function WorkspaceMetadataDrawer({
   const body = type === "source" ? "" : content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
   const citations = readDraftCitations(body);
 
-  useEffect(() => setSourceAuthorsText(sourceAuthorsValue), [id, sourceAuthorsValue]);
-  useEffect(() => setDomainsText(domainsValue), [id, domainsValue]);
-  useEffect(() => setTopicsText(topicsValue), [id, topicsValue]);
-  useEffect(() => setTagsText(tagsValue), [id, tagsValue]);
+  useEffect(() => { if (editingField !== "authors") setSourceAuthorsText(sourceAuthorsValue); }, [id, sourceAuthorsValue]);
+  useEffect(() => { if (editingField !== "domains") setDomainsText(domainsValue); }, [id, domainsValue]);
+  useEffect(() => { if (editingField !== "topics") setTopicsText(topicsValue); }, [id, topicsValue]);
+  useEffect(() => { if (editingField !== "tags") setTagsText(tagsValue); }, [id, tagsValue]);
   useEffect(() => {
-    setPdfAttachmentText(pdfAttachment);
-    setPdfAttachmentError("");
+    if (editingField !== "pdf") {
+      setPdfAttachmentText(pdfAttachment);
+      setPdfAttachmentError("");
+    }
   }, [id, pdfAttachment]);
 
   useEffect(() => {
-    setSourceYearText(sourceYear == null ? "" : String(sourceYear));
-    setSourceYearError("");
+    if (editingField !== "year") {
+      setSourceYearText(sourceYear == null ? "" : String(sourceYear));
+      setSourceYearError("");
+    }
   }, [id, sourceYear]);
 
   useEffect(() => {
+    if (editingField !== "url") {
+      setSourceUrlText(sourceUrl);
+      setSourceUrlError("");
+    }
+  }, [id, sourceUrl]);
+  useEffect(() => {
+    setEditingField(null);
+    setSourceAuthorsText(sourceAuthorsValue);
+    setDomainsText(domainsValue);
+    setTopicsText(topicsValue);
+    setTagsText(tagsValue);
+    setPdfAttachmentText(pdfAttachment);
+    setPdfAttachmentError("");
+    setSourceYearText(sourceYear == null ? "" : String(sourceYear));
+    setSourceYearError("");
     setSourceUrlText(sourceUrl);
     setSourceUrlError("");
-  }, [id, sourceUrl]);
+  }, [id]);
 
-  function commitSourceYear() {
-    const raw = sourceYearText.trim();
-    if (!raw) {
-      setSourceYearError("");
-      if (sourceYear != null) onFrontmatterUpdate("year", null);
-      return;
-    }
-    if (!/^\d+$/.test(raw)) {
-      setSourceYearError("年份须为 1000 到 9999 之间的整数。");
-      return;
-    }
-    const year = Number(raw);
-    if (!Number.isSafeInteger(year) || year < 1000 || year > 9999) {
-      setSourceYearError("年份须为 1000 到 9999 之间的整数。");
-      return;
+  function finishEditing(field: BufferedField) {
+    setEditingField((current) => current === field ? null : current);
+  }
+
+  function commitSourceYear(): boolean {
+    const result = parseSourceYear(sourceYearText);
+    if (!result.valid) {
+      setSourceYearError("年份须为空，或为 1000 到 9999 之间的整数。");
+      finishEditing("year");
+      return false;
     }
     setSourceYearError("");
-    if (typeof sourceYear !== "number" || sourceYear !== year) {
-      onFrontmatterUpdate("year", year);
+    setSourceYearText(result.value == null ? "" : String(result.value));
+    if (result.value == null) {
+      if (sourceYear != null) onFrontmatterUpdate("year", null);
+    } else if (typeof sourceYear !== "number" || sourceYear !== result.value) {
+      onFrontmatterUpdate("year", result.value);
+    }
+    finishEditing("year");
+    return true;
+  }
+
+  function updateSourceYear(raw: string) {
+    setSourceYearText(raw);
+    setSourceYearError("");
+    const result = parseSourceYear(raw);
+    if (!result.valid) return;
+    if (result.value == null) {
+      if (sourceYear != null) onFrontmatterUpdate("year", null);
+    } else if (typeof sourceYear !== "number" || sourceYear !== result.value) {
+      onFrontmatterUpdate("year", result.value);
     }
   }
 
-  function commitSourceUrl() {
-    const raw = sourceUrlText.trim();
-    if (!raw) {
-      setSourceUrlError("");
+  function updateSourceUrl(raw: string) {
+    setSourceUrlText(raw);
+    setSourceUrlError("");
+    const result = parseSourceUrl(raw);
+    if (!result.valid) return;
+    if (result.value == null) {
       if (sourceUrl) onFrontmatterUpdate("url", null);
-      return;
+    } else if (sourceUrl !== result.value) {
+      onFrontmatterUpdate("url", result.value);
     }
-    if (!/^https?:\/\//i.test(raw)) {
+  }
+
+  function commitSourceUrl(): boolean {
+    const result = parseSourceUrl(sourceUrlText);
+    if (!result.valid) {
       setSourceUrlError("URL 须为空，或使用有效的 http:// / https:// 地址。");
-      return;
-    }
-    let parsed: URL;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      setSourceUrlError("URL 须为空，或使用有效的 http:// / https:// 地址。");
-      return;
-    }
-    if (!(["http:", "https:"].includes(parsed.protocol)) || !parsed.hostname) {
-      setSourceUrlError("URL 须为空，或使用有效的 http:// / https:// 地址。");
-      return;
+      finishEditing("url");
+      return false;
     }
     setSourceUrlError("");
-    if (sourceUrl !== raw) onFrontmatterUpdate("url", raw);
+    setSourceUrlText(result.value ?? "");
+    if (result.value == null) {
+      if (sourceUrl) onFrontmatterUpdate("url", null);
+    } else if (sourceUrl !== result.value) {
+      onFrontmatterUpdate("url", result.value);
+    }
+    finishEditing("url");
+    return true;
+  }
+
+  function updateSourceAuthors(raw: string) {
+    setSourceAuthorsText(raw);
+    onFrontmatterUpdate("authors", splitAuthorLines(raw));
   }
 
   function commitSourceAuthors() {
-    const authors = sourceAuthorsText.split(/\r?\n/).map((author) => author.trim()).filter(Boolean);
+    const authors = splitAuthorLines(sourceAuthorsText);
     setSourceAuthorsText(authors.join("\n"));
     if (!sameStringArray(sourceAuthors, authors)) onFrontmatterUpdate("authors", authors);
+    finishEditing("authors");
+  }
+
+  function updateDelimitedList(key: "domains" | "topics" | "tags", raw: string) {
+    const values = splitCommaSeparatedValues(raw);
+    if (key === "domains") setDomainsText(raw);
+    if (key === "topics") setTopicsText(raw);
+    if (key === "tags") setTagsText(raw);
+    onFrontmatterListUpdate(key, values.join(", "));
   }
 
   function commitDelimitedList(
-    key: string,
+    key: "domains" | "topics" | "tags",
     raw: string,
     current: string[],
     setRaw: (value: string) => void,
@@ -143,23 +197,46 @@ export function WorkspaceMetadataDrawer({
     const values = splitCommaSeparatedValues(raw);
     setRaw(values.join(", "));
     if (!sameStringArray(current, values)) onFrontmatterListUpdate(key, values.join(", "));
+    finishEditing(key);
   }
 
-  function commitSourcePdf() {
-    const value = pdfAttachmentText.trim();
-    if (!value) {
-      setPdfAttachmentError("");
-      setPdfAttachmentText("");
-      if (pdfAttachment) onSourcePdfChange("");
-      return;
-    }
-    if (!/^storage:\/\/[A-Za-z0-9_./-]+$/.test(value)) {
+  function updateSourcePdf(raw: string) {
+    setPdfAttachmentText(raw);
+    setPdfAttachmentError("");
+    const result = parseSourcePdf(raw);
+    if (!result.valid) return;
+    if (pdfAttachment !== (result.value ?? "")) onSourcePdfChange(result.value ?? "");
+  }
+
+  function commitSourcePdf(): boolean {
+    const result = parseSourcePdf(pdfAttachmentText);
+    if (!result.valid) {
       setPdfAttachmentError("附件 URI 须为空，或符合 storage://... 格式。");
-      return;
+      finishEditing("pdf");
+      return false;
     }
     setPdfAttachmentError("");
-    setPdfAttachmentText(value);
-    if (pdfAttachment !== value) onSourcePdfChange(value);
+    setPdfAttachmentText(result.value ?? "");
+    if (pdfAttachment !== (result.value ?? "")) onSourcePdfChange(result.value ?? "");
+    finishEditing("pdf");
+    return true;
+  }
+
+  function validateBufferedFields(): boolean {
+    if (type !== "source") return true;
+    const yearValid = commitSourceYear();
+    commitSourceAuthors();
+    const urlValid = commitSourceUrl();
+    const pdfValid = commitSourcePdf();
+    return yearValid && urlValid && pdfValid;
+  }
+
+  function handleClose() {
+    if (validateBufferedFields()) onClose();
+  }
+
+  function handleSave() {
+    if (validateBufferedFields()) onSave();
   }
 
   function updateSourceIdentifier(key: "doi" | "arxiv_id" | "openalex_id", value: string) {
@@ -183,26 +260,26 @@ export function WorkspaceMetadataDrawer({
     setPaperSkillUrl("");
   }
 
-  return <WorkspaceDrawer title="元数据" description="结构化字段会写入 Draft frontmatter，发布仍由 Publisher 完成。" onClose={onClose}>
+  return <WorkspaceDrawer title="元数据" description="结构化字段会写入 Draft frontmatter，发布仍由 Publisher 完成。" onClose={handleClose}>
     <section className="drawer-section">
       <SectionHeading title={type === "source" ? "Source metadata" : "基本信息"} detail={type === "source" ? "直接编辑引用信息；修改会保存为 Draft，发布仍由 Publisher 完成。" : "实体类型决定 Canonical 路径，不能在这里更改。"} />
       <label className="field-label">标题<input value={stringValue(readFrontmatterField(content, type, "title"))} onChange={(event) => onFrontmatterUpdate("title", event.target.value)} /></label>
       <div className="drawer-readonly-row"><span>实体 ID</span><strong>{id}</strong></div>
       {type === "source" ? <>
         <label className="field-label">Type<select value={stringValue(readFrontmatterField(content, type, "type")) || "paper"} onChange={(event) => onFrontmatterUpdate("type", event.target.value)}><option value="paper">Paper</option><option value="book">Book</option><option value="course">Course</option><option value="web">Web</option><option value="personal">Personal</option></select></label>
-        <label className="field-label">Authors<textarea rows={4} value={sourceAuthorsText} onChange={(event) => setSourceAuthorsText(event.target.value)} onBlur={commitSourceAuthors} placeholder="每行一位作者" /></label>
-        <div><label className="field-label">Year<input type="text" inputMode="numeric" value={sourceYearText} onChange={(event) => { setSourceYearText(event.target.value); setSourceYearError(""); }} onBlur={commitSourceYear} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourceYear(); } }} /></label>{sourceYearError && <p className="error-copy" role="alert">{sourceYearError}</p>}</div>
+        <label className="field-label">Authors<textarea rows={4} value={sourceAuthorsText} onFocus={() => setEditingField("authors")} onChange={(event) => updateSourceAuthors(event.target.value)} onBlur={commitSourceAuthors} placeholder="每行一位作者" /></label>
+        <div><label className="field-label">Year<input type="text" inputMode="numeric" value={sourceYearText} onFocus={() => setEditingField("year")} onChange={(event) => updateSourceYear(event.target.value)} onBlur={commitSourceYear} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourceYear(); } }} /></label>{sourceYearError && <p className="error-copy" role="alert">{sourceYearError}</p>}</div>
         <SectionHeading title="Identifiers" />
         <label className="field-label">DOI<input value={stringValue(sourceIdentifiers.doi)} onChange={(event) => updateSourceIdentifier("doi", event.target.value)} /></label>
         <label className="field-label">arXiv ID<input value={stringValue(sourceIdentifiers.arxiv_id)} onChange={(event) => updateSourceIdentifier("arxiv_id", event.target.value)} /></label>
         <label className="field-label">OpenAlex ID<input value={stringValue(sourceIdentifiers.openalex_id)} onChange={(event) => updateSourceIdentifier("openalex_id", event.target.value)} /></label>
-        <div><label className="field-label">URL<input type="url" value={sourceUrlText} onChange={(event) => { setSourceUrlText(event.target.value); setSourceUrlError(""); }} onBlur={commitSourceUrl} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourceUrl(); } }} /></label>{sourceUrlError && <p className="error-copy" role="alert">{sourceUrlError}</p>}</div>
+        <div><label className="field-label">URL<input type="url" value={sourceUrlText} onFocus={() => setEditingField("url")} onChange={(event) => updateSourceUrl(event.target.value)} onBlur={commitSourceUrl} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourceUrl(); } }} /></label>{sourceUrlError && <p className="error-copy" role="alert">{sourceUrlError}</p>}</div>
         <details className="workspace-metadata-advanced"><summary>Advanced</summary><label className="field-label">Zotero Key<input value={stringValue(readFrontmatterField(content, type, "zotero_key"))} onChange={(event) => onFrontmatterUpdate("zotero_key", event.target.value.trim() || null)} /></label></details>
       </> : <>
         <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
-        <label className="field-label">Domains<input value={domainsText} onChange={(event) => setDomainsText(event.target.value)} onBlur={() => commitDelimitedList("domains", domainsText, domains, setDomainsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("domains", domainsText, domains, setDomainsText); } }} placeholder="用逗号分隔 ID" /></label>
-        <label className="field-label">Topics<input value={topicsText} onChange={(event) => setTopicsText(event.target.value)} onBlur={() => commitDelimitedList("topics", topicsText, topics, setTopicsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("topics", topicsText, topics, setTopicsText); } }} placeholder="用逗号分隔 ID" /></label>
-        <label className="field-label">Tags<input value={tagsText} onChange={(event) => setTagsText(event.target.value)} onBlur={() => commitDelimitedList("tags", tagsText, tags, setTagsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("tags", tagsText, tags, setTagsText); } }} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">Domains<input value={domainsText} onFocus={() => setEditingField("domains")} onChange={(event) => updateDelimitedList("domains", event.target.value)} onBlur={() => commitDelimitedList("domains", domainsText, domains, setDomainsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("domains", domainsText, domains, setDomainsText); } }} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">Topics<input value={topicsText} onFocus={() => setEditingField("topics")} onChange={(event) => updateDelimitedList("topics", event.target.value)} onBlur={() => commitDelimitedList("topics", topicsText, topics, setTopicsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("topics", topicsText, topics, setTopicsText); } }} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">Tags<input value={tagsText} onFocus={() => setEditingField("tags")} onChange={(event) => updateDelimitedList("tags", event.target.value)} onBlur={() => commitDelimitedList("tags", tagsText, tags, setTagsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("tags", tagsText, tags, setTagsText); } }} placeholder="用逗号分隔 ID" /></label>
       </>}
     </section>
 
@@ -231,11 +308,12 @@ export function WorkspaceMetadataDrawer({
 
     {type === "source" && <section className="drawer-section">
       <SectionHeading title="本地 PDF 关联" detail="文件需先通过 Import Pipeline 放入 storage/papers；发布会检查关联文件。" />
-      <label className="field-label">附件 URI<input value={pdfAttachmentText} onChange={(event) => { setPdfAttachmentText(event.target.value); setPdfAttachmentError(""); }} onBlur={commitSourcePdf} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourcePdf(); } }} placeholder="storage://papers/source-id.pdf" aria-invalid={Boolean(pdfAttachmentError)} /></label>
+      <label className="field-label">附件 URI<input value={pdfAttachmentText} onFocus={() => setEditingField("pdf")} onChange={(event) => updateSourcePdf(event.target.value)} onBlur={commitSourcePdf} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourcePdf(); } }} placeholder="storage://papers/source-id.pdf" aria-invalid={Boolean(pdfAttachmentError)} /></label>
       {pdfAttachmentError && <p className="error-copy" role="alert">{pdfAttachmentError}</p>}
       <p className="trust-note">此处只设置 Source 元数据引用，不会上传或复制文件。</p>
     </section>}
-    <div className="drawer-footer"><span>自动保存到运行时 Draft</span><button className="button button-primary" onClick={onSave}>保存草稿</button></div>
+    {error && <p className="error-copy" role="alert">{error}</p>}
+    <div className="drawer-footer"><span>自动保存到运行时 Draft</span><button className="button button-primary" onClick={handleSave}>保存草稿</button></div>
   </WorkspaceDrawer>;
 }
 
@@ -245,6 +323,42 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 function splitCommaSeparatedValues(raw: string): string[] {
   return raw.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function splitAuthorLines(raw: string): string[] {
+  return raw.split(/\r?\n/).map((author) => author.trim()).filter(Boolean);
+}
+
+function parseSourceYear(raw: string): { valid: boolean; value: number | null } {
+  const value = raw.trim();
+  if (!value) return { valid: true, value: null };
+  if (!/^\d+$/.test(value)) return { valid: false, value: null };
+  const year = Number(value);
+  return Number.isSafeInteger(year) && year >= 1000 && year <= 9999
+    ? { valid: true, value: year }
+    : { valid: false, value: null };
+}
+
+function parseSourceUrl(raw: string): { valid: boolean; value: string | null } {
+  const value = raw.trim();
+  if (!value) return { valid: true, value: null };
+  if (!/^https?:\/\//i.test(value)) return { valid: false, value: null };
+  try {
+    const parsed = new URL(value);
+    return ["http:", "https:"].includes(parsed.protocol) && parsed.hostname
+      ? { valid: true, value }
+      : { valid: false, value: null };
+  } catch {
+    return { valid: false, value: null };
+  }
+}
+
+function parseSourcePdf(raw: string): { valid: boolean; value: string | null } {
+  const value = raw.trim();
+  if (!value) return { valid: true, value: null };
+  return /^storage:\/\/[A-Za-z0-9_./-]+$/.test(value)
+    ? { valid: true, value }
+    : { valid: false, value: null };
 }
 
 function sameStringArray(left: string[], right: string[]): boolean {

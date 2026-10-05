@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { WorkspaceMetadataDrawer } from "../../src/workspace/WorkspaceMetadataDrawer";
 
 describe("Document metadata drawer", () => {
-  it("buffers taxonomy lists and retains existing source associations", () => {
+  it("syncs normalized taxonomy lists while retaining raw input and closes by backdrop", () => {
     const onFrontmatterListUpdate = vi.fn();
     const onFrontmatterUpdate = vi.fn();
+    const onClose = vi.fn();
     render(<WorkspaceMetadataDrawer
       type="document"
       id="continual-learning"
@@ -32,7 +33,7 @@ describe("Document metadata drawer", () => {
       onFrontmatterListUpdate={onFrontmatterListUpdate}
       onSourcePdfChange={vi.fn()}
       onSave={vi.fn()}
-      onClose={vi.fn()}
+      onClose={onClose}
       onError={vi.fn()}
     />);
 
@@ -44,21 +45,22 @@ describe("Document metadata drawer", () => {
     expect(tags.value).toBe("overview");
     expect((screen.getByRole("checkbox", { name: /Source One/ }) as HTMLInputElement).checked).toBe(true);
 
+    fireEvent.focus(domains);
     fireEvent.change(domains, { target: { value: "artificial-intelligence," } });
     expect(domains.value).toBe("artificial-intelligence,");
-    expect(onFrontmatterListUpdate).not.toHaveBeenCalled();
     fireEvent.change(domains, { target: { value: "artificial-intelligence, deep-learning" } });
-    fireEvent.keyDown(domains, { key: "Enter" });
+    expect(onFrontmatterListUpdate).toHaveBeenNthCalledWith(1, "domains", "artificial-intelligence");
     expect(onFrontmatterListUpdate).toHaveBeenLastCalledWith("domains", "artificial-intelligence, deep-learning");
 
+    fireEvent.focus(topics);
     fireEvent.change(topics, { target: { value: "machine-learning, representation-learning" } });
-    expect(onFrontmatterListUpdate).toHaveBeenCalledTimes(1);
-    fireEvent.blur(topics);
     expect(onFrontmatterListUpdate).toHaveBeenLastCalledWith("topics", "machine-learning, representation-learning");
 
+    fireEvent.focus(tags);
     fireEvent.change(tags, { target: { value: "overview, survey" } });
-    expect(onFrontmatterListUpdate).toHaveBeenCalledTimes(2);
-    fireEvent.blur(tags);
     expect(onFrontmatterListUpdate).toHaveBeenLastCalledWith("tags", "overview, survey");
+
+    fireEvent.mouseDown(document.querySelector(".workspace-drawer-overlay")!);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

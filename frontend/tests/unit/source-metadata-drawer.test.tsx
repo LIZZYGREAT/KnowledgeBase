@@ -50,11 +50,11 @@ describe("Source metadata drawer", () => {
     const authors = screen.getByLabelText("Authors");
     fireEvent.change(authors, { target: { value: "Ada Lovelace\nGrace Hopper\n" } });
     expect((authors as HTMLTextAreaElement).value).toBe("Ada Lovelace\nGrace Hopper\n");
-    expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("authors", ["Ada Lovelace", "Grace Hopper"]);
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith("authors", ["Ada Lovelace", "Grace Hopper"]);
     fireEvent.blur(authors);
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("authors", ["Ada Lovelace", "Grace Hopper"]);
     fireEvent.change(screen.getByLabelText("Year"), { target: { value: "2025" } });
-    expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("year", 2025);
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith("year", 2025);
     fireEvent.blur(screen.getByLabelText("Year"));
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("year", 2025);
     fireEvent.change(screen.getByLabelText("DOI"), { target: { value: "10.1234/updated" } });
@@ -64,7 +64,7 @@ describe("Source metadata drawer", () => {
       openalex_id: "W111",
     });
     fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://example.org/updated" } });
-    expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("url", "https://example.org/updated");
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", "https://example.org/updated");
     fireEvent.blur(screen.getByLabelText("URL"));
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("url", "https://example.org/updated");
     fireEvent.click(screen.getByText("Advanced"));
@@ -78,12 +78,83 @@ describe("Source metadata drawer", () => {
     expect(onSourcePdfChange).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain("storage://");
     fireEvent.change(pdfAttachment, { target: { value: "storage://papers/updated.pdf" } });
-    expect(onSourcePdfChange).not.toHaveBeenCalled();
+    expect(onSourcePdfChange).toHaveBeenCalledWith("storage://papers/updated.pdf");
     fireEvent.keyDown(pdfAttachment, { key: "Enter" });
     expect(onSourcePdfChange).toHaveBeenCalledWith("storage://papers/updated.pdf");
     fireEvent.change(pdfAttachment, { target: { value: "" } });
-    expect(onSourcePdfChange).not.toHaveBeenCalledWith("");
+    expect(onSourcePdfChange).toHaveBeenCalledWith("");
     fireEvent.blur(pdfAttachment);
     expect(onSourcePdfChange).toHaveBeenCalledWith("");
+  });
+
+  it("keeps the drawer open for invalid URL and persists valid Authors before Escape closes", () => {
+    const onFrontmatterUpdate = vi.fn();
+    const onClose = vi.fn();
+    const onSave = vi.fn();
+    render(<WorkspaceMetadataDrawer
+      type="source"
+      id="ewc-2017"
+      content={["schema_version: 1", "id: ewc-2017", "type: paper", "title: Paper", "authors: []", "identifiers: {}", "attachments: {}"].join("\n")}
+      sourceEntries={[]}
+      sourceError=""
+      canonicalEvidenceCount={0}
+      onFrontmatterUpdate={onFrontmatterUpdate}
+      onFrontmatterListUpdate={vi.fn()}
+      onSourcePdfChange={vi.fn()}
+      onSave={onSave}
+      onClose={onClose}
+      onError={vi.fn()}
+    />);
+
+    const authors = screen.getByLabelText("Authors");
+    fireEvent.focus(authors);
+    fireEvent.change(authors, { target: { value: "Ada Lovelace\n" } });
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith("authors", ["Ada Lovelace"]);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+
+    onClose.mockClear();
+    const url = screen.getByLabelText("URL");
+    fireEvent.focus(url);
+    fireEvent.change(url, { target: { value: "ftp://example.org/paper" } });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText("URL 须为空，或使用有效的 http:// / https:// 地址。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("resets buffered fields when the drawer switches to another Source", () => {
+    const props = {
+      type: "source" as const,
+      sourceEntries: [],
+      sourceError: "",
+      canonicalEvidenceCount: 0,
+      onFrontmatterUpdate: vi.fn(),
+      onFrontmatterListUpdate: vi.fn(),
+      onSourcePdfChange: vi.fn(),
+      onSave: vi.fn(),
+      onClose: vi.fn(),
+      onError: vi.fn(),
+    };
+    const { rerender } = render(<WorkspaceMetadataDrawer
+      {...props}
+      id="ewc-2017"
+      content={["schema_version: 1", "id: ewc-2017", "type: paper", "title: First", "identifiers: {}", "attachments: {}"].join("\n")}
+    />);
+    const url = screen.getByLabelText("URL");
+    fireEvent.focus(url);
+    fireEvent.change(url, { target: { value: "ftp://invalid.example" } });
+    expect((url as HTMLInputElement).value).toBe("ftp://invalid.example");
+
+    rerender(<WorkspaceMetadataDrawer
+      {...props}
+      id="next-paper"
+      content={["schema_version: 1", "id: next-paper", "type: paper", "title: Second", "url: https://example.org/next", "identifiers: {}", "attachments: {}"].join("\n")}
+    />);
+
+    expect((screen.getByLabelText("URL") as HTMLInputElement).value).toBe("https://example.org/next");
+    expect(screen.queryByText("URL 须为空，或使用有效的 http:// / https:// 地址。")).toBeNull();
   });
 });
