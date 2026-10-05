@@ -93,10 +93,15 @@ export function useWorkspaceEditorController({
   }, [type, id]);
 
   async function saveNow(): Promise<Draft> {
-    const saved = await workspaceDraft.saveNow();
-    if (!saved) throw new Error("还没有需要保存的内容变化。");
-    setSaveError("");
-    return saved;
+    try {
+      const saved = await workspaceDraft.saveNow();
+      if (!saved) throw new Error("还没有需要保存的内容变化。");
+      setSaveError("");
+      return saved;
+    } catch (error) {
+      setSaveError(errorMessage(error));
+      throw error;
+    }
   }
 
   async function openComparison() {

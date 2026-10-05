@@ -10,7 +10,7 @@ import { WorkspaceSourceDrawer } from "./WorkspaceSourceDrawer";
 export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEditorController }) {
   const {
     type, id, navigate, returnCollectionId,
-    content, canonicalEntity, sourceEntries, sourceError, proposalError, proposalBusy,
+    content, canonicalEntity, sourceEntries, sourceError, proposalError, proposalBusy, draftError,
     consent, setConsent, selection, setSelection, selectedText, saveError, setSaveError,
     proposals, publishing, activeDrawer, setActiveDrawer, publishReview, preflightBusy,
     publishedRevision, publishedOutcome, batchCollectionId, additionalDraftIds, comparison, mergeContent,
@@ -28,6 +28,7 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       type={type}
       id={id}
       content={content}
+      error={saveError || draftError}
       sourceEntries={sourceEntries}
       sourceError={sourceError}
       canonicalEvidenceCount={canonicalEntity?.evidence.length ?? 0}

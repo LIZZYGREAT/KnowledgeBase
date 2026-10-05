@@ -259,6 +259,10 @@ function renderWorkspace(
   return render(<WorkspacePage type="document" id={id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} batchCollectionId={batchCollectionId} additionalDraftIds={additionalDraftIds} researchGroupId={researchGroupId} />);
 }
 
+function renderSourceWorkspace(id: string) {
+  return render(<WorkspacePage type="source" id={id} navigate={vi.fn()} />);
+}
+
 function renderGuardedWorkspace() {
   const guards = new Set<NavigationGuard>();
   const navigate = vi.fn();
@@ -367,7 +371,7 @@ describe("Workspace React integration", () => {
     installApiBehavior();
   });
 
-  it("buffers and validates Source year and URL before updating the Draft", () => {
+  it("keeps incomplete Source year and URL text local while syncing valid values immediately", () => {
     const onFrontmatterUpdate = vi.fn();
     render(<WorkspaceMetadataDrawer
       type="source"
@@ -390,13 +394,11 @@ describe("Workspace React integration", () => {
       fireEvent.blur(year);
       expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("year", expect.anything());
     }
-    expect(screen.getByText("年份须为 1000 到 9999 之间的整数。")).toBeTruthy();
+    expect(screen.getByText("年份须为空，或为 1000 到 9999 之间的整数。")).toBeTruthy();
 
     fireEvent.change(year, { target: { value: "2026" } });
-    fireEvent.keyDown(year, { key: "Enter" });
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("year", 2026);
     fireEvent.change(year, { target: { value: "" } });
-    fireEvent.blur(year);
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("year", null);
 
     const url = screen.getByLabelText("URL");
@@ -409,11 +411,49 @@ describe("Workspace React integration", () => {
     expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("url", expect.anything());
 
     fireEvent.change(url, { target: { value: "http://example.org/paper" } });
-    fireEvent.blur(url);
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", "http://example.org/paper");
     fireEvent.change(url, { target: { value: "" } });
-    fireEvent.keyDown(url, { key: "Enter" });
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", null);
+  });
+
+  it("shows Source autosave failures in the shared reader toolbar area", async () => {
+    const user = userEvent.setup();
+    const id = "ewc-2017";
+    const content = [
+      "schema_version: 1",
+      `id: ${id}`,
+      "type: paper",
+      "title: Elastic Weight Consolidation",
+      "authors: []",
+      "year: 2017",
+      "identifiers: {}",
+      "url: https://example.org/paper",
+      "attachments: {}",
+    ].join("\n");
+    publishedSource = {
+      id,
+      title: "Elastic Weight Consolidation",
+      entity_type: "source",
+      metadata: { type: "paper", authors: [], year: 2017, identifiers: {}, url: "https://example.org/paper", attachments: {} },
+      content: null,
+      canonical_content: content,
+      related_terms: [],
+      backlinks: [],
+      detected_mentions: [],
+      evidence: [],
+      related_documents: [],
+    };
+    drafts.push(makeDraft("source", id, content));
+    api.updateDraft.mockRejectedValueOnce(new Error("runtime write failed"));
+    renderSourceWorkspace(id);
+
+    await screen.findByRole("heading", { name: "Elastic Weight Consolidation" });
+    await user.click(screen.getByRole("button", { name: "元数据" }));
+    const title = screen.getByLabelText("标题");
+    await user.clear(title);
+    await user.type(title, "Updated title");
+
+    await waitFor(() => expect(document.querySelector(".workspace-reader-save-error")?.textContent).toContain("Draft 保存失败：runtime write failed"), { timeout: 4000 });
   });
 
   it("keeps reading and inline editing in one Workspace, autosaves, then publishes through the review drawer", async () => {
