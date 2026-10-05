@@ -1,15 +1,20 @@
 .mobile-scrim { display: none; }
 
 @media (max-width: 1260px) {
-  .reader-layout:not(.reader-layout-source) { grid-template-columns: minmax(180px, 220px) minmax(0, 920px); gap: 22px; }
+  .reader-layout:not(.reader-layout-source) { grid-template-columns: minmax(0, var(--reader-outline-width)) minmax(0, var(--reader-body-max)); gap: 22px; }
   .home-orbit { margin-right: -24px; opacity: .75; }
 }
+@media (max-width: 1100px) {
+  .reader-layout:not(.reader-layout-source) { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .reader-outline { position: relative; top: auto; max-height: 32vh; padding: 10px 12px; }
+  .reader-outline > summary { display: list-item; color: #52665a; cursor: pointer; list-style-position: inside; }
+  .reader-outline > summary .eyebrow { display: inline; margin: 0; letter-spacing: .04em; }
+  .reader-outline:not([open]) > nav, .reader-outline:not([open]) > .subtle-copy { display: none; }
+  .reader-document { max-width: none; }
+}
 @media (max-width: 980px) {
-  .workspace-workspace-layout { display: block; }
-  .workspace-explorer-pane { position: fixed; z-index: 26; top: 72px; bottom: 0; left: 220px; width: min(350px, calc(100vw - 220px)); max-height: none; overflow: auto; border-radius: 0 12px 12px 0; padding: 12px; background: #f4f6f3; box-shadow: 10px 0 28px #17272224; }
-  .workspace-explorer-scrim { position: fixed; z-index: 24; inset: 72px 0 0; display: block; border: 0; background: #15231b66; }
-  .workspace-explorer-pane .explorer-sidebar { min-height: calc(100vh - 96px); }
-  .workspace-shell .reader-outline { max-height: 25vh; }
+  .workspace-explorer-toggle { left: 232px; }
+  .workspace-explorer-pane, .sidebar-pinned .workspace-explorer-pane { top: 82px; bottom: 12px; left: 220px; width: min(350px, calc(100vw - 232px)); }
   .sidebar { width: 220px; }
   .main-column { margin-left: 220px; }
   .top-header { padding: 0 25px; }
@@ -18,8 +23,7 @@
   .top-header-end > span:not(.top-status-dot) { display: none; }
   .filter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .term-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .reader-layout:not(.reader-layout-source) { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .reader-outline { top: 82px; max-height: 30vh; overflow-y: auto; overscroll-behavior: contain; }
+  .reader-outline { max-height: 30vh; overflow-y: auto; overscroll-behavior: contain; }
   .reader-layout-source { grid-template-columns: minmax(0, 1fr); }
   .reader-context { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .reader-context-summary { align-items: flex-start; flex-direction: column; }
@@ -27,8 +31,9 @@
   .source-description { margin-top: 15px; }
 }
 @media (max-width: 680px) {
-  .workspace-explorer-pane { top: 60px; left: 0; width: min(350px, calc(100vw - 28px)); }
-  .workspace-explorer-scrim { inset: 60px 0 0; }
+  :root { --app-header-height: 60px; }
+  .workspace-explorer-toggle, .sidebar-pinned .workspace-explorer-toggle { bottom: 14px; left: 14px; }
+  .workspace-explorer-pane, .sidebar-pinned .workspace-explorer-pane { top: 68px; bottom: 10px; left: 14px; width: min(350px, calc(100vw - 28px)); }
   .sidebar { width: 258px; transform: translateX(-100%); transition: transform .22s ease; box-shadow: 12px 0 30px #15221d22; }
   .sidebar.sidebar-open { transform: translateX(0); }
   .mobile-scrim { position: fixed; z-index: 25; inset: 0; display: block; border: 0; background: #101a1580; }
@@ -80,7 +85,7 @@
   .entity-heading h1 { font-size: 27px; }
   .reader-document { padding: 19px 17px 27px; }
   .reader-context { grid-template-columns: 1fr; }
-  .reader-outline { top: 68px; max-height: 25vh; }
+  .reader-outline { top: auto; max-height: 30vh; }
   .library-toolbar { align-items: flex-start; flex-direction: column; }
   .filter-pair { width: 100%; }
   .filter-pair .field-label { flex: 1; }
@@ -123,7 +128,7 @@
 }
 
 @media (max-width: 980px) {
-  .workspace-explorer-pane .explorer-layout-embedded .explorer-sidebar { min-height: calc(100vh - 96px); max-height: none; }
+  .workspace-explorer-pane .explorer-layout-embedded .explorer-sidebar { min-height: 0; max-height: none; }
   .explorer-layout { grid-template-columns: minmax(220px, 260px) 8px minmax(0, 1fr); min-height: 560px; }
   .explorer-sidebar, .explorer-content { min-height: 560px; }
   .explorer-content { padding: 22px; }

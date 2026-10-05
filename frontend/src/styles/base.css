@@ -9,6 +9,10 @@
   --text-md: 15px;
   --text-lg: 16px;
   --text-reading: 16px;
+  --reader-content-max: 1180px;
+  --reader-body-max: 900px;
+  --reader-outline-width: 210px;
+  --app-header-height: 72px;
   --text-primary: #23332d;
   --text-secondary: #52645a;
   --text-muted: #6b7971;

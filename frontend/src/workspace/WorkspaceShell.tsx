@@ -24,7 +24,7 @@ export function WorkspaceShell({
   explorer: ReactNode;
   children: ReactNode;
 }) {
-  const [explorerOpen, setExplorerOpen] = useState(() => !isNarrowViewport());
+  const [explorerOpen, setExplorerOpen] = useState(false);
   const previousId = useRef(id);
 
   useEffect(() => {
@@ -32,17 +32,21 @@ export function WorkspaceShell({
     previousId.current = id;
   }, [id]);
 
-  return <section className={`workspace-shell ${explorerOpen ? "explorer-open" : "explorer-closed"}`} aria-label={`${entityLabels[type]}工作区`} data-entity-id={id}>
-    <div className="workspace-shell-toolbar">
-      <button className="button button-secondary workspace-explorer-toggle" type="button" aria-controls="workspace-explorer-pane" aria-expanded={explorerOpen} onClick={() => setExplorerOpen((open) => !open)}>
-        {explorerOpen ? "隐藏 Explorer" : "显示 Explorer"}
-      </button>
-      <span>{entityLabels[type]}工作区</span>
-    </div>
+  useEffect(() => {
+    if (!explorerOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExplorerOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [explorerOpen]);
+
+  return <section className="workspace-shell" aria-label={`${entityLabels[type]}工作区`} data-entity-id={id}>
+    <button className="button button-secondary workspace-explorer-toggle" type="button" aria-controls="workspace-explorer-pane" aria-expanded={explorerOpen} aria-label={explorerOpen ? "关闭 Knowledge Explorer" : "打开 Knowledge Explorer"} onClick={() => setExplorerOpen((open) => !open)}>
+      <span aria-hidden="true">⌘</span> Explorer
+    </button>
     {explorerOpen && <button className="workspace-explorer-scrim" type="button" aria-label="关闭 Explorer" onClick={() => setExplorerOpen(false)} />}
-    <div className="workspace-workspace-layout">
-      <aside className={`workspace-explorer-pane ${explorerOpen ? "" : "is-hidden"}`} id="workspace-explorer-pane" aria-label="Knowledge Explorer" aria-hidden={!explorerOpen}>{explorer}</aside>
-      <main className="workspace-document-pane">{children}</main>
-    </div>
+    {explorerOpen && <aside className="workspace-explorer-pane" id="workspace-explorer-pane" aria-label="Knowledge Explorer">{explorer}</aside>}
+    <main className="workspace-document-pane">{children}</main>
   </section>;
 }

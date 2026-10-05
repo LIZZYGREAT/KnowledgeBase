@@ -348,10 +348,10 @@ export function EntityPage({
         </div>
       </details>
       <div className={`reader-layout ${type === "source" ? "reader-layout-source" : ""}`}>
-        <aside className="reader-outline surface">
-          <span className="eyebrow">ON THIS PAGE</span>
+        <details className="reader-outline surface" open>
+          <summary><span className="eyebrow">目录</span></summary>
           {headings.length ? <nav>{headings.map((heading, index) => <button className={`outline-level-${heading.level} ${activeHeading === heading.slug ? "active" : ""}`} key={`${heading.slug}:${index}`} aria-current={activeHeading === heading.slug ? "location" : undefined} onClick={() => document.getElementById(heading.slug)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{heading.text}</button>)}</nav> : <p className="subtle-copy">正文暂无章节标题。</p>}
-        </aside>
+        </details>
         <article className="reader-document">
           {type === "source" ? (
             <div className="source-description surface">
