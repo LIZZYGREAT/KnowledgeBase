@@ -7,6 +7,7 @@ services:
         APT_MIRROR: ${APT_MIRROR:-}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
         PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
+    user: "${KB_RUNTIME_UID:-1000}:${KB_RUNTIME_GID:-1000}"
     restart: unless-stopped
     expose:
       - "8000"
@@ -19,6 +20,7 @@ services:
       KNOWLEDGE_REPO_PATH: /workspace
       DATABASE_PATH: /workspace/runtime/knowledge.db
       KB_BACKUP_PATH: /backups
+      HOME: /tmp/knowledgebase-home
       KB_GIT_USER_NAME: ${KB_GIT_USER_NAME:-KnowledgeBase}
       KB_GIT_USER_EMAIL: ${KB_GIT_USER_EMAIL:-knowledgebase@localhost}
     volumes:

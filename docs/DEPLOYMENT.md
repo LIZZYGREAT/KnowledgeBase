@@ -20,11 +20,16 @@ cp .env.example .env
 
 Set `DEEPSEEK_API_KEY` through the server's protected environment or secret manager. Keep `.env` out of Git. Check the configured host port and backup directory, then start the services:
 
+Before starting production, run `id -u` and `id -g` as the deployment account and set `KB_RUNTIME_UID` and `KB_RUNTIME_GID` in `.env` to those values. The backend uses that identity when writing the mounted checkout, Runtime database, and storage.
+
 ```sh
 docker compose -f docker-compose.production.yml config
 docker compose -f docker-compose.production.yml up -d --build
 docker compose -f docker-compose.production.yml ps
+docker compose --env-file .env -f docker-compose.production.yml exec -T backend id
 ```
+
+Confirm the container's UID and GID match the deployment account before using Publisher. The backend prepares `/tmp/knowledgebase-home` for its Git configuration.
 
 The repository is mounted at `/workspace` so Publisher commits go into the server's Git checkout. `runtime/` and `storage/` persist on that host and are ignored by Git. The Compose file does not publish the API port. Do not change `KB_HTTP_BIND` to `0.0.0.0` on an internet-facing server.
 
