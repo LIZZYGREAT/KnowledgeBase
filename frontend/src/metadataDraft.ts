@@ -11,10 +11,18 @@ export function readFrontmatterField(content: string, type: EntityType, key: str
     }
     const document = parseDocument(yamlText);
     if (document.errors.length) return undefined;
-    return document.get(key);
+    const root = document.toJS();
+    if (!root || typeof root !== "object" || Array.isArray(root)) return undefined;
+    return (root as Record<string, unknown>)[key];
   } catch {
     return undefined;
   }
+}
+
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 export function patchYamlField(content: string, type: EntityType, key: string, value: unknown): string {

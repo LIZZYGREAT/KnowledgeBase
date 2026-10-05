@@ -18,11 +18,12 @@ describe("Source metadata drawer", () => {
         "year: 2017",
         "identifiers:",
         "  doi: 10.1234/ewc",
-        "  arxiv_id: 1701.00001",
+        '  arxiv_id: "1701.00001"',
         "  openalex_id: W111",
         "url: https://example.org/paper",
         "zotero_key: ABC123",
-        "attachments: {}",
+        "attachments:",
+        "  local_pdf: storage://papers/ewc.pdf",
       ].join("\n")}
       sourceEntries={[]}
       sourceError=""
@@ -36,6 +37,11 @@ describe("Source metadata drawer", () => {
     />);
 
     expect(screen.getByRole("heading", { name: "Source metadata" })).toBeTruthy();
+    expect((screen.getByLabelText("Authors") as HTMLTextAreaElement).value).toBe("James Kirkpatrick");
+    expect((screen.getByLabelText("DOI") as HTMLInputElement).value).toBe("10.1234/ewc");
+    expect((screen.getByLabelText("arXiv ID") as HTMLInputElement).value).toBe("1701.00001");
+    expect((screen.getByLabelText("OpenAlex ID") as HTMLInputElement).value).toBe("W111");
+    expect((screen.getByLabelText("附件 URI") as HTMLInputElement).value).toBe("storage://papers/ewc.pdf");
     fireEvent.change(screen.getByLabelText("标题"), { target: { value: "Updated paper title" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("title", "Updated paper title");
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "book" } });
@@ -43,6 +49,8 @@ describe("Source metadata drawer", () => {
     fireEvent.change(screen.getByLabelText("Authors"), { target: { value: "Ada Lovelace\nGrace Hopper" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("authors", ["Ada Lovelace", "Grace Hopper"]);
     fireEvent.change(screen.getByLabelText("Year"), { target: { value: "2025" } });
+    expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("year", 2025);
+    fireEvent.blur(screen.getByLabelText("Year"));
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("year", 2025);
     fireEvent.change(screen.getByLabelText("DOI"), { target: { value: "10.1234/updated" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("identifiers", {
@@ -51,6 +59,8 @@ describe("Source metadata drawer", () => {
       openalex_id: "W111",
     });
     fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://example.org/updated" } });
+    expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("url", "https://example.org/updated");
+    fireEvent.blur(screen.getByLabelText("URL"));
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("url", "https://example.org/updated");
     fireEvent.click(screen.getByText("Advanced"));
     fireEvent.change(screen.getByLabelText("Zotero Key"), { target: { value: "XYZ789" } });

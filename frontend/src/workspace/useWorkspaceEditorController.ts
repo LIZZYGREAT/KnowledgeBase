@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../errors";
-import { parseDocument } from "yaml";
 import {
   compareDraft, discardDraft, getCollection, getDraft, listAllEntities, listDrafts, listProposals,
   preflightDraft, preflightDraftsBatch, requestAIProposal, rejectProposal, updateDraft,
@@ -9,7 +8,7 @@ import {
 import { removeCollectionNode } from "../collectionEditing";
 import { collectionToDraft, parseCollectionDraft, serializeCollectionDraft } from "../collectionDraftModel";
 import { findEntityNodeId } from "../explorer/explorerModel";
-import { patchYamlField } from "../metadataDraft";
+import { isPlainRecord, patchYamlField, readFrontmatterField } from "../metadataDraft";
 import type { PublishReviewItem } from "../publishReview";
 import type { WorkspaceEditorContext } from "./WorkspaceEditorTypes";
 import { entityWorkspaceUrl } from "../workspaceRoute";
@@ -375,16 +374,9 @@ export function useWorkspaceEditorController({
   }
 
   function updateSourcePdf(value: string) {
-    try {
-      const document = parseDocument(workspaceDraft.getCurrentContent());
-      if (document.errors.length) throw new Error("Source YAML 无法解析，请先修复语法。");
-      const attachments = document.get("attachments") as Record<string, unknown> | undefined;
-      document.set("attachments", { ...(attachments ?? {}), local_pdf: value.trim() || null });
-      setEditorContent(`${document.toString().trimEnd()}\n`);
-      setSaveError("");
-    } catch (error) {
-      setSaveError(errorMessage(error));
-    }
+    const current = readFrontmatterField(workspaceDraft.getCurrentContent(), "source", "attachments");
+    const attachments = isPlainRecord(current) ? current : {};
+    updateFrontmatter("attachments", { ...attachments, local_pdf: value.trim() || null });
   }
 
   return {

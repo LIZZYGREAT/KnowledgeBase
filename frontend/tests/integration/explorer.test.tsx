@@ -444,7 +444,8 @@ describe("Explorer React integration", () => {
     await user.click(screen.getByRole("button", { name: "创建 Draft 并编辑" }));
 
     await screen.findByRole("heading", { name: "Nested note" });
-    expect((screen.getByRole("combobox", { name: "选择 Collection" }) as HTMLSelectElement).disabled).toBe(true);
+    const collectionSelect = await screen.findByRole("combobox", { name: "选择 Collection" });
+    expect((collectionSelect as HTMLSelectElement).disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "编辑结构" })).toBeNull();
     expect(screen.queryByRole("button", { name: "编辑名称与描述" })).toBeNull();
     expect(screen.queryByRole("button", { name: "New Collection" })).toBeNull();

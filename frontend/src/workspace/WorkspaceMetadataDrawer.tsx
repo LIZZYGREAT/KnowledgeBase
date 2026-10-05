@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { EntitySummary, EntityType } from "../api";
-import { readFrontmatterField } from "../metadataDraft";
+import { isPlainRecord, readFrontmatterField } from "../metadataDraft";
 import { WorkspaceDrawer } from "../WorkspaceDrawer";
 import { SectionHeading, titleCase } from "../ui";
 import { readDraftCitations, readPaperSkillArtifacts, readSourcePdf, readStringArray, stringValue } from "./workspaceEditingModel";
@@ -183,7 +183,5 @@ export function WorkspaceMetadataDrawer({
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
+  return isPlainRecord(value) ? value : {};
 }
