@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspacePage } from "../../src/Workspace";
+import { WorkspaceMetadataDrawer } from "../../src/workspace/WorkspaceMetadataDrawer";
 import type { Draft, EntityDetail, PresentationAnnotation, Proposal } from "../../src/api";
 import { navigateWithGuards, type NavigationGuard, type RegisterBeforeNavigate } from "../../src/navigation";
 
@@ -364,6 +365,55 @@ describe("Workspace React integration", () => {
     publishedSource = null;
     vi.clearAllMocks();
     installApiBehavior();
+  });
+
+  it("buffers and validates Source year and URL before updating the Draft", () => {
+    const onFrontmatterUpdate = vi.fn();
+    render(<WorkspaceMetadataDrawer
+      type="source"
+      id="ewc-2017"
+      content={["schema_version: 1", "id: ewc-2017", "type: paper", "title: Elastic Weight Consolidation", "year: 2017", "url: https://example.org/paper", "identifiers: {}", "attachments: {}"].join("\n")}
+      sourceEntries={[]}
+      sourceError=""
+      canonicalEvidenceCount={0}
+      onFrontmatterUpdate={onFrontmatterUpdate}
+      onFrontmatterListUpdate={vi.fn()}
+      onSourcePdfChange={vi.fn()}
+      onSave={vi.fn()}
+      onClose={vi.fn()}
+      onError={vi.fn()}
+    />);
+
+    const year = screen.getByLabelText("Year");
+    for (const value of ["2", "20", "202", "999"]) {
+      fireEvent.change(year, { target: { value } });
+      fireEvent.blur(year);
+      expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("year", expect.anything());
+    }
+    expect(screen.getByText("年份须为 1000 到 9999 之间的整数。")).toBeTruthy();
+
+    fireEvent.change(year, { target: { value: "2026" } });
+    fireEvent.keyDown(year, { key: "Enter" });
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith("year", 2026);
+    fireEvent.change(year, { target: { value: "" } });
+    fireEvent.blur(year);
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith("year", null);
+
+    const url = screen.getByLabelText("URL");
+    fireEvent.change(url, { target: { value: "ftp://example.org/paper" } });
+    fireEvent.blur(url);
+    expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("url", expect.anything());
+    expect(screen.getByText("URL 须为空，或使用有效的 http:// / https:// 地址。")).toBeTruthy();
+    fireEvent.change(url, { target: { value: "http:example.org/paper" } });
+    fireEvent.blur(url);
+    expect(onFrontmatterUpdate).not.toHaveBeenCalledWith("url", expect.anything());
+
+    fireEvent.change(url, { target: { value: "http://example.org/paper" } });
+    fireEvent.blur(url);
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", "http://example.org/paper");
+    fireEvent.change(url, { target: { value: "" } });
+    fireEvent.keyDown(url, { key: "Enter" });
+    expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", null);
   });
 
   it("keeps reading and inline editing in one Workspace, autosaves, then publishes through the review drawer", async () => {

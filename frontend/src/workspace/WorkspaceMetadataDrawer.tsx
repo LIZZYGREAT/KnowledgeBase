@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { EntitySummary, EntityType } from "../api";
 import { readFrontmatterField } from "../metadataDraft";
 import { WorkspaceDrawer } from "../WorkspaceDrawer";
@@ -40,8 +40,71 @@ export function WorkspaceMetadataDrawer({
   const sourceIdentifiers = readRecord(readFrontmatterField(content, type, "identifiers"));
   const sourceAuthors = readStringArray(readFrontmatterField(content, type, "authors"));
   const sourceYear = readFrontmatterField(content, type, "year");
+  const sourceUrl = stringValue(readFrontmatterField(content, type, "url"));
+  const [sourceYearText, setSourceYearText] = useState(() => sourceYear == null ? "" : String(sourceYear));
+  const [sourceYearError, setSourceYearError] = useState("");
+  const [sourceUrlText, setSourceUrlText] = useState(sourceUrl);
+  const [sourceUrlError, setSourceUrlError] = useState("");
   const body = type === "source" ? "" : content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
   const citations = readDraftCitations(body);
+
+  useEffect(() => {
+    setSourceYearText(sourceYear == null ? "" : String(sourceYear));
+    setSourceYearError("");
+  }, [id, sourceYear]);
+
+  useEffect(() => {
+    setSourceUrlText(sourceUrl);
+    setSourceUrlError("");
+  }, [id, sourceUrl]);
+
+  function commitSourceYear() {
+    const raw = sourceYearText.trim();
+    if (!raw) {
+      setSourceYearError("");
+      if (sourceYear != null) onFrontmatterUpdate("year", null);
+      return;
+    }
+    if (!/^\d+$/.test(raw)) {
+      setSourceYearError("年份须为 1000 到 9999 之间的整数。");
+      return;
+    }
+    const year = Number(raw);
+    if (!Number.isSafeInteger(year) || year < 1000 || year > 9999) {
+      setSourceYearError("年份须为 1000 到 9999 之间的整数。");
+      return;
+    }
+    setSourceYearError("");
+    if (typeof sourceYear !== "number" || sourceYear !== year) {
+      onFrontmatterUpdate("year", year);
+    }
+  }
+
+  function commitSourceUrl() {
+    const raw = sourceUrlText.trim();
+    if (!raw) {
+      setSourceUrlError("");
+      if (sourceUrl) onFrontmatterUpdate("url", null);
+      return;
+    }
+    if (!/^https?:\/\//i.test(raw)) {
+      setSourceUrlError("URL 须为空，或使用有效的 http:// / https:// 地址。");
+      return;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      setSourceUrlError("URL 须为空，或使用有效的 http:// / https:// 地址。");
+      return;
+    }
+    if (!(["http:", "https:"].includes(parsed.protocol)) || !parsed.hostname) {
+      setSourceUrlError("URL 须为空，或使用有效的 http:// / https:// 地址。");
+      return;
+    }
+    setSourceUrlError("");
+    if (sourceUrl !== raw) onFrontmatterUpdate("url", raw);
+  }
 
   function updateSourceIdentifier(key: "doi" | "arxiv_id" | "openalex_id", value: string) {
     onFrontmatterUpdate("identifiers", {
@@ -72,12 +135,12 @@ export function WorkspaceMetadataDrawer({
       {type === "source" ? <>
         <label className="field-label">Type<select value={stringValue(readFrontmatterField(content, type, "type")) || "paper"} onChange={(event) => onFrontmatterUpdate("type", event.target.value)}><option value="paper">Paper</option><option value="book">Book</option><option value="course">Course</option><option value="web">Web</option><option value="personal">Personal</option></select></label>
         <label className="field-label">Authors<textarea rows={4} value={sourceAuthors.join("\n")} onChange={(event) => onFrontmatterUpdate("authors", event.target.value.split(/\r?\n/).map((author) => author.trim()).filter(Boolean))} placeholder="每行一位作者" /></label>
-        <label className="field-label">Year<input type="number" min="1000" max="9999" value={typeof sourceYear === "number" ? sourceYear : stringValue(sourceYear)} onChange={(event) => onFrontmatterUpdate("year", event.target.value ? Number(event.target.value) : null)} /></label>
+        <div><label className="field-label">Year<input type="text" inputMode="numeric" value={sourceYearText} onChange={(event) => { setSourceYearText(event.target.value); setSourceYearError(""); }} onBlur={commitSourceYear} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourceYear(); } }} /></label>{sourceYearError && <p className="error-copy" role="alert">{sourceYearError}</p>}</div>
         <SectionHeading title="Identifiers" />
         <label className="field-label">DOI<input value={stringValue(sourceIdentifiers.doi)} onChange={(event) => updateSourceIdentifier("doi", event.target.value)} /></label>
         <label className="field-label">arXiv ID<input value={stringValue(sourceIdentifiers.arxiv_id)} onChange={(event) => updateSourceIdentifier("arxiv_id", event.target.value)} /></label>
         <label className="field-label">OpenAlex ID<input value={stringValue(sourceIdentifiers.openalex_id)} onChange={(event) => updateSourceIdentifier("openalex_id", event.target.value)} /></label>
-        <label className="field-label">URL<input type="url" value={stringValue(readFrontmatterField(content, type, "url"))} onChange={(event) => onFrontmatterUpdate("url", event.target.value.trim() || null)} /></label>
+        <div><label className="field-label">URL<input type="url" value={sourceUrlText} onChange={(event) => { setSourceUrlText(event.target.value); setSourceUrlError(""); }} onBlur={commitSourceUrl} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitSourceUrl(); } }} /></label>{sourceUrlError && <p className="error-copy" role="alert">{sourceUrlError}</p>}</div>
         <details className="workspace-metadata-advanced"><summary>Advanced</summary><label className="field-label">Zotero Key<input value={stringValue(readFrontmatterField(content, type, "zotero_key"))} onChange={(event) => onFrontmatterUpdate("zotero_key", event.target.value.trim() || null)} /></label></details>
       </> : <>
         <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
