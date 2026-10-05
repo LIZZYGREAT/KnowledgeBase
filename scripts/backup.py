@@ -42,13 +42,13 @@ def main() -> int:
 def create_backup(repository: Path, database: Path, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     dirty = subprocess.run(
-        ["git", "-C", str(repository), "status", "--porcelain", "--", "knowledge"],
+        ["git", "-C", str(repository), "status", "--porcelain", "--untracked-files=all"],
         check=True,
         capture_output=True,
         text=True,
     ).stdout
     if dirty.strip():
-        raise RuntimeError("Canonical knowledge has uncommitted changes; commit or resolve them before backup")
+        raise RuntimeError("Git worktree has uncommitted changes; commit or resolve them before backup")
     if not database.is_file():
         raise RuntimeError("Runtime database does not exist: {}".format(database))
 

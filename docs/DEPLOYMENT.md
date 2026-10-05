@@ -87,7 +87,7 @@ The backup command creates one archive containing:
 - a consistent SQLite snapshot, including Drafts, Import Jobs, usage data, and presentation annotations;
 - `storage/`, including local PDFs and staged uploads.
 
-Canonical changes under `knowledge/` must be committed before a backup; the script stops if they are dirty. Runtime and storage data are included even though Git ignores them. The default destination is a sibling `KnowledgeBase-backups` directory. Production Compose mounts `KB_BACKUP_DIRECTORY` at `/backups`.
+The entire Git worktree must be clean before a backup, including Research Profiles under `config/research/profiles/` and `config/research/research.yaml`; the script stops if it finds tracked or untracked changes. Git-ignored Runtime, Storage, and `.env` files do not trigger the check. Runtime and storage data are included in the archive. The default destination is a sibling `KnowledgeBase-backups` directory. Production Compose mounts `KB_BACKUP_DIRECTORY` at `/backups`.
 
 Create an archive:
 

@@ -16,11 +16,12 @@ def test_backup_contains_git_runtime_and_storage_snapshots(tmp_path):
     repository = tmp_path / "repository"
     repository.mkdir()
     (repository / "knowledge").mkdir()
+    (repository / ".gitignore").write_text("/runtime/\n/storage/\n", encoding="utf-8")
     (repository / "knowledge" / "note.md").write_text("canonical", encoding="utf-8")
     _git(repository, "init", "-q")
     _git(repository, "config", "user.name", "Backup test")
     _git(repository, "config", "user.email", "backup@example.invalid")
-    _git(repository, "add", "knowledge/note.md")
+    _git(repository, "add", ".gitignore", "knowledge/note.md")
     _git(repository, "commit", "-m", "initial")
 
     runtime = repository / "runtime" / "knowledge.db"
@@ -68,6 +69,7 @@ def test_backup_refuses_uncommitted_canonical_changes(tmp_path):
     repository = tmp_path / "repository"
     repository.mkdir()
     (repository / "knowledge").mkdir()
+    (repository / ".gitignore").write_text("/runtime/\n/storage/\n", encoding="utf-8")
     note = repository / "knowledge" / "note.md"
     note.write_text("canonical", encoding="utf-8")
     _git(repository, "init", "-q")
@@ -82,3 +84,25 @@ def test_backup_refuses_uncommitted_canonical_changes(tmp_path):
 
     with pytest.raises(RuntimeError, match="uncommitted changes"):
         create_backup(repository, runtime, tmp_path / "backups")
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["config/research/profiles/profile.yaml", "config/research/research.yaml"],
+)
+def test_backup_refuses_uncommitted_research_configuration(tmp_path, relative_path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / ".gitignore").write_text("/runtime/\n/storage/\n", encoding="utf-8")
+    research_config = repository / relative_path
+    research_config.parent.mkdir(parents=True)
+    research_config.write_text("version: 1\n", encoding="utf-8")
+    _git(repository, "init", "-q")
+    _git(repository, "config", "user.name", "Backup test")
+    _git(repository, "config", "user.email", "backup@example.invalid")
+    _git(repository, "add", ".gitignore", relative_path)
+    _git(repository, "commit", "-m", "initial")
+    research_config.write_text("version: 2\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Git worktree has uncommitted changes"):
+        create_backup(repository, tmp_path / "runtime" / "knowledge.db", tmp_path / "backups")
