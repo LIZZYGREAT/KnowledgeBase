@@ -383,7 +383,6 @@ describe("Workspace React integration", () => {
       onFrontmatterUpdate={onFrontmatterUpdate}
       onFrontmatterListUpdate={vi.fn()}
       onSourcePdfChange={vi.fn()}
-      onSave={vi.fn()}
       onClose={vi.fn()}
       onError={vi.fn()}
     />);

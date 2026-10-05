@@ -32,7 +32,6 @@ describe("Document metadata drawer", () => {
       onFrontmatterUpdate={onFrontmatterUpdate}
       onFrontmatterListUpdate={onFrontmatterListUpdate}
       onSourcePdfChange={vi.fn()}
-      onSave={vi.fn()}
       onClose={onClose}
       onError={vi.fn()}
     />);
@@ -43,6 +42,10 @@ describe("Document metadata drawer", () => {
     expect(domains.value).toBe("artificial-intelligence");
     expect(topics.value).toBe("machine-learning");
     expect(tags.value).toBe("overview");
+    expect(screen.getByText("修改会自动保存。确认发布后才会进入正式知识库。")).toBeTruthy();
+    expect(screen.getByText("关联来源与引用")).toBeTruthy();
+    expect(screen.getByText("当前引用")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "保存草稿" })).toBeNull();
     expect((screen.getByRole("checkbox", { name: /Source One/ }) as HTMLInputElement).checked).toBe(true);
 
     fireEvent.focus(domains);

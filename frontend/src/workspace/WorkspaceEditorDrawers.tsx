@@ -35,7 +35,6 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       onFrontmatterUpdate={updateFrontmatter}
       onFrontmatterListUpdate={updateFrontmatterList}
       onSourcePdfChange={updateSourcePdf}
-      onSave={() => void saveNow().catch(() => undefined)}
       onClose={() => setActiveDrawer(null)}
       onError={setSaveError}
     />}

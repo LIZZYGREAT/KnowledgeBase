@@ -32,12 +32,13 @@ describe("Source metadata drawer", () => {
       onFrontmatterUpdate={onFrontmatterUpdate}
       onFrontmatterListUpdate={vi.fn()}
       onSourcePdfChange={onSourcePdfChange}
-      onSave={vi.fn()}
       onClose={vi.fn()}
       onError={vi.fn()}
     />);
 
-    expect(screen.getByRole("heading", { name: "Source metadata" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "来源信息" })).toBeTruthy();
+    expect(screen.getByText("更改会自动保存")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "保存草稿" })).toBeNull();
     expect((screen.getByLabelText("Authors") as HTMLTextAreaElement).value).toBe("James Kirkpatrick");
     expect((screen.getByLabelText("DOI") as HTMLInputElement).value).toBe("10.1234/ewc");
     expect((screen.getByLabelText("arXiv ID") as HTMLInputElement).value).toBe("1701.00001");
@@ -45,7 +46,7 @@ describe("Source metadata drawer", () => {
     expect((screen.getByLabelText("附件 URI") as HTMLInputElement).value).toBe("storage://papers/ewc.pdf");
     fireEvent.change(screen.getByLabelText("标题"), { target: { value: "Updated paper title" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("title", "Updated paper title");
-    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "book" } });
+    fireEvent.change(screen.getByLabelText("资料类型"), { target: { value: "book" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("type", "book");
     const authors = screen.getByLabelText("Authors");
     fireEvent.change(authors, { target: { value: "Ada Lovelace\nGrace Hopper\n" } });
@@ -67,7 +68,7 @@ describe("Source metadata drawer", () => {
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", "https://example.org/updated");
     fireEvent.blur(screen.getByLabelText("URL"));
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("url", "https://example.org/updated");
-    fireEvent.click(screen.getByText("Advanced"));
+    fireEvent.click(screen.getByText("高级信息"));
     fireEvent.change(screen.getByLabelText("Zotero Key"), { target: { value: "XYZ789" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("zotero_key", "XYZ789");
 
@@ -90,7 +91,6 @@ describe("Source metadata drawer", () => {
   it("keeps the drawer open for invalid URL and persists valid Authors before Escape closes", () => {
     const onFrontmatterUpdate = vi.fn();
     const onClose = vi.fn();
-    const onSave = vi.fn();
     render(<WorkspaceMetadataDrawer
       type="source"
       id="ewc-2017"
@@ -101,7 +101,6 @@ describe("Source metadata drawer", () => {
       onFrontmatterUpdate={onFrontmatterUpdate}
       onFrontmatterListUpdate={vi.fn()}
       onSourcePdfChange={vi.fn()}
-      onSave={onSave}
       onClose={onClose}
       onError={vi.fn()}
     />);
@@ -119,10 +118,8 @@ describe("Source metadata drawer", () => {
     fireEvent.change(url, { target: { value: "ftp://example.org/paper" } });
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).not.toHaveBeenCalled();
-    expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByText("URL 须为空，或使用有效的 http:// / https:// 地址。")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "保存草稿" }));
-    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "保存草稿" })).toBeNull();
   });
 
   it("resets buffered fields when the drawer switches to another Source", () => {
@@ -134,7 +131,6 @@ describe("Source metadata drawer", () => {
       onFrontmatterUpdate: vi.fn(),
       onFrontmatterListUpdate: vi.fn(),
       onSourcePdfChange: vi.fn(),
-      onSave: vi.fn(),
       onClose: vi.fn(),
       onError: vi.fn(),
     };
