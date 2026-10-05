@@ -9,13 +9,19 @@
 .workspace-inline-block:hover > .workspace-inline-edit-button, .workspace-inline-edit-button:focus-visible { opacity: 1; }
 .workspace-inline-edit-button:disabled { opacity: .35; cursor: not-allowed; }
 .workspace-inline-edit-button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
-.workspace-inline-block-editing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 10px; border: 1px solid #c7d9c9; border-radius: 9px; padding: 11px; background: #fbfdfb; }
-.workspace-inline-textarea { min-height: 220px; resize: vertical; }
+.workspace-inline-block-editing { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 10px; border: 1px solid #c7d9c9; border-radius: 9px; padding: 11px; background: #fbfdfb; }
+.workspace-inline-block-editing .workspace-inline-textarea { display: block; width: 100%; min-height: 48px; max-height: 240px; resize: vertical; }
+.workspace-inline-block-editing[data-block-type="code"] .workspace-inline-textarea { min-height: 140px; max-height: 420px; }
+.workspace-inline-block-editing[data-block-type="math"] .workspace-inline-textarea,
+.workspace-inline-block-editing[data-block-type="table"] .workspace-inline-textarea,
+.workspace-inline-block-editing[data-block-type="html"] .workspace-inline-textarea { min-height: 100px; }
 .workspace-inline-preview { min-width: 0; overflow: auto; border: 1px solid #e7ece7; border-radius: 8px; padding: 12px; background: #fff; }
+.workspace-inline-source { display: grid; gap: 5px; color: var(--text-muted); font-size: var(--text-xs); font-weight: 600; }
+.workspace-inline-preview-label { color: var(--text-muted); font-size: var(--text-xs); font-weight: 600; }
 .workspace-inline-preview .markdown-content { padding-top: 0; }
 .workspace-inline-preview .markdown-content > :first-child { margin-top: 0; }
 .workspace-inline-preview .markdown-content > :last-child { margin-bottom: 0; }
-.workspace-inline-actions { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.workspace-inline-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .workspace-inline-actions > span { color: #87948b; font-size: var(--text-xs); }
 .workspace-inline-add-button { width: 100%; margin-top: 12px; border: 1px dashed #cedace; border-radius: 8px; padding: 10px; color: #56745e; background: #fbfdfb; font-size: var(--text-sm); cursor: pointer; }
 .workspace-inline-add-button:hover { border-color: #a9c3ad; background: #f3f8f3; }
