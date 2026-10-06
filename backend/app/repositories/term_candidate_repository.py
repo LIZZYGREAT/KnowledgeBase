@@ -37,8 +37,27 @@ class TermCandidateRepository:
 
     def get_evidence(self, candidate_id: str) -> list[TermCandidateEvidence]:
         rows = self.connection.execute(
-            "SELECT * FROM term_candidate_evidence WHERE candidate_id = ? "
-            "ORDER BY discovered_at, id",
+            """SELECT e.*,
+                      COALESCE(d.title, s.title, rw.title) AS origin_title,
+                      EXISTS (
+                          SELECT 1 FROM rejected_candidates r
+                          JOIN term_candidates c ON c.id = e.candidate_id
+                          WHERE r.candidate_type = 'term'
+                            AND r.normalized_value = c.normalized_name
+                            AND r.scope IN (
+                                'global',
+                                'origin:' || e.origin_type || ':' || e.origin_id
+                            )
+                      ) AS origin_rejected
+               FROM term_candidate_evidence e
+               LEFT JOIN document_index d
+                 ON e.origin_type = 'document' AND d.entity_id = e.origin_id
+               LEFT JOIN source_index s
+                 ON e.origin_type = 'source' AND s.entity_id = e.origin_id
+               LEFT JOIN research_works rw
+                 ON e.origin_type = 'research_work' AND rw.id = e.origin_id
+               WHERE e.candidate_id = ?
+               ORDER BY e.discovered_at, e.id""",
             (candidate_id,),
         ).fetchall()
         return [_evidence_from_row(row) for row in rows]
@@ -155,12 +174,89 @@ class TermCandidateRepository:
                 ),
             )
 
+    def mark_candidate_drafting(
+        self, candidate_id: str, draft_id: str, updated_at: str
+    ) -> TermCandidateRecord:
+        with self.connection:
+            cursor = self.connection.execute(
+                """UPDATE term_candidates
+                   SET status = 'drafting', draft_id = ?, updated_at = ?
+                   WHERE id = ? AND status IN ('pending', 'drafting')""",
+                (draft_id, updated_at, candidate_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Only an open Term Candidate can enter drafting")
+        return self.get_candidate(candidate_id)
+
+    def reset_candidate_draft(self, draft_id: str, updated_at: str) -> Optional[TermCandidateRecord]:
+        row = self.connection.execute(
+            "SELECT id FROM term_candidates WHERE draft_id = ? AND status = 'drafting'",
+            (draft_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        candidate_id = row["id"]
+        with self.connection:
+            self.connection.execute(
+                """UPDATE term_candidates
+                   SET status = 'pending', draft_id = NULL, updated_at = ?, reviewed_at = NULL
+                   WHERE id = ? AND draft_id = ? AND status = 'drafting'""",
+                (updated_at, candidate_id, draft_id),
+            )
+        return self.get_candidate(candidate_id)
+
+    def list_candidates_for_draft(self, draft_id: str) -> list[TermCandidateRecord]:
+        rows = self.connection.execute(
+            """SELECT * FROM term_candidates
+               WHERE draft_id = ? AND status = 'drafting'
+               ORDER BY created_at, id""",
+            (draft_id,),
+        ).fetchall()
+        return [_candidate_from_row(row) for row in rows]
+
+    def finalize_candidate_draft(
+        self,
+        candidate_id: str,
+        draft_id: str,
+        term_id: str,
+        relations: list[TermEntityRelation],
+        reviewed_at: str,
+    ) -> Optional[TermCandidateRecord]:
+        with self.connection:
+            cursor = self.connection.execute(
+                """UPDATE term_candidates
+                   SET status = 'accepted', suggested_term_id = ?, accepted_term_id = ?,
+                       updated_at = ?, reviewed_at = ?
+                   WHERE id = ? AND draft_id = ? AND status = 'drafting'""",
+                (term_id, term_id, reviewed_at, reviewed_at, candidate_id, draft_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+            for relation in relations:
+                self.connection.execute(
+                    """INSERT INTO term_entity_relations (
+                           id, entity_type, entity_id, term_id,
+                           created_from_candidate_id, created_at
+                       ) VALUES (?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(entity_type, entity_id, term_id) DO NOTHING""",
+                    (
+                        relation.id,
+                        relation.entity_type,
+                        relation.entity_id,
+                        term_id,
+                        candidate_id,
+                        relation.created_at,
+                    ),
+                )
+        return self.get_candidate(candidate_id)
+
     def reject_candidate(
         self,
         candidate_id: str,
         scopes: list[str],
         reason: Optional[str],
         reviewed_at: str,
+        close_candidate: bool = True,
     ) -> TermCandidateRecord:
         candidate = self.get_candidate(candidate_id)
         if candidate is None:
@@ -188,9 +284,14 @@ class TermCandidateRepository:
                 )
             self.connection.execute(
                 """UPDATE term_candidates
-                   SET status = 'rejected', updated_at = ?, reviewed_at = ?
+                   SET status = ?, updated_at = ?, reviewed_at = ?
                    WHERE id = ?""",
-                (reviewed_at, reviewed_at, candidate_id),
+                (
+                    "rejected" if close_candidate else "pending",
+                    reviewed_at,
+                    reviewed_at,
+                    candidate_id,
+                ),
             )
         return self.get_candidate(candidate_id)
 
@@ -340,4 +441,7 @@ def _candidate_from_row(row: sqlite3.Row) -> TermCandidateRecord:
 
 
 def _evidence_from_row(row: sqlite3.Row) -> TermCandidateEvidence:
-    return TermCandidateEvidence.model_validate(dict(row))
+    data = dict(row)
+    if "origin_rejected" in data:
+        data["origin_rejected"] = bool(data["origin_rejected"])
+    return TermCandidateEvidence.model_validate(data)

@@ -9,9 +9,13 @@ from backend.app.api.knowledge import router as knowledge_router
 from backend.app.db.connection import connect_database, initialize_database
 from backend.app.db.migrations import migrate_database
 from backend.app.domain.ai import DraftTermOutput
+from backend.app.domain.runtime import Draft
 from backend.app.domain.term import TermMetadata
 from backend.app.domain.term_runtime import TermCandidateEvidenceInput
+from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
+from backend.app.services.draft_service import DraftService
 from backend.app.services.term_candidate_service import (
     TermCandidateConflict,
     TermCandidateService,
@@ -133,13 +137,31 @@ def test_local_reject_memory_is_origin_scoped_and_global_reject_blocks_new_candi
             ],
         )
 
-        rejected = service.reject_candidate(candidate.id, "local", "Not useful here")
-        assert rejected.status == "rejected"
-        assert service.resolve_against_registry(candidate).status == "rejected"
+        rejected = service.reject_candidate(
+            candidate.id,
+            "local",
+            "Not useful here",
+            origin_type="document",
+            origin_id="note-one",
+        )
+        assert rejected.status == "pending"
+        assert service.resolve_against_registry(candidate).status == "new_term"
         assert repository.is_rejected("latent space", "origin:document:note-one")
-        assert repository.is_rejected("latent space", "origin:source:paper-one")
+        assert not repository.is_rejected("latent space", "origin:source:paper-one")
         assert not repository.is_rejected("latent space", "origin:document:note-two")
         assert not repository.is_rejected("latent space", "global")
+        with pytest.raises(TermCandidateConflict, match="Every origin"):
+            service.create_candidate(
+                "Latent Space",
+                "concept",
+                [
+                    TermCandidateEvidenceInput(
+                        origin_type="document",
+                        origin_id="note-one",
+                        mention="latent space",
+                    )
+                ],
+            )
         allowed_elsewhere = service.create_candidate(
             "Latent Space",
             "concept",
@@ -149,7 +171,16 @@ def test_local_reject_memory_is_origin_scoped_and_global_reject_blocks_new_candi
                 )
             ],
         )
-        assert allowed_elsewhere.id != candidate.id
+        assert allowed_elsewhere.id == candidate.id
+        evidence = service.get_candidate(candidate.id).evidence
+        assert {(item.origin_type, item.origin_id) for item in evidence} == {
+            ("document", "note-one"),
+            ("source", "paper-one"),
+            ("document", "note-two"),
+        }
+        assert next(
+            item for item in evidence if item.origin_id == "note-one"
+        ).origin_rejected
         assert service.resolve_against_registry(allowed_elsewhere).status == "new_term"
 
         global_candidate = service.create_candidate(
@@ -173,6 +204,101 @@ def test_local_reject_memory_is_origin_scoped_and_global_reject_blocks_new_candi
                     )
                 ],
             )
+    finally:
+        connection.close()
+
+
+def test_candidate_term_draft_lifecycle_and_publish_relations(tmp_path):
+    _write_term(tmp_path)
+    document_path = tmp_path / "knowledge" / "documents" / "learning" / "note-one.md"
+    document_path.parent.mkdir(parents=True, exist_ok=True)
+    document_path.write_text(
+        "---\nschema_version: 1\nid: note-one\ntitle: Note One\n"
+        "type: learning-note\ndomains: []\ntopics: []\ntags: []\nsources: []\n"
+        "---\nA canonical note.\n",
+        encoding="utf-8",
+    )
+    connection = connect_database(":memory:")
+    try:
+        repository = TermCandidateRepository(connection)
+        drafts = DraftService(DraftRepository(connection))
+        target_resolver = CanonicalTargetResolver(tmp_path, connection)
+
+        class FakeGit:
+            def current_revision(self):
+                return "a" * 40
+
+            def content_hash(self, path):
+                return "b" * 64
+
+        service = TermCandidateService(
+            tmp_path,
+            repository,
+            drafts,
+            FakeGit(),
+            target_resolver,
+        )
+        candidate = service.create_candidate(
+            "Adaptive Token Pruning",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type="document",
+                    origin_id="note-one",
+                    mention="adaptive token pruning",
+                    context_excerpt="Adaptive token pruning reduces redundant tokens.",
+                )
+            ],
+        )
+
+        result = service.create_term_draft(candidate.id)
+        assert result["created"] is True
+        assert result["candidate"].status == "drafting"
+        assert result["draft"].entity_id == "adaptive-token-pruning"
+        assert "type: concept" in result["draft"].content
+        assert "depth: stub" in result["draft"].content
+        with pytest.raises(TermCandidateConflict, match="discard the linked Draft"):
+            service.reject_candidate(candidate.id, "global")
+        with pytest.raises(TermCandidateConflict, match="discard the linked Draft"):
+            service.accept_existing(candidate.id, "neural-indexing")
+
+        reused = service.create_term_draft(candidate.id)
+        assert reused["created"] is False
+        assert reused["draft"].id == result["draft"].id
+
+        drafts.discard(result["draft"].id, result["draft"].revision)
+        service.discard_term_draft(result["draft"].id)
+        reset = repository.get_candidate(candidate.id)
+        assert reset.status == "pending"
+        assert reset.draft_id is None
+
+        second = service.create_term_draft(candidate.id)
+        draft = second["draft"]
+        service.finalize_published_drafts(
+            [
+                Draft(
+                    id=draft.id,
+                    entity_type="term",
+                    entity_id=draft.entity_id,
+                    base_git_revision=draft.base_git_revision,
+                    base_content_hash=draft.base_content_hash,
+                    content=draft.content,
+                    revision=draft.revision,
+                    created_at=draft.created_at,
+                    updated_at=draft.updated_at,
+                )
+            ]
+        )
+
+        accepted = repository.get_candidate(candidate.id)
+        assert accepted.status == "accepted"
+        assert accepted.accepted_term_id == "adaptive-token-pruning"
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT entity_type, entity_id, term_id FROM term_entity_relations"
+            ).fetchall()
+        ] == [("document", "note-one", "adaptive-token-pruning")]
     finally:
         connection.close()
 
@@ -255,7 +381,12 @@ def test_term_candidate_api_routes_bind_to_candidate_service(tmp_path):
                 origin_type="document",
                 origin_id="note-one",
                 mention="Calibrated Optimizer",
-            )
+            ),
+            TermCandidateEvidenceInput(
+                origin_type="source",
+                origin_id="paper-one",
+                mention="Calibrated Optimizer",
+            ),
         ],
     )
     app = FastAPI()
@@ -271,12 +402,28 @@ def test_term_candidate_api_routes_bind_to_candidate_service(tmp_path):
             detail = client.get("/api/terms/candidates/{}".format(candidate.id))
             assert detail.status_code == 200
             assert detail.json()["evidence"][0]["mention"] == "Calibrated Optimizer"
+            rejected = client.post(
+                "/api/terms/candidates/{}/reject".format(candidate.id),
+                json={
+                    "scope": "local",
+                    "origin_type": "document",
+                    "origin_id": "note-one",
+                },
+            )
+            assert rejected.status_code == 200, rejected.json()
+            assert rejected.json()["status"] == "pending"
             accepted = client.post(
                 "/api/terms/candidates/{}/accept-existing".format(candidate.id),
                 json={"term_id": "neural-indexing"},
             )
             assert accepted.status_code == 200, accepted.json()
             assert accepted.json()["accepted_term_id"] == "neural-indexing"
+            assert [
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT entity_type, entity_id, term_id FROM term_entity_relations"
+                ).fetchall()
+            ] == [("source", "paper-one", "neural-indexing")]
     finally:
         connection.close()
 

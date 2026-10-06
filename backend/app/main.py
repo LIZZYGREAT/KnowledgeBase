@@ -83,9 +83,6 @@ async def lifespan(application: FastAPI):
         draft_service = DraftService(DraftRepository(connection))
         proposal_service = ProposalService(ProposalRepository(connection))
         term_candidate_repository = TermCandidateRepository(connection)
-        term_candidate_service = TermCandidateService(
-            repository_root, term_candidate_repository
-        )
         research_components = build_research_components(repository_root, connection)
         ai_gateway = AIGateway(
             DeepSeekClient(DeepSeekConfig.from_environment(repository_root))
@@ -97,6 +94,13 @@ async def lifespan(application: FastAPI):
         annotation_service = PresentationAnnotationService(AnnotationRepository(connection))
         indexer = Indexer(repository_root, connection)
         canonical_target_resolver = CanonicalTargetResolver(repository_root, connection)
+        term_candidate_service = TermCandidateService(
+            repository_root,
+            term_candidate_repository,
+            draft_service,
+            git_manager,
+            canonical_target_resolver,
+        )
         term_analysis_service = TermAnalysisService(
             repository_root,
             term_candidate_repository,
@@ -140,6 +144,9 @@ async def lifespan(application: FastAPI):
         )
         publisher.add_post_publish_hook(
             research_conversion_service.finalize_published_drafts
+        )
+        publisher.add_post_publish_hook(
+            term_candidate_service.finalize_published_drafts
         )
         publisher.add_post_publish_hook(research_service.refresh_canonical_state)
 

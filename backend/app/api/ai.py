@@ -5,7 +5,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Request, status
 
-from backend.app.api.schemas import AIProposalView, AIRequest, SelectionReviewRequest
+from backend.app.api.schemas import (
+    AIProposalView,
+    AIRequest,
+    SelectionReviewRequest,
+    TermDraftRequest,
+)
 
 
 router = APIRouter(prefix="/api/ai", tags=["AI Proposals"])
@@ -36,8 +41,40 @@ async def review_selection(body: SelectionReviewRequest, request: Request):
 
 
 @router.post("/term-draft", response_model=AIProposalView, status_code=status.HTTP_201_CREATED)
-async def draft_term(body: AIRequest, request: Request):
-    return await _generate(request, "draft_term", body.draft_id, {"term"})
+async def draft_term(body: TermDraftRequest, request: Request):
+    extra_context = None
+    if body.candidate_id:
+        candidate = request.app.state.term_candidate_service.get_candidate(
+            body.candidate_id
+        )
+        if candidate.status != "drafting" or candidate.draft_id != body.draft_id:
+            raise ValueError("Term Candidate must be linked to this active Term Draft")
+        evidence = [
+            item
+            for item in candidate.evidence
+            if item.origin_type == "document" and not item.origin_rejected
+        ][:5]
+        if not evidence:
+            raise ValueError("Term Candidate has no active Canonical Note evidence")
+        extra_context = {
+            "term_candidate": {
+                "candidate_id": candidate.id,
+                "display_name": candidate.display_name,
+                "suggested_type": candidate.suggested_type,
+                "note_evidence": [
+                    {
+                        "note_id": item.origin_id,
+                        "note_title": item.origin_title or item.origin_id,
+                        "context_excerpt": item.context_excerpt,
+                        "rationale": item.rationale,
+                    }
+                    for item in evidence
+                ],
+            }
+        }
+    return await _generate(
+        request, "draft_term", body.draft_id, {"term"}, extra_context
+    )
 
 
 @router.post("/evidence-suggest", response_model=AIProposalView, status_code=status.HTTP_201_CREATED)

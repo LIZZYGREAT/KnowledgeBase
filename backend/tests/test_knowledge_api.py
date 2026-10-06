@@ -108,6 +108,7 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/terms/candidates/{candidate_id}",
         "/api/terms/candidates/{candidate_id}/reject",
         "/api/terms/candidates/{candidate_id}/accept-existing",
+        "/api/terms/candidates/{candidate_id}/create-term-draft",
         "/api/terms/merge/preview",
         "/api/terms/merge",
         "/api/sources/{entity_id}",
@@ -192,6 +193,70 @@ def test_term_candidate_api_lists_accepts_and_rejects_runtime_candidates(api_cli
         """SELECT scope FROM rejected_candidates
            WHERE candidate_type = 'term' AND normalized_value = 'rare phrase'"""
     ).fetchone()[0] == "origin:source:source-alpha"
+
+
+def test_candidate_term_draft_ai_uses_note_context_and_requires_consent(api_client):
+    candidate = api_client.app.state.term_candidate_service.create_candidate(
+        "Stable Index",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="document",
+                origin_id="neural-indexing",
+                mention="stable index",
+                context_excerpt="A stable index retains canonical facts.",
+                rationale="This is a reusable retrieval concept.",
+            )
+        ],
+    )
+    created = api_client.post(
+        "/api/terms/candidates/{}/create-term-draft".format(candidate.id)
+    )
+    assert created.status_code == 200, created.json()
+    draft = created.json()["draft"]
+    assert created.json()["candidate"]["status"] == "drafting"
+
+    mock_client = MockDeepSeekClient(
+        {
+            "draft_term": {
+                "id": "stable-index",
+                "title": "Stable Index",
+                "type": "concept",
+                "depth": "stub",
+                "aliases": [],
+                "definition": "An index designed to retain stable facts.",
+            }
+        }
+    )
+    api_client.app.state.ai_proposal_service = AIProposalService(
+        api_client.app.state.repository_root,
+        api_client.app.state.draft_service,
+        api_client.app.state.proposal_service,
+        AIGateway(mock_client),
+    )
+
+    missing_consent = api_client.post(
+        "/api/ai/term-draft",
+        json={"draft_id": draft["id"], "candidate_id": candidate.id},
+    )
+    assert missing_consent.status_code == 422
+    assert mock_client.calls == []
+
+    generated = api_client.post(
+        "/api/ai/term-draft",
+        json={
+            "draft_id": draft["id"],
+            "candidate_id": candidate.id,
+            "confirm_deepseek_transfer": True,
+        },
+    )
+    assert generated.status_code == 201, generated.json()
+    assert mock_client.calls == ["draft_term"]
+    context = json.loads(mock_client.messages[0][1]["content"])["request"]
+    evidence = context["term_candidate"]["note_evidence"][0]
+    assert evidence["note_title"] == "Neural Indexing"
+    assert evidence["context_excerpt"] == "A stable index retains canonical facts."
+    assert context["term_candidate"]["suggested_type"] == "concept"
 
 
 def test_presentation_annotations_never_change_canonical_markdown(api_client):

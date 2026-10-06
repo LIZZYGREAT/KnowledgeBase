@@ -4,6 +4,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, constr, model_validator
 
+from backend.app.domain.term_runtime import TermCandidateRecord
+
 
 class TermRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -12,10 +14,26 @@ class TermRequest(BaseModel):
 class RejectTermCandidateRequest(TermRequest):
     scope: Literal["local", "global"]
     reason: Optional[constr(strict=True, strip_whitespace=True, min_length=1)] = None
+    origin_type: Optional[Literal["document", "source", "research_work", "external"]] = None
+    origin_id: Optional[constr(strict=True, strip_whitespace=True, min_length=1)] = None
+
+    @model_validator(mode="after")
+    def validate_origin(self):
+        if (self.origin_type is None) != (self.origin_id is None):
+            raise ValueError("origin_type and origin_id must be provided together")
+        if self.scope == "global" and self.origin_type is not None:
+            raise ValueError("Global rejection does not take an origin")
+        return self
 
 
 class AcceptExistingTermCandidateRequest(TermRequest):
     term_id: constr(strict=True, strip_whitespace=True, min_length=1)
+
+
+class CandidateTermDraftResultView(TermRequest):
+    candidate: TermCandidateRecord
+    draft: dict
+    created: bool
 
 
 class DocumentTermAnalysisRequest(TermRequest):

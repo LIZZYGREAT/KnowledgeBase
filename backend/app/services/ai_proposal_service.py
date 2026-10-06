@@ -16,6 +16,7 @@ from backend.app.services.ai_client import AIGatewayError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway, TASKS
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.proposal_service import ProposalService
+from backend.app.services.resolution import normalize_key
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import load_writing_standard
 from backend.app.services.taxonomy_registry import TaxonomyRegistry
@@ -34,14 +35,14 @@ class AIProposalService:
     def generate(self, task_name: str, draft_id: str, extra_context: Optional[dict] = None):
         task, draft, registries, context = self._prepare(task_name, draft_id, extra_context)
         result = self.gateway.run(task_name, context)
-        return self._persist_result(task, draft, registries, result)
+        return self._persist_result(task, draft, registries, result, extra_context)
 
     async def generate_async(
         self, task_name: str, draft_id: str, extra_context: Optional[dict] = None
     ):
         task, draft, registries, context = self._prepare(task_name, draft_id, extra_context)
         result = await asyncio.to_thread(self.gateway.run, task_name, context)
-        return self._persist_result(task, draft, registries, result)
+        return self._persist_result(task, draft, registries, result, extra_context)
 
     def _prepare(self, task_name: str, draft_id: str, extra_context: Optional[dict]):
         task = TASKS.get(task_name)
@@ -61,9 +62,30 @@ class AIProposalService:
         }
         return task, draft, registries, context
 
-    def _persist_result(self, task, draft, registries: dict, result):
+    def _persist_result(
+        self, task, draft, registries: dict, result, request_context: Optional[dict] = None
+    ):
         task_name = task.name
         result_data = result.model_dump(mode="json", exclude_none=True)
+        term_candidate = (request_context or {}).get("term_candidate")
+        if task_name == "draft_term" and term_candidate:
+            if result_data["type"] != term_candidate["suggested_type"]:
+                raise AIResponseError(
+                    "Term Draft output must preserve the Candidate's suggested type"
+                )
+            if result_data["depth"] == "deep":
+                raise AIResponseError(
+                    "Note Candidates cannot receive an automatic deep Term Draft"
+                )
+            candidate_name = term_candidate.get("display_name", "").strip()
+            aliases = result_data.setdefault("aliases", [])
+            alias_keys = {normalize_key(alias) for alias in aliases}
+            if (
+                normalize_key(candidate_name)
+                and normalize_key(candidate_name) != normalize_key(result_data["title"])
+                and normalize_key(candidate_name) not in alias_keys
+            ):
+                aliases.append(candidate_name)
         try:
             self._validate_result(task_name, draft, result_data, registries)
         except AIGatewayError:

@@ -13,6 +13,7 @@ GET  /api/terms/candidates?status=pending
 GET  /api/terms/candidates/{candidate_id}
 POST /api/terms/candidates/{candidate_id}/reject
 POST /api/terms/candidates/{candidate_id}/accept-existing
+POST /api/terms/candidates/{candidate_id}/create-term-draft
 POST /api/terms/analyze-document/{document_id}
 GET  /api/terms/document-analysis/{document_id}
 POST /api/terms/merge/preview
@@ -25,7 +26,7 @@ GET  /api/search
 
 Entity lists return `id`, `title`, `entity_type`, and `metadata`. Entity detail adds Markdown `content` where applicable, related Terms, Backlinks, Evidence, related Documents, and accepted Runtime Term relations. Term IDs retained as survivor aliases resolve to the survivor detail. Search accepts `query`, `domain`, `topic`, `tag`, `document_type`, `review`, `maintenance`, `source`, `term`, and `limit`. Results include their match reason, snippet, metadata, and document usage counts.
 
-Term Candidate endpoints list and inspect Runtime Candidates, reject them with `scope: local|global`, or accept them against an existing canonical Term using `term_id`. Accepting Existing stores one deduplicated relation for each eligible Document, Source, or Research Work Evidence origin. Direct Candidate creation is not exposed. Manual Document Term Analysis accepts `confirm_deepseek_transfer: true`, reads only the current Canonical Document (and rejects an active Draft), and creates or reuses Candidates after server-side Term resolution and Reject Memory checks. The analysis-state endpoint compares the stored canonical content hash with the current file hash and reports `never_analyzed`, `up_to_date`, or `outdated`; publishing a Document never triggers AI automatically. Merge preview accepts `survivor_term_id`, `loser_term_ids`, and `final_title`; it returns the final aliases and loser IDs whose non-empty bodies will not be merged. Merge accepts the same fields plus `confirm_loser_bodies_not_merged: true` when that list is non-empty. The operation commits only the survivor Term update and loser Term deletions; it does not rewrite Documents.
+Term Candidate endpoints list and inspect Runtime Candidates, reject one Evidence origin at a time with `scope: local` and `origin_type`/`origin_id`, reject all origins with `scope: global`, or accept a Candidate against an existing canonical Term using `term_id`. Accepting Existing stores one deduplicated relation for each eligible Document, Source, or Research Work Evidence origin. A New Candidate with active Document Evidence can create or reuse a linked Term Draft; discarding that Draft returns the Candidate to `pending`, and publishing it accepts the Candidate and creates eligible relations. Direct Candidate creation is not exposed. Manual Document Term Analysis accepts `confirm_deepseek_transfer: true`, reads only the current Canonical Document (and rejects an active Draft), and creates or reuses Candidates after server-side Term resolution and Reject Memory checks. The analysis-state endpoint compares the stored canonical content hash with the current file hash and reports `never_analyzed`, `up_to_date`, or `outdated`; publishing a Document never triggers AI automatically. Merge preview accepts `survivor_term_id`, `loser_term_ids`, and `final_title`; it returns the final aliases and loser IDs whose non-empty bodies will not be merged. Merge accepts the same fields plus `confirm_loser_bodies_not_merged: true` when that list is non-empty. The operation commits only the survivor Term update and loser Term deletions; it does not rewrite Documents.
 
 ## Drafts, Proposals, and publishing
 
@@ -70,7 +71,7 @@ POST /api/ai/term-draft
 POST /api/ai/evidence-suggest
 ```
 
-Every request must include `confirm_deepseek_transfer: true`, after the caller has shown that the Draft and task-required registry context will be sent to DeepSeek. Selection review also requires `selection`. Each response repeats this notice and returns the stored Proposal. A missing server API key returns `503`; provider failures return `502`. AI output is validated and stored as a Proposal; these endpoints never write canonical knowledge.
+Every request must include `confirm_deepseek_transfer: true`, after the caller has shown that the Draft and task-required registry context will be sent to DeepSeek. Selection review also requires `selection`. Term Draft generation may include `candidate_id`; when supplied, the server verifies that the Candidate is linked to the same active Draft and adds its active Canonical Note evidence to the AI context. Each response repeats this notice and returns the stored Proposal. A missing server API key returns `503`; provider failures return `502`. AI output is validated and stored as a Proposal; these endpoints never write canonical knowledge.
 
 ## Usage
 

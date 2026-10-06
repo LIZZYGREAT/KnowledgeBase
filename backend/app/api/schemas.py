@@ -406,6 +406,10 @@ class SelectionReviewRequest(AIRequest):
     selection: NonEmptyText = Field(max_length=20000)
 
 
+class TermDraftRequest(AIRequest):
+    candidate_id: Optional[NonEmptyText] = None
+
+
 class AIProposalView(APIModel):
     external_provider_notice: str
     proposal: ProposalView

@@ -119,4 +119,7 @@ async def discard_draft(draft_id: str, body: DraftDeleteRequest, request: Reques
     conversion_service = getattr(request.app.state, "research_conversion_service", None)
     if conversion_service is not None:
         conversion_service.cancel_pending_for_draft(draft_id)
+    term_candidate_service = getattr(request.app.state, "term_candidate_service", None)
+    if term_candidate_service is not None:
+        term_candidate_service.discard_term_draft(draft_id)
     return {"deleted": True}

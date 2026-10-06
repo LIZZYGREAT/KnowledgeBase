@@ -207,6 +207,26 @@ async def test_existing_resolution_waits_for_human_relation_acceptance(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_link_existing_must_match_server_side_resolution(tmp_path):
+    response = _response(
+        mention="latent space",
+        normalized_name="latent space",
+        action="link_existing",
+        term_id="neural-indexing",
+        suggested_type=None,
+        context_excerpt="covers latent space",
+    )
+    connection, repository, _, _, _, service = _service(tmp_path, response)
+    try:
+        with pytest.raises(AIResponseError, match="server-side Term resolution"):
+            await service.analyze_document("note-one")
+        assert repository.list_candidates() == []
+        assert repository.get_document_analysis_state("note-one") is None
+    finally:
+        connection.close()
+
+
+@pytest.mark.asyncio
 async def test_active_document_draft_blocks_analysis_before_ai_call(tmp_path):
     connection, _, _, drafts, ai_client, service = _service(tmp_path)
     try:

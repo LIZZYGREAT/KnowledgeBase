@@ -1,11 +1,13 @@
 """Runtime Term Candidate API."""
 
 from typing import Literal, Optional
+from dataclasses import asdict
 
 from fastapi import APIRouter, Query, Request
 
 from backend.app.api.term_schemas import (
     AcceptExistingTermCandidateRequest,
+    CandidateTermDraftResultView,
     DocumentTermAnalysisRequest,
     DocumentTermAnalysisResultView,
     DocumentTermAnalysisStateView,
@@ -41,14 +43,14 @@ async def get_document_term_analysis(document_id: str, request: Request):
     )
 
 
-@router.get("/candidates", response_model=list[TermCandidateRecord])
+@router.get("/candidates", response_model=list[TermCandidateDetail])
 async def list_term_candidates(
     request: Request,
     status: Optional[Literal["pending", "drafting", "accepted", "rejected"]] = Query(
         default=None
     ),
 ):
-    return request.app.state.term_candidate_service.list_candidates(status)
+    return request.app.state.term_candidate_service.list_candidate_details(status)
 
 
 @router.get("/candidates/{candidate_id}", response_model=TermCandidateDetail)
@@ -63,8 +65,21 @@ async def reject_term_candidate(
     request: Request,
 ):
     return request.app.state.term_candidate_service.reject_candidate(
-        candidate_id, body.scope, body.reason
+        candidate_id, body.scope, body.reason, body.origin_type, body.origin_id
     )
+
+
+@router.post(
+    "/candidates/{candidate_id}/create-term-draft",
+    response_model=CandidateTermDraftResultView,
+)
+async def create_term_candidate_draft(candidate_id: str, request: Request):
+    result = request.app.state.term_candidate_service.create_term_draft(candidate_id)
+    return {
+        "candidate": result["candidate"],
+        "draft": asdict(result["draft"]),
+        "created": result["created"],
+    }
 
 
 @router.post(

@@ -31,6 +31,8 @@ class TermCandidateEvidence(TermCandidateEvidenceInput):
     id: NonEmptyText
     candidate_id: NonEmptyText
     discovered_at: NonEmptyText
+    origin_title: Optional[str] = None
+    origin_rejected: bool = False
 
 
 class TermCandidateRecord(TermRuntimeModel):

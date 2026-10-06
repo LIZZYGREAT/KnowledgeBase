@@ -130,7 +130,15 @@ class TermAnalysisService:
                 raise AIResponseError(
                     "Term detection contains an unknown Term id: {}".format(item.term_id)
                 )
-            validated_items.append((item, resolver.resolve(item.mention)))
+            registry_match = resolver.resolve(item.mention)
+            if item.action == "link_existing" and (
+                registry_match.status != "resolved"
+                or registry_match.entity_id != item.term_id
+            ):
+                raise AIResponseError(
+                    "Term detection Existing match does not agree with server-side Term resolution"
+                )
+            validated_items.append((item, registry_match))
 
         for item, registry_match in validated_items:
             normalized_name = normalize_key(item.mention)

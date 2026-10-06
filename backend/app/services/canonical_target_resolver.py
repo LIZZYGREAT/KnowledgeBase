@@ -105,6 +105,14 @@ class CanonicalTargetResolver:
             candidates = [
                 self.knowledge_root / "collections" / "{}.yaml".format(entity_id)
             ]
+        elif entity_type == "term":
+            row = self.connection.execute(
+                "SELECT path FROM term_index WHERE entity_id = ?", (entity_id,)
+            ).fetchone()
+            candidates = []
+            if row is not None:
+                candidates.append(self._indexed_path(row["path"], "term", entity_id))
+            candidates.append(self.knowledge_root / "terms" / "{}.md".format(entity_id))
         elif entity_type == "document":
             row = self.connection.execute(
                 "SELECT path FROM document_index WHERE entity_id = ?", (entity_id,)
@@ -117,7 +125,7 @@ class CanonicalTargetResolver:
                 for folder in self._DOCUMENT_FOLDERS.values()
             )
         else:
-            raise ValueError("Unsupported Research conversion entity type")
+            raise ValueError("Unsupported canonical entity type")
 
         existing = [
             self._canonical_path(candidate, entity_type)
