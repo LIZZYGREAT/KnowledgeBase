@@ -53,6 +53,18 @@ test("reader shortcut actions are grouped and back to top floats after scrolling
   assert.match(styles, /\.reader-back-to-top\s*\{[^}]*position:\s*fixed/);
 });
 
+test("Term Analysis is manual and Term appearance separates explicit links from accepted detections", () => {
+  assert.match(reader, /getDocumentTermAnalysis\(id\)/);
+  assert.match(reader, /analyzeDocumentTerms\(id\)/);
+  assert.match(reader, /term-analysis-consent-title/);
+  assert.match(reader, /我同意将以上 Canonical Note 内容和所需 Registry 上下文发送给 DeepSeek/);
+  assert.match(reader, /navigate\(`\/terms\?tab=candidates&document_id=/);
+  assert.match(reader, /title="Where it appears"/);
+  assert.match(reader, /"Accepted detection"/);
+  assert.match(reader, /"Explicit link"/);
+  assert.doesNotMatch(reader, /analyzeDocumentTerms\(.*publishedRevision/);
+});
+
 test("Workspace Explorer is a floating overlay and does not allocate a content column", () => {
   const workspaceShell = readFileSync(resolve(process.cwd(), "src/workspace/WorkspaceShell.tsx"), "utf8");
   assert.match(workspaceShell, /useState\(false\)/);

@@ -317,9 +317,18 @@ class KnowledgeReadService:
     def _backlinks(self, entity_type: str, entity_id: str) -> list[dict]:
         if entity_type == "term":
             rows = self.connection.execute(
-                """SELECT source_entity_type, source_entity_id, link_target, label, line
-                   FROM backlink_index WHERE term_id = ?
-                   ORDER BY source_entity_type, source_entity_id, line""",
+                """SELECT b.source_entity_type, b.source_entity_id,
+                          b.link_target, b.label, b.line,
+                          COALESCE(d.title, t.title) AS source_title
+                   FROM backlink_index b
+                   LEFT JOIN document_index d
+                     ON b.source_entity_type = 'document'
+                    AND d.entity_id = b.source_entity_id
+                   LEFT JOIN term_index t
+                     ON b.source_entity_type = 'term'
+                    AND t.entity_id = b.source_entity_id
+                   WHERE b.term_id = ?
+                   ORDER BY b.source_entity_type, b.source_entity_id, b.line""",
                 (entity_id,),
             ).fetchall()
             return [dict(row) for row in rows]

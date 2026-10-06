@@ -1,13 +1,18 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { EntitySummary, TermMergePreview } from "../../src/api";
+import type { Draft, EntitySummary, TermCandidate, TermMergePreview } from "../../src/api";
 import { TermsPage } from "../../src/pages/BrowsePages";
 
 const api = vi.hoisted(() => ({
   listAllEntities: vi.fn(),
+  listTermCandidates: vi.fn(),
   previewTermMerge: vi.fn(),
   mergeTerms: vi.fn(),
+  acceptTermCandidate: vi.fn(),
+  createCandidateTermDraft: vi.fn(),
+  rejectTermCandidate: vi.fn(),
+  requestCandidateTermDraftProposal: vi.fn(),
 }));
 
 vi.mock("../../src/api", async (importOriginal) => ({
@@ -36,10 +41,88 @@ const terms: EntitySummary[] = [
   },
 ];
 
+const candidate = (overrides: Partial<TermCandidate>): TermCandidate => ({
+  id: "candidate-new",
+  normalized_name: "adaptive token pruning",
+  display_name: "Adaptive Token Pruning",
+  suggested_type: "concept",
+  suggested_term_id: null,
+  status: "pending",
+  draft_id: null,
+  accepted_term_id: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  reviewed_at: null,
+  evidence: [{
+    id: "evidence-one",
+    candidate_id: "candidate-new",
+    origin_type: "document",
+    origin_id: "note-one",
+    origin_title: "Note One",
+    origin_rejected: false,
+    mention: "adaptive token pruning",
+    context_excerpt: "Adaptive token pruning reduces redundant tokens.",
+    confidence: 0.9,
+    rationale: "A reusable technique.",
+    discovered_at: "2026-01-01T00:00:00Z",
+  }],
+  ...overrides,
+});
+
+const candidates = [
+  candidate({}),
+  candidate({
+    id: "candidate-existing",
+    normalized_name: "calibrated optimizer",
+    display_name: "Calibrated Optimizer",
+    suggested_type: "entity",
+    suggested_term_id: "survivor-term",
+    evidence: [{
+      id: "evidence-two",
+      candidate_id: "candidate-existing",
+      origin_type: "document",
+      origin_id: "note-two",
+      origin_title: "Note Two",
+      origin_rejected: false,
+      mention: "Calibrated Optimizer",
+      context_excerpt: "The Calibrated Optimizer improves convergence.",
+      confidence: 0.84,
+      rationale: "Matches an existing entity.",
+      discovered_at: "2026-01-02T00:00:00Z",
+    }],
+  }),
+  candidate({
+    id: "candidate-research",
+    normalized_name: "research reading phrase",
+    display_name: "Research Reading Phrase",
+    suggested_type: "vocabulary",
+    status: "drafting",
+    draft_id: "draft-research",
+    evidence: [{
+      id: "evidence-research",
+      candidate_id: "candidate-research",
+      origin_type: "external",
+      origin_id: "ref:paper-1",
+      origin_title: "Paper record",
+      origin_rejected: false,
+      mention: "research reading phrase",
+      context_excerpt: null,
+      confidence: 0.72,
+      rationale: "Useful in research reading.",
+      discovered_at: "2026-01-03T00:00:00Z",
+    }],
+  }),
+  candidate({ id: "candidate-closed", status: "accepted", display_name: "Closed Candidate" }),
+];
+
 describe("Terms Registry controls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.listAllEntities.mockResolvedValue(terms);
+    api.listTermCandidates.mockResolvedValue(candidates);
+    api.acceptTermCandidate.mockResolvedValue({});
+    api.rejectTermCandidate.mockResolvedValue({});
+    api.requestCandidateTermDraftProposal.mockResolvedValue({});
   });
 
   it("filters Registry entries by all three Term types", async () => {
@@ -102,5 +185,62 @@ describe("Terms Registry controls", () => {
     }));
     expect((await screen.findByRole("status")).textContent).toContain("已将 1 个 Term 合并到 Survivor Term。");
     await waitFor(() => expect(screen.queryByText("Loser Term")).toBeNull());
+  });
+
+  it("filters Candidate review and links a selected Registry Term", async () => {
+    api.acceptTermCandidate.mockResolvedValue({});
+    render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
+
+    expect(await screen.findByText("Adaptive Token Pruning")).not.toBeNull();
+    expect(screen.getByText("Calibrated Optimizer")).not.toBeNull();
+    expect(screen.getByText("Research Reading Phrase")).not.toBeNull();
+    expect(screen.queryByText("Closed Candidate")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Notes" }));
+    expect(screen.queryByText("Research Reading Phrase")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "All" }));
+    await userEvent.selectOptions(screen.getByLabelText("类别"), "entity");
+    expect(screen.queryByText("Adaptive Token Pruning")).toBeNull();
+    expect(screen.getByText("Calibrated Optimizer")).not.toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("类别"), "");
+
+    await userEvent.click(screen.getByRole("button", { name: "Choose Another Existing…" }));
+    await userEvent.type(screen.getByLabelText("搜索 Term"), "Loser Term");
+    await userEvent.click(screen.getByRole("option", { name: /Loser Term/ }));
+    await userEvent.click(screen.getByRole("button", { name: "链接到所选 Term" }));
+
+    await waitFor(() => expect(api.acceptTermCandidate).toHaveBeenCalledWith("candidate-existing", "loser-term"));
+  });
+
+  it("requires explicit consent before creating a Candidate Term Draft and AI Proposal", async () => {
+    const draft: Draft = {
+      id: "draft-adaptive",
+      entity_type: "term",
+      entity_id: "adaptive-token-pruning",
+      base_git_revision: "a".repeat(40),
+      base_content_hash: "b".repeat(64),
+      content: "---\nid: adaptive-token-pruning\n---\n",
+      revision: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    api.createCandidateTermDraft.mockResolvedValue({
+      candidate: candidate({ status: "drafting", draft_id: draft.id }),
+      draft,
+      created: true,
+    });
+    const onOpen = vi.fn();
+    render(<TermsPage onOpen={onOpen} initialTab="candidates" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Create Term" }));
+    const generate = screen.getByRole("button", { name: "同意并生成建议" });
+    expect((generate as HTMLButtonElement).disabled).toBe(true);
+    expect(api.createCandidateTermDraft).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("checkbox", { name: /我同意将上述信息发送给 DeepSeek/ }));
+    await userEvent.click(generate);
+
+    await waitFor(() => expect(api.createCandidateTermDraft).toHaveBeenCalledWith("candidate-new"));
+    await waitFor(() => expect(api.requestCandidateTermDraftProposal).toHaveBeenCalledWith(draft.id, "candidate-new"));
+    expect(api.createCandidateTermDraft.mock.invocationCallOrder[0]).toBeLessThan(api.requestCandidateTermDraftProposal.mock.invocationCallOrder[0]);
+    expect(onOpen).toHaveBeenCalledWith("term", "adaptive-token-pruning");
   });
 });

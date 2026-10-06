@@ -62,6 +62,7 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
 
     term = api_client.get("/api/terms/neural-indexing").json()
     assert term["backlinks"][0]["source_entity_id"] == "neural-indexing"
+    assert term["backlinks"][0]["source_title"] == "Neural Indexing"
     assert term["canonical_content"].startswith("---\nschema_version: 1")
     mention_content = _document_content("unlinked-note", "Unlinked Note").replace(
         "A stable index retains canonical facts", "Neural Indexing appears here without a wiki link"

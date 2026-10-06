@@ -2,6 +2,69 @@ export type EntityType = "document" | "term" | "source";
 export type TermType = "concept" | "entity" | "vocabulary";
 export type DraftEntityType = EntityType | "taxonomy" | "collection" | "research_profile";
 export type AnnotationStyleType = "highlight" | "text_color" | "underline";
+export type TermCandidateStatus = "pending" | "drafting" | "accepted" | "rejected";
+export type TermOriginType = "document" | "source" | "research_work" | "external";
+
+export interface TermCandidateEvidence {
+  id: string;
+  candidate_id: string;
+  origin_type: TermOriginType;
+  origin_id: string;
+  origin_title: string | null;
+  origin_rejected: boolean;
+  mention: string;
+  context_excerpt: string | null;
+  confidence: number | null;
+  rationale: string | null;
+  discovered_at: string;
+}
+
+export interface TermCandidate {
+  id: string;
+  normalized_name: string;
+  display_name: string;
+  suggested_type: TermType;
+  suggested_term_id: string | null;
+  status: TermCandidateStatus;
+  draft_id: string | null;
+  accepted_term_id: string | null;
+  created_at: string;
+  updated_at: string;
+  reviewed_at: string | null;
+  evidence: TermCandidateEvidence[];
+}
+
+export interface CandidateTermDraftResult {
+  candidate: TermCandidate;
+  draft: Draft;
+  created: boolean;
+}
+
+export interface DocumentTermAnalysisState {
+  document_id: string;
+  status: "never_analyzed" | "up_to_date" | "outdated";
+  analyzed_content_hash: string | null;
+  prompt_version: string | null;
+  provider: string | null;
+  model: string | null;
+  analyzed_at: string | null;
+}
+
+export interface DocumentTermAnalysisResult extends DocumentTermAnalysisState {
+  status: "up_to_date";
+  analyzed_content_hash: string;
+  prompt_version: string;
+  provider: string;
+  model: string;
+  analyzed_at: string;
+  statistics: {
+    created_candidates: number;
+    reused_candidates: number;
+    existing: number;
+    new: number;
+    skipped: number;
+  };
+}
 
 export interface PresentationAnnotation {
   id: string;
@@ -548,6 +611,61 @@ export function mergeTerms(input: TermMergeInput) {
   return request<TermMergeResult>("/api/terms/merge", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export function listTermCandidates() {
+  return request<TermCandidate[]>("/api/terms/candidates");
+}
+
+export function getDocumentTermAnalysis(documentId: string) {
+  return request<DocumentTermAnalysisState>(
+    `/api/terms/document-analysis/${encodeURIComponent(documentId)}`,
+  );
+}
+
+export function analyzeDocumentTerms(documentId: string) {
+  return request<DocumentTermAnalysisResult>(
+    `/api/terms/analyze-document/${encodeURIComponent(documentId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ confirm_deepseek_transfer: true }),
+    },
+  );
+}
+
+export function rejectTermCandidate(
+  candidateId: string,
+  input: { scope: "local"; origin_type: TermOriginType; origin_id: string } | { scope: "global" },
+) {
+  return request<TermCandidate>(
+    `/api/terms/candidates/${encodeURIComponent(candidateId)}/reject`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function acceptTermCandidate(candidateId: string, termId: string) {
+  return request<TermCandidate>(
+    `/api/terms/candidates/${encodeURIComponent(candidateId)}/accept-existing`,
+    { method: "POST", body: JSON.stringify({ term_id: termId }) },
+  );
+}
+
+export function createCandidateTermDraft(candidateId: string) {
+  return request<CandidateTermDraftResult>(
+    `/api/terms/candidates/${encodeURIComponent(candidateId)}/create-term-draft`,
+    { method: "POST" },
+  );
+}
+
+export function requestCandidateTermDraftProposal(draftId: string, candidateId: string) {
+  return request<{ external_provider_notice: string; proposal: Proposal }>("/api/ai/term-draft", {
+    method: "POST",
+    body: JSON.stringify({
+      draft_id: draftId,
+      candidate_id: candidateId,
+      confirm_deepseek_transfer: true,
+    }),
   });
 }
 
