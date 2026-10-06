@@ -20,7 +20,7 @@ from backend.app.services.term_registry import TermRegistry
 from backend.app.services.term_resolver import TermResolver
 
 
-PROMPT_VERSION = "term-detection-v1"
+PROMPT_VERSION = "term-detection-v2"
 
 
 class TermAnalysisConflict(RuntimeError):
