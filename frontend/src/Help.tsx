@@ -77,8 +77,8 @@ const entries: HelpEntry[] = [
     titleEn: "Draft, Canonical, and Git history",
     aliases: ["正式版", "Runtime", "版本历史", "canonical"],
     keywords: ["draft", "canonical", "runtime", "git history", "saved draft", "未发布", "保存"],
-    bodyZh: "Draft 是 Runtime 中可继续编辑的临时版本；Canonical 是正式知识源，以 Markdown 和 YAML 保存。保存 Draft 不会直接改变 Canonical。Workspace 的 Git history 可查看已发布版本对应的提交记录。",
-    bodyEn: "A Draft is a temporary Runtime version that remains editable. Canonical is the published knowledge source stored as Markdown and YAML. Saving a Draft does not change Canonical. Git history in the Workspace shows commits for published versions.",
+    bodyZh: "Draft 是 Runtime 中可继续编辑的临时版本；Canonical 是正式知识源，以 Markdown 和 YAML 保存。保存 Draft 不会直接改变 Canonical。每次成功 Publish 都会创建 Git commit，因此已发布版本会保留在仓库历史中。",
+    bodyEn: "A Draft is a temporary editable Runtime version. Canonical is the published Markdown/YAML knowledge source. Saving a Draft does not change Canonical. Each successful Publish creates a Git commit, so published versions remain in repository history.",
   },
   {
     id: "publish-preflight",
@@ -189,7 +189,11 @@ export function HelpPage() {
           aria-label={isChinese ? "搜索帮助" : "Search help"}
           placeholder={isChinese ? "搜索功能、按钮或概念……" : "Search features, buttons, or concepts…"}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            const value = event.target.value;
+            setQuery(value);
+            if (value.trim()) setActiveCategory("");
+          }}
         />
       </label>
       <nav className="help-category-nav" aria-label={isChinese ? "帮助分类" : "Help categories"}>
