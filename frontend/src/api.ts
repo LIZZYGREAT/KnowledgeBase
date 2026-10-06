@@ -1,4 +1,5 @@
 export type EntityType = "document" | "term" | "source";
+export type TermType = "concept" | "entity" | "vocabulary";
 export type DraftEntityType = EntityType | "taxonomy" | "collection" | "research_profile";
 export type AnnotationStyleType = "highlight" | "text_color" | "underline";
 
@@ -44,6 +45,26 @@ export interface TermRelation {
   title: string | null;
   created_from_candidate_id: string | null;
   created_at: string;
+}
+
+export interface TermMergeInput {
+  survivor_term_id: string;
+  loser_term_ids: string[];
+  final_title: string;
+  confirm_loser_bodies_not_merged?: boolean;
+}
+
+export interface TermMergePreview {
+  survivor_term_id: string;
+  loser_term_ids: string[];
+  final_title: string;
+  aliases: string[];
+  loser_bodies_not_merged: string[];
+}
+
+export interface TermMergeResult extends TermMergePreview {
+  commit_revision: string;
+  warnings: string[];
 }
 
 export interface EvidenceItem {
@@ -514,6 +535,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getEntity(type: EntityType, id: string) {
   return request<EntityDetail>(`/api/${typePath(type)}/${encodeURIComponent(id)}`);
+}
+
+export function previewTermMerge(input: Pick<TermMergeInput, "survivor_term_id" | "loser_term_ids" | "final_title">) {
+  return request<TermMergePreview>("/api/terms/merge/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function mergeTerms(input: TermMergeInput) {
+  return request<TermMergeResult>("/api/terms/merge", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function listEntities(type: EntityType, offset = 0) {

@@ -1,5 +1,15 @@
-import { useMemo, useState } from "react";
-import { listAllEntities, listTaxonomy, type EntitySummary, type TaxonomyEntry } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import {
+  listAllEntities,
+  listTaxonomy,
+  mergeTerms,
+  previewTermMerge,
+  type EntitySummary,
+  type TermMergePreview,
+  type TermType,
+  type TaxonomyEntry,
+} from "../api";
+import { errorMessage } from "../errors";
 import { Chip, EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "../ui";
 import { EntityList, readList, readString, useResource, type SelectEntity } from "./PageShared";
 export function LibraryPage({ onOpen }: { onOpen: SelectEntity }) {
@@ -27,33 +37,137 @@ export function LibraryPage({ onOpen }: { onOpen: SelectEntity }) {
 }
 
 export function TermsPage({ onOpen }: { onOpen: SelectEntity }) {
-  const [termType, setTermType] = useState("");
+  const [termType, setTermType] = useState<TermType | "">("");
   const [depth, setDepth] = useState("");
+  const [selectedTermIds, setSelectedTermIds] = useState<string[]>([]);
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [mergeSurvivorId, setMergeSurvivorId] = useState("");
+  const [mergeFinalTitle, setMergeFinalTitle] = useState("");
+  const [mergePreview, setMergePreview] = useState<TermMergePreview | null>(null);
+  const [mergePreviewLoading, setMergePreviewLoading] = useState(false);
+  const [mergePreviewError, setMergePreviewError] = useState("");
+  const [mergeError, setMergeError] = useState("");
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [confirmedBodiesNotMerged, setConfirmedBodiesNotMerged] = useState(false);
+  const [mergeNotice, setMergeNotice] = useState("");
   const resource = useResource("terms", () => listAllEntities("term"));
   const terms = resource.data ?? [];
   const visible = terms.filter((term) => (!termType || term.metadata.type === termType) && (!depth || term.metadata.depth === depth));
+  const loserTermIds = selectedTermIds.filter((id) => id !== mergeSurvivorId);
+
+  useEffect(() => {
+    if (!mergeDialogOpen || !mergeSurvivorId || !mergeFinalTitle.trim() || !loserTermIds.length) {
+      setMergePreview(null);
+      setMergePreviewError("");
+      setMergePreviewLoading(false);
+      return;
+    }
+    let active = true;
+    setMergePreview(null);
+    setMergePreviewError("");
+    setMergePreviewLoading(true);
+    void previewTermMerge({
+      survivor_term_id: mergeSurvivorId,
+      loser_term_ids: loserTermIds,
+      final_title: mergeFinalTitle,
+    })
+      .then((preview) => { if (active) setMergePreview(preview); })
+      .catch((reason: unknown) => { if (active) setMergePreviewError(errorMessage(reason)); })
+      .finally(() => { if (active) setMergePreviewLoading(false); });
+    return () => { active = false; };
+  }, [mergeDialogOpen, mergeSurvivorId, mergeFinalTitle, selectedTermIds]);
+
+  function toggleTermSelection(termId: string) {
+    setMergeNotice("");
+    setSelectedTermIds((current) => current.includes(termId)
+      ? current.filter((id) => id !== termId)
+      : [...current, termId]);
+  }
+
+  function openMergeDialog() {
+    if (selectedTermIds.length < 2) return;
+    const survivor = terms.find((term) => term.id === selectedTermIds[0]);
+    setMergeSurvivorId(survivor?.id ?? "");
+    setMergeFinalTitle(survivor?.title ?? "");
+    setConfirmedBodiesNotMerged(false);
+    setMergeError("");
+    setMergeDialogOpen(true);
+  }
+
+  async function confirmMerge() {
+    if (!mergePreview || mergeBusy) return;
+    setMergeBusy(true);
+    setMergeError("");
+    try {
+      const result = await mergeTerms({
+        survivor_term_id: mergeSurvivorId,
+        loser_term_ids: loserTermIds,
+        final_title: mergeFinalTitle.trim(),
+        confirm_loser_bodies_not_merged: confirmedBodiesNotMerged,
+      });
+      setMergeDialogOpen(false);
+      setSelectedTermIds([]);
+      setMergeNotice(`已将 ${result.loser_term_ids.length} 个 Term 合并到 ${result.final_title}。${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`);
+      resource.retry();
+    } catch (reason) {
+      setMergeError(errorMessage(reason));
+    } finally {
+      setMergeBusy(false);
+    }
+  }
+
   return (
     <div className="page-stack">
-      <PageHeader eyebrow="VOCABULARY & CONCEPTS" title="Terms" description="把概念和专业词汇作为可链接、可复用的知识节点。" />
-      <div className="library-toolbar">
+      <PageHeader eyebrow="TERMS REGISTRY" title="Terms" description="浏览并维护可链接、可复用的知识节点。" />
+      <div className="library-toolbar term-registry-toolbar">
         <div className="filter-pair">
-          <label className="field-label compact-field">类别<select value={termType} onChange={(event) => setTermType(event.target.value)}><option value="">全部 Term</option><option value="concept">Concept</option><option value="vocabulary">Vocabulary</option></select></label>
+          <label className="field-label compact-field">类别<select value={termType} onChange={(event) => setTermType(event.target.value as TermType | "")}><option value="">全部 Term</option><option value="concept">Concept</option><option value="entity">Entity</option><option value="vocabulary">Vocabulary</option></select></label>
           <label className="field-label compact-field">深度<select value={depth} onChange={(event) => setDepth(event.target.value)}><option value="">所有深度</option><option value="stub">Stub</option><option value="standard">Standard</option><option value="deep">Deep</option></select></label>
         </div>
-        <span className="count-label">{visible.length} 个 Term</span>
+        <div className="term-registry-actions">
+          <span className="count-label">{visible.length} 个 Term</span>
+          <button className="button button-secondary" type="button" disabled={selectedTermIds.length < 2 || mergeBusy} onClick={openMergeDialog}>合并所选 {selectedTermIds.length ? `(${selectedTermIds.length})` : ""}</button>
+        </div>
       </div>
+      {mergeNotice && <p className="editor-notice success-notice" role="status">{mergeNotice}</p>}
       {resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : visible.length ? (
         <div className="term-grid">
           {visible.map((term) => (
-            <button key={term.id} className="term-card surface" onClick={() => onOpen("term", term.id)}>
-              <div className="term-card-top"><span className="term-glyph">Aa</span><Chip>{titleCase(readString(term.metadata.depth) || "term")}</Chip></div>
-              <strong>{term.title}</strong>
-              <span className="term-kind">{titleCase(readString(term.metadata.type) || "concept")}</span>
-              <div className="term-aliases">{readList(term.metadata, "aliases").slice(0, 3).map((alias) => <span key={alias}>{alias}</span>)}</div>
-            </button>
+            <article key={term.id} className="term-card-shell surface">
+              <label className="term-card-select"><input type="checkbox" checked={selectedTermIds.includes(term.id)} onChange={() => toggleTermSelection(term.id)} aria-label={`选择 ${term.title}`} /><span>选择合并</span></label>
+              <button type="button" className="term-card" onClick={() => onOpen("term", term.id)}>
+                <div className="term-card-top"><span className="term-glyph">Aa</span><Chip>{titleCase(readString(term.metadata.depth) || "term")}</Chip></div>
+                <strong>{term.title}</strong>
+                <span className="term-kind">{titleCase(readString(term.metadata.type) || "concept")}</span>
+                <div className="term-aliases">{readList(term.metadata, "aliases").slice(0, 3).map((alias) => <span key={alias}>{alias}</span>)}</div>
+              </button>
+            </article>
           ))}
         </div>
       ) : <EmptyState title="还没有 Term" description="发布概念或词汇条目后，就可以在这里按类别和深度浏览。" />}
+      {mergeDialogOpen && <div className="explorer-modal-backdrop term-merge-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !mergeBusy) setMergeDialogOpen(false); }}>
+        <section className="explorer-modal term-merge-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-merge-title">
+          <div className="section-heading"><div><h2 id="term-merge-title">合并 Terms</h2><p>选择保留项并预览最终标题与别名。</p></div><button className="text-button" type="button" disabled={mergeBusy} onClick={() => setMergeDialogOpen(false)}>关闭</button></div>
+          <div className="term-merge-body">
+            <label className="field-label">保留的 Survivor<select value={mergeSurvivorId} onChange={(event) => { const next = terms.find((term) => term.id === event.target.value); setMergeSurvivorId(event.target.value); setMergeFinalTitle(next?.title ?? ""); setConfirmedBodiesNotMerged(false); }}>
+              {selectedTermIds.map((id) => { const term = terms.find((item) => item.id === id); return <option key={id} value={id}>{term?.title ?? id}</option>; })}
+            </select></label>
+            <label className="field-label">最终标题<input value={mergeFinalTitle} onChange={(event) => setMergeFinalTitle(event.target.value)} /></label>
+            <section className="term-merge-alias-preview" aria-label="最终别名预览">
+              <strong>最终别名</strong>
+              {mergePreviewLoading ? <span role="status">正在更新预览…</span> : mergePreviewError ? <p className="error-copy" role="alert">{mergePreviewError}</p> : mergePreview?.aliases.length ? <ul>{mergePreview.aliases.map((alias) => <li key={alias}>{alias}</li>)}</ul> : <span>无别名</span>}
+            </section>
+            {mergePreview?.loser_bodies_not_merged.length ? <div className="term-merge-body-warning">
+              <strong>Loser 正文不会自动并入</strong>
+              <p>以下条目的正文会随合并删除，不会复制到 Survivor：</p>
+              <ul>{mergePreview.loser_bodies_not_merged.map((id) => <li key={id}>{terms.find((term) => term.id === id)?.title ?? id}</li>)}</ul>
+              <label className="term-merge-confirm"><input type="checkbox" checked={confirmedBodiesNotMerged} onChange={(event) => setConfirmedBodiesNotMerged(event.target.checked)} /><span>我确认继续，且不合并这些正文</span></label>
+            </div> : null}
+            {mergeError && <p className="error-copy" role="alert">{mergeError}</p>}
+          </div>
+          <div className="term-merge-actions"><button className="button button-secondary" type="button" disabled={mergeBusy} onClick={() => setMergeDialogOpen(false)}>取消</button><button className="button button-primary" type="button" disabled={mergeBusy || mergePreviewLoading || !mergePreview || Boolean(mergePreviewError) || Boolean(mergePreview?.loser_bodies_not_merged.length && !confirmedBodiesNotMerged)} onClick={() => void confirmMerge()}>{mergeBusy ? "正在合并…" : "确认合并"}</button></div>
+        </section>
+      </div>}
     </div>
   );
 }
