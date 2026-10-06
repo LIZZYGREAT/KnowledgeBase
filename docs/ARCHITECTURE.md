@@ -4,6 +4,8 @@
 
 **Phase 13 is complete and frozen after 13.5; Phase 14 implementation is complete. GitHub Actions is the authoritative source for current CI status. Production acceptance remains pending.** Phase 13 includes the Collection Explorer + Unified Workspace convergence and final Runtime Draft, Publisher, Import, navigation, batch-preflight, discard, and restore correctness fixes. Phase 13 has no further subphases or cleanup work. Phase 14 explicitly extends GitManager's canonical tracked roots from `knowledge/` to `knowledge/` and `config/research/profiles/`; never allowlist the entire repository. Live Provider/DeepSeek smoke checks, systemd execution, and production backup/restore require operator-provided host access and data.
 
+**The current product phase is Term Core (Phase 1 of the Terms refocus).** Terms support `concept`, `entity`, and `vocabulary`; Runtime Candidates, Evidence, accepted entity relations, rejection memory, and merge audit use SQLite schema v13. A human-reviewed Existing acceptance creates explicit Runtime relations. Term Merge updates the survivor and removes losers in one Publisher Git commit, preserves old IDs as aliases, migrates Runtime references transactionally, and never rewrites Documents. Automatic Note analysis, PDF Corpus, and Discovery are outside this phase.
+
 The current formal rules are:
 
 - Proposals have one lifecycle: `proposed` → `drafted` → `merged` or `stale`, with `rejected` as the explicit rejection outcome. There are no approve or merge endpoints. Applying a Proposal updates its linked Draft; only `Publisher` publishes Drafts, and Proposal finalization is post-publish processing.
@@ -12,6 +14,8 @@ The current formal rules are:
 - `CanonicalTargetResolver` is the single owner of canonical entity target paths and metadata resolution for Draft API workflows, publishing, and ImportService. It validates metadata, IDs, indexed paths, and repository containment without scanning the knowledge tree for duplicate IDs.
 - `Publisher.publish(draft_id, expected_revision, ...)` requires the revision the user reviewed. `publish_batch` and batch preflight accept `(draft_id, expected_revision)` pairs and reject duplicate Draft IDs and invalid revisions. Batch preflight validates the prospective Document and Collection state without writing canonical files.
 - Canonical Document, Term, Source, and Collection IDs are unique within each entity type. Repository checks, full index rebuilds, and Publish validation fail when an ID appears in more than one canonical file.
+- Term metadata types are `concept`, `entity`, and `vocabulary`. Candidate Evidence and accepted entity relations are persistent Runtime state; explicit wiki links remain rebuildable Backlinks and are not duplicated as Runtime relations.
+- Term Merge is a Publisher-owned canonical operation. It commits the updated survivor and loser deletions together, preserves loser identifiers as aliases for old links, and migrates Runtime relations and Candidate Term references within one SQLite transaction. Losing bodies are never appended to the survivor.
 - Frontend checks use TypeScript and Vitest; there is no JavaScript implementation paired with declaration files or Node's test runner.
 - Legacy Import compatibility is isolated in its adapter; standard Import processing has no legacy branch.
 - Runtime API routes are split by domain and aggregated by `backend/app/api/runtime.py`.

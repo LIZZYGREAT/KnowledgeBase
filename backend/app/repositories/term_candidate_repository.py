@@ -171,6 +171,61 @@ class TermCandidateRepository:
             )
         return self.get_candidate(candidate_id)
 
+    def migrate_merged_terms(
+        self, loser_term_ids: list[str], survivor_term_id: str, merged_at: str
+    ) -> None:
+        """Move every Runtime reference in the caller's open SQLite transaction."""
+        placeholders = ", ".join("?" for _ in loser_term_ids)
+        parameters = tuple(loser_term_ids)
+        rows = self.connection.execute(
+            """SELECT entity_type, entity_id, term_id,
+                      created_from_candidate_id, created_at
+               FROM term_entity_relations
+               WHERE term_id IN ({})""".format(placeholders),
+            parameters,
+        ).fetchall()
+        for row in rows:
+            self.connection.execute(
+                """INSERT INTO term_entity_relations (
+                       id, entity_type, entity_id, term_id,
+                       created_from_candidate_id, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(entity_type, entity_id, term_id) DO NOTHING""",
+                (
+                    uuid.uuid4().hex,
+                    row["entity_type"],
+                    row["entity_id"],
+                    survivor_term_id,
+                    row["created_from_candidate_id"],
+                    row["created_at"],
+                ),
+            )
+        self.connection.execute(
+            "DELETE FROM term_entity_relations WHERE term_id IN ({})".format(
+                placeholders
+            ),
+            parameters,
+        )
+        self.connection.execute(
+            """UPDATE term_candidates
+               SET suggested_term_id = ?
+               WHERE suggested_term_id IN ({})""".format(placeholders),
+            (survivor_term_id,) + parameters,
+        )
+        self.connection.execute(
+            """UPDATE term_candidates
+               SET accepted_term_id = ?
+               WHERE accepted_term_id IN ({})""".format(placeholders),
+            (survivor_term_id,) + parameters,
+        )
+        for loser_term_id in loser_term_ids:
+            self.connection.execute(
+                """INSERT INTO term_merge_history (
+                       id, loser_term_id, survivor_term_id, merged_at
+                   ) VALUES (?, ?, ?, ?)""",
+                (uuid.uuid4().hex, loser_term_id, survivor_term_id, merged_at),
+            )
+
     def _insert_evidence(
         self,
         candidate_id: str,

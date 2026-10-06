@@ -34,6 +34,16 @@ export interface EntityDetail extends EntitySummary {
   detected_mentions: Array<{ id: string; title: string }>;
   evidence: EvidenceItem[];
   related_documents: EntitySummary[];
+  term_relations?: TermRelation[];
+}
+
+export interface TermRelation {
+  entity_type: "document" | "source" | "research_work";
+  entity_id: string;
+  term_id: string;
+  title: string | null;
+  created_from_candidate_id: string | null;
+  created_at: string;
 }
 
 export interface EvidenceItem {

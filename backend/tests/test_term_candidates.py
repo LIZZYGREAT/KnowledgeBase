@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app.api.terms import router as terms_router
+from backend.app.api.knowledge import router as knowledge_router
 from backend.app.db.connection import connect_database, initialize_database
 from backend.app.db.migrations import migrate_database
 from backend.app.domain.ai import DraftTermOutput
@@ -15,6 +16,7 @@ from backend.app.services.term_candidate_service import (
     TermCandidateConflict,
     TermCandidateService,
 )
+from backend.app.services.term_merge_service import TermMergePreview, TermMergeResult
 
 
 def test_runtime_schema_12_migrates_to_term_core_13():
@@ -132,10 +134,22 @@ def test_local_reject_memory_is_origin_scoped_and_global_reject_blocks_new_candi
 
         rejected = service.reject_candidate(candidate.id, "local", "Not useful here")
         assert rejected.status == "rejected"
+        assert service.resolve_against_registry(candidate).status == "rejected"
         assert repository.is_rejected("latent space", "origin:document:note-one")
         assert repository.is_rejected("latent space", "origin:source:paper-one")
         assert not repository.is_rejected("latent space", "origin:document:note-two")
         assert not repository.is_rejected("latent space", "global")
+        allowed_elsewhere = service.create_candidate(
+            "Latent Space",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type="document", origin_id="note-two", mention="latent space"
+                )
+            ],
+        )
+        assert allowed_elsewhere.id != candidate.id
+        assert service.resolve_against_registry(allowed_elsewhere).status == "new_term"
 
         global_candidate = service.create_candidate(
             "Global Reject",
@@ -147,6 +161,7 @@ def test_local_reject_memory_is_origin_scoped_and_global_reject_blocks_new_candi
             ],
         )
         service.reject_candidate(global_candidate.id, "global")
+        assert service.resolve_against_registry(global_candidate).status == "rejected"
         with pytest.raises(TermCandidateConflict, match="rejected globally"):
             service.create_candidate(
                 "Global Reject",
@@ -244,6 +259,7 @@ def test_term_candidate_api_routes_bind_to_candidate_service(tmp_path):
     )
     app = FastAPI()
     app.include_router(terms_router)
+    app.include_router(knowledge_router)
     app.state.term_candidate_service = service
 
     try:
@@ -262,6 +278,56 @@ def test_term_candidate_api_routes_bind_to_candidate_service(tmp_path):
             assert accepted.json()["accepted_term_id"] == "neural-indexing"
     finally:
         connection.close()
+
+
+def test_term_merge_api_serializes_preview_and_result():
+    class FakeTermMergeService:
+        def preview(self, survivor_term_id, loser_term_ids, final_title):
+            return TermMergePreview(
+                survivor_term_id,
+                tuple(loser_term_ids),
+                final_title,
+                ("Former Title", "former-id"),
+                ("former-id",),
+            )
+
+        def merge(
+            self,
+            survivor_term_id,
+            loser_term_ids,
+            final_title,
+            confirm_loser_bodies_not_merged=False,
+        ):
+            return TermMergeResult(
+                survivor_term_id,
+                tuple(loser_term_ids),
+                final_title,
+                ("Former Title", "former-id"),
+                ("former-id",),
+                "a" * 40,
+                ("Index rebuild warning",),
+            )
+
+    app = FastAPI()
+    app.include_router(terms_router)
+    app.include_router(knowledge_router)
+    app.state.term_merge_service = FakeTermMergeService()
+
+    with TestClient(app) as client:
+        payload = {
+            "survivor_term_id": "survivor-term",
+            "loser_term_ids": ["former-id"],
+            "final_title": "Survivor Term",
+        }
+        preview = client.post("/api/terms/merge/preview", json=payload)
+        assert preview.status_code == 200, preview.json()
+        assert preview.json()["aliases"] == ["Former Title", "former-id"]
+        merged = client.post(
+            "/api/terms/merge",
+            json={**payload, "confirm_loser_bodies_not_merged": True},
+        )
+        assert merged.status_code == 200, merged.json()
+        assert merged.json()["commit_revision"] == "a" * 40
 
 
 def _write_term(repository_root):

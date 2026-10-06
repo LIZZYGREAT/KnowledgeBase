@@ -88,6 +88,13 @@ class RestoredResult:
     warnings: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class CanonicalTermMergeCommit:
+    commit_revision: str
+    paths: tuple[Path, ...]
+    previous: tuple[bytes, ...]
+
+
 @dataclass
 class _PreparedDraft:
     draft: Draft
@@ -602,6 +609,119 @@ class Publisher:
             )
         return RestoredResult(commit_revision, tuple(warnings))
 
+    def merge_terms(
+        self,
+        survivor_term_id: str,
+        loser_term_ids: Sequence[str],
+        final_title: str,
+        aliases: Sequence[str],
+    ) -> CanonicalTermMergeCommit:
+        """Publish one canonical Git change containing a Term update and deletions."""
+        if not loser_term_ids or len(loser_term_ids) != len(set(loser_term_ids)):
+            raise PublishValidationError("A Term merge requires unique loser Term ids")
+        if survivor_term_id in loser_term_ids:
+            raise PublishValidationError("The survivor cannot also be a loser")
+
+        registry = TermRegistry.load(self.knowledge_root / "terms")
+        terms = {term.id: term for term in registry.terms}
+        if survivor_term_id not in terms:
+            raise PublishValidationError("Survivor Term does not exist")
+        missing = [term_id for term_id in loser_term_ids if term_id not in terms]
+        if missing:
+            raise PublishValidationError(
+                "Loser Term does not exist: {}".format(", ".join(missing))
+            )
+
+        selected = [survivor_term_id, *loser_term_ids]
+        for term_id in selected:
+            if self.draft_service.list_for_target("term", term_id):
+                raise PublishConflictError(
+                    "Term '{}' has an active Draft; publish or discard it before merging".format(
+                        term_id
+                    )
+                )
+
+        survivor_path = self.knowledge_root / "terms" / "{}.md".format(survivor_term_id)
+        survivor_previous = survivor_path.read_bytes()
+        parsed = parse_markdown(survivor_previous.decode("utf-8"))
+        if parsed.frontmatter is None:
+            raise PublishValidationError("Survivor Term has invalid frontmatter")
+        updated_metadata = dict(parsed.frontmatter)
+        updated_metadata["title"] = final_title
+        updated_metadata["aliases"] = list(aliases)
+        try:
+            validated_metadata = TermMetadata.model_validate(updated_metadata)
+        except ValidationError as error:
+            raise PublishValidationError(str(error)) from error
+        if validated_metadata.id != survivor_term_id:
+            raise PublishValidationError("A Term merge cannot change the survivor id")
+        survivor_content = _replace_markdown_frontmatter(
+            survivor_previous.decode("utf-8"), updated_metadata
+        ).encode("utf-8")
+
+        paths = (survivor_path,) + tuple(
+            self.knowledge_root / "terms" / "{}.md".format(term_id)
+            for term_id in loser_term_ids
+        )
+        previous = (survivor_previous,) + tuple(path.read_bytes() for path in paths[1:])
+        prepared = [
+            {"path": path, "previous": old_content}
+            for path, old_content in zip(paths, previous)
+        ]
+        try:
+            _atomic_write(survivor_path, survivor_content)
+            for loser_path in paths[1:]:
+                loser_path.unlink()
+
+            reference_issues = validate_repository_references(self.repository_root)
+            if reference_issues:
+                raise PublishValidationError(
+                    "; ".join(
+                        "{}: {}".format(issue.path, issue.message)
+                        for issue in reference_issues
+                    )
+                )
+
+            commit_revision = self.git.commit_many(
+                paths,
+                "kb(term): merge {} into {}".format(
+                    ", ".join(loser_term_ids), survivor_term_id
+                ),
+            )
+        except Exception as error:
+            rollback_errors = self._restore_prepared_files(prepared)
+            if rollback_errors:
+                raise PublishError(
+                    "Term merge failed and canonical rollback was incomplete: {}".format(
+                        "; ".join(rollback_errors)
+                    )
+                ) from error
+            raise
+
+        return CanonicalTermMergeCommit(commit_revision, paths, previous)
+
+    def rollback_term_merge(self, merge: CanonicalTermMergeCommit) -> str:
+        """Compensate a committed canonical merge if its Runtime transaction fails."""
+        prepared = [
+            {"path": path, "previous": previous}
+            for path, previous in zip(merge.paths, merge.previous)
+        ]
+        try:
+            for path, previous in zip(merge.paths, merge.previous):
+                _atomic_write(path, previous)
+            return self.git.commit_many(
+                merge.paths, "kb(term): rollback incomplete Term merge"
+            )
+        except Exception as error:
+            rollback_errors = self._restore_prepared_files(prepared)
+            if rollback_errors:
+                raise PublishError(
+                    "Runtime merge failed and canonical compensation was incomplete: {}".format(
+                        "; ".join(rollback_errors)
+                    )
+                ) from error
+            raise
+
     def _validate_restore_candidate(
         self, path: Union[str, Path], historical_content: Optional[bytes]
     ) -> list[str]:
@@ -939,3 +1059,15 @@ class Publisher:
             except Exception as error:
                 errors.append("{}: {}".format(path, error))
         return errors
+
+
+def _replace_markdown_frontmatter(content: str, metadata: dict) -> str:
+    parsed = parse_markdown(content)
+    if parsed.frontmatter is None or parsed.frontmatter_end_line is None:
+        raise PublishValidationError("Term Markdown has invalid frontmatter")
+    body = "".join(content.splitlines(keepends=True)[parsed.frontmatter_end_line :])
+    rendered = yaml.safe_dump(
+        metadata, allow_unicode=True, sort_keys=False, default_flow_style=False
+    ).rstrip("\r\n")
+    bom = "\ufeff" if content.startswith("\ufeff") else ""
+    return "{}---\n{}\n---\n{}".format(bom, rendered, body)

@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+from typing import Optional
 
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.resolution import normalize_key
@@ -76,6 +77,13 @@ class KnowledgeReadService:
         row = self.connection.execute(
             "SELECT * FROM {} WHERE entity_id = ?".format(table), (entity_id,)
         ).fetchone()
+        if row is None and entity_type == "term":
+            resolved_id = self._resolve_term_alias(entity_id)
+            if resolved_id is not None:
+                entity_id = resolved_id
+                row = self.connection.execute(
+                    "SELECT * FROM term_index WHERE entity_id = ?", (entity_id,)
+                ).fetchone()
         if row is None:
             raise LookupError("{} '{}' does not exist in the canonical index".format(entity_type, entity_id))
         path = self._canonical_path(row["path"], extension)
@@ -104,12 +112,71 @@ class KnowledgeReadService:
             "detected_mentions": self._detected_mentions(entity_id) if entity_type == "term" else [],
             "evidence": self._evidence(entity_type, entity_id),
             "related_documents": [],
+            "term_relations": self._runtime_term_relations(entity_type, entity_id),
         }
         if entity_type == "source":
             result["related_documents"] = self._source_documents(entity_id)
             result["related_terms"] = self._source_terms(entity_id)
             result["evidence"] = self._source_evidence(entity_id)
         return result
+
+    def _resolve_term_alias(self, query: str) -> Optional[str]:
+        normalized_query = normalize_key(query)
+        if not normalized_query:
+            return None
+        matches = set()
+        rows = self.connection.execute(
+            "SELECT entity_id, title, aliases_json FROM term_index"
+        ).fetchall()
+        for row in rows:
+            values = [row["entity_id"], row["title"], *json.loads(row["aliases_json"])]
+            if any(normalize_key(value) == normalized_query for value in values):
+                matches.add(row["entity_id"])
+        if len(matches) > 1:
+            raise LookupError("Term alias '{}' is ambiguous".format(query))
+        return next(iter(matches)) if matches else None
+
+    def _runtime_term_relations(self, entity_type: str, entity_id: str) -> list[dict]:
+        if entity_type == "term":
+            rows = self.connection.execute(
+                """SELECT entity_type, entity_id, term_id,
+                          created_from_candidate_id, created_at
+                   FROM term_entity_relations WHERE term_id = ?
+                   ORDER BY entity_type, entity_id""",
+                (entity_id,),
+            ).fetchall()
+            title_column = {
+                "document": ("document_index", "entity_id"),
+                "source": ("source_index", "entity_id"),
+                "research_work": ("research_works", "id"),
+            }
+            result = []
+            for row in rows:
+                table, identifier_column = title_column[row["entity_type"]]
+                title_row = self.connection.execute(
+                    "SELECT title FROM {} WHERE {} = ?".format(table, identifier_column),
+                    (row["entity_id"],),
+                ).fetchone()
+                result.append(
+                    {
+                        **dict(row),
+                        "title": title_row["title"] if title_row is not None else None,
+                    }
+                )
+            return result
+
+        if entity_type not in {"document", "source"}:
+            return []
+        rows = self.connection.execute(
+            """SELECT r.entity_type, r.entity_id, r.term_id,
+                      r.created_from_candidate_id, r.created_at, t.title
+               FROM term_entity_relations r
+               LEFT JOIN term_index t ON t.entity_id = r.term_id
+               WHERE r.entity_type = ? AND r.entity_id = ?
+               ORDER BY t.title COLLATE NOCASE, r.term_id""",
+            (entity_type, entity_id),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def entity_context_summaries(
         self, entity_keys: set[tuple[str, str]]

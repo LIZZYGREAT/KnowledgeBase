@@ -18,6 +18,15 @@ class EntitySummary(APIModel):
     metadata: dict[str, Any]
 
 
+class TermRelationView(APIModel):
+    entity_type: Literal["document", "source", "research_work"]
+    entity_id: str
+    term_id: str
+    title: Optional[str] = None
+    created_from_candidate_id: Optional[str] = None
+    created_at: str
+
+
 class EntityDetail(EntitySummary):
     content: Optional[str] = None
     canonical_content: Optional[str] = None
@@ -26,6 +35,7 @@ class EntityDetail(EntitySummary):
     detected_mentions: list[dict[str, Any]] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
     related_documents: list[dict[str, Any]] = Field(default_factory=list)
+    term_relations: list[TermRelationView] = Field(default_factory=list)
 
 
 class TopicView(APIModel):

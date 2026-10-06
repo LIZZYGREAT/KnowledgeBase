@@ -8,10 +8,16 @@ import os
 from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
+from backend.app.repositories.term_candidate_repository import TermCandidateRepository
+from backend.app.domain.term_runtime import (
+    TermCandidateEvidenceInput,
+    TermCandidateRecord,
+)
 from backend.app.services.draft_service import DraftService
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.git_manager import GitManager, GitOperationError
 from backend.app.services.indexer import Indexer
+from backend.app.services.knowledge_read_service import KnowledgeReadService
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.publisher import (
     PublishConflictError,
@@ -19,6 +25,10 @@ from backend.app.services.publisher import (
     PublishValidationError,
     Publisher,
 )
+from backend.app.services.term_merge_service import TermMergeConflict, TermMergeService
+from backend.app.services.term_registry import TermRegistry
+from backend.app.services.term_resolver import TermResolver
+from backend.app.services.markdown_parser import parse_markdown
 
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -64,6 +74,202 @@ def test_publish_writes_one_canonical_file_and_commit_only_includes_target(
     changed_paths = _git(repository, "show", "--pretty=format:", "--name-only", result.commit_revision)
     assert changed_paths.splitlines() == [target]
     assert "README.md" in git.status()
+
+
+def test_term_merge_moves_aliases_relations_and_resolves_old_ids(publish_context):
+    repository, connection, _, _, publisher = publish_context
+    loser_id = "information-measure"
+    loser_path = repository / "knowledge" / "terms" / "{}.md".format(loser_id)
+    loser_path.write_text(
+        _term(loser_id, "Information Measure", aliases=("IM",)), encoding="utf-8"
+    )
+    _git(repository, "add", str(loser_path.relative_to(repository)))
+    _git(repository, "commit", "-m", "add merge test Term")
+
+    note_path = repository / "knowledge" / "documents" / "papers" / "ewc-review.md"
+    note_path.write_text(
+        note_path.read_text(encoding="utf-8") + "\n[[information-measure]]\n",
+        encoding="utf-8",
+    )
+    _git(repository, "add", str(note_path.relative_to(repository)))
+    _git(repository, "commit", "-m", "link to merge test Term")
+
+    indexer = Indexer(repository, connection)
+    indexer.full_rebuild()
+    candidate_repository = TermCandidateRepository(connection)
+    open_candidate = TermCandidateRecord(
+        id="open-candidate",
+        normalized_name="a pending suggestion",
+        display_name="A Pending Suggestion",
+        suggested_type="concept",
+        suggested_term_id=loser_id,
+        status="pending",
+        created_at="created",
+        updated_at="updated",
+    )
+    candidate_repository.create_candidate(
+        open_candidate,
+        [
+            TermCandidateEvidenceInput(
+                origin_type="external", origin_id="ref-1", mention="A Pending Suggestion"
+            )
+        ],
+    )
+    accepted_candidate = TermCandidateRecord(
+        id="accepted-candidate",
+        normalized_name="an accepted suggestion",
+        display_name="An Accepted Suggestion",
+        suggested_type="concept",
+        suggested_term_id=loser_id,
+        accepted_term_id=loser_id,
+        status="accepted",
+        created_at="created",
+        updated_at="updated",
+    )
+    candidate_repository.create_candidate(accepted_candidate, [])
+    connection.executemany(
+        """INSERT INTO term_entity_relations (
+               id, entity_type, entity_id, term_id, created_from_candidate_id, created_at
+           ) VALUES (?, 'document', 'ewc-review', ?, NULL, 'created')""",
+        [("loser-relation", loser_id), ("survivor-relation", "fisher-information")],
+    )
+    connection.commit()
+
+    service = TermMergeService(
+        repository, connection, candidate_repository, publisher, indexer
+    )
+    preview = service.preview(
+        "fisher-information", [loser_id], "Fisher Information"
+    )
+    assert preview.aliases == (
+        "Fisher matrix",
+        "Information Measure",
+        "IM",
+        "information-measure",
+    )
+    assert preview.loser_bodies_not_merged == (loser_id,)
+    with pytest.raises(TermMergeConflict, match="Confirm that loser Term bodies"):
+        service.merge("fisher-information", [loser_id], "Fisher Information")
+
+    survivor_path = repository / "knowledge" / "terms" / "fisher-information.md"
+    survivor_body_before = _markdown_body(survivor_path.read_text(encoding="utf-8"))
+    result = service.merge(
+        "fisher-information",
+        [loser_id],
+        "Fisher Information",
+        confirm_loser_bodies_not_merged=True,
+    )
+
+    assert result.loser_term_ids == (loser_id,)
+    assert result.warnings == ()
+    assert not loser_path.exists()
+    survivor_content = survivor_path.read_text(encoding="utf-8")
+    assert _markdown_body(survivor_content) == survivor_body_before
+    assert parse_markdown(survivor_content).frontmatter["aliases"] == list(preview.aliases)
+    assert set(
+        _git(
+            repository,
+            "show",
+            "--pretty=format:",
+            "--name-only",
+            result.commit_revision,
+        ).splitlines()
+    ) == {
+        "knowledge/terms/fisher-information.md",
+        "knowledge/terms/information-measure.md",
+    }
+    assert TermResolver(TermRegistry.load(repository / "knowledge" / "terms")).resolve(
+        loser_id
+    ).entity_id == "fisher-information"
+    assert KnowledgeReadService(repository, connection).get_entity("term", loser_id)[
+        "id"
+    ] == "fisher-information"
+    merged_term = KnowledgeReadService(repository, connection).get_entity(
+        "term", "fisher-information"
+    )
+    assert any(
+        link["source_entity_id"] == "ewc-review"
+        and link["link_target"] == loser_id
+        for link in merged_term["backlinks"]
+    )
+    assert len(merged_term["term_relations"]) == 1
+    assert [
+        tuple(row)
+        for row in connection.execute(
+            "SELECT entity_type, entity_id, term_id FROM term_entity_relations"
+        ).fetchall()
+    ] == [("document", "ewc-review", "fisher-information")]
+    assert connection.execute(
+        "SELECT suggested_term_id FROM term_candidates WHERE id = 'open-candidate'"
+    ).fetchone()[0] == "fisher-information"
+    assert connection.execute(
+        "SELECT accepted_term_id FROM term_candidates WHERE id = 'accepted-candidate'"
+    ).fetchone()[0] == "fisher-information"
+    assert tuple(
+        connection.execute(
+            "SELECT loser_term_id, survivor_term_id FROM term_merge_history"
+        ).fetchone()
+    ) == (loser_id, "fisher-information")
+
+
+def test_term_merge_git_failure_rolls_back_runtime_migration_and_canonical_files(
+    publish_context, monkeypatch
+):
+    repository, connection, _, _, publisher = publish_context
+    loser_id = "information-measure"
+    loser_path = repository / "knowledge" / "terms" / "{}.md".format(loser_id)
+    loser_path.write_text(
+        _term(loser_id, "Information Measure", aliases=("IM",)), encoding="utf-8"
+    )
+    _git(repository, "add", str(loser_path.relative_to(repository)))
+    _git(repository, "commit", "-m", "add merge failure Term")
+    indexer = Indexer(repository, connection)
+    indexer.full_rebuild()
+    candidate_repository = TermCandidateRepository(connection)
+    candidate = TermCandidateRecord(
+        id="pending-candidate",
+        normalized_name="pending suggestion",
+        display_name="Pending Suggestion",
+        suggested_type="concept",
+        suggested_term_id=loser_id,
+        status="pending",
+        created_at="created",
+        updated_at="updated",
+    )
+    candidate_repository.create_candidate(candidate, [])
+    connection.commit()
+    survivor_path = repository / "knowledge" / "terms" / "fisher-information.md"
+    survivor_before = survivor_path.read_bytes()
+    loser_before = loser_path.read_bytes()
+    revision_before = publisher.git.current_revision()
+    service = TermMergeService(
+        repository, connection, candidate_repository, publisher, indexer
+    )
+
+    def fail_commit(*args, **kwargs):
+        from backend.app.services.git_manager import GitOperationError
+
+        raise GitOperationError("forced Term merge commit failure")
+
+    monkeypatch.setattr(publisher.git, "commit_many", fail_commit)
+    with pytest.raises(GitOperationError, match="forced Term merge commit failure"):
+        service.merge(
+            "fisher-information",
+            [loser_id],
+            "Fisher Information",
+            confirm_loser_bodies_not_merged=True,
+        )
+
+    assert survivor_path.read_bytes() == survivor_before
+    assert loser_path.read_bytes() == loser_before
+    assert publisher.git.current_revision() == revision_before
+    assert connection.execute(
+        "SELECT suggested_term_id FROM term_candidates WHERE id = 'pending-candidate'"
+    ).fetchone()[0] == loser_id
+    assert connection.execute("SELECT COUNT(*) FROM term_merge_history").fetchone()[0] == 0
+    assert connection.execute(
+        "SELECT COUNT(*) FROM term_entity_relations WHERE term_id = ?", (loser_id,)
+    ).fetchone()[0] == 0
 
 
 def test_preflight_validates_draft_without_writing_canonical_content(publish_context):
@@ -1679,6 +1885,11 @@ def _term(entity_id, title, aliases=()):
         "depth: standard\naliases:\n{}domains:\n  - artificial-intelligence\n"
         "topics: []\ntags: []\nsources: []\n---\n# {}\n\nA concise definition.\n"
     ).format(entity_id, title, alias_text, title)
+
+
+def _markdown_body(content):
+    parsed = parse_markdown(content)
+    return "".join(content.splitlines(keepends=True)[parsed.frontmatter_end_line :])
 
 
 def _git(repository, *arguments):

@@ -51,6 +51,7 @@ from backend.app.services.term_candidate_service import (
     TermCandidateConflict,
     TermCandidateService,
 )
+from backend.app.services.term_merge_service import TermMergeConflict, TermMergeService
 from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
     PresentationAnnotationService,
@@ -77,8 +78,9 @@ async def lifespan(application: FastAPI):
         git_manager = GitManager(repository_root)
         draft_service = DraftService(DraftRepository(connection))
         proposal_service = ProposalService(ProposalRepository(connection))
+        term_candidate_repository = TermCandidateRepository(connection)
         term_candidate_service = TermCandidateService(
-            repository_root, TermCandidateRepository(connection)
+            repository_root, term_candidate_repository
         )
         research_components = build_research_components(repository_root, connection)
         ai_gateway = AIGateway(
@@ -109,6 +111,13 @@ async def lifespan(application: FastAPI):
             git_manager,
             canonical_target_resolver=canonical_target_resolver,
         )
+        term_merge_service = TermMergeService(
+            repository_root,
+            connection,
+            term_candidate_repository,
+            publisher,
+            indexer,
+        )
         research_service = research_components.research_service
         research_conversion_service = ResearchConversionService(
             repository_root,
@@ -129,6 +138,7 @@ async def lifespan(application: FastAPI):
         application.state.draft_service = draft_service
         application.state.proposal_service = proposal_service
         application.state.term_candidate_service = term_candidate_service
+        application.state.term_merge_service = term_merge_service
         application.state.ai_gateway = ai_gateway
         application.state.ai_proposal_service = ai_proposal_service
         application.state.usage_service = usage_service
@@ -200,6 +210,11 @@ async def proposal_conflict_handler(request: Request, error: ProposalTransitionE
 
 @app.exception_handler(TermCandidateConflict)
 async def term_candidate_conflict_handler(request: Request, error: TermCandidateConflict):
+    return _error_response(409, error)
+
+
+@app.exception_handler(TermMergeConflict)
+async def term_merge_conflict_handler(request: Request, error: TermMergeConflict):
     return _error_response(409, error)
 
 

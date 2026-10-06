@@ -7,6 +7,10 @@ from fastapi import APIRouter, Query, Request
 from backend.app.api.term_schemas import (
     AcceptExistingTermCandidateRequest,
     RejectTermCandidateRequest,
+    TermMergePreviewRequest,
+    TermMergePreviewView,
+    TermMergeRequest,
+    TermMergeResultView,
 )
 from backend.app.domain.term_runtime import TermCandidateDetail, TermCandidateRecord
 
@@ -51,4 +55,21 @@ async def accept_existing_term_candidate(
 ):
     return request.app.state.term_candidate_service.accept_existing(
         candidate_id, body.term_id
+    )
+
+
+@router.post("/merge/preview", response_model=TermMergePreviewView)
+async def preview_term_merge(body: TermMergePreviewRequest, request: Request):
+    return request.app.state.term_merge_service.preview(
+        body.survivor_term_id, body.loser_term_ids, body.final_title
+    )
+
+
+@router.post("/merge", response_model=TermMergeResultView)
+async def merge_terms(body: TermMergeRequest, request: Request):
+    return request.app.state.term_merge_service.merge(
+        body.survivor_term_id,
+        body.loser_term_ids,
+        body.final_title,
+        body.confirm_loser_bodies_not_merged,
     )

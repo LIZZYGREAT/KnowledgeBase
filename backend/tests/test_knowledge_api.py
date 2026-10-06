@@ -108,6 +108,8 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/terms/candidates/{candidate_id}",
         "/api/terms/candidates/{candidate_id}/reject",
         "/api/terms/candidates/{candidate_id}/accept-existing",
+        "/api/terms/merge/preview",
+        "/api/terms/merge",
         "/api/sources/{entity_id}",
         "/api/collections",
         "/api/collections/{collection_id}",
