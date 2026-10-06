@@ -72,7 +72,7 @@ class ReviewDocumentOutput(AIOutput):
 class DraftTermOutput(AIOutput):
     id: Slug
     title: NonEmptyText
-    type: Literal["concept", "vocabulary"]
+    type: Literal["concept", "entity", "vocabulary"]
     depth: Literal["stub", "standard", "deep"]
     aliases: list[NonEmptyText] = Field(default_factory=list)
     definition: NonEmptyText

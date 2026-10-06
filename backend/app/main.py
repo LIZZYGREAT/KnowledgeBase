@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from backend.app.api.ai import router as ai_router
 from backend.app.api.knowledge import router as knowledge_router
 from backend.app.api.research import router as research_router
+from backend.app.api.terms import router as terms_router
 from backend.app.api.runtime import router as runtime_router
 from backend.app.db.connection import connect_database
 from backend.app.repositories.draft_repository import DraftRepository
@@ -19,6 +20,7 @@ from backend.app.repositories.draft_repository import DraftRevisionConflict
 from backend.app.repositories.annotation_repository import AnnotationRepository
 from backend.app.repositories.import_repository import ImportRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
+from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.services.ai_client import (
     AIConfigurationError,
     AIGatewayError,
@@ -45,6 +47,10 @@ from backend.app.services.proposal_service import StaleProposalError
 from backend.app.repositories.proposal_repository import ProposalTransitionError
 from backend.app.services.usage_service import UsageService
 from backend.app.services.research_conversion_service import ResearchConversionService
+from backend.app.services.term_candidate_service import (
+    TermCandidateConflict,
+    TermCandidateService,
+)
 from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
     PresentationAnnotationService,
@@ -71,6 +77,9 @@ async def lifespan(application: FastAPI):
         git_manager = GitManager(repository_root)
         draft_service = DraftService(DraftRepository(connection))
         proposal_service = ProposalService(ProposalRepository(connection))
+        term_candidate_service = TermCandidateService(
+            repository_root, TermCandidateRepository(connection)
+        )
         research_components = build_research_components(repository_root, connection)
         ai_gateway = AIGateway(
             DeepSeekClient(DeepSeekConfig.from_environment(repository_root))
@@ -119,6 +128,7 @@ async def lifespan(application: FastAPI):
         application.state.git_manager = git_manager
         application.state.draft_service = draft_service
         application.state.proposal_service = proposal_service
+        application.state.term_candidate_service = term_candidate_service
         application.state.ai_gateway = ai_gateway
         application.state.ai_proposal_service = ai_proposal_service
         application.state.usage_service = usage_service
@@ -148,6 +158,8 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(title="KnowledgeBase API", version="0.8.0", lifespan=lifespan)
+# Register fixed Term routes before the dynamic /api/terms/{entity_id} read route.
+app.include_router(terms_router)
 app.include_router(knowledge_router)
 app.include_router(runtime_router)
 app.include_router(ai_router)
@@ -183,6 +195,11 @@ async def annotation_conflict_handler(request: Request, error: AnnotationConflic
 
 @app.exception_handler(ProposalTransitionError)
 async def proposal_conflict_handler(request: Request, error: ProposalTransitionError):
+    return _error_response(409, error)
+
+
+@app.exception_handler(TermCandidateConflict)
+async def term_candidate_conflict_handler(request: Request, error: TermCandidateConflict):
     return _error_response(409, error)
 
 

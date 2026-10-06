@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from backend.app.db.connection import connect_database
 from backend.app.domain.ai import ResearchCandidateAnalysisOutput
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
+from backend.app.domain.term_runtime import TermCandidateEvidenceInput
 from backend.app.main import app
 from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.repositories.research_control_event_repository import (
@@ -103,6 +104,10 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
     for path in (
         "/api/documents/{entity_id}",
         "/api/terms/{entity_id}",
+        "/api/terms/candidates",
+        "/api/terms/candidates/{candidate_id}",
+        "/api/terms/candidates/{candidate_id}/reject",
+        "/api/terms/candidates/{candidate_id}/accept-existing",
         "/api/sources/{entity_id}",
         "/api/collections",
         "/api/collections/{collection_id}",
@@ -130,6 +135,61 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         assert path in schema["paths"]
     context_schema = schema["components"]["schemas"]["ContextExportRequest"]
     assert "provisional traceability filter" in context_schema["properties"]["trust"]["description"]
+
+
+def test_term_candidate_api_lists_accepts_and_rejects_runtime_candidates(api_client):
+    service = api_client.app.state.term_candidate_service
+    accepted_candidate = service.create_candidate(
+        "Calibrated Optimizer",
+        "entity",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="document",
+                origin_id="neural-indexing",
+                mention="Calibrated Optimizer",
+            )
+        ],
+    )
+
+    listed = api_client.get("/api/terms/candidates")
+    assert listed.status_code == 200
+    assert listed.json()[0]["id"] == accepted_candidate.id
+    detail = api_client.get(
+        "/api/terms/candidates/{}".format(accepted_candidate.id)
+    )
+    assert detail.status_code == 200
+    assert detail.json()["evidence"][0]["origin_id"] == "neural-indexing"
+
+    accepted = api_client.post(
+        "/api/terms/candidates/{}/accept-existing".format(accepted_candidate.id),
+        json={"term_id": "neural-indexing"},
+    )
+    assert accepted.status_code == 200, accepted.json()
+    assert accepted.json()["status"] == "accepted"
+    relation = api_client.app.state.runtime_connection.execute(
+        "SELECT entity_type, entity_id, term_id FROM term_entity_relations"
+    ).fetchone()
+    assert tuple(relation) == ("document", "neural-indexing", "neural-indexing")
+
+    rejected_candidate = service.create_candidate(
+        "Rare Phrase",
+        "vocabulary",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="source", origin_id="source-alpha", mention="rare phrase"
+            )
+        ],
+    )
+    rejected = api_client.post(
+        "/api/terms/candidates/{}/reject".format(rejected_candidate.id),
+        json={"scope": "local", "reason": "Not useful in this paper"},
+    )
+    assert rejected.status_code == 200, rejected.json()
+    assert rejected.json()["status"] == "rejected"
+    assert api_client.app.state.runtime_connection.execute(
+        """SELECT scope FROM rejected_candidates
+           WHERE candidate_type = 'term' AND normalized_value = 'rare phrase'"""
+    ).fetchone()[0] == "origin:source:source-alpha"
 
 
 def test_presentation_annotations_never_change_canonical_markdown(api_client):

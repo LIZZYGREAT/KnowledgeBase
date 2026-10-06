@@ -6,7 +6,7 @@ from .common import CanonicalEntity
 
 
 class TermMetadata(CanonicalEntity):
-    type: Literal["concept", "vocabulary"]
+    type: Literal["concept", "entity", "vocabulary"]
     depth: Literal["stub", "standard", "deep"]
     aliases: list[constr(strict=True, strip_whitespace=True, min_length=1)] = Field(
         default_factory=list

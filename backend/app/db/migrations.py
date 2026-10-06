@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -41,6 +41,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_watermark_overlap_floor
         elif target_version == 12:
             migration = _migrate_to_cleanup_research_legacy_states
+        elif target_version == 13:
+            migration = _migrate_to_term_core
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -779,3 +781,72 @@ def _column_exists(connection: sqlite3.Connection, table: str, column: str) -> b
         row[1] == column
         for row in connection.execute("PRAGMA table_info({})".format(table))
     )
+
+
+def _migrate_to_term_core(connection: sqlite3.Connection) -> None:
+    statements = (
+        """CREATE TABLE IF NOT EXISTS term_candidates (
+               id TEXT PRIMARY KEY,
+               normalized_name TEXT NOT NULL,
+               display_name TEXT NOT NULL,
+               suggested_type TEXT NOT NULL CHECK (
+                   suggested_type IN ('concept', 'entity', 'vocabulary')
+               ),
+               suggested_term_id TEXT,
+               status TEXT NOT NULL CHECK (
+                   status IN ('pending', 'drafting', 'accepted', 'rejected')
+               ),
+               draft_id TEXT,
+               accepted_term_id TEXT,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               reviewed_at TEXT
+           )""",
+        """CREATE UNIQUE INDEX IF NOT EXISTS term_candidates_open_name_idx
+           ON term_candidates (normalized_name)
+           WHERE status IN ('pending', 'drafting')""",
+        """CREATE INDEX IF NOT EXISTS term_candidates_status_idx
+           ON term_candidates (status, updated_at DESC)""",
+        """CREATE TABLE IF NOT EXISTS term_candidate_evidence (
+               id TEXT PRIMARY KEY,
+               candidate_id TEXT NOT NULL,
+               origin_type TEXT NOT NULL CHECK (
+                   origin_type IN ('document', 'source', 'research_work', 'external')
+               ),
+               origin_id TEXT NOT NULL,
+               mention TEXT NOT NULL,
+               context_excerpt TEXT,
+               confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+               rationale TEXT,
+               discovered_at TEXT NOT NULL,
+               FOREIGN KEY (candidate_id) REFERENCES term_candidates(id) ON DELETE CASCADE,
+               UNIQUE (candidate_id, origin_type, origin_id, mention)
+           )""",
+        """CREATE INDEX IF NOT EXISTS term_candidate_evidence_origin_idx
+           ON term_candidate_evidence (origin_type, origin_id)""",
+        """CREATE TABLE IF NOT EXISTS term_entity_relations (
+               id TEXT PRIMARY KEY,
+               entity_type TEXT NOT NULL CHECK (
+                   entity_type IN ('document', 'source', 'research_work')
+               ),
+               entity_id TEXT NOT NULL,
+               term_id TEXT NOT NULL,
+               created_from_candidate_id TEXT,
+               created_at TEXT NOT NULL,
+               UNIQUE (entity_type, entity_id, term_id)
+           )""",
+        """CREATE INDEX IF NOT EXISTS term_entity_relations_term_idx
+           ON term_entity_relations (term_id, entity_type, entity_id)""",
+        """CREATE INDEX IF NOT EXISTS term_entity_relations_entity_idx
+           ON term_entity_relations (entity_type, entity_id, term_id)""",
+        """CREATE TABLE IF NOT EXISTS term_merge_history (
+               id TEXT PRIMARY KEY,
+               loser_term_id TEXT NOT NULL,
+               survivor_term_id TEXT NOT NULL,
+               merged_at TEXT NOT NULL
+           )""",
+        """CREATE INDEX IF NOT EXISTS term_merge_history_survivor_idx
+           ON term_merge_history (survivor_term_id, merged_at DESC)""",
+    )
+    for statement in statements:
+        connection.execute(statement)
