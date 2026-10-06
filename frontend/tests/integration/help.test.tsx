@@ -15,11 +15,15 @@ it("is reachable from navigation, defaults to Chinese, and explains the core wor
   expect(screen.getByText(/手动搜索不会推进 Scheduled Watermark/)).toBeTruthy();
   expect(screen.getByText(/Pause 只暂停自动 Scheduled Research/)).toBeTruthy();
   expect(screen.getByText(/Apply to Draft 只把建议写入当前 Draft/)).toBeTruthy();
+  expect(screen.getByText(/每次成功 Publish 都会创建 Git commit，因此已发布版本会保留在仓库历史中/)).toBeTruthy();
+  expect(screen.queryByText(/Workspace 的 Git history 可查看/)).toBeNull();
 
   fireEvent.click(within(screen.getByRole("group", { name: "帮助语言" })).getByRole("button", { name: "English" }));
   expect(screen.getByRole("heading", { name: "Help" })).toBeTruthy();
   expect(screen.getByText(/A manual search does not advance the Scheduled Watermark/)).toBeTruthy();
   expect(screen.getByText(/Apply to Draft copies a suggestion into the current Draft only/)).toBeTruthy();
+  expect(screen.getByText(/Each successful Publish creates a Git commit, so published versions remain in repository history/)).toBeTruthy();
+  expect(screen.queryByText(/Git history in the Workspace shows commits/)).toBeNull();
 });
 
 it("searches help titles, aliases, keywords, and bilingual body text locally", () => {
@@ -71,4 +75,14 @@ it("keeps language and category filters local while showing the matching help", 
   expect(container.querySelectorAll(".help-section")).toHaveLength(1);
   expect(screen.getByRole("heading", { name: "Explorer" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Research" })).toBeNull();
+
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search help" }), { target: { value: "watermark" } });
+  expect(container.querySelector('[data-help-entry="manual-scheduled-watermark"]')).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Research" })).toBeTruthy();
+
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search help" }), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search help" }), { target: { value: "shortlist" } });
+  expect(container.querySelector('[data-help-entry="candidate-actions"]')).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Research" })).toBeTruthy();
 });

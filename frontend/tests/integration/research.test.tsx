@@ -57,6 +57,7 @@ describe("Research workspace", () => {
       if (path === "/api/documents?limit=100&offset=0") return jsonResponse(responseDocuments);
       if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary]);
       if (path === "/api/research/profiles/continual-learning") return jsonResponse(responseProfileDetail);
+      if (path === "/api/research/profiles/continual-learning/resume" && init?.method === "POST") return jsonResponse({});
       if (path.startsWith("/api/drafts?entity_type=research_profile&entity_id=")) {
         const entityId = new URLSearchParams(path.split("?")[1]).get("entity_id");
         return jsonResponse(researchProfileDraft?.entity_id === entityId ? [researchProfileDraft] : []);
@@ -519,6 +520,60 @@ describe("Research workspace", () => {
     expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
   });
 
+  it("keeps core Chinese analysis available and falls back per untranslated relation", () => {
+    const untranslatedRelation = {
+      ...analysis.existing_relations[0],
+      entity_id: "second-term",
+      reason: "This relation has an English-only explanation.",
+      reason_zh: null,
+    };
+    const partiallyTranslatedAnalysis = {
+      ...analysis,
+      existing_relations: [analysis.existing_relations[0], untranslatedRelation],
+    };
+    const partialDetail = {
+      ...candidateDetail,
+      analysis: { ...candidateDetail.analysis, analysis: partiallyTranslatedAnalysis },
+      knowledge_relations: partiallyTranslatedAnalysis.existing_relations,
+    };
+    const { container } = render(<>
+      <ResearchCandidateCard
+        item={{ ...candidateListItem, analysis: partiallyTranslatedAnalysis } as ResearchCandidateListItem}
+        profile={profile as ResearchProfile}
+        selected={false}
+        selectable={false}
+        busy={false}
+        onSelect={() => undefined}
+        onDetails={() => undefined}
+        onShortlist={() => undefined}
+        onDismiss={() => undefined}
+        onRestore={() => undefined}
+        onCreateNote={() => undefined}
+      />
+      <ResearchCandidateDrawer
+        detail={partialDetail}
+        profile={profile as ResearchProfile}
+        language="zh"
+        onLanguageChange={() => undefined}
+        noteBusy={false}
+        noteError=""
+        onClose={() => undefined}
+        onOpenEntity={() => undefined}
+        onSaveSource={() => undefined}
+        onSaveNote={() => undefined}
+      />
+    </>);
+
+    const card = container.querySelector(".research-candidate-card") as HTMLElement;
+    const drawer = screen.getByRole("dialog", { name: "Why this candidate" });
+    fireEvent.click(within(card).getByRole("button", { name: "中文" }));
+    expect(within(card).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
+    expect(within(drawer).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
+    expect(screen.queryByText("此历史候选暂无中文分析")).toBeNull();
+    const relationRows = [...container.querySelectorAll(".research-related-row small")].map((row) => row.textContent ?? "");
+    expect(relationRows.some((text) => text.includes("This relation has an English-only explanation."))).toBe(true);
+  });
+
   it("creates a Research Profile from name and focus, generating stable default identifiers", async () => {
     const created = vi.fn();
     render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={null} onClose={() => undefined} onCreated={created} />);
@@ -848,6 +903,35 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("恢复方式"), { target: { value: "from_now" } });
     expect(screen.getByText("把 scheduled watermark 推进到现在，跳过暂停期间遗漏的时间窗，只搜索现在之后的新内容。")).toBeTruthy();
     expect(screen.queryByText("高级选项")).toBeNull();
+  });
+
+  it("keeps Resume in the strategy panel and sends the selected from-now policy", async () => {
+    render(<ResearchProfilePanel
+      summary={profileSummary}
+      detail={{
+        ...profileDetail,
+        runtime_state: { ...profileDetail.runtime_state!, paused_until: new Date(Date.now() + 86_400_000).toISOString() },
+      }}
+      onRefresh={() => undefined}
+      onQueued={() => undefined}
+      onEditDefaults={() => undefined}
+    />);
+
+    expect(screen.queryByRole("button", { name: "Resume", exact: true })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Resume Research" })).toHaveLength(1);
+    const resumeButton = screen.getByRole("button", { name: "Resume Research" });
+    fireEvent.click(resumeButton);
+    await waitFor(() => expect(mockFetch.mock.calls.filter(([input, init]) => String(input) === "/api/research/profiles/continual-learning/resume" && init?.method === "POST")).toHaveLength(1));
+    const catchUpCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/resume" && init?.method === "POST");
+    expect(JSON.parse(String(catchUpCall?.[1]?.body))).toEqual({ strategy: "catch_up" });
+    await waitFor(() => expect(resumeButton.hasAttribute("disabled")).toBe(false));
+
+    fireEvent.change(screen.getByLabelText("恢复方式"), { target: { value: "from_now" } });
+    fireEvent.click(resumeButton);
+
+    await waitFor(() => expect(mockFetch.mock.calls.filter(([input, init]) => String(input) === "/api/research/profiles/continual-learning/resume" && init?.method === "POST")).toHaveLength(2));
+    const fromNowCall = mockFetch.mock.calls.filter(([input, init]) => String(input) === "/api/research/profiles/continual-learning/resume" && init?.method === "POST")[1];
+    expect(JSON.parse(String(fromNowCall?.[1]?.body))).toEqual({ strategy: "from_now" });
   });
 
   it("blocks manual search when the Inbox is full", async () => {
