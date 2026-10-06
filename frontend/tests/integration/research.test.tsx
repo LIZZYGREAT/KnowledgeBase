@@ -57,6 +57,14 @@ describe("Research workspace", () => {
       if (path === "/api/documents?limit=100&offset=0") return jsonResponse(responseDocuments);
       if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary]);
       if (path === "/api/research/profiles/continual-learning") return jsonResponse(responseProfileDetail);
+      if (path === "/api/research/profiles/continual-learning/resume" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        return jsonResponse({
+          runtime_state: { ...profileDetail.runtime_state!, paused_until: null },
+          strategy: body.strategy,
+          watermark_skipped: body.strategy === "from_now",
+        });
+      }
       if (path.startsWith("/api/drafts?entity_type=research_profile&entity_id=")) {
         const entityId = new URLSearchParams(path.split("?")[1]).get("entity_id");
         return jsonResponse(researchProfileDraft?.entity_id === entityId ? [researchProfileDraft] : []);
@@ -848,6 +856,47 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("恢复方式"), { target: { value: "from_now" } });
     expect(screen.getByText("把 scheduled watermark 推进到现在，跳过暂停期间遗漏的时间窗，只搜索现在之后的新内容。")).toBeTruthy();
     expect(screen.queryByText("高级选项")).toBeNull();
+  });
+
+  it("resumes a paused Profile through the selected from-now strategy only", async () => {
+    const onRefresh = vi.fn();
+    render(<ResearchProfilePanel
+      summary={profileSummary}
+      detail={{ ...profileDetail, runtime_state: { ...profileDetail.runtime_state!, paused_until: new Date(Date.now() + 86_400_000).toISOString() } }}
+      onRefresh={onRefresh}
+      onQueued={() => undefined}
+      onEditDefaults={() => undefined}
+    />);
+
+    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Resume Research" })).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText("恢复方式"), { target: { value: "from_now" } });
+    fireEvent.click(screen.getByRole("button", { name: "Resume Research" }));
+
+    await waitFor(() => {
+      const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/resume" && init?.method === "POST");
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ strategy: "from_now" });
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the selected catch-up days when resuming a paused Profile", async () => {
+    render(<ResearchProfilePanel
+      summary={profileSummary}
+      detail={{ ...profileDetail, runtime_state: { ...profileDetail.runtime_state!, paused_until: new Date(Date.now() + 86_400_000).toISOString() } }}
+      onRefresh={() => undefined}
+      onQueued={() => undefined}
+      onEditDefaults={() => undefined}
+    />);
+
+    fireEvent.click(screen.getByText("高级选项"));
+    fireEvent.change(screen.getByLabelText("自定义追赶天数"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Resume Research" }));
+
+    await waitFor(() => {
+      const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/resume" && init?.method === "POST");
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ strategy: "catch_up", catchup_days: 12 });
+    });
   });
 
   it("blocks manual search when the Inbox is full", async () => {
