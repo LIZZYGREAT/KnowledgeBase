@@ -4,14 +4,12 @@ import { Chip, formatDate } from "./ui";
 import { parseCollectionDraft } from "./collectionDraftModel";
 import { ResearchLanguageToggle, type ResearchLanguage } from "./ResearchLanguage";
 
-function hasChineseResearchAnalysis(analysis: {
+function hasChineseCoreAnalysis(analysis: {
   summary_zh?: string | null;
   why_relevant_zh?: string | null;
   reading_reason_zh?: string | null;
-  existing_relations: ResearchRelation[];
 }) {
-  return Boolean(analysis.summary_zh && analysis.why_relevant_zh && analysis.reading_reason_zh)
-    && analysis.existing_relations.every((relation) => Boolean(relation.reason_zh));
+  return Boolean(analysis.summary_zh && analysis.why_relevant_zh && analysis.reading_reason_zh);
 }
 
 export function ResearchCandidateCard({
@@ -41,7 +39,7 @@ export function ResearchCandidateCard({
 }) {
   const [language, setLanguage] = useState<ResearchLanguage>("en");
   const chinese = language === "zh";
-  const hasChineseAnalysis = hasChineseResearchAnalysis(item.analysis);
+  const hasChineseAnalysis = hasChineseCoreAnalysis(item.analysis);
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
   const externalUrl = safeExternalUrl(item.work.url);
   const summary = chinese ? item.analysis.summary_zh || item.analysis.summary : item.analysis.summary;
@@ -260,7 +258,7 @@ export function ResearchCandidateDrawer({
 }) {
   const { candidate, work, analysis } = detail;
   const chinese = language === "zh";
-  const hasChineseAnalysis = hasChineseResearchAnalysis(analysis.analysis);
+  const hasChineseAnalysis = hasChineseCoreAnalysis(analysis.analysis);
   const summary = chinese ? analysis.analysis.summary_zh || analysis.analysis.summary : analysis.analysis.summary;
   const relevance = chinese ? analysis.analysis.why_relevant_zh || analysis.analysis.why_relevant : analysis.analysis.why_relevant;
   const readingReason = chinese ? analysis.analysis.reading_reason_zh || analysis.analysis.reading_reason : analysis.analysis.reading_reason;
