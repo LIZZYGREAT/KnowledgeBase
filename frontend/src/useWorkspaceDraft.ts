@@ -285,17 +285,30 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
       : await publishDraft(saved.id, expectedRevision);
     if (identityRef.current !== activeIdentity) return null;
     const publishedContent = getCurrentContent();
-    canonicalContentRef.current = publishedContent;
-    setCanonicalState((current) => current.identity === activeIdentity && current.entity
-      ? { ...current, content: publishedContent, entity: { ...current.entity, canonical_content: publishedContent } }
-      : current);
-    resetRuntimeDraft(publishedContent);
+    let publishedEntity: EntityDetail | null = null;
+    try {
+      publishedEntity = await getEntity(type, id);
+    } catch {
+      // The canonical commit already succeeded. Keep Publish successful and let the Reader retry its load.
+    }
+    if (identityRef.current !== activeIdentity) return null;
+    const canonicalContent = publishedEntity?.canonical_content ?? publishedContent;
+    canonicalContentRef.current = canonicalContent;
+    setCanonicalState({
+      identity: activeIdentity,
+      entity: publishedEntity,
+      content: canonicalContent,
+      loading: false,
+      error: "",
+      missing: false,
+    });
+    resetRuntimeDraft(canonicalContent);
     setComparison(null);
     setPublishedRevision(result.commit_revision);
     setPublishedOutcome(toPublishOutcome(result));
     setRuntimeError("");
     return result;
-  }, [getCurrentContent, identity, resetRuntimeDraft, saveNow, setRuntimeError]);
+  }, [getCurrentContent, id, identity, resetRuntimeDraft, saveNow, setRuntimeError, type]);
 
   return {
     draft: runtimeDraft,
