@@ -32,11 +32,14 @@ class SuggestMetadataOutput(AIOutput):
 
 
 class TermCandidate(AIOutput):
-    mention: NonEmptyText
+    mention: NonEmptyText = Field(max_length=200)
+    normalized_name: NonEmptyText = Field(max_length=200)
     action: Literal["link_existing", "propose_new"]
     term_id: Optional[Slug] = None
+    suggested_type: Optional[Literal["concept", "entity", "vocabulary"]] = None
     confidence: float = Field(ge=0, le=1)
-    rationale: NonEmptyText
+    rationale: NonEmptyText = Field(max_length=1000)
+    context_excerpt: NonEmptyText = Field(max_length=800)
 
     @model_validator(mode="after")
     def validate_link_target(self):
@@ -44,11 +47,13 @@ class TermCandidate(AIOutput):
             raise ValueError("link_existing candidates require term_id")
         if self.action == "propose_new" and self.term_id is not None:
             raise ValueError("propose_new candidates cannot include term_id")
+        if self.action == "propose_new" and self.suggested_type is None:
+            raise ValueError("propose_new candidates require suggested_type")
         return self
 
 
 class DetectTermsOutput(AIOutput):
-    candidates: list[TermCandidate]
+    candidates: list[TermCandidate] = Field(max_length=40)
 
 
 class ReviewFinding(AIOutput):

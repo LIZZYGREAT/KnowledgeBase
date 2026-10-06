@@ -13,6 +13,8 @@ GET  /api/terms/candidates?status=pending
 GET  /api/terms/candidates/{candidate_id}
 POST /api/terms/candidates/{candidate_id}/reject
 POST /api/terms/candidates/{candidate_id}/accept-existing
+POST /api/terms/analyze-document/{document_id}
+GET  /api/terms/document-analysis/{document_id}
 POST /api/terms/merge/preview
 POST /api/terms/merge
 GET  /api/sources?limit=50&offset=0
@@ -23,7 +25,7 @@ GET  /api/search
 
 Entity lists return `id`, `title`, `entity_type`, and `metadata`. Entity detail adds Markdown `content` where applicable, related Terms, Backlinks, Evidence, related Documents, and accepted Runtime Term relations. Term IDs retained as survivor aliases resolve to the survivor detail. Search accepts `query`, `domain`, `topic`, `tag`, `document_type`, `review`, `maintenance`, `source`, `term`, and `limit`. Results include their match reason, snippet, metadata, and document usage counts.
 
-Term Candidate endpoints list and inspect Runtime Candidates, reject them with `scope: local|global`, or accept them against an existing canonical Term using `term_id`. Accepting Existing stores one deduplicated relation for each eligible Document, Source, or Research Work Evidence origin. Candidate creation is not exposed as an API in this phase. Merge preview accepts `survivor_term_id`, `loser_term_ids`, and `final_title`; it returns the final aliases and loser IDs whose non-empty bodies will not be merged. Merge accepts the same fields plus `confirm_loser_bodies_not_merged: true` when that list is non-empty. The operation commits only the survivor Term update and loser Term deletions; it does not rewrite Documents.
+Term Candidate endpoints list and inspect Runtime Candidates, reject them with `scope: local|global`, or accept them against an existing canonical Term using `term_id`. Accepting Existing stores one deduplicated relation for each eligible Document, Source, or Research Work Evidence origin. Direct Candidate creation is not exposed. Manual Document Term Analysis accepts `confirm_deepseek_transfer: true`, reads only the current Canonical Document (and rejects an active Draft), and creates or reuses Candidates after server-side Term resolution and Reject Memory checks. The analysis-state endpoint compares the stored canonical content hash with the current file hash and reports `never_analyzed`, `up_to_date`, or `outdated`; publishing a Document never triggers AI automatically. Merge preview accepts `survivor_term_id`, `loser_term_ids`, and `final_title`; it returns the final aliases and loser IDs whose non-empty bodies will not be merged. Merge accepts the same fields plus `confirm_loser_bodies_not_merged: true` when that list is non-empty. The operation commits only the survivor Term update and loser Term deletions; it does not rewrite Documents.
 
 ## Drafts, Proposals, and publishing
 

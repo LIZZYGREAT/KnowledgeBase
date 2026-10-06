@@ -6,6 +6,9 @@ from fastapi import APIRouter, Query, Request
 
 from backend.app.api.term_schemas import (
     AcceptExistingTermCandidateRequest,
+    DocumentTermAnalysisRequest,
+    DocumentTermAnalysisResultView,
+    DocumentTermAnalysisStateView,
     RejectTermCandidateRequest,
     TermMergePreviewRequest,
     TermMergePreviewView,
@@ -16,6 +19,26 @@ from backend.app.domain.term_runtime import TermCandidateDetail, TermCandidateRe
 
 
 router = APIRouter(prefix="/api/terms", tags=["Terms"])
+
+
+@router.post(
+    "/analyze-document/{document_id}",
+    response_model=DocumentTermAnalysisResultView,
+)
+async def analyze_document_terms(
+    document_id: str, body: DocumentTermAnalysisRequest, request: Request
+):
+    return await request.app.state.term_analysis_service.analyze_document(document_id)
+
+
+@router.get(
+    "/document-analysis/{document_id}",
+    response_model=DocumentTermAnalysisStateView,
+)
+async def get_document_term_analysis(document_id: str, request: Request):
+    return request.app.state.term_analysis_service.get_document_analysis_state(
+        document_id
+    )
 
 
 @router.get("/candidates", response_model=list[TermCandidateRecord])

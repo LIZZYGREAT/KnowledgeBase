@@ -19,13 +19,13 @@ from backend.app.services.term_candidate_service import (
 from backend.app.services.term_merge_service import TermMergePreview, TermMergeResult
 
 
-def test_runtime_schema_12_migrates_to_term_core_13():
+def test_runtime_schema_12_migrates_to_term_core_and_analysis_state_14():
     connection = sqlite3.connect(":memory:")
     connection.execute("PRAGMA user_version = 12")
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     tables = {
         row[0]
         for row in connection.execute(
@@ -37,6 +37,7 @@ def test_runtime_schema_12_migrates_to_term_core_13():
         "term_candidate_evidence",
         "term_entity_relations",
         "term_merge_history",
+        "document_term_analysis_state",
     } <= tables
     connection.close()
 

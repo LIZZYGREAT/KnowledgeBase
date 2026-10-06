@@ -52,6 +52,10 @@ from backend.app.services.term_candidate_service import (
     TermCandidateService,
 )
 from backend.app.services.term_merge_service import TermMergeConflict, TermMergeService
+from backend.app.services.term_analysis_service import (
+    TermAnalysisConflict,
+    TermAnalysisService,
+)
 from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
     PresentationAnnotationService,
@@ -93,6 +97,14 @@ async def lifespan(application: FastAPI):
         annotation_service = PresentationAnnotationService(AnnotationRepository(connection))
         indexer = Indexer(repository_root, connection)
         canonical_target_resolver = CanonicalTargetResolver(repository_root, connection)
+        term_analysis_service = TermAnalysisService(
+            repository_root,
+            term_candidate_repository,
+            term_candidate_service,
+            ai_gateway,
+            draft_service,
+            canonical_target_resolver,
+        )
         knowledge_read_service = research_components.knowledge_read_service
         collection_service = research_components.collection_service
         context_export_service = research_components.context_export_service
@@ -139,6 +151,7 @@ async def lifespan(application: FastAPI):
         application.state.proposal_service = proposal_service
         application.state.term_candidate_service = term_candidate_service
         application.state.term_merge_service = term_merge_service
+        application.state.term_analysis_service = term_analysis_service
         application.state.ai_gateway = ai_gateway
         application.state.ai_proposal_service = ai_proposal_service
         application.state.usage_service = usage_service
@@ -210,6 +223,11 @@ async def proposal_conflict_handler(request: Request, error: ProposalTransitionE
 
 @app.exception_handler(TermCandidateConflict)
 async def term_candidate_conflict_handler(request: Request, error: TermCandidateConflict):
+    return _error_response(409, error)
+
+
+@app.exception_handler(TermAnalysisConflict)
+async def term_analysis_conflict_handler(request: Request, error: TermAnalysisConflict):
     return _error_response(409, error)
 
 

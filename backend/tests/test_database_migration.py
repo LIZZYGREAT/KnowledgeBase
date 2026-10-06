@@ -18,7 +18,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     connection = connect_database(database_path)
     try:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'drafts_target_unique_idx'"
         ).fetchone() is not None
@@ -68,7 +68,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
     reopened = connect_database(database_path)
     try:
-        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 14
         assert reopened.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 5
         assert reopened.execute("SELECT COUNT(*) FROM collection_progress").fetchone()[0] == 1
     finally:
@@ -77,7 +77,7 @@ def test_legacy_runtime_database_migrates_and_preserves_user_state(tmp_path):
 
 def test_migration_rejects_a_database_from_a_newer_schema_version():
     connection = sqlite3.connect(":memory:")
-    connection.execute("PRAGMA user_version = 14")
+    connection.execute("PRAGMA user_version = 15")
 
     with pytest.raises(RuntimeError, match="newer than supported"):
         migrate_database(connection)
@@ -111,7 +111,7 @@ def test_version_ten_migration_adds_overlap_floor_and_preserves_watermarks():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     assert "overlap_floor" in {
         row[1] for row in connection.execute("PRAGMA table_info(research_search_state)")
     }
@@ -148,7 +148,7 @@ def test_version_nine_migration_preserves_control_events_and_removes_reactivatio
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     assert connection.execute(
         "SELECT id, profile_id, event_type, payload_json, created_at "
         "FROM research_control_events"
@@ -232,7 +232,7 @@ def test_version_twelve_removes_obsolete_research_runtime_states_and_keeps_valid
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     assert connection.execute(
         "SELECT id, event_type FROM research_control_events"
     ).fetchall() == [("pause-1", "pause")]
@@ -269,7 +269,7 @@ def test_version_seven_migration_separates_attempts_and_marks_old_analysis_total
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     row = connection.execute(
         """SELECT analysis_attempt_count, analyzed_count, analysis_counts_known
            FROM research_runs WHERE id = 'old-run'"""
@@ -293,7 +293,7 @@ def test_version_eight_migration_normalizes_historical_research_dismiss_reasons(
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     assert connection.execute(
         "SELECT id, dismiss_reason FROM research_candidates ORDER BY id"
     ).fetchall() == [
@@ -346,7 +346,7 @@ def test_version_five_migration_allows_multiple_candidates_to_share_source_draft
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     assert connection.execute(
         "SELECT candidate_id, draft_id FROM research_pending_links"
     ).fetchall() == [("candidate-a", "source-draft")]
@@ -396,7 +396,7 @@ def test_version_three_database_migrates_research_tables_and_preserves_drafts():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     assert connection.execute(
         "SELECT content, revision FROM drafts WHERE id = 'existing-draft'"
     ).fetchone() == ("preserved draft content", 2)
@@ -502,7 +502,7 @@ def test_version_four_research_run_migration_preserves_rows_and_v12_removes_ai_d
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     assert connection.execute(
         "SELECT status, fetched_count, finished_at FROM research_runs WHERE id = 'existing-run'"
     ).fetchone() == ("success", 2, "finished")
@@ -543,7 +543,7 @@ def test_version_six_migration_preserves_analyses_with_empty_input_context():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
     assert connection.execute(
         "SELECT input_context_json FROM research_work_analyses WHERE id = 'analysis-1'"
     ).fetchone()[0] == "{}"

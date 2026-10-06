@@ -147,19 +147,6 @@ class AIProposalService:
                         ", ".join(sorted(unknown_sources))
                     )
                 )
-        if task_name == "detect_terms":
-            known = {term["id"] for term in registries["terms"]}
-            unknown = {
-                candidate["term_id"]
-                for candidate in result["candidates"]
-                if candidate["action"] == "link_existing"
-            } - known
-            if unknown:
-                raise AIResponseError(
-                    "Term detection contains unknown Term id(s): {}".format(
-                        ", ".join(sorted(unknown))
-                    )
-                )
         if task_name == "suggest_evidence":
             known = {source["id"] for source in registries["sources"]}
             unknown = {candidate["source_id"] for candidate in result["candidates"]} - known

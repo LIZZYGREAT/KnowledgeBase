@@ -119,6 +119,15 @@ CREATE TABLE IF NOT EXISTS term_merge_history (
 CREATE INDEX IF NOT EXISTS term_merge_history_survivor_idx
     ON term_merge_history (survivor_term_id, merged_at DESC);
 
+CREATE TABLE IF NOT EXISTS document_term_analysis_state (
+    document_id TEXT PRIMARY KEY,
+    analyzed_content_hash TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    analyzed_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS presentation_annotations (
     id TEXT PRIMARY KEY,
     entity_type TEXT NOT NULL CHECK (entity_type IN ('document', 'term')),

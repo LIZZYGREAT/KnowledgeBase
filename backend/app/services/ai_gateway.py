@@ -30,8 +30,25 @@ TASKS = {
         ("taxonomy", "sources"), "Suggest document metadata using known taxonomy and Sources.",
     ),
     "detect_terms": AITask(
-        "detect_terms", "link", TASK_OUTPUTS["detect_terms"],
-        ("terms",), "Find meaningful Term mentions and match the supplied Term Registry.",
+        "detect_terms",
+        None,
+        TASK_OUTPUTS["detect_terms"],
+        ("terms",),
+        (
+            "Analyze only the supplied canonical Document body. This is not keyword extraction: "
+            "return only stable knowledge nodes or research-reading vocabulary worth reusing across Notes or Research. "
+            "Prefer theories, methods, mechanisms, learning paradigms, stable technical concepts, "
+            "models, architectures, datasets, frameworks, tools, benchmarks, systems, and useful research vocabulary. "
+            "Do not include generic words such as model, training, accuracy, or dataset; temporary phrasing; "
+            "low-value environment details; or names listed in Reject Context. "
+            "An Existing match means the same semantic Term, never merely a related Term. "
+            "Use link_existing only with an exact supplied Term id; otherwise use propose_new. "
+            "normalized_name must be the mention normalized by Unicode NFKC, casefolding, replacing non-word "
+            "characters with spaces, and collapsing whitespace. context_excerpt and mention must be copied verbatim from "
+            "the supplied Document body. Confidence describes certainty in the Existing/New decision, not importance. "
+            "Return at most 40 candidates."
+        ),
+        output_usage="analysis",
     ),
     "review_format_semantics": AITask(
         "review_format_semantics", "format", TASK_OUTPUTS["review_format_semantics"],
@@ -105,7 +122,7 @@ class AIGateway:
         usage_instruction = (
             "All output is a proposal for human review."
             if task.output_usage == "proposal"
-            else "This is structured research analysis for human review, not a proposal to modify canonical knowledge."
+            else "This is structured analysis for human review, not a proposal to modify canonical knowledge."
         )
         system_prompt = (
             "Task: {}\n{}\nReturn exactly one JSON object matching this JSON Schema. "

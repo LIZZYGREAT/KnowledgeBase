@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 13
+CURRENT_SCHEMA_VERSION = 14
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -43,6 +43,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_cleanup_research_legacy_states
         elif target_version == 13:
             migration = _migrate_to_term_core
+        elif target_version == 14:
+            migration = _migrate_to_document_term_analysis_state
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -850,3 +852,16 @@ def _migrate_to_term_core(connection: sqlite3.Connection) -> None:
     )
     for statement in statements:
         connection.execute(statement)
+
+
+def _migrate_to_document_term_analysis_state(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS document_term_analysis_state (
+               document_id TEXT PRIMARY KEY,
+               analyzed_content_hash TEXT NOT NULL,
+               prompt_version TEXT NOT NULL,
+               provider TEXT NOT NULL,
+               model TEXT NOT NULL,
+               analyzed_at TEXT NOT NULL
+           )"""
+    )

@@ -93,6 +93,68 @@ class TermCandidateRepository:
         ).fetchone()
         return row is not None
 
+    def rejected_names(self, scopes: list[str]) -> list[str]:
+        if not scopes:
+            return []
+        placeholders = ", ".join("?" for _ in scopes)
+        rows = self.connection.execute(
+            """SELECT DISTINCT normalized_value FROM rejected_candidates
+               WHERE candidate_type = 'term' AND scope IN ({})
+               ORDER BY normalized_value""".format(placeholders),
+            scopes,
+        ).fetchall()
+        return [row["normalized_value"] for row in rows]
+
+    def has_relation(self, entity_type: str, entity_id: str, term_id: str) -> bool:
+        return self.connection.execute(
+            """SELECT 1 FROM term_entity_relations
+               WHERE entity_type = ? AND entity_id = ? AND term_id = ?""",
+            (entity_type, entity_id, term_id),
+        ).fetchone() is not None
+
+    def has_accepted_candidate_evidence(
+        self, normalized_name: str, origin_type: str, origin_id: str
+    ) -> bool:
+        return self.connection.execute(
+            """SELECT 1
+               FROM term_candidates c
+               JOIN term_candidate_evidence e ON e.candidate_id = c.id
+               WHERE c.normalized_name = ? AND c.status = 'accepted'
+                 AND e.origin_type = ? AND e.origin_id = ?
+               LIMIT 1""",
+            (normalized_name, origin_type, origin_id),
+        ).fetchone() is not None
+
+    def get_document_analysis_state(self, document_id: str) -> Optional[dict]:
+        row = self.connection.execute(
+            "SELECT * FROM document_term_analysis_state WHERE document_id = ?",
+            (document_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def save_document_analysis_state(self, state: dict) -> None:
+        with self.connection:
+            self.connection.execute(
+                """INSERT INTO document_term_analysis_state (
+                       document_id, analyzed_content_hash, prompt_version,
+                       provider, model, analyzed_at
+                   ) VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(document_id) DO UPDATE SET
+                       analyzed_content_hash = excluded.analyzed_content_hash,
+                       prompt_version = excluded.prompt_version,
+                       provider = excluded.provider,
+                       model = excluded.model,
+                       analyzed_at = excluded.analyzed_at""",
+                (
+                    state["document_id"],
+                    state["analyzed_content_hash"],
+                    state["prompt_version"],
+                    state["provider"],
+                    state["model"],
+                    state["analyzed_at"],
+                ),
+            )
+
     def reject_candidate(
         self,
         candidate_id: str,
@@ -238,7 +300,11 @@ class TermCandidateRepository:
                        id, candidate_id, origin_type, origin_id, mention,
                        context_excerpt, confidence, rationale, discovered_at
                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(candidate_id, origin_type, origin_id, mention) DO NOTHING""",
+                   ON CONFLICT(candidate_id, origin_type, origin_id, mention)
+                   DO UPDATE SET context_excerpt = excluded.context_excerpt,
+                                 confidence = excluded.confidence,
+                                 rationale = excluded.rationale,
+                                 discovered_at = excluded.discovered_at""",
                 (
                     uuid.uuid4().hex,
                     candidate_id,
