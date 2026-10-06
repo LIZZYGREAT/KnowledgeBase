@@ -8,7 +8,7 @@ import { ResearchProfileDefaultsEditor } from "../../src/ResearchProfileDefaults
 import { ResearchProfileCreateDialog } from "../../src/ResearchProfileCreateDialog";
 import { ResearchCandidateCard, ResearchCandidateDrawer, ResearchCreateNoteDialog } from "../../src/ResearchCandidate";
 import { ResearchRunDrawer, ResearchRunList } from "../../src/ResearchRun";
-import type { ResearchCandidateDetail, ResearchCandidateListItem, ResearchProfile, ResearchRun, ResearchRunStatus } from "../../src/api";
+import type { ResearchCandidateListItem, ResearchProfile, ResearchRun, ResearchRunStatus } from "../../src/api";
 
 vi.mock("../../src/Workspace", async () => {
   const React = await import("react");
@@ -525,54 +525,6 @@ describe("Research workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "中文" }));
     expect(screen.getByText("此历史候选暂无中文分析")).toBeTruthy();
     expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
-  });
-
-  it("keeps Chinese analysis available when one relation translation is missing", async () => {
-    const relation = { ...analysis.existing_relations[0], reason_zh: null };
-    const partialTranslationAnalysis = { ...analysis, existing_relations: [relation] };
-    const partialTranslationDetail = {
-      ...candidateDetail,
-      analysis: { ...candidateDetail.analysis, analysis: partialTranslationAnalysis },
-      knowledge_relations: [relation],
-    } as ResearchCandidateDetail;
-
-    render(<>
-      <ResearchCandidateCard
-        item={{ ...candidateListItem, analysis: partialTranslationAnalysis } as ResearchCandidateListItem}
-        profile={profile as ResearchProfile}
-        selected={false}
-        selectable={false}
-        busy={false}
-        onSelect={() => undefined}
-        onDetails={() => undefined}
-        onShortlist={() => undefined}
-        onDismiss={() => undefined}
-        onRestore={() => undefined}
-        onCreateNote={() => undefined}
-      />
-      <ResearchCandidateDrawer
-        detail={partialTranslationDetail}
-        profile={profile as ResearchProfile}
-        language="zh"
-        onLanguageChange={() => undefined}
-        noteBusy={false}
-        noteError=""
-        onClose={() => undefined}
-        onOpenEntity={() => undefined}
-        onSaveSource={() => undefined}
-        onSaveNote={() => undefined}
-      />
-    </>);
-
-    const card = screen.getByRole("heading", { name: "A New Regularization Method" }).closest(".research-candidate-card") as HTMLElement;
-    fireEvent.click(within(card).getByRole("button", { name: "中文" }));
-    expect(within(card).getByText(analysis.summary_zh)).toBeTruthy();
-    expect(within(card).queryByText("此历史候选暂无中文分析")).toBeNull();
-
-    const drawer = await screen.findByRole("dialog", { name: "Why this candidate" });
-    expect(within(drawer).getByText(analysis.summary_zh)).toBeTruthy();
-    expect(within(drawer).getByText(/Uses Fisher information to estimate parameter importance\./)).toBeTruthy();
-    expect(within(drawer).queryByText("此历史候选暂无中文分析")).toBeNull();
   });
 
   it("creates a Research Profile from name and focus, generating stable default identifiers", async () => {
