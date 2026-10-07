@@ -1,6 +1,7 @@
 """Bounded, Focus-aware Term Discovery over the existing local corpus."""
 
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -19,10 +20,13 @@ from backend.app.domain.term_discovery import (
 from backend.app.domain.term_runtime import (
     TermCandidateEvidenceInput,
     TermDiscoveryAssessment,
+    TermOriginType,
 )
+from backend.app.domain.document import DocumentMetadata
 from backend.app.repositories.term_discovery_repository import TermDiscoveryRepository
-from backend.app.services.ai_client import AIGatewayError, AIResponseError
+from backend.app.services.ai_client import AIResponseError
 from backend.app.services.knowledge_state_service import KnowledgeStateService
+from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.research_lock import GlobalResearchLock
 from backend.app.services.resolution import normalize_key
 from backend.app.services.source_registry import SourceRegistry
@@ -40,7 +44,32 @@ GLOBAL_OPEN_CAPACITY = 12
 MAX_SOURCES_PER_RUN = 3
 MAX_TEXT_CHARS_PER_REQUEST = 12_000
 MAX_VOCABULARY_OPTIONS = 20
+MAX_DOCUMENTS_PER_RUN = 3
+MAX_DOCUMENT_BYTES = 2_000_000
+MAX_RECENT_DOCUMENTS = 12
 _LANE_ORDER: tuple[DiscoveryLane, ...] = ("concept", "entity", "vocabulary")
+
+
+@dataclass(frozen=True)
+class DiscoveryCorpus:
+    origin_type: TermOriginType
+    origin_id: str
+    origin: object
+    text: str
+    text_hash: str
+    analysis_id: str
+    lanes: tuple[DiscoveryLane, ...]
+    is_pdf: bool = False
+
+
+@dataclass(frozen=True)
+class _DocumentContext:
+    id: str
+    title: str
+    domains: tuple[str, ...]
+    topics: tuple[str, ...]
+    authors: tuple[str, ...] = ()
+    year: Optional[int] = None
 
 
 class TermDiscoveryService:
@@ -154,7 +183,7 @@ class TermDiscoveryService:
         source_registry = SourceRegistry.load(
             self.repository_root / "knowledge" / "sources"
         )
-        if not any(
+        has_pdf = any(
             source.attachments.local_pdf
             and (
                 self.repository_root
@@ -163,7 +192,18 @@ class TermDiscoveryService:
                 / "{}.pdf".format(source.id)
             ).is_file()
             for source in source_registry.sources
-        ):
+        )
+        has_note = any(
+            path.is_file()
+            for folder in ("papers", "learning", "courses")
+            for path in (
+                self.repository_root / "knowledge" / "documents" / folder
+            ).glob("*.md")
+        ) and any(
+            lane in self.repository.get_settings().enabled_lanes
+            for lane in ("concept", "entity")
+        )
+        if not has_pdf and not has_note:
             return None
         return self.run(trigger="scheduled")
 
@@ -262,6 +302,15 @@ class TermDiscoveryService:
             enabled_lanes,
             focus_hash,
         )
+        documents = _select_documents(
+            self.repository_root,
+            self.repository,
+            enabled_lanes,
+            focus,
+            snapshot,
+            focus_hash,
+            registry,
+        )
         self.repository.retain_vocabulary_sources(
             {
                 source.id
@@ -275,7 +324,7 @@ class TermDiscoveryService:
         errors: list[str] = []
         created_count = 0
 
-        if not sources:
+        if not sources and not documents:
             return self._finish_run(
                 run_id,
                 trigger,
@@ -310,15 +359,91 @@ class TermDiscoveryService:
                         "{}: {}".format(source.id, corpus.error_message or "PDF extraction failed")
                     )
                 continue
-
-            statistics = mine_vocabulary(corpus.text)
-            self.repository.replace_vocabulary_source_statistics(
-                source.id, corpus.text_hash, statistics, self._now()
+            created_count += self._process_additional_corpora(
+                [
+                    DiscoveryCorpus(
+                        "source",
+                        source.id,
+                        source,
+                        corpus.text,
+                        corpus.text_hash,
+                        source.id,
+                        tuple(_LANE_ORDER),
+                        is_pdf=True,
+                    )
+                ],
+                run_id,
+                snapshot,
+                focus,
+                registry,
+                resolver,
+                focus_hash,
+                remaining_budgets,
+                raw_counts,
+                filtered_counts,
+                items,
+                errors,
             )
-            for lane in _LANE_ORDER:
+
+        created_count += self._process_additional_corpora(
+            documents,
+            run_id,
+            snapshot,
+            focus,
+            registry,
+            resolver,
+            focus_hash,
+            remaining_budgets,
+            raw_counts,
+            filtered_counts,
+            items,
+            errors,
+        )
+
+        status = "partial" if errors else "success"
+        return self._finish_run(
+            run_id,
+            trigger,
+            status,
+            started_at,
+            snapshot,
+            allocated_budgets,
+            raw_counts,
+            filtered_counts,
+            created_count,
+            items,
+            "; ".join(errors[:6]) or None,
+        )
+
+    def _process_additional_corpora(
+        self,
+        corpora: list[DiscoveryCorpus],
+        run_id: str,
+        snapshot: dict,
+        focus: list[str],
+        registry: TermRegistry,
+        resolver: TermResolver,
+        focus_hash: str,
+        remaining_budgets: dict[str, int],
+        raw_counts: dict[str, int],
+        filtered_counts: dict[str, int],
+        items: list[TermDiscoveryRunItem],
+        errors: list[str],
+    ) -> int:
+        created_count = 0
+        for corpus in corpora:
+            if not any(remaining_budgets.values()):
+                break
+            if corpus.is_pdf:
+                statistics = mine_vocabulary(corpus.text)
+                self.repository.replace_vocabulary_source_statistics(
+                    corpus.origin_id, corpus.text_hash, statistics, self._now()
+                )
+            lane_created_counts = {lane: 0 for lane in _LANE_ORDER}
+            for lane in corpus.lanes:
                 if remaining_budgets[lane] <= 0:
                     continue
-                state = self.repository.get_analysis_state(source.id, lane)
+                state = self.repository.get_analysis_state(corpus.analysis_id, lane)
                 if (
                     state is not None
                     and state["text_hash"] == corpus.text_hash
@@ -330,79 +455,74 @@ class TermDiscoveryService:
                 try:
                     suggestions = self._discover_for_lane(
                         lane,
-                        source,
+                        corpus.origin,
                         corpus.text,
                         snapshot,
                         focus,
                         registry,
                         resolver,
                     )
-                except AIGatewayError as error:
-                    errors.append("{} {}: {}".format(source.id, lane, str(error)[:220]))
-                    continue
                 except Exception as error:
-                    errors.append("{} {}: {}".format(source.id, lane, str(error)[:220]))
+                    errors.append(
+                        "{} {}: {}".format(corpus.origin_id, lane, str(error)[:220])
+                    )
                     continue
 
                 raw_counts[lane] += len(suggestions)
-                lane_created = 0
                 for suggestion in suggestions:
-                    if suggestion.term_type != lane:
-                        filtered_counts[lane] += 1
-                        items.append(
-                            self._item(
-                                run_id, lane, source.id, suggestion, "filtered", None
-                            )
-                        )
-                        continue
-                    if suggestion.mention.casefold() not in corpus.text.casefold():
-                        filtered_counts[lane] += 1
-                        items.append(
-                            self._item(
-                                run_id, lane, source.id, suggestion, "filtered", None
-                            )
-                        )
-                        continue
                     if (
-                        suggestion.mention.casefold()
+                        suggestion.term_type != lane
+                        or suggestion.mention.casefold() not in corpus.text.casefold()
+                        or suggestion.mention.casefold()
                         not in suggestion.context_excerpt.casefold()
                         or suggestion.context_excerpt not in corpus.text
                     ):
                         filtered_counts[lane] += 1
                         items.append(
                             self._item(
-                                run_id, lane, source.id, suggestion, "filtered", None
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "filtered",
+                                None,
                             )
                         )
                         continue
-                    if suggestion.existing_term_id and registry.get(suggestion.existing_term_id) is None:
+                    if (
+                        suggestion.existing_term_id
+                        and registry.get(suggestion.existing_term_id) is None
+                    ):
                         errors.append(
                             "{} {} referenced unknown Term id {}".format(
-                                source.id, lane, suggestion.existing_term_id
+                                corpus.origin_id, lane, suggestion.existing_term_id
                             )
                         )
                         filtered_counts[lane] += 1
                         continue
-                    assessment = TermDiscoveryAssessment(
-                        readiness=suggestion.readiness,
-                        recommendation_level=suggestion.recommendation_level,
-                        known_prerequisites=suggestion.known_prerequisites,
-                        missing_prerequisites=suggestion.missing_prerequisites,
-                        why_now=suggestion.why_now,
-                    )
                     if suggestion.recommendation_level == "stretch":
                         filtered_counts[lane] += 1
                         items.append(
                             self._item(
-                                run_id, lane, source.id, suggestion, "stretch", None
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "stretch",
+                                None,
                             )
                         )
                         continue
-                    if lane_created >= remaining_budgets[lane]:
+                    if lane_created_counts[lane] >= remaining_budgets[lane]:
                         filtered_counts[lane] += 1
                         items.append(
                             self._item(
-                                run_id, lane, source.id, suggestion, "filtered", None
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "filtered",
+                                None,
                             )
                         )
                         continue
@@ -419,7 +539,12 @@ class TermDiscoveryService:
                         filtered_counts[lane] += 1
                         items.append(
                             self._item(
-                                run_id, lane, source.id, suggestion, "duplicate", existing_open.id
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "duplicate",
+                                existing_open.id,
                             )
                         )
                         continue
@@ -427,7 +552,12 @@ class TermDiscoveryService:
                         filtered_counts[lane] += 1
                         items.append(
                             self._item(
-                                run_id, lane, source.id, suggestion, "filtered", None
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "filtered",
+                                None,
                             )
                         )
                         continue
@@ -444,12 +574,19 @@ class TermDiscoveryService:
                         filtered_counts[lane] += 1
                         continue
                     evidence = TermCandidateEvidenceInput(
-                        origin_type="source",
-                        origin_id=source.id,
+                        origin_type=corpus.origin_type,
+                        origin_id=corpus.origin_id,
                         mention=suggestion.mention,
                         context_excerpt=suggestion.context_excerpt,
                         confidence=suggestion.confidence,
                         rationale=suggestion.rationale,
+                    )
+                    assessment = TermDiscoveryAssessment(
+                        readiness=suggestion.readiness,
+                        recommendation_level=suggestion.recommendation_level,
+                        known_prerequisites=suggestion.known_prerequisites,
+                        missing_prerequisites=suggestion.missing_prerequisites,
+                        why_now=suggestion.why_now,
                     )
                     try:
                         candidate = self.candidate_service.create_candidate(
@@ -459,33 +596,38 @@ class TermDiscoveryService:
                             preferred_term_id=suggestion.existing_term_id,
                             discovery_assessment=assessment,
                         )
-                    except (TermCandidateConflict, ValueError) as error:
+                    except (TermCandidateConflict, ValueError):
                         filtered_counts[lane] += 1
                         items.append(
                             self._item(
-                                run_id, lane, source.id, suggestion, "rejected", None
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "rejected",
+                                None,
                             )
                         )
                         continue
                     if existing_open is None:
-                        candidate_outcome = "created"
-                        lane_created += 1
+                        outcome = "created"
+                        lane_created_counts[lane] += 1
                         created_count += 1
                     else:
-                        candidate_outcome = "duplicate"
+                        outcome = "duplicate"
                         filtered_counts[lane] += 1
                     items.append(
                         self._item(
                             run_id,
                             lane,
-                            source.id,
+                            corpus.origin_id,
                             suggestion,
-                            candidate_outcome,
+                            outcome,
                             candidate.id,
                         )
                     )
                 self.repository.save_analysis_state(
-                    source.id,
+                    corpus.analysis_id,
                     corpus.text_hash,
                     focus_hash,
                     lane,
@@ -493,23 +635,10 @@ class TermDiscoveryService:
                     self._now(),
                 )
                 remaining_budgets[lane] = max(
-                    0, remaining_budgets[lane] - lane_created
+                    0,
+                    remaining_budgets[lane] - lane_created_counts[lane],
                 )
-
-        status = "partial" if errors else "success"
-        return self._finish_run(
-            run_id,
-            trigger,
-            status,
-            started_at,
-            snapshot,
-            allocated_budgets,
-            raw_counts,
-            filtered_counts,
-            created_count,
-            items,
-            "; ".join(errors[:6]) or None,
-        )
+        return created_count
 
     def _discover_for_lane(
         self,
@@ -537,8 +666,10 @@ class TermDiscoveryService:
             "source": {
                 "id": source.id,
                 "title": source.title,
-                "authors": source.authors[:3],
-                "year": source.year,
+                "authors": list(getattr(source, "authors", ())[:3]),
+                "year": getattr(source, "year", None),
+                "domains": list(getattr(source, "domains", ())),
+                "topics": list(getattr(source, "topics", ())),
             },
         }
         if lane == "vocabulary":
@@ -718,6 +849,111 @@ def _discovery_focus(explicit_focus: list[str], snapshot: dict) -> list[str]:
         if isinstance(item, dict)
     )
     return list(dict.fromkeys(value.strip() for value in focus if value.strip()))[:40]
+
+
+def _select_documents(
+    repository_root: Path,
+    repository: TermDiscoveryRepository,
+    enabled_lanes: list[DiscoveryLane],
+    focus: list[str],
+    snapshot: dict,
+    focus_hash: str,
+    registry: TermRegistry,
+) -> list[DiscoveryCorpus]:
+    note_lanes = tuple(
+        lane for lane in enabled_lanes if lane in {"concept", "entity"}
+    )
+    if not note_lanes:
+        return []
+    documents_root = (repository_root / "knowledge" / "documents").resolve()
+    if not documents_root.is_dir():
+        return []
+    focus_tokens = set(_tokens(" ".join(focus)))
+    recent_rank = {
+        item["id"]: index
+        for index, item in enumerate(snapshot.get("activity", {}).get("recent_documents", []))
+    }
+    resolver = TermResolver(registry)
+    candidates = []
+    for path in documents_root.rglob("*.md"):
+        try:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_DOCUMENT_BYTES:
+                continue
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(documents_root):
+                continue
+            modified_at = path.stat().st_mtime
+            payload = path.read_bytes()
+            content = payload.decode("utf-8")
+            parsed = parse_markdown(content)
+            metadata = DocumentMetadata.model_validate(parsed.frontmatter)
+            if path.stem != metadata.id:
+                continue
+            relative = path.relative_to(documents_root)
+            expected_directory = {
+                "paper-note": "papers",
+                "learning-note": "learning",
+                "course-note": "courses",
+            }[metadata.type]
+            if len(relative.parts) != 2 or relative.parts[0] != expected_directory:
+                continue
+            body = "\n".join(
+                content.splitlines()[parsed.frontmatter_end_line or 0 :]
+            ).strip()
+            if not body:
+                continue
+        except (OSError, UnicodeDecodeError, ValueError, TypeError, KeyError):
+            continue
+
+        analysis_id = "document:{}".format(metadata.id)
+        states = [
+            repository.get_analysis_state(analysis_id, lane) for lane in note_lanes
+        ]
+        text_hash = sha256(payload).hexdigest()
+        if all(
+            state is not None
+            and state["text_hash"] == text_hash
+            and state["focus_hash"] == focus_hash
+            and state["analysis_version"] == DISCOVERY_ANALYSIS_VERSION
+            for state in states
+        ):
+            continue
+        linked_terms = []
+        for link in parsed.wiki_links:
+            resolution = resolver.resolve(link.target)
+            if resolution.status == "resolved":
+                term = registry.get(resolution.entity_id)
+                if term is not None:
+                    linked_terms.append(term.title)
+        searchable = " ".join(
+            [metadata.title, *metadata.domains, *metadata.topics, *linked_terms]
+        )
+        relevance = len(focus_tokens & set(_tokens(searchable)))
+        context = _DocumentContext(
+            id=metadata.id,
+            title=metadata.title,
+            domains=tuple(metadata.domains),
+            topics=tuple(metadata.topics),
+        )
+        candidates.append(
+            (
+                -relevance,
+                recent_rank.get(metadata.id, MAX_RECENT_DOCUMENTS + 1),
+                -modified_at,
+                metadata.id,
+                DiscoveryCorpus(
+                    "document",
+                    metadata.id,
+                    context,
+                    body,
+                    sha256(payload).hexdigest(),
+                    analysis_id,
+                    note_lanes,
+                ),
+            )
+        )
+    candidates.sort(key=lambda item: item[:4])
+    return [item[4] for item in candidates[:MAX_DOCUMENTS_PER_RUN]]
 
 
 def _select_sources(

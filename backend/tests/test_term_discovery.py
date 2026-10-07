@@ -160,6 +160,96 @@ def test_scheduled_check_is_idle_without_a_local_pdf(tmp_path):
     connection.close()
 
 
+def test_changed_note_is_discovered_incrementally_without_a_local_pdf(tmp_path):
+    output = {
+        "candidates": [
+            _suggestion(
+                "performance on previously learned classes",
+                "concept",
+                "Performance on previously learned classes drops sharply.",
+                "core_gap",
+                "This note connects retention to the current continual learning focus.",
+            )
+        ]
+    }
+    connection, service, candidate_service, _pdf_service, gateway = _service(
+        tmp_path, output
+    )
+    service.update_settings(TermDiscoverySettings(enabled_lanes=["concept"]))
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        """Performance on previously learned classes drops sharply. This pattern
+        signals that a model has lost prior capability after learning a new task.
+        Continual learning systems measure retention across sequential tasks.""",
+        domains=["machine-learning"],
+        topics=["continual-learning"],
+    )
+
+    first = service.scheduled_check()
+    second = service.run()
+
+    assert first is not None, "scheduled check should run for an eligible note"
+    assert first.candidate_count == 1, first.model_dump()
+    candidate = candidate_service.list_candidates("pending")[0]
+    evidence = candidate_service.get_candidate(candidate.id).evidence
+    assert first.items[0].source_id == "note-one"
+    assert evidence[0].origin_type == "document"
+    assert evidence[0].origin_id == "note-one"
+    assert second is not None and second.candidate_count == 0
+    assert len(gateway.calls_by_task("discover_terms")) == 1
+    connection.close()
+
+
+def test_note_discovery_enriches_manual_candidate_without_creating_a_duplicate(tmp_path):
+    output = {
+        "candidates": [
+            _suggestion(
+                "elastic weight consolidation",
+                "concept",
+                "Elastic weight consolidation limits catastrophic forgetting.",
+                "core_gap",
+                "This method connects to the current learning focus.",
+            )
+        ]
+    }
+    connection, service, candidate_service, _pdf_service, _gateway = _service(
+        tmp_path, output
+    )
+    service.update_settings(TermDiscoverySettings(enabled_lanes=["concept"]))
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        "Elastic weight consolidation limits catastrophic forgetting. "
+        "It uses parameter importance to protect prior tasks.",
+    )
+    manual = candidate_service.create_candidate(
+        "elastic weight consolidation",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="document",
+                origin_id="note-one",
+                mention="elastic weight consolidation",
+                context_excerpt="Elastic weight consolidation limits catastrophic forgetting.",
+            )
+        ],
+    )
+
+    run = service.run()
+
+    assert run.candidate_count == 0
+    assert [item.id for item in candidate_service.list_candidates("pending")] == [
+        manual.id
+    ]
+    assert len(candidate_service.get_candidate(manual.id).evidence) == 1
+    connection.close()
+
+
 def test_vocabulary_counts_are_per_source_and_replace_changed_source_rows():
     connection = connect_database(":memory:")
     repository = TermDiscoveryRepository(connection)
@@ -471,6 +561,27 @@ def _write_term(path, term_id, title, depth):
             term_id, title, depth, title
         ),
         encoding="utf-8",
+    )
+
+
+def _write_document(root, document_id, title, body, domains=None, topics=None):
+    import yaml
+
+    directory = root / "knowledge" / "documents" / "learning"
+    directory.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "schema_version": 1,
+        "id": document_id,
+        "title": title,
+        "type": "learning-note",
+        "domains": domains or [],
+        "topics": topics or [],
+    }
+    content = "---\n{}---\n\n{}\n".format(
+        yaml.safe_dump(metadata, sort_keys=False), body
+    )
+    (directory / "{}.md".format(document_id)).write_text(
+        content, encoding="utf-8"
     )
 
 
