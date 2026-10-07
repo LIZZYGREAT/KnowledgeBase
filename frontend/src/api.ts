@@ -711,9 +711,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
   const result = (await response.json()) as T;
   if (workloadChanged && typeof window !== "undefined") {
-    window.dispatchEvent(new Event("kb:workload-changed"));
+    dispatchWorkloadChanged();
   }
   return result;
+}
+
+function dispatchWorkloadChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("kb:workload-changed"));
+  }
 }
 
 export function getUiSummary() {
@@ -1252,15 +1258,23 @@ export function restoreResearchCandidate(candidateId: string) {
   });
 }
 
-export function saveResearchSource(candidateId: string) {
-  return request<{
-    action: "linked_existing" | "draft_created" | "draft_reused";
-    source_id: string;
-    draft_id: string | null;
-    candidate: ResearchCandidate;
-  }>(`/api/research/candidates/${encodeURIComponent(candidateId)}/save-source`, {
-    method: "POST",
-  });
+export interface SaveResearchSourceResult {
+  action: "linked_existing" | "draft_created" | "draft_reused";
+  source_id: string;
+  draft_id: string | null;
+  candidate: ResearchCandidate;
+}
+
+export async function saveResearchSource(candidateId: string) {
+  const result = await request<SaveResearchSourceResult>(
+    `/api/research/candidates/${encodeURIComponent(candidateId)}/save-source`,
+    { method: "POST" },
+  );
+  // Linking an existing Source removes the Candidate from the Inbox; creating a Source Draft waits for Publish.
+  if (result.action === "linked_existing") {
+    dispatchWorkloadChanged();
+  }
+  return result;
 }
 
 export interface CreateResearchNoteInput {

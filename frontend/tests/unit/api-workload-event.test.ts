@@ -4,15 +4,18 @@ import {
   createCandidateTermDraft,
   createImport,
   createImportDraft,
+  createResearchNote,
   dismissResearchCandidate,
   getUiSummary,
   listTermCandidates,
   previewTermMerge,
+  publishDraft,
   recordDocumentOpen,
   recordSearchClick,
   rejectTermCandidate,
   runTermDiscovery,
   shortlistResearchCandidate,
+  saveResearchSource,
   updateImportItem,
 } from "../../src/api";
 
@@ -66,5 +69,47 @@ describe("workload summary refresh events", () => {
 
     expect(dispatch).toHaveBeenCalledTimes(9);
     expect(dispatch.mock.calls.every(([event]) => event.type === "kb:workload-changed")).toBe(true);
+  });
+
+  it("refreshes after linking an existing Research Source and after publishing a Note", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ action: "draft_created", source_id: "source-one", draft_id: "source-draft", candidate: {} }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ action: "linked_existing", source_id: "source-two", draft_id: null, candidate: {} }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          group_id: "group-one",
+          source_draft_id: null,
+          document_draft_id: "note-draft",
+          collection_draft_id: null,
+          collection_id: null,
+          document_id: "note-one",
+          source_id: null,
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: "note-one", title: "Note" }),
+      } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+
+    await saveResearchSource("candidate-one");
+    expect(dispatch).not.toHaveBeenCalled();
+    await saveResearchSource("candidate-two");
+    expect(dispatch).toHaveBeenCalledOnce();
+
+    dispatch.mockClear();
+    await createResearchNote("candidate-three", { document_type: "paper-note", template: "structured" });
+    expect(dispatch).not.toHaveBeenCalled();
+    await publishDraft("note-draft", 1);
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch.mock.calls[0][0].type).toBe("kb:workload-changed");
   });
 });
