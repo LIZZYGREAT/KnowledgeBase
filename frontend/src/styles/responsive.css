@@ -66,6 +66,7 @@
   .taxonomy-title { grid-column: 1 / -1; }
   .topic-taxonomy-title { margin-top: 0; }
   .topic-welcome { min-height: 235px; }
+  .review-workflow-links { grid-template-columns: 1fr; }
   .review-summary { grid-template-columns: 1fr 1fr; }
   .review-grid { grid-template-columns: 1fr; }
   .wide-section { grid-column: auto; }

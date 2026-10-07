@@ -22,6 +22,14 @@
 .topic-groups { display: grid; gap: 12px; }
 .topic-group { padding: 16px 18px 5px; }
 .review-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.review-workflow { display: grid; gap: 10px; }
+.review-workflow-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.review-workflow-link { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; min-width: 0; border: 1px solid #e5ece5; border-radius: 9px; padding: 12px 14px; color: inherit; background: #fff; text-align: left; cursor: pointer; }
+.review-workflow-link:hover, .review-workflow-link:focus-visible { border-color: #bfd3c3; background: #f8fbf8; }
+.review-workflow-link-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #4e6555; font-size: var(--text-sm); font-weight: 650; }
+.review-workflow-link-title > span { color: #72937b; }
+.review-workflow-link > strong { grid-column: 2; grid-row: 1 / span 2; color: #405648; font-family: Manrope, sans-serif; font-size: 22px; font-weight: 650; }
+.review-workflow-link > small { color: var(--text-subtle); font-size: var(--text-xs); }
 .review-count { display: flex; min-height: 65px; align-items: center; gap: 10px; padding: 11px 14px; }
 .review-count strong { color: #405648; font-family: Manrope, sans-serif; font-size: 19px; font-weight: 600; }
 .review-count > span:last-child { color: #87948b; font-size: var(--text-xs); }
