@@ -7,6 +7,7 @@ import { TermsPage } from "../../src/pages/BrowsePages";
 const api = vi.hoisted(() => ({
   listAllEntities: vi.fn(),
   getEntity: vi.fn(),
+  listTaxonomy: vi.fn(),
   listTermCandidates: vi.fn(),
   previewTermMerge: vi.fn(),
   mergeTerms: vi.fn(),
@@ -26,19 +27,19 @@ const terms: EntitySummary[] = [
     id: "survivor-term",
     title: "Survivor Term",
     entity_type: "term",
-    metadata: { type: "concept", depth: "standard", aliases: ["Current Alias"] },
+    metadata: { type: "concept", depth: "standard", aliases: ["Current Alias"], domains: ["ai"], topics: ["agents"] },
   },
   {
     id: "loser-term",
     title: "Loser Term",
     entity_type: "term",
-    metadata: { type: "entity", depth: "stub", aliases: ["Former Alias"] },
+    metadata: { type: "entity", depth: "stub", aliases: ["Former Alias"], domains: ["biology"], topics: ["methods"] },
   },
   {
     id: "word-term",
     title: "Word Term",
     entity_type: "term",
-    metadata: { type: "vocabulary", depth: "deep", aliases: [] },
+    metadata: { type: "vocabulary", depth: "deep", aliases: [], domains: [], topics: [] },
   },
 ];
 
@@ -121,6 +122,9 @@ describe("Terms Registry controls", () => {
     vi.clearAllMocks();
     api.listAllEntities.mockResolvedValue(terms);
     api.getEntity.mockResolvedValue(null);
+    api.listTaxonomy.mockImplementation(async (kind: string) => kind === "domain"
+      ? [{ id: "ai", title: "Artificial Intelligence", kind: "domain" }, { id: "biology", title: "Biology", kind: "domain" }]
+      : [{ id: "agents", title: "Agents", kind: "topic" }, { id: "methods", title: "Methods", kind: "topic" }]);
     api.listTermCandidates.mockResolvedValue(candidates);
     api.acceptTermCandidate.mockResolvedValue({});
     api.rejectTermCandidate.mockResolvedValue({});
@@ -139,6 +143,25 @@ describe("Terms Registry controls", () => {
     expect(screen.getByText("Loser Term")).not.toBeNull();
     expect(screen.queryByText("Survivor Term")).toBeNull();
     expect(screen.queryByText("Word Term")).toBeNull();
+  });
+
+  it("searches Registry titles, IDs and aliases and filters by Domain and Topic", async () => {
+    render(<TermsPage onOpen={vi.fn()} />);
+
+    expect(await screen.findByText("Survivor Term")).not.toBeNull();
+    await userEvent.type(screen.getByLabelText("搜索 Term"), "Current Alias");
+    expect(screen.getByText("Survivor Term")).not.toBeNull();
+    expect(screen.queryByText("Loser Term")).toBeNull();
+
+    await userEvent.clear(screen.getByLabelText("搜索 Term"));
+    await userEvent.selectOptions(screen.getByLabelText("按 Domain 筛选"), "ai");
+    expect(screen.getByText("Survivor Term")).not.toBeNull();
+    expect(screen.queryByText("Loser Term")).toBeNull();
+
+    await userEvent.selectOptions(screen.getByLabelText("按 Domain 筛选"), "");
+    await userEvent.selectOptions(screen.getByLabelText("按 Topic 筛选"), "methods");
+    expect(screen.getByText("Loser Term")).not.toBeNull();
+    expect(screen.queryByText("Survivor Term")).toBeNull();
   });
 
   it("groups explicit links, detections, Sources, PDFs, and Research Works by Term", async () => {

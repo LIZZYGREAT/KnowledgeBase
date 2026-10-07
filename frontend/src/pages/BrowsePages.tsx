@@ -67,8 +67,22 @@ export function TermsPage({
   const [confirmedBodiesNotMerged, setConfirmedBodiesNotMerged] = useState(false);
   const [mergeNotice, setMergeNotice] = useState("");
   const resource = useResource("terms", () => listAllEntities("term"));
+  const taxonomyResource = useResource("term-registry-taxonomy", () => Promise.all([listTaxonomy("domain"), listTaxonomy("topic")]));
   const terms = resource.data ?? [];
-  const visible = terms.filter((term) => (!termType || term.metadata.type === termType) && (!depth || term.metadata.depth === depth));
+  const [searchQuery, setSearchQuery] = useState("");
+  const [domainFilter, setDomainFilter] = useState("");
+  const [topicFilter, setTopicFilter] = useState("");
+  const domains = taxonomyResource.data?.[0] ?? [];
+  const topics = taxonomyResource.data?.[1] ?? [];
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const visible = terms.filter((term) => {
+    const searchable = [term.id, term.title, ...readList(term.metadata, "aliases")].join(" ").toLocaleLowerCase();
+    return (!normalizedQuery || searchable.includes(normalizedQuery))
+      && (!termType || term.metadata.type === termType)
+      && (!depth || term.metadata.depth === depth)
+      && (!domainFilter || readList(term.metadata, "domains").includes(domainFilter))
+      && (!topicFilter || readList(term.metadata, "topics").includes(topicFilter));
+  });
   const loserTermIds = selectedTermIds.filter((id) => id !== mergeSurvivorId);
 
   useEffect(() => {
@@ -155,9 +169,14 @@ export function TermsPage({
         resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <TermCandidatesPanel terms={terms} onOpen={onOpen} navigate={navigate} initialDocumentId={initialDocumentId} />
       ) : <>
       <div className="library-toolbar term-registry-toolbar">
-        <div className="filter-pair">
+        <div className="term-registry-filters">
+          <label className="field-label compact-field term-registry-search">Search Terms<input aria-label="搜索 Term" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="标题、ID 或别名" /></label>
+          <div className="filter-pair">
           <label className="field-label compact-field">类别<select value={termType} onChange={(event) => setTermType(event.target.value as TermType | "")}><option value="">全部 Term</option><option value="concept">Concept</option><option value="entity">Entity</option><option value="vocabulary">Vocabulary</option></select></label>
           <label className="field-label compact-field">深度<select value={depth} onChange={(event) => setDepth(event.target.value)}><option value="">所有深度</option><option value="stub">Stub</option><option value="standard">Standard</option><option value="deep">Deep</option></select></label>
+            {domains.length > 0 && <label className="field-label compact-field">Domain<select aria-label="按 Domain 筛选" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}><option value="">所有 Domain</option>{domains.map((domain) => <option value={domain.id} key={domain.id}>{domain.title}</option>)}</select></label>}
+            {topics.length > 0 && <label className="field-label compact-field">Topic<select aria-label="按 Topic 筛选" value={topicFilter} onChange={(event) => setTopicFilter(event.target.value)}><option value="">所有 Topic</option>{topics.map((topic) => <option value={topic.id} key={topic.id}>{topic.title}</option>)}</select></label>}
+          </div>
         </div>
         <div className="term-registry-actions">
           <span className="count-label">{visible.length} 个 Term</span>
