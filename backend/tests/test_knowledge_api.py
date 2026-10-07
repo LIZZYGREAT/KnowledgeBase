@@ -896,6 +896,9 @@ def test_source_pdf_open_is_confined_to_valid_attached_papers(api_client):
         "attachments:\n  local_pdf: storage://papers/source-alpha.pdf\nmetadata_review:",
     )
     source_path.write_text(source_text, encoding="utf-8")
+    not_yet_indexed = api_client.get("/api/sources/source-alpha/corpus").json()
+    assert not_yet_indexed["pdf_attached"] is True
+    assert not_yet_indexed["extraction_status"] == "not_extracted"
     connection = connect_database(api_client.app.state.database_path)
     try:
         Indexer(root, connection).update_path(source_path)

@@ -161,7 +161,7 @@ async def get_source(entity_id: str, request: Request):
 
 @router.get("/sources/{entity_id}/corpus", response_model=SourceCorpusStateView)
 async def get_source_corpus_state(entity_id: str, request: Request):
-    source = request.app.state.knowledge_read_service.entity_summary("source", entity_id)
+    source = request.app.state.knowledge_read_service.source_summary(entity_id)
     attachments = source["metadata"].get("attachments") or {}
     attachment = attachments.get("local_pdf") if isinstance(attachments, dict) else None
     pdf_attached = isinstance(attachment, str) and bool(attachment)

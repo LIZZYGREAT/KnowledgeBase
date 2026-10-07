@@ -45,21 +45,21 @@ class KnowledgeReadService:
             for row in rows
         ]
 
-    def entity_summary(self, entity_type: str, entity_id: str) -> dict:
-        if entity_type not in _INDEX_TABLES:
-            raise ValueError("Unsupported canonical entity type: {}".format(entity_type))
-        table, _ = _INDEX_TABLES[entity_type]
+    def source_summary(self, source_id: str) -> dict:
         row = self.connection.execute(
-            "SELECT entity_id, title, metadata_json FROM {} WHERE entity_id = ?".format(table),
-            (entity_id,),
+            "SELECT entity_id, title, path FROM source_index WHERE entity_id = ?",
+            (source_id,),
         ).fetchone()
         if row is None:
-            raise LookupError("{} '{}' does not exist in the canonical index".format(entity_type, entity_id))
+            raise LookupError("Source '{}' does not exist in the canonical index".format(source_id))
+        metadata = parse_yaml(self._canonical_path(row["path"], ".yaml").read_text(encoding="utf-8"))
+        if metadata.get("id") != source_id:
+            raise ValueError("Indexed canonical id does not match file metadata: {}".format(source_id))
         return {
             "id": row["entity_id"],
-            "title": row["title"],
-            "entity_type": entity_type,
-            "metadata": json.loads(row["metadata_json"]),
+            "title": metadata["title"],
+            "entity_type": "source",
+            "metadata": metadata,
         }
 
     def library_documents(self) -> list[dict]:
