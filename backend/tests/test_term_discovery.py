@@ -161,6 +161,25 @@ def test_scheduled_check_is_idle_without_a_local_pdf(tmp_path):
     connection.close()
 
 
+def test_heading_only_note_is_not_scheduled_as_a_discovery_corpus(tmp_path):
+    connection, service, _candidate_service, _pdf_service, gateway = _service(tmp_path)
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    _write_document(
+        tmp_path,
+        "note-empty",
+        "Empty Note",
+        "# Empty Note",
+    )
+    service.update_settings(TermDiscoverySettings(enabled_lanes=["concept"]))
+
+    run = service.scheduled_check()
+
+    assert run is None
+    assert service.list_runs() == []
+    assert gateway.calls == []
+    connection.close()
+
+
 def test_external_discovery_is_disabled_by_default(tmp_path):
     external = _FakeExternalDiscovery([])
     connection, service, _candidate_service, _pdf_service, gateway = _service(

@@ -205,20 +205,41 @@ class TermDiscoveryService:
             ).is_file()
             for source in source_registry.sources
         )
-        has_note = any(
-            path.is_file()
-            for folder in ("papers", "learning", "courses")
-            for path in (
-                self.repository_root / "knowledge" / "documents" / folder
-            ).glob("*.md")
-        ) and any(lane in settings.enabled_lanes for lane in ("concept", "entity"))
-        has_external = False
-        if settings.external_enabled and any(
-            lane in settings.enabled_lanes for lane in ("concept", "entity")
-        ):
+        core_lanes = [
+            lane for lane in _LANE_ORDER[:2] if lane in settings.enabled_lanes
+        ]
+        has_note = False
+        focus: list[str] = []
+        focus_snapshot: dict = {}
+        if core_lanes or settings.external_enabled:
             explicit_focus = _focus_context(self.repository_root, settings)
             focus_snapshot = self.knowledge_state.build_snapshot(explicit_focus)
             focus = _discovery_focus(explicit_focus, focus_snapshot)
+        if core_lanes:
+            focus_hash = _json_hash(
+                {
+                    "focus": focus,
+                    "knowledge": focus_snapshot.get("knowledge", {}),
+                    "activity": focus_snapshot.get("activity", {}),
+                    "term_states": focus_snapshot.get("term_states", {}),
+                }
+            )
+            registry = TermRegistry.load(
+                self.repository_root / "knowledge" / "terms"
+            )
+            has_note = bool(
+                _select_documents(
+                    self.repository_root,
+                    self.repository,
+                    core_lanes,
+                    focus,
+                    focus_snapshot,
+                    focus_hash,
+                    registry,
+                )
+            )
+        has_external = False
+        if settings.external_enabled and core_lanes:
             state = self.get_state()
             open_by_lane = state.lane_open
             has_external = bool(focus) and state.daily_remaining > 0 and any(
@@ -983,7 +1004,11 @@ def _select_documents(
             body = "\n".join(
                 content.splitlines()[parsed.frontmatter_end_line or 0 :]
             ).strip()
-            if not body:
+            if not any(
+                not re.match(r"^\s{0,3}#{1,6}(?:\s|$)", line)
+                and re.search(r"\w", line)
+                for line in body.splitlines()
+            ):
                 continue
         except (OSError, UnicodeDecodeError, ValueError, TypeError, KeyError):
             continue
