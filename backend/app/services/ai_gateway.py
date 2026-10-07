@@ -92,6 +92,8 @@ TASKS = {
             "Also use readiness_context and the bounded Term Registry to assess what the reader can use now. "
             "Return readiness (high/medium/low), known_prerequisites, missing_prerequisites, and a specific why_now. "
             "Activity, PDF exposure, recency, or Term rejection do not establish mastery. "
+            "Use knowledge_relevance to reflect how the Work fits selected knowledge and current gaps; "
+            "novelty alone must not outweigh relevance or readiness. "
             "Return at most 12 term_candidates in this same analysis call; use only terms supported by the supplied Work title or abstract, "
             "copy context_excerpt from that Work, and set existing_term_id only to an exact id in term_registry. "
             "Term candidates are review suggestions and must not alter the paper relevance decision. "

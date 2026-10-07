@@ -13,6 +13,7 @@ from backend.app.domain.research_runtime import (
     ResearchRunRecord,
     ResearchWorkRecord,
 )
+from backend.app.domain.term_runtime import TermCandidateEvidenceInput
 from backend.app.domain.source import SourceMetadata
 from backend.app.repositories.research_candidate_repository import (
     ResearchCandidateRepository,
@@ -134,6 +135,58 @@ def test_research_analysis_adds_term_evidence_without_coupling_candidate_lifecyc
     )
     assert service.candidate_repository.get(research_candidate.id).status == "dismissed"
     assert service.term_candidate_service.get_candidate(term_candidate.id).status == "rejected"
+    connection.close()
+
+
+def test_research_term_suggestion_enriches_an_existing_open_candidate(tmp_path):
+    connection = connect_database(":memory:")
+    output = _analysis_output()
+    output["term_candidates"] = [
+        {
+            "mention": "parameter importance",
+            "term_type": "concept",
+            "existing_term_id": None,
+            "confidence": 0.86,
+            "rationale": "It is central to the paper's method.",
+            "context_excerpt": "Fisher information measures parameter importance.",
+            "readiness": "medium",
+            "recommendation_level": "core_gap",
+            "known_prerequisites": ["Fisher information"],
+            "missing_prerequisites": [],
+            "why_now": "It connects an established concept to this paper's method.",
+        }
+    ]
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, analysis_output=output
+    )
+    prior = service.term_candidate_service.create_candidate(
+        "parameter importance",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="external",
+                origin_id="existing-research-notes",
+                mention="parameter importance",
+            )
+        ],
+    )
+
+    run = service.run_profile("continual-learning")
+
+    assert run is not None and run.status == "success"
+    pending = service.term_candidate_service.list_candidates("pending")
+    assert [candidate.id for candidate in pending] == [prior.id]
+    evidence = service.term_candidate_service.repository.get_evidence(prior.id)
+    assert {item.origin_type for item in evidence} == {"external", "research_work"}
+    research_candidate = service.candidate_repository.list_for_profile(
+        "continual-learning"
+    )[0]
+    assert any(
+        item.origin_type == "research_work"
+        and item.origin_id == research_candidate.work_id
+        for item in evidence
+    )
     connection.close()
 
 

@@ -102,10 +102,26 @@ class ResearchCandidateRepository:
             weights = ()
         else:
             knowledge_score = "CAST(json_extract(a.analysis_json, '$.knowledge_relevance') AS REAL)"
+            readiness_value = "json_extract(a.analysis_json, '$.readiness')"
+            readiness_score = (
+                "CASE {} WHEN 'high' THEN 1.0 WHEN 'medium' THEN 0.65 "
+                "WHEN 'low' THEN 0.15 ELSE 0.5 END"
+            ).format(readiness_value)
+            legacy_score = "(? * {} + ? * {} + ? * {})".format(
+                profile_score, knowledge_score, novelty_score
+            )
+            readiness_aware_score = "MIN(1.0, ? * {} + ? * {} + ? * {} + 0.15 * {})".format(
+                profile_score, knowledge_score, novelty_score, readiness_score
+            )
             order = (
-                "(? * {} + ? * {} + ? * {}) DESC, c.created_at DESC, c.id DESC"
-            ).format(profile_score, knowledge_score, novelty_score)
-            weights = tuple(ranking_weights)
+                "(CASE WHEN {} IS NULL THEN {} ELSE {} END) DESC, "
+                "c.created_at DESC, c.id DESC"
+            ).format(readiness_value, legacy_score, readiness_aware_score)
+            weights = tuple(ranking_weights) + (
+                ranking_weights[0],
+                ranking_weights[1],
+                ranking_weights[2] * 0.25,
+            )
         rows = self.connection.execute(
             """SELECT c.* FROM research_candidates c
                JOIN research_work_analyses a ON a.id = c.analysis_id"""

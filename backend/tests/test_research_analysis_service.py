@@ -387,6 +387,24 @@ def test_research_analysis_schema_rejects_out_of_range_scores():
     connection.close()
 
 
+def test_research_analysis_schema_rejects_unknown_readiness_value():
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    output = _analysis_output()
+    output["readiness"] = "expert"
+    service = ResearchAnalysisService(
+        repository, AIGateway(MockDeepSeekClient({"research_candidate_analysis": output}))
+    )
+
+    with pytest.raises(AIResponseError, match="JSON schema"):
+        service.analyze(work, _profile(), _profile().lenses[0], _context_pack())
+
+    assert connection.execute("SELECT COUNT(*) FROM research_work_analyses").fetchone()[0] == 0
+    connection.close()
+
+
 def test_historical_analysis_json_without_readiness_remains_readable():
     historical = _analysis_output()
     for key in (

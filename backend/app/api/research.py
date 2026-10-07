@@ -32,6 +32,7 @@ from backend.app.api.research_schemas import (
 from backend.app.domain.research_runtime import ResearchCandidateStatus
 from backend.app.domain.research_runtime import ResearchCandidateRecord, ResearchRunRecord
 from backend.app.services.research_conversion_service import ResearchConversionError
+from backend.app.services.research_ranking import recommended_score as calculate_recommended_score
 from backend.app.services.research_source_match import find_matching_source
 
 
@@ -217,11 +218,7 @@ async def list_candidates(
         if work is None or analysis is None:
             continue
         output = analysis.analysis
-        score = (
-            weights[0] * output.profile_relevance
-            + weights[1] * output.knowledge_relevance
-            + weights[2] * output.novelty_to_library
-        )
+        score = calculate_recommended_score(output, weights)
         items.append(
             ResearchCandidateListItem(
                 candidate=candidate,
@@ -260,10 +257,13 @@ async def get_candidate(candidate_id: str, request: Request):
         profile.search.breadth,
     )
     output = analysis.analysis
-    recommended_score = (
-        ranking.profile_relevance_weight * output.profile_relevance
-        + ranking.knowledge_relevance_weight * output.knowledge_relevance
-        + ranking.novelty_weight * output.novelty_to_library
+    recommended_score = calculate_recommended_score(
+        output,
+        (
+            ranking.profile_relevance_weight,
+            ranking.knowledge_relevance_weight,
+            ranking.novelty_weight,
+        ),
     )
     source_match = find_matching_source(service.screening.sources.sources, work)
     return {

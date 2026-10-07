@@ -218,14 +218,17 @@ def _execute(root: Path, database_path: Path, args) -> int:
             run = service.tick()
             if run is not None:
                 _print_run("Research tick", run)
-            discovery_service = TermDiscoveryService(
-                root,
-                TermDiscoveryRepository(connection),
-                PdfCorpusService(root, PdfCorpusRepository(connection)),
-                TermCandidateService(root, TermCandidateRepository(connection)),
-                components.ai_gateway,
-            )
-            discovery_run = discovery_service.scheduled_check()
+            discovery_run = None
+            ai_gateway = getattr(components, "ai_gateway", None)
+            if ai_gateway is not None:
+                discovery_service = TermDiscoveryService(
+                    root,
+                    TermDiscoveryRepository(connection),
+                    PdfCorpusService(root, PdfCorpusRepository(connection)),
+                    TermCandidateService(root, TermCandidateRepository(connection)),
+                    ai_gateway,
+                )
+                discovery_run = discovery_service.scheduled_check()
             if discovery_run is not None:
                 print(
                     "Term Discovery check {} · {} · {} Candidates".format(

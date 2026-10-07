@@ -505,6 +505,27 @@ describe("Research workspace", () => {
     expect(screen.getByText("将其自适应估计结果与 EWC 进行比较。")).toBeTruthy();
   });
 
+  it("labels low readiness as Stretch", () => {
+    render(<ResearchCandidateCard
+      item={{
+        ...candidateListItem,
+        analysis: { ...analysis, readiness: "low" },
+      } as ResearchCandidateListItem}
+      profile={profile as ResearchProfile}
+      selected={false}
+      selectable={false}
+      busy={false}
+      onSelect={() => undefined}
+      onDetails={() => undefined}
+      onShortlist={() => undefined}
+      onDismiss={() => undefined}
+      onRestore={() => undefined}
+      onCreateNote={() => undefined}
+    />);
+
+    expect(screen.getByText("Stretch")).toBeTruthy();
+  });
+
   it("falls back to English analysis for older candidates without Chinese fields", () => {
     const legacyAnalysis = Object.fromEntries(Object.entries(analysis).filter(([key]) => !key.endsWith("_zh")));
     render(<ResearchCandidateCard

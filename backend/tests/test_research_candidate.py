@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,7 @@ from backend.app.repositories.research_candidate_repository import (
 )
 from backend.app.repositories.research_repository import ResearchRepository
 from backend.app.services.research_candidate_service import ResearchCandidateService
+from backend.app.services.research_ranking import recommended_score
 
 
 def test_surface_analysis_creates_one_candidate_per_work_and_profile():
@@ -177,6 +179,140 @@ def test_candidate_transitions_validate_inputs_and_keep_terminal_states():
         dismissed.id, max_new_candidates=profile.inbox.max_new_candidates
     )
     assert restored.status == "new"
+    connection.close()
+
+
+def test_recommended_ranking_prioritizes_readiness_over_novelty():
+    high_readiness = SimpleNamespace(
+        profile_relevance=0.8,
+        knowledge_relevance=0.8,
+        novelty_to_library=0.2,
+        readiness="high",
+    )
+    low_readiness = SimpleNamespace(
+        profile_relevance=0.8,
+        knowledge_relevance=0.8,
+        novelty_to_library=1.0,
+        readiness="low",
+    )
+    weights = (0.4, 0.3, 0.3)
+
+    assert recommended_score(high_readiness, weights) > recommended_score(
+        low_readiness, weights
+    )
+
+
+def test_recommended_ranking_preserves_legacy_order_for_missing_readiness():
+    legacy_analysis = SimpleNamespace(
+        profile_relevance=0.9,
+        knowledge_relevance=0.8,
+        novelty_to_library=0.7,
+        readiness=None,
+    )
+
+    assert recommended_score(legacy_analysis, (0.4, 0.3, 0.3)) == pytest.approx(0.81)
+
+
+def test_recommended_repository_sort_uses_readiness_before_novelty():
+    connection = connect_database(":memory:")
+    high_work = _work("high-readiness")
+    low_work = _work("low-readiness")
+    high = _analysis("high-readiness")
+    low = _analysis("low-readiness")
+    high = high.model_copy(
+        update={
+            "analysis": high.analysis.model_copy(
+                update={
+                    "profile_relevance": 0.8,
+                    "knowledge_relevance": 0.8,
+                    "novelty_to_library": 0.2,
+                    "readiness": "high",
+                }
+            )
+        }
+    )
+    low = low.model_copy(
+        update={
+            "analysis": low.analysis.model_copy(
+                update={
+                    "profile_relevance": 0.8,
+                    "knowledge_relevance": 0.8,
+                    "novelty_to_library": 1.0,
+                    "readiness": "low",
+                }
+            )
+        }
+    )
+    _persist_work_and_analysis(connection, high_work, high)
+    _persist_work_and_analysis(connection, low_work, low)
+    repository = ResearchCandidateRepository(connection)
+    service = ResearchCandidateService(repository, clock=_clock)
+    profile = _profile()
+    service.generate(high, profile, profile.lenses[0])
+    service.generate(low, profile, profile.lenses[0])
+
+    ordered = repository.list_filtered(
+        profile_id=profile.id,
+        sort="recommended",
+        ranking_weights=(0.4, 0.3, 0.3),
+    )
+
+    assert [candidate.work_id for candidate in ordered] == [
+        "high-readiness",
+        "low-readiness",
+    ]
+    connection.close()
+
+
+def test_old_foundational_high_readiness_work_can_outrank_new_stretch_work():
+    connection = connect_database(":memory:")
+    foundation_work = _work("old-foundation").model_copy(update={"year": 2015})
+    sota_work = _work("new-sota").model_copy(update={"year": 2026})
+    foundation = _analysis("old-foundation")
+    sota = _analysis("new-sota")
+    foundation = foundation.model_copy(
+        update={
+            "analysis": foundation.analysis.model_copy(
+                update={
+                    "profile_relevance": 0.82,
+                    "knowledge_relevance": 0.9,
+                    "novelty_to_library": 0.1,
+                    "readiness": "high",
+                }
+            )
+        }
+    )
+    sota = sota.model_copy(
+        update={
+            "analysis": sota.analysis.model_copy(
+                update={
+                    "profile_relevance": 0.95,
+                    "knowledge_relevance": 0.9,
+                    "novelty_to_library": 0.99,
+                    "readiness": "low",
+                }
+            )
+        }
+    )
+    _persist_work_and_analysis(connection, foundation_work, foundation)
+    _persist_work_and_analysis(connection, sota_work, sota)
+    repository = ResearchCandidateRepository(connection)
+    service = ResearchCandidateService(repository, clock=_clock)
+    profile = _profile()
+    service.generate(foundation, profile, profile.lenses[0])
+    service.generate(sota, profile, profile.lenses[0])
+    connection.execute(
+        "UPDATE research_candidates SET created_at = '2016-01-01T00:00:00+00:00' WHERE work_id = 'old-foundation'"
+    )
+    connection.commit()
+
+    ordered = repository.list_filtered(
+        profile_id=profile.id,
+        sort="recommended",
+        ranking_weights=(0.4, 0.3, 0.3),
+    )
+
+    assert [candidate.work_id for candidate in ordered] == ["old-foundation", "new-sota"]
     connection.close()
 
 

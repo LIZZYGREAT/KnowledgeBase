@@ -151,6 +151,20 @@ class TermDiscoveryService:
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         if self.repository.has_scheduled_run_since(day_start):
             return None
+        source_registry = SourceRegistry.load(
+            self.repository_root / "knowledge" / "sources"
+        )
+        if not any(
+            source.attachments.local_pdf
+            and (
+                self.repository_root
+                / "storage"
+                / "papers"
+                / "{}.pdf".format(source.id)
+            ).is_file()
+            for source in source_registry.sources
+        ):
+            return None
         return self.run(trigger="scheduled")
 
     def _run_locked(
