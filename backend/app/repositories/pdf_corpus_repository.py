@@ -1,9 +1,9 @@
 """Runtime persistence for lazily extracted PDF text."""
 
 import sqlite3
-from typing import Optional
+from typing import Optional, Sequence
 
-from backend.app.domain.pdf_corpus import PdfCorpusRecord
+from backend.app.domain.pdf_corpus import PdfCorpusRecord, PdfCorpusState
 
 
 class PdfCorpusRepository:
@@ -15,6 +15,32 @@ class PdfCorpusRepository:
             "SELECT * FROM pdf_corpus WHERE source_id = ?", (source_id,)
         ).fetchone()
         return _record(row) if row is not None else None
+
+    def get_state(self, source_id: str) -> Optional[PdfCorpusState]:
+        row = self.connection.execute(
+            """SELECT source_id, text_hash, status, extracted_at,
+                      error_message, updated_at
+               FROM pdf_corpus WHERE source_id = ?""",
+            (source_id,),
+        ).fetchone()
+        return _state(row) if row is not None else None
+
+    def list_states(self, source_ids: Sequence[str]) -> dict[str, PdfCorpusState]:
+        """Load status rows in bounded batches without selecting corpus text."""
+        unique_ids = list(dict.fromkeys(source_ids))
+        result: dict[str, PdfCorpusState] = {}
+        batch_size = 900
+        for start in range(0, len(unique_ids), batch_size):
+            batch = unique_ids[start : start + batch_size]
+            placeholders = ", ".join("?" for _ in batch)
+            rows = self.connection.execute(
+                """SELECT source_id, text_hash, status, extracted_at,
+                          error_message, updated_at
+                   FROM pdf_corpus WHERE source_id IN ({})""".format(placeholders),
+                batch,
+            ).fetchall()
+            result.update((row["source_id"], _state(row)) for row in rows)
+        return result
 
     def save(self, record: PdfCorpusRecord) -> None:
         self.connection.execute(
@@ -53,6 +79,17 @@ def _record(row: sqlite3.Row) -> PdfCorpusRecord:
         extractor_version=row["extractor_version"],
         text_hash=row["text_hash"],
         text=row["text"],
+        status=row["status"],
+        extracted_at=row["extracted_at"],
+        error_message=row["error_message"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _state(row: sqlite3.Row) -> PdfCorpusState:
+    return PdfCorpusState(
+        source_id=row["source_id"],
+        text_hash=row["text_hash"],
         status=row["status"],
         extracted_at=row["extracted_at"],
         error_message=row["error_message"],

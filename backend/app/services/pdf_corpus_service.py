@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from typing import Callable, Optional
 
-from backend.app.domain.pdf_corpus import PdfCorpusRecord
+from backend.app.domain.pdf_corpus import PdfCorpusRecord, PdfCorpusState
 from backend.app.repositories.pdf_corpus_repository import PdfCorpusRepository
 from backend.app.services.markdown_parser import parse_yaml
 from backend.app.domain.source import SourceMetadata
@@ -35,6 +35,12 @@ class PdfCorpusService:
 
     def get(self, source_id: str) -> Optional[PdfCorpusRecord]:
         return self.repository.get(source_id)
+
+    def get_state(self, source_id: str) -> Optional[PdfCorpusState]:
+        return self.repository.get_state(source_id)
+
+    def list_states(self, source_ids: list[str]) -> dict[str, PdfCorpusState]:
+        return self.repository.list_states(source_ids)
 
     def ensure(self, source_id: str) -> PdfCorpusRecord:
         """Return current corpus text, extracting only when requested and stale."""

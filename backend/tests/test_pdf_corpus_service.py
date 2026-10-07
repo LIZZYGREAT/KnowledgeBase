@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from hashlib import sha256
+import re
 
 import pytest
 
@@ -29,6 +30,42 @@ def test_pdf_corpus_extracts_once_and_reuses_matching_hash(tmp_path):
     assert first.text_hash == sha256(normalized_text.encode("utf-8")).hexdigest()
     assert second == first
     assert calls == [b"first pdf bytes"]
+    connection.close()
+
+
+def test_lightweight_corpus_state_reads_never_select_extracted_text(tmp_path):
+    connection = connect_database(":memory:")
+    _write_source_and_pdf(tmp_path, b"source bytes")
+    repository = PdfCorpusRepository(connection)
+    service = PdfCorpusService(
+        tmp_path,
+        repository,
+        extractor=lambda _payload: "Extracted research text. " * 10,
+        clock=_clock,
+    )
+    service.ensure("sample-paper")
+    statements = []
+    connection.set_trace_callback(statements.append)
+
+    one = service.get_state("sample-paper")
+    many = service.list_states(["sample-paper", "missing", "sample-paper"])
+
+    state_queries = [
+        statement.lower()
+        for statement in statements
+        if "from pdf_corpus" in statement.lower()
+    ]
+    assert len(state_queries) == 2
+    assert all(
+        not re.search(r"\btext\b", statement.split("from pdf_corpus")[0])
+        for statement in state_queries
+    )
+    assert one is not None and one.status == "ready"
+    assert one.text_hash is not None
+    assert many["sample-paper"] == one
+    assert "missing" not in many
+    assert "text" not in one.model_dump()
+    assert repository.get("sample-paper").text.startswith("Extracted research text.")
     connection.close()
 
 

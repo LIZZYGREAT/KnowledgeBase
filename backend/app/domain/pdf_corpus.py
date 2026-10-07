@@ -20,3 +20,16 @@ class PdfCorpusRecord(BaseModel):
     extracted_at: Optional[NonEmptyText] = None
     error_message: Optional[str] = None
     updated_at: NonEmptyText
+
+
+class PdfCorpusState(BaseModel):
+    """Lightweight status metadata that deliberately excludes extracted text."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source_id: NonEmptyText
+    text_hash: Optional[NonEmptyText] = None
+    status: Literal["pending", "ready", "unavailable", "failed"]
+    extracted_at: Optional[NonEmptyText] = None
+    error_message: Optional[str] = None
+    updated_at: NonEmptyText
