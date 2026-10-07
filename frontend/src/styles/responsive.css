@@ -77,6 +77,12 @@
   .reader-context { grid-template-columns: 1fr; }
   .reader-outline { top: auto; max-height: 30vh; }
   .library-toolbar { align-items: flex-start; flex-direction: column; }
+  .library-document-row { grid-template-columns: 1fr; align-items: stretch; }
+  .library-record-main { align-items: flex-start; flex-direction: column; }
+  .library-record-actions { flex-wrap: wrap; }
+  .library-record-actions .button { flex: 1; }
+  .library-source-heading .library-record-main { flex-direction: row; align-items: center; }
+  .library-source-status { grid-template-columns: 1fr; }
   .filter-pair { width: 100%; }
   .filter-pair .field-label { flex: 1; }
   .editor-grid, .conflict-columns, .markdown-source-layout, .markdown-block-edit { grid-template-columns: 1fr; }

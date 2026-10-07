@@ -12,10 +12,12 @@ from fastapi.testclient import TestClient
 
 from backend.app.db.connection import connect_database
 from backend.app.domain.ai import ResearchCandidateAnalysisOutput
+from backend.app.domain.pdf_corpus import PdfCorpusRecord
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.domain.term_runtime import TermCandidateEvidenceInput
 from backend.app.main import app
 from backend.app.repositories.proposal_repository import ProposalRepository
+from backend.app.repositories.pdf_corpus_repository import PdfCorpusRepository
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.repositories.research_control_event_repository import (
     ResearchControlEventRepository,
@@ -750,6 +752,10 @@ def test_source_pdf_open_is_confined_to_valid_attached_papers(api_client):
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     pdf_path.write_bytes(b"%PDF-1.4\nlocal test fixture\n")
     assert api_client.get("/api/sources/source-alpha/pdf").status_code == 404
+    corpus_state = api_client.get("/api/sources/source-alpha/corpus").json()
+    assert corpus_state["pdf_attached"] is False
+    assert corpus_state["extraction_status"] == "no_pdf"
+    assert corpus_state["discovery_usable"] is False
 
     source_text = source_path.read_text(encoding="utf-8")
     source_text = source_text.replace(
@@ -762,6 +768,32 @@ def test_source_pdf_open_is_confined_to_valid_attached_papers(api_client):
         Indexer(root, connection).update_path(source_path)
     finally:
         connection.close()
+
+    corpus_state = api_client.get("/api/sources/source-alpha/corpus").json()
+    assert corpus_state == {
+        "source_id": "source-alpha",
+        "pdf_attached": True,
+        "extraction_status": "not_extracted",
+        "discovery_usable": False,
+        "error_message": None,
+    }
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        PdfCorpusRepository(connection).save(PdfCorpusRecord(
+            source_id="source-alpha",
+            pdf_hash="pdf-hash",
+            extractor_version="test-extractor",
+            text_hash="text-hash",
+            text="extracted PDF text",
+            status="ready",
+            extracted_at="2026-01-01T00:00:00+00:00",
+            updated_at="2026-01-01T00:00:00+00:00",
+        ))
+    finally:
+        connection.close()
+    corpus_state = api_client.get("/api/sources/source-alpha/corpus").json()
+    assert corpus_state["extraction_status"] == "ready"
+    assert corpus_state["discovery_usable"] is True
 
     opened = api_client.get("/api/sources/source-alpha/pdf")
     assert opened.status_code == 200

@@ -38,6 +38,14 @@ class EntityDetail(EntitySummary):
     term_relations: list[TermRelationView] = Field(default_factory=list)
 
 
+class SourceCorpusStateView(APIModel):
+    source_id: str
+    pdf_attached: bool
+    extraction_status: Literal["no_pdf", "not_extracted", "pending", "ready", "unavailable", "failed"]
+    discovery_usable: bool
+    error_message: Optional[str] = None
+
+
 class TopicView(APIModel):
     id: str
     title: str

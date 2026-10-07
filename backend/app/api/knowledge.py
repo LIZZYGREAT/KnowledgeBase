@@ -17,6 +17,7 @@ from backend.app.api.schemas import (
     EntitySummary,
     RecentlyModifiedView,
     SearchResultView,
+    SourceCorpusStateView,
     TaxonomyEntryView,
     TopicView,
 )
@@ -108,6 +109,23 @@ async def list_sources(
 @router.get("/sources/{entity_id}", response_model=EntityDetail)
 async def get_source(entity_id: str, request: Request):
     return request.app.state.knowledge_read_service.get_entity("source", entity_id)
+
+
+@router.get("/sources/{entity_id}/corpus", response_model=SourceCorpusStateView)
+async def get_source_corpus_state(entity_id: str, request: Request):
+    source = request.app.state.knowledge_read_service.get_entity("source", entity_id)
+    attachments = source["metadata"].get("attachments") or {}
+    attachment = attachments.get("local_pdf") if isinstance(attachments, dict) else None
+    pdf_attached = isinstance(attachment, str) and bool(attachment)
+    corpus = request.app.state.pdf_corpus_service.get(entity_id) if pdf_attached else None
+    extraction_status = corpus.status if corpus is not None else "not_extracted" if pdf_attached else "no_pdf"
+    return {
+        "source_id": entity_id,
+        "pdf_attached": pdf_attached,
+        "extraction_status": extraction_status,
+        "discovery_usable": pdf_attached and extraction_status == "ready",
+        "error_message": corpus.error_message if corpus is not None else None,
+    }
 
 
 @router.get("/sources/{entity_id}/pdf")

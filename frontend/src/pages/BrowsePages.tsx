@@ -16,6 +16,7 @@ import { TermCandidatesPanel } from "./TermCandidatesPanel";
 import { TermDiscoveryPanel } from "./TermDiscoveryPanel";
 import { TermMentionsPanel } from "./TermMentionsPanel";
 import { ImportReviewPanel } from "./ImportReviewPanel";
+import { LibraryDocumentsPanel, LibrarySourcesPanel } from "./LibraryCorpusPanels";
 export function LibraryPage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
   const [activeTab, setActiveTab] = useState<"document" | "source" | "import">(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
@@ -39,7 +40,7 @@ export function LibraryPage({ onOpen, navigate }: { onOpen: SelectEntity; naviga
         </div>
         {activeTab === "document" && <label className="field-label compact-field">Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">Paper notes</option><option value="learning-note">Learning notes</option><option value="course-note">Course notes</option></select></label>}
       </div>
-      {activeTab === "import" ? <ImportReviewPanel navigate={navigate} /> : resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <div className="surface list-surface"><EntityList entities={visible} onOpen={(entity) => onOpen(entity.entity_type, entity.id)} emptyTitle={activeTab === "document" ? "Library 还是空的" : "还没有来源文献"} emptyDescription={activeTab === "document" ? "发布一篇笔记后，它就会出现在这里。" : "导入 PDF 或发布 Source 元数据后，可从这里打开来源。"} /></div>}
+      {activeTab === "import" ? <ImportReviewPanel navigate={navigate} /> : resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : activeTab === "document" ? <LibraryDocumentsPanel documents={visible} onOpen={onOpen} /> : <LibrarySourcesPanel sources={visible} onOpen={onOpen} />}
     </div>
   );
 }

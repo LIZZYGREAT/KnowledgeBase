@@ -110,6 +110,14 @@ export interface DocumentTermAnalysisState {
   analyzed_at: string | null;
 }
 
+export interface SourceCorpusState {
+  source_id: string;
+  pdf_attached: boolean;
+  extraction_status: "no_pdf" | "not_extracted" | "pending" | "ready" | "unavailable" | "failed";
+  discovery_usable: boolean;
+  error_message: string | null;
+}
+
 export interface DocumentTermAnalysisResult extends DocumentTermAnalysisState {
   status: "up_to_date";
   analyzed_content_hash: string;
@@ -735,6 +743,10 @@ export function getDocumentTermAnalysis(documentId: string) {
   return request<DocumentTermAnalysisState>(
     `/api/terms/document-analysis/${encodeURIComponent(documentId)}`,
   );
+}
+
+export function getSourceCorpusState(sourceId: string) {
+  return request<SourceCorpusState>(`/api/sources/${encodeURIComponent(sourceId)}/corpus`);
 }
 
 export function analyzeDocumentTerms(documentId: string) {
