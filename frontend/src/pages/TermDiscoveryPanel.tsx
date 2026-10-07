@@ -128,7 +128,7 @@ export function TermDiscoveryPanel() {
         </div>
         <div className="term-discovery-capacity-grid">
           <div><span>Open Candidates</span><strong>{state.open_count} / {state.global_capacity}</strong></div>
-          <div><span>Today remaining</span><strong>{state.daily_remaining}</strong></div>
+          <div><span>24h remaining</span><strong>{state.daily_remaining}</strong></div>
           {LANES.map((lane) => <div key={lane.id}><span>{lane.title}</span><strong>{state.lane_open[lane.id] ?? 0} / {state.lane_capacity[lane.id] ?? 0}</strong></div>)}
         </div>
         {state.last_run && <p className="term-discovery-last-run">Last run · {state.last_run.status.replaceAll("_", " ")} · {new Date(state.last_run.started_at).toLocaleString()}</p>}

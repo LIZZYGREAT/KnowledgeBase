@@ -1,6 +1,6 @@
 """Bounded, Focus-aware Term Discovery over the existing local corpus."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from hashlib import sha256
 import json
@@ -121,10 +121,9 @@ class TermDiscoveryService:
         opened = self.repository.open_candidate_count()
         lane_open = self.repository.open_candidate_count_by_lane()
         now = self._datetime()
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        window_start = _daily_window_start(now)
         daily_remaining = max(
-            0,
-            settings.daily_max_new - self.repository.daily_candidate_count(day_start),
+            0, settings.daily_max_new - self.repository.daily_candidate_count(window_start)
         )
         runs = self.repository.list_runs(limit=1)
         return TermDiscoveryState(
@@ -188,8 +187,8 @@ class TermDiscoveryService:
 
     def scheduled_check(self) -> Optional[TermDiscoveryRun]:
         now = self._datetime()
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        if self.repository.has_scheduled_run_since(day_start):
+        window_start = _daily_window_start(now)
+        if self.repository.has_scheduled_run_since(window_start):
             return None
         source_registry = SourceRegistry.load(
             self.repository_root / "knowledge" / "sources"
@@ -256,10 +255,9 @@ class TermDiscoveryService:
     ) -> TermDiscoveryRun:
         settings = self.repository.get_settings()
         open_count = self.repository.open_candidate_count()
-        day_start = started_at[:10] + "T00:00:00+00:00"
+        window_start = _daily_window_start(datetime.fromisoformat(started_at))
         daily_remaining = max(
-            0,
-            settings.daily_max_new - self.repository.daily_candidate_count(day_start),
+            0, settings.daily_max_new - self.repository.daily_candidate_count(window_start)
         )
         enabled_lanes = [lane for lane in _LANE_ORDER if lane in settings.enabled_lanes]
 
@@ -910,6 +908,10 @@ def _dynamic_allowance(open_count: int) -> int:
     if open_count <= 11:
         return 1
     return 0
+
+
+def _daily_window_start(now: datetime) -> str:
+    return (now - timedelta(hours=24)).isoformat(timespec="seconds")
 
 
 def _allocate_lane_budgets(

@@ -171,21 +171,21 @@ class TermDiscoveryRepository:
                 counts[row["suggested_type"]] = int(row["count"])
         return counts
 
-    def daily_candidate_count(self, day_start: str) -> int:
+    def daily_candidate_count(self, window_start: str) -> int:
         row = self.connection.execute(
             """SELECT COALESCE(SUM(candidate_count), 0)
                FROM term_discovery_runs
-               WHERE started_at >= ? AND status IN ('success', 'partial')""",
-            (day_start,),
+               WHERE started_at > ? AND status IN ('success', 'partial')""",
+            (window_start,),
         ).fetchone()
         return int(row[0])
 
-    def has_scheduled_run_since(self, day_start: str) -> bool:
+    def has_scheduled_run_since(self, window_start: str) -> bool:
         row = self.connection.execute(
             """SELECT 1 FROM term_discovery_runs
-               WHERE trigger = 'scheduled' AND started_at >= ?
+               WHERE trigger = 'scheduled' AND started_at > ?
                LIMIT 1""",
-            (day_start,),
+            (window_start,),
         ).fetchone()
         return row is not None
 

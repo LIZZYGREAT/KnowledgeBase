@@ -125,7 +125,7 @@ def test_dynamic_quota_and_lane_backpressure_bound_each_run():
     ) == {"concept": 0, "entity": 3, "vocabulary": 2}
 
 
-def test_scheduled_check_runs_once_per_utc_day(tmp_path):
+def test_scheduled_check_runs_once_per_rolling_24_hours(tmp_path):
     connection, service, _candidate_service, _pdf_service, gateway = _service(
         tmp_path,
         {
@@ -146,12 +146,48 @@ def test_scheduled_check_runs_once_per_utc_day(tmp_path):
 
     first = service.scheduled_check()
     second = service.scheduled_check()
+    now += timedelta(hours=23, minutes=59)
+    before_window = service.scheduled_check()
+    now += timedelta(minutes=1)
+    at_window = service.scheduled_check()
 
     assert first is not None
     assert first.trigger == "scheduled"
     assert first.status == "success"
     assert second is None
+    assert before_window is None
+    assert at_window is not None and at_window.trigger == "scheduled"
     assert [call[0] for call in gateway.calls] == ["discover_terms"]
+    connection.close()
+
+
+def test_daily_candidate_quota_does_not_reset_at_utc_midnight(tmp_path):
+    output = {
+        "candidates": [
+            _suggestion(
+                "elastic weight consolidation",
+                "concept",
+                "Elastic weight consolidation limits catastrophic forgetting.",
+                "core_gap",
+                "It connects to the current learning focus.",
+            )
+        ]
+    }
+    connection, service, _candidate_service, _pdf_service, _gateway = _service(
+        tmp_path, output
+    )
+    now = datetime(2026, 10, 6, 23, 55, tzinfo=timezone.utc)
+    service.clock = lambda: now
+    service.update_settings(
+        TermDiscoverySettings(enabled_lanes=["concept"], daily_max_new=1)
+    )
+
+    run = service.run()
+    assert run.candidate_count == 1
+    now += timedelta(minutes=10)
+    assert service.get_state().daily_remaining == 0
+    now += timedelta(hours=23, minutes=50)
+    assert service.get_state().daily_remaining == 1
     connection.close()
 
 
