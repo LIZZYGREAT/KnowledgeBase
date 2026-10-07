@@ -1,72 +1,35 @@
 import {
-  getTermDiscoveryState, listAllEntities, listImports, listLinkIssues, listProposals,
-  listRecentlyModified, listResearchProfiles, listStalePresentationAnnotations,
-  listTermCandidates, listUsage,
-  type EntitySummary, type ImportJob, type Proposal, type ResearchProfileSummary,
-  type TermCandidate, type TermDiscoveryLane, type TermDiscoveryState, type UsageDocument,
+  getTermDiscoveryState, getUiSummary, listRecentlyModified, listUsage,
+  type TermDiscoveryLane, type TermDiscoveryState, type UiSummary,
 } from "../api";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, formatDate } from "../ui";
-import { maintenanceActionCount, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
-interface HomeData {
-  recentlyViewed: UsageDocument[];
-  recentlyModified: Array<EntitySummary & { modified_at: string }>;
-  entities: EntitySummary[];
-  proposals: Proposal[];
-  imports: ImportJob[];
-  termCandidates: TermCandidate[];
+import { readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
+
+interface HomeCriticalData {
+  summary: UiSummary;
   termDiscovery: TermDiscoveryState;
-  researchProfiles: ResearchProfileSummary[];
-  linkIssues: Awaited<ReturnType<typeof listLinkIssues>>;
-  staleAnnotations: Awaited<ReturnType<typeof listStalePresentationAnnotations>>;
 }
 
 export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
-  const resource = useResource("home", async (): Promise<HomeData> => {
-    const [recentlyViewed, recentlyModified, documents, terms, sources, proposalGroups,
-      imports, termCandidates, termDiscovery, researchProfiles, linkIssues, staleAnnotations] =
-      await Promise.all([
-        listUsage("recent"),
-        listRecentlyModified(),
-        listAllEntities("document"),
-        listAllEntities("term"),
-        listAllEntities("source"),
-        Promise.all(["proposed", "drafted"].map((status) => listProposals(status))),
-        listImports(),
-        listTermCandidates(),
-        getTermDiscoveryState(),
-        listResearchProfiles(),
-        listLinkIssues(),
-        listStalePresentationAnnotations(),
-      ]);
-    return {
-      recentlyViewed,
-      recentlyModified,
-      entities: [...documents, ...terms, ...sources],
-      proposals: proposalGroups.flat(),
-      imports,
-      termCandidates,
-      termDiscovery,
-      researchProfiles,
-      linkIssues,
-      staleAnnotations,
-    };
+  const critical = useResource("home-critical", async (): Promise<HomeCriticalData> => {
+    const [summary, termDiscovery] = await Promise.all([
+      getUiSummary(),
+      getTermDiscoveryState(),
+    ]);
+    return { summary, termDiscovery };
   });
+  const recentlyViewed = useResource("home-recent-usage", () => listUsage("recent"));
+  const recentlyModified = useResource("home-recent-modified", () => listRecentlyModified());
 
-  if (resource.loading) return <LoadingState />;
-  if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
-  const { data } = resource;
-  const pendingImports = data.imports.flatMap((job) => job.items.filter((item) => ["ready", "needs_review"].includes(item.status)).map((item) => ({ job, item })));
-  const pendingCandidates = data.termCandidates.filter((candidate) => candidate.status === "pending");
-  const draftingCandidates = data.termCandidates.filter((candidate) => candidate.status === "drafting");
-  const inboxCount = data.researchProfiles.reduce((sum, profile) => sum + profile.inbox.new_count, 0);
-  const inboxCapacity = data.researchProfiles.reduce((sum, profile) => sum + profile.inbox.capacity, 0);
-  const maintenanceCount = maintenanceActionCount(data.entities, data.proposals.length, data.linkIssues.length, data.staleAnnotations.length);
-  const snapshot = asRecord(data.termDiscovery.last_run?.snapshot);
+  if (critical.loading) return <LoadingState />;
+  if (critical.error || !critical.data) return <ErrorState message={critical.error} retry={critical.retry} />;
+  const { summary, termDiscovery } = critical.data;
+  const snapshot = asRecord(termDiscovery.last_run?.snapshot);
   const snapshotFocus = asRecord(snapshot.focus);
   const knowledge = asRecord(snapshot.knowledge);
   const hasEffectiveFocus = Array.isArray(snapshot.effective_focus);
   const legacyFocus = [
-    ...(data.termDiscovery.settings.focus_override ? [data.termDiscovery.settings.focus_override] : []),
+    ...(termDiscovery.settings.focus_override ? [termDiscovery.settings.focus_override] : []),
     ...readLabelArray(snapshotFocus.recent_terms),
     ...readStringArray(snapshotFocus.recent_topics),
     ...readStringArray(snapshotFocus.recent_domains),
@@ -77,9 +40,9 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
     : Array.from(new Set(legacyFocus.length ? legacyFocus : readStringArray(snapshotFocus.explicit)));
   const established = readLabelArray(knowledge.established);
   const learning = readLabelArray(knowledge.learning);
-  const coreGaps = pendingCandidates
-    .filter((candidate) => candidate.discovery_assessment?.recommendation_level === "core_gap")
-    .map((candidate) => candidate.display_name);
+  const coreGaps = (termDiscovery.last_run?.items ?? [])
+    .filter((item) => item.outcome === "created" && item.assessment.recommendation_level === "core_gap")
+    .map((item) => item.mention);
 
   return (
     <div className="page-stack dashboard-page">
@@ -91,18 +54,18 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
       <section className="dashboard-workload surface" aria-labelledby="dashboard-workload-title">
         <div className="section-heading"><div><h2 id="dashboard-workload-title">现在有什么要处理？</h2><p>优先显示需要你作出判断的事项。</p></div><button className="text-button" type="button" onClick={() => navigate("/new-note")}>新建笔记</button></div>
         <div className="dashboard-workload-grid">
-          <WorkloadCard title="Term Candidates" value={`${data.termDiscovery.open_count} / ${data.termDiscovery.global_capacity}`} detail={`${pendingCandidates.length} 待审阅 · ${draftingCandidates.length} 个 Term Draft`} onClick={() => navigate("/terms?tab=candidates")} />
-          <WorkloadCard title="Term Drafts" value={draftingCandidates.length} detail="等待继续编辑或发布" onClick={() => navigate("/terms?tab=candidates")} />
-          <WorkloadCard title="Research Inbox" value={`${inboxCount} / ${inboxCapacity}`} detail={`${data.researchProfiles.length} 个 Research Profile`} onClick={() => navigate("/research")} />
-          <WorkloadCard title="Pending Imports" value={pendingImports.length} detail="等待检查并创建 Draft" onClick={() => navigate("/library?tab=import")} />
-          <WorkloadCard title="Maintenance" value={maintenanceCount} detail="审阅、修订、链接与建议" onClick={() => navigate("/review")} />
+          <WorkloadCard title="Term Candidates" value={`${termDiscovery.open_count} / ${termDiscovery.global_capacity}`} detail={`${summary.terms_pending} 待审阅 · ${summary.term_drafts} 个 Term Draft`} onClick={() => navigate("/terms?tab=candidates")} />
+          <WorkloadCard title="Term Drafts" value={summary.term_drafts} detail="等待继续编辑或发布" onClick={() => navigate("/terms?tab=candidates")} />
+          <WorkloadCard title="Research Inbox" value={`${summary.research_new} / ${summary.research_capacity}`} detail={`${summary.research_profiles} 个 Research Profile`} onClick={() => navigate("/research")} />
+          <WorkloadCard title="Pending Imports" value={summary.pending_imports} detail="等待检查并创建 Draft" onClick={() => navigate("/library?tab=import")} />
+          <WorkloadCard title="Maintenance" value={summary.maintenance} detail="审阅、修订与过期标注" onClick={() => navigate("/review")} />
         </div>
         <div className="dashboard-primary-actions"><button className="button button-primary" type="button" onClick={() => navigate("/terms?tab=candidates")}>Review Terms</button><button className="button button-secondary" type="button" onClick={() => navigate("/research")}>Open Research</button></div>
       </section>
 
       <div className="dashboard-lower-grid">
         <section className="dashboard-panel surface" aria-labelledby="learning-context-title">
-          <div className="section-heading"><div><h2 id="learning-context-title">Learning Context</h2><p>最近一次 Term Discovery 使用的知识状态快照。</p></div><Chip>{data.termDiscovery.last_run ? `更新于 ${formatDate(data.termDiscovery.last_run.started_at)}` : "尚无快照"}</Chip></div>
+          <div className="section-heading"><div><h2 id="learning-context-title">Learning Context</h2><p>最近一次 Term Discovery 使用的知识状态快照。</p></div><Chip>{termDiscovery.last_run ? `更新于 ${formatDate(termDiscovery.last_run.started_at)}` : "尚无快照"}</Chip></div>
           <div className="learning-context-grid">
             <ContextList title="Current Focus" items={focusItems} empty="完成一次 Discovery 后显示当前 Focus。" />
             <ContextList title="Established" items={established} empty="尚无已建立的 Term。" />
@@ -114,8 +77,8 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
         <section className="dashboard-panel surface" aria-labelledby="agent-status-title">
           <div className="section-heading"><div><h2 id="agent-status-title">Agent Status</h2><p>自动发现与研究任务的最近状态。</p></div><button className="text-button" type="button" onClick={() => navigate("/terms?tab=discovery")}>打开 Discovery</button></div>
           <div className="agent-status-list">
-            {TERM_LANES.map((lane) => <AgentStatusRow key={lane.id} title={lane.title} state={termLaneState(lane.id, data.termDiscovery)} lastResult={termLaneResult(lane.id, data.termDiscovery)} />)}
-            <AgentStatusRow title="Research" state={researchAgentState(data.researchProfiles)} lastResult={researchAgentResult(data.researchProfiles)} onOpen={() => navigate("/research")} />
+            {TERM_LANES.map((lane) => <AgentStatusRow key={lane.id} title={lane.title} state={termLaneState(lane.id, termDiscovery)} lastResult={termLaneResult(lane.id, termDiscovery)} />)}
+            <AgentStatusRow title="Research" state={researchAgentState(summary)} lastResult={researchAgentResult(summary)} onOpen={() => navigate("/research")} />
           </div>
         </section>
       </div>
@@ -123,8 +86,8 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
       <section className="dashboard-panel dashboard-recent surface" aria-labelledby="recent-activity-title">
         <div className="section-heading"><div><h2 id="recent-activity-title">Recent Activity</h2><p>最近阅读与最近修改，位于工作台下方。</p></div><button className="text-button" type="button" onClick={() => navigate("/library")}>打开 Library</button></div>
         <div className="recent-activity-grid">
-          <div><h3>最近阅读</h3>{data.recentlyViewed.length ? <div className="entity-list compact-list">{data.recentlyViewed.map((entry) => <EntityRow key={entry.entity_id} title={entry.title} detail={`${entry.view_count} 次阅读 · ${formatDate(entry.last_viewed_at)}`} onClick={() => onOpen("document", entry.entity_id)} />)}</div> : <EmptyState title="还没有阅读记录" description="打开一篇笔记后，最近阅读会显示在这里。" />}</div>
-          <div><h3>最近修改</h3>{data.recentlyModified.length ? <div className="entity-list compact-list">{data.recentlyModified.map((entity) => <EntityRow key={entity.id} title={entity.title} detail={`修改于 ${formatDate(entity.modified_at)}`} onClick={() => onOpen("document", entity.id)} />)}</div> : <EmptyState title="暂无最近修改" description="发布后的 Document 会显示在这里。" />}</div>
+          <div><h3>最近阅读</h3>{recentlyViewed.loading ? <p className="subtle-copy">加载中…</p> : recentlyViewed.error ? <button className="text-button" type="button" onClick={recentlyViewed.retry}>加载失败，重试</button> : recentlyViewed.data?.length ? <div className="entity-list compact-list">{recentlyViewed.data.map((entry) => <EntityRow key={entry.entity_id} title={entry.title} detail={`${entry.view_count} 次阅读 · ${formatDate(entry.last_viewed_at)}`} onClick={() => onOpen("document", entry.entity_id)} />)}</div> : <EmptyState title="还没有阅读记录" description="打开一篇笔记后，最近阅读会显示在这里。" />}</div>
+          <div><h3>最近修改</h3>{recentlyModified.loading ? <p className="subtle-copy">加载中…</p> : recentlyModified.error ? <button className="text-button" type="button" onClick={recentlyModified.retry}>加载失败，重试</button> : recentlyModified.data?.length ? <div className="entity-list compact-list">{recentlyModified.data.map((entity) => <EntityRow key={entity.id} title={entity.title} detail={`修改于 ${formatDate(entity.modified_at)}`} onClick={() => onOpen("document", entity.id)} />)}</div> : <EmptyState title="暂无最近修改" description="发布后的 Document 会显示在这里。" />}</div>
         </div>
       </section>
     </div>
@@ -162,18 +125,12 @@ function termLaneResult(lane: TermDiscoveryLane, state: TermDiscoveryState) {
   return `${runStatusLabel(run.status)} · ${created} new · ${formatDate(run.started_at)}`;
 }
 
-function researchAgentState(profiles: ResearchProfileSummary[]) {
-  if (!profiles.length) return "not configured";
-  const activeProfiles = profiles.filter((profile) => profile.enabled && !(profile.paused_until && Date.parse(profile.paused_until) > Date.now()));
-  if (!activeProfiles.length) return "paused";
-  if (activeProfiles.every((profile) => profile.inbox.remaining <= 0)) return "paused · Inbox full";
-  return "ready";
+function researchAgentState(summary: UiSummary) {
+  return summary.research_profiles ? "configured" : "not configured";
 }
 
-function researchAgentResult(profiles: ResearchProfileSummary[]) {
-  const latest = profiles.flatMap((profile) => profile.latest_run ? [profile.latest_run] : [])
-    .sort((left, right) => right.started_at.localeCompare(left.started_at))[0];
-  return latest ? `${runStatusLabel(latest.status)} · ${latest.surfaced_count} surfaced · ${formatDate(latest.started_at)}` : "No run yet";
+function researchAgentResult(summary: UiSummary) {
+  return `${summary.research_new} new · ${summary.research_profiles} profiles`;
 }
 
 function runStatusLabel(status: string) {

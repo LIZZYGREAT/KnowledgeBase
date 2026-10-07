@@ -1,18 +1,12 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HomePage } from "../../src/pages/HomePage";
 
 const api = vi.hoisted(() => ({
   getTermDiscoveryState: vi.fn(),
-  listAllEntities: vi.fn(),
-  listImports: vi.fn(),
-  listLinkIssues: vi.fn(),
-  listProposals: vi.fn(),
+  getUiSummary: vi.fn(),
   listRecentlyModified: vi.fn(),
-  listResearchProfiles: vi.fn(),
-  listStalePresentationAnnotations: vi.fn(),
-  listTermCandidates: vi.fn(),
   listUsage: vi.fn(),
 }));
 
@@ -24,6 +18,16 @@ vi.mock("../../src/api", async (importOriginal) => ({
 describe("Knowledge Dashboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.getUiSummary.mockResolvedValue({
+      terms_open: 2,
+      terms_pending: 1,
+      term_drafts: 1,
+      research_new: 3,
+      research_capacity: 5,
+      research_profiles: 1,
+      pending_imports: 1,
+      maintenance: 3,
+    });
     api.getTermDiscoveryState.mockResolvedValue({
       settings: { enabled_lanes: ["concept", "entity", "vocabulary"], focus_override: null },
       open_count: 2,
@@ -43,28 +47,13 @@ describe("Knowledge Dashboard", () => {
             unknown: [],
           },
         },
-        items: [{ lane: "concept", outcome: "created" }, { lane: "entity", outcome: "duplicate" }],
+        items: [
+          { lane: "concept", outcome: "created", mention: "Attention Routing", assessment: { recommendation_level: "core_gap" } },
+          { lane: "entity", outcome: "duplicate", mention: "Other Term", assessment: { recommendation_level: "next" } },
+        ],
       },
     });
-    api.listAllEntities.mockImplementation(async (type: string) => type === "document" ? [
-      { id: "needs-revision", title: "Needs Revision", entity_type: "document", metadata: { review: { human: { status: "unreviewed" } }, maintenance: { status: "needs_revision" } } },
-    ] : []);
-    api.listImports.mockResolvedValue([{ items: [{ status: "ready" }, { status: "draft_created" }] }]);
-    api.listLinkIssues.mockResolvedValue([{ document_id: "broken-link" }]);
-    api.listProposals.mockResolvedValue([{ id: "proposal-one" }]);
     api.listRecentlyModified.mockResolvedValue([]);
-    api.listResearchProfiles.mockResolvedValue([{
-      id: "research-main",
-      inbox: { new_count: 3, capacity: 5, remaining: 2 },
-      enabled: true,
-      paused_until: null,
-      latest_run: { status: "success", started_at: "2026-10-07T07:00:00Z", surfaced_count: 2 },
-    }]);
-    api.listStalePresentationAnnotations.mockResolvedValue([{ id: "stale-one" }]);
-    api.listTermCandidates.mockResolvedValue([
-      { id: "candidate-one", status: "pending", display_name: "Attention Routing", discovery_assessment: { recommendation_level: "core_gap" } },
-      { id: "candidate-two", status: "drafting", display_name: "Term Draft" },
-    ]);
     api.listUsage.mockResolvedValue([]);
   });
 
@@ -83,6 +72,20 @@ describe("Knowledge Dashboard", () => {
     expect(screen.getByText("Research")).not.toBeNull();
     expect(api.listUsage).toHaveBeenCalledWith("recent");
     expect(api.listUsage).not.toHaveBeenCalledWith("frequent");
+  });
+
+  it("renders the critical dashboard while recent modification lookup is pending", async () => {
+    let resolveRecent!: (items: never[]) => void;
+    api.listRecentlyModified.mockReturnValueOnce(new Promise<never[]>((resolve) => {
+      resolveRecent = resolve;
+    }));
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    expect(await screen.findByText("2 / 8")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Learning Context" })).not.toBeNull();
+    expect(screen.getByText("加载中…")).not.toBeNull();
+    await act(async () => resolveRecent([]));
   });
 
   it("routes the primary actions to their dedicated workflows", async () => {
@@ -122,8 +125,6 @@ describe("Knowledge Dashboard", () => {
         items: [],
       },
     });
-    api.listTermCandidates.mockResolvedValueOnce([]);
-
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     expect(await screen.findByText("当前没有待审阅的 Core Gap。")).not.toBeNull();
