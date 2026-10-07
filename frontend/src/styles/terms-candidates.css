@@ -24,6 +24,8 @@
 .term-candidate-evidence.rejected { border-style: dashed; background: #f8f8f6; }
 .term-candidate-evidence-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; color: var(--text-subtle); font-size: var(--text-xs); }
 .term-candidate-origin-link { border: 0; padding: 0; color: #4f795d; background: transparent; font: inherit; font-weight: 650; cursor: pointer; }
+.term-candidate-origin-link[href] { text-decoration: none; }
+.term-candidate-origin-link[href]:hover { text-decoration: underline; }
 .term-candidate-origin-link:disabled { color: var(--text-secondary); cursor: default; }
 .term-candidate-confidence { margin-left: auto; }
 .term-candidate-evidence blockquote { margin: 9px 0 6px; border-left: 2px solid #b8d0bd; padding-left: 9px; color: #52645a; font-size: var(--text-sm); line-height: 1.55; }

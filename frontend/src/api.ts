@@ -1165,7 +1165,7 @@ export function queueResearchRun(profileId: string, body: QueueResearchRunInput)
 }
 
 export function listResearchCandidates(filters: {
-  profile_id?: string; status?: ResearchCandidateStatus; lens?: string; sort?: ResearchSort; offset?: number; limit?: number;
+  profile_id?: string; status?: ResearchCandidateStatus; lens?: string; work_id?: string; sort?: ResearchSort; offset?: number; limit?: number;
 }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") params.set(key, String(value));

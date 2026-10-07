@@ -174,6 +174,7 @@ async def list_candidates(
     profile_id: Optional[str] = None,
     status: Optional[ResearchCandidateStatus] = Query(default=None),
     lens: Optional[str] = None,
+    work_id: Optional[str] = None,
     sort: Literal["recommended", "newest", "most_relevant", "most_novel"] = "recommended",
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
@@ -202,6 +203,7 @@ async def list_candidates(
         offset=offset,
         limit=limit,
         ranking_weights=weights,
+        work_id=work_id,
     )
     term_candidate_service = getattr(service, "term_candidate_service", None)
     term_candidate_counts = (
@@ -232,7 +234,9 @@ async def list_candidates(
         )
     return {
         "candidates": items,
-        "count": repository.count_filtered(profile_id, status, lens),
+        "count": repository.count_filtered(
+            profile_id, status, lens, work_id=work_id
+        ),
         "offset": offset,
         "limit": limit,
     }

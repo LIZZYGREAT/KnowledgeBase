@@ -11,7 +11,7 @@ import {
 } from "../api";
 import { errorMessage } from "../errors";
 import { Chip, EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "../ui";
-import { EntityList, readList, readString, useResource, type SelectEntity } from "./PageShared";
+import { EntityList, readList, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
 import { TermCandidatesPanel } from "./TermCandidatesPanel";
 import { TermDiscoveryPanel } from "./TermDiscoveryPanel";
 export function LibraryPage({ onOpen }: { onOpen: SelectEntity }) {
@@ -40,10 +40,12 @@ export function LibraryPage({ onOpen }: { onOpen: SelectEntity }) {
 
 export function TermsPage({
   onOpen,
+  navigate,
   initialTab = "registry",
   initialDocumentId = "",
 }: {
   onOpen: SelectEntity;
+  navigate: Navigate;
   initialTab?: "registry" | "candidates";
   initialDocumentId?: string;
 }) {
@@ -146,7 +148,7 @@ export function TermsPage({
         <button type="button" role="tab" aria-selected={activeTab === "discovery"} className={activeTab === "discovery" ? "active" : ""} onClick={() => setActiveTab("discovery")}>Discovery</button>
       </div>
       {activeTab === "discovery" ? <TermDiscoveryPanel /> : activeTab === "candidates" ? (
-        resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <TermCandidatesPanel terms={terms} onOpen={onOpen} initialDocumentId={initialDocumentId} />
+        resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <TermCandidatesPanel terms={terms} onOpen={onOpen} navigate={navigate} initialDocumentId={initialDocumentId} />
       ) : <>
       <div className="library-toolbar term-registry-toolbar">
         <div className="filter-pair">

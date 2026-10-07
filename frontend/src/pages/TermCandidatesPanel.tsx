@@ -12,7 +12,7 @@ import {
 } from "../api";
 import { errorMessage } from "../errors";
 import { Chip, EmptyState, ErrorState, LoadingState, titleCase } from "../ui";
-import { readList, readString, useResource, type SelectEntity } from "./PageShared";
+import { readList, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
 
 type OriginFilter = "all" | "notes";
 type ResolutionFilter = "all" | "existing" | "new";
@@ -20,10 +20,12 @@ type ResolutionFilter = "all" | "existing" | "new";
 export function TermCandidatesPanel({
   terms,
   onOpen,
+  navigate,
   initialDocumentId = "",
 }: {
   terms: EntitySummary[];
   onOpen: SelectEntity;
+  navigate: Navigate;
   initialDocumentId?: string;
 }) {
   const resource = useResource("term-candidates", listTermCandidates);
@@ -196,9 +198,19 @@ export function TermCandidatesPanel({
                   {candidate.evidence.map((item) => (
                     <section className={`term-candidate-evidence ${item.origin_rejected ? "rejected" : ""}`} key={item.id}>
                       <div className="term-candidate-evidence-title">
-                        <button type="button" className="term-candidate-origin-link" disabled={item.origin_type !== "document"} onClick={() => onOpen("document", item.origin_id)}>
-                          {item.origin_title || item.origin_id}
-                        </button>
+                        {item.origin_type === "document" || item.origin_type === "source" ? (
+                          <button type="button" className="term-candidate-origin-link" onClick={() => onOpen(item.origin_type === "document" ? "document" : "source", item.origin_id)}>
+                            {item.origin_title || item.origin_id}
+                          </button>
+                        ) : item.origin_type === "research_work" ? (
+                          <button type="button" className="term-candidate-origin-link" onClick={() => navigate(`/research?work_id=${encodeURIComponent(item.origin_id)}`)}>
+                            {item.origin_title || item.origin_id}
+                          </button>
+                        ) : externalEvidenceHref(item.origin_id) ? (
+                          <a className="term-candidate-origin-link" href={externalEvidenceHref(item.origin_id)!} target="_blank" rel="noopener noreferrer">
+                            {item.origin_title || item.origin_id}
+                          </a>
+                        ) : <span className="term-candidate-origin-link">{item.origin_title || item.origin_id}</span>}
                         <span>{titleCase(item.origin_type)} · {item.mention}</span>
                         {item.confidence !== null && <span className="term-candidate-confidence">判断把握 {Math.round(item.confidence * 100)}%</span>}
                         {item.origin_rejected && <Chip tone="rose">此来源已拒绝</Chip>}
@@ -258,4 +270,13 @@ export function TermCandidatesPanel({
       </div>}
     </section>
   );
+}
+
+function externalEvidenceHref(originId: string): string | null {
+  try {
+    const url = new URL(originId);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }

@@ -64,6 +64,7 @@ class ResearchCandidateRepository:
         offset: int = 0,
         limit: int = 50,
         ranking_weights: tuple[float, float, float] = (0.4, 0.3, 0.3),
+        work_id: Optional[str] = None,
     ) -> list[ResearchCandidateRecord]:
         if sort not in {"recommended", "newest", "most_relevant", "most_novel"}:
             raise ValueError("Unsupported Research Candidate sort")
@@ -88,6 +89,9 @@ class ResearchCandidateRepository:
         if lens_id is not None:
             conditions.append("c.primary_lens_id = ?")
             parameters.append(lens_id)
+        if work_id is not None:
+            conditions.append("c.work_id = ?")
+            parameters.append(work_id)
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
         profile_score = "CAST(json_extract(a.analysis_json, '$.profile_relevance') AS REAL)"
         novelty_score = "CAST(json_extract(a.analysis_json, '$.novelty_to_library') AS REAL)"
@@ -138,6 +142,7 @@ class ResearchCandidateRepository:
         profile_id: Optional[str] = None,
         status: Optional[ResearchCandidateStatus] = None,
         lens_id: Optional[str] = None,
+        work_id: Optional[str] = None,
     ) -> int:
         conditions = []
         parameters = []
@@ -150,6 +155,9 @@ class ResearchCandidateRepository:
         if lens_id is not None:
             conditions.append("primary_lens_id = ?")
             parameters.append(lens_id)
+        if work_id is not None:
+            conditions.append("work_id = ?")
+            parameters.append(work_id)
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
         row = self.connection.execute(
             "SELECT COUNT(*) AS count FROM research_candidates" + where,

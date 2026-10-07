@@ -44,6 +44,7 @@ const HISTORY_STATUSES: Array<{ id: HistoryStatus; label: string }> = [
 ];
 
 export default function ResearchPage({ navigate }: { navigate: (path: string) => void }) {
+  const [requestedWorkId] = useState(() => new URLSearchParams(window.location.search).get("work_id") ?? "");
   const [profiles, setProfiles] = useState<ResearchProfileSummary[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [profile, setProfile] = useState<ResearchProfileDetail | null>(null);
@@ -89,7 +90,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     void listResearchProfiles().then((result) => {
       if (!active) return;
       setProfiles(result);
-      if (!result.some((item) => item.id === selectedProfileId)) setSelectedProfileId(result[0]?.id ?? "");
+      if (!requestedWorkId && !result.some((item) => item.id === selectedProfileId)) setSelectedProfileId(result[0]?.id ?? "");
       if (!result.length) setPageLoading(false);
     }).catch((reason: unknown) => {
       if (active) setProfileError(errorMessage(reason));
@@ -97,7 +98,38 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
       if (active) setPageLoading(false);
     });
     return () => { active = false; };
-  }, [refreshVersion]);
+  }, [refreshVersion, requestedWorkId]);
+
+  useEffect(() => {
+    if (!requestedWorkId) return;
+    let active = true;
+    setCandidateError("");
+    void listResearchCandidates({ work_id: requestedWorkId, sort: "newest", limit: 1 })
+      .then((result) => {
+        if (!active) return;
+        const item = result.candidates[0];
+        if (!item) {
+          setCandidateError("没有找到与此 Research Work 对应的 Candidate。");
+          return;
+        }
+        const status = item.candidate.status;
+        if (status === "dismissed" || status === "saved_source" || status === "note_created") {
+          setTab("history");
+          setHistoryStatus(status);
+        } else {
+          setTab(status);
+        }
+        setSelectedProfileId(item.candidate.profile_id);
+        setOffset(0);
+        setSelectedCandidates([]);
+        setDetailId(item.candidate.id);
+        setCandidateDetail(null);
+      })
+      .catch((reason: unknown) => {
+        if (active) setCandidateError(errorMessage(reason));
+      });
+    return () => { active = false; };
+  }, [requestedWorkId]);
 
   useEffect(() => {
     if (!selectedProfileId) {

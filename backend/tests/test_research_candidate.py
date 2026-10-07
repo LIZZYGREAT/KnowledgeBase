@@ -42,6 +42,24 @@ def test_surface_analysis_creates_one_candidate_per_work_and_profile():
     connection.close()
 
 
+def test_candidate_repository_can_filter_to_a_research_work():
+    connection = connect_database(":memory:")
+    repository = ResearchCandidateRepository(connection)
+    service = ResearchCandidateService(repository, clock=_clock)
+    profile = _profile(max_new_candidates=5)
+    for work_id in ("work-one", "work-two"):
+        analysis = _analysis(work_id, relevant=True)
+        _persist_work_and_analysis(connection, _work(work_id), analysis)
+        service.generate(analysis, profile, profile.lenses[0])
+
+    matching = repository.list_filtered(work_id="work-two", sort="newest")
+
+    assert [item.work_id for item in matching] == ["work-two"]
+    assert repository.count_filtered(work_id="work-two") == 1
+    assert repository.list_filtered(work_id="missing-work") == []
+    connection.close()
+
+
 def test_filtered_analysis_never_creates_a_candidate():
     connection = connect_database(":memory:")
     work = _work("work-filtered")
