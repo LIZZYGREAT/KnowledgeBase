@@ -23,6 +23,7 @@ class TermDiscoverySettings(BaseModel):
     )
     source_preferences: list[NonEmptyText] = Field(default_factory=list, max_length=100)
     focus_override: Optional[constr(strict=True, strip_whitespace=True, max_length=500)] = None
+    external_enabled: bool = False
 
     @model_validator(mode="after")
     def validate_settings(self):

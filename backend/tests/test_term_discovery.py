@@ -22,6 +22,7 @@ from backend.app.services.term_discovery_service import (
     _dynamic_allowance,
 )
 from backend.app.services.vocabulary_mining import mine_vocabulary
+from backend.app.services.wikipedia_discovery import ExternalDiscoveryResult
 
 
 def test_inbox_full_skips_snapshot_pdf_extraction_and_ai(tmp_path):
@@ -157,6 +158,90 @@ def test_scheduled_check_is_idle_without_a_local_pdf(tmp_path):
     assert run is None
     assert service.list_runs() == []
     assert gateway.calls == []
+    connection.close()
+
+
+def test_external_discovery_is_disabled_by_default(tmp_path):
+    external = _FakeExternalDiscovery([])
+    connection, service, _candidate_service, _pdf_service, gateway = _service(
+        tmp_path, external_discovery=external
+    )
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+
+    run = service.run()
+
+    assert service.get_settings().external_enabled is False
+    assert external.calls == []
+    assert gateway.calls == []
+    assert run.status == "success"
+    connection.close()
+
+
+def test_external_discovery_creates_wikipedia_evidence_with_focus_query(tmp_path):
+    output = {
+        "candidates": [
+            _suggestion(
+                "elastic weight consolidation",
+                "concept",
+                "Elastic weight consolidation is a regularization method for continual learning.",
+                "core_gap",
+                "This method directly supports the current continual learning focus.",
+            )
+        ]
+    }
+    result = ExternalDiscoveryResult(
+        url="https://en.wikipedia.org/wiki/Elastic_weight_consolidation",
+        title="Elastic weight consolidation",
+        snippet="Elastic weight consolidation is a regularization method for continual learning.",
+    )
+    external = _FakeExternalDiscovery([result])
+    connection, service, candidate_service, _pdf_service, gateway = _service(
+        tmp_path, output, external_discovery=external
+    )
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"],
+            focus_override="continual learning",
+            external_enabled=True,
+        )
+    )
+
+    run = service.run()
+
+    candidate = candidate_service.list_candidates("pending")[0]
+    evidence = candidate_service.get_candidate(candidate.id).evidence[0]
+    assert run.candidate_count == 1
+    assert len(external.calls) == 1
+    assert external.calls[0] == ("continual learning", 2)
+    assert [call[1]["lane"] for call in gateway.calls] == ["concept"]
+    assert evidence.origin_type == "external"
+    assert evidence.origin_id == result.url
+    assert evidence.origin_title == result.title
+    assert evidence.context_excerpt == result.snippet
+    connection.close()
+
+
+def test_scheduled_external_discovery_can_run_without_local_corpus(tmp_path):
+    external = _FakeExternalDiscovery([])
+    connection, service, _candidate_service, _pdf_service, _gateway = _service(
+        tmp_path, external_discovery=external
+    )
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["entity"],
+            focus_override="continual learning systems",
+            external_enabled=True,
+        )
+    )
+
+    run = service.scheduled_check()
+
+    assert run is not None
+    assert run.trigger == "scheduled"
+    assert len(external.calls) == 1
+    assert external.calls[0] == ("continual learning systems", 2)
     connection.close()
 
 
@@ -482,7 +567,9 @@ def test_semantic_existing_suggestion_rejects_deterministic_conflict(tmp_path):
     connection.close()
 
 
-def _service(tmp_path, output=None, connection=None, corpus_text=None):
+def _service(
+    tmp_path, output=None, connection=None, corpus_text=None, external_discovery=None
+):
     connection = connection or connect_database(":memory:")
     terms = tmp_path / "knowledge" / "terms"
     sources = tmp_path / "knowledge" / "sources"
@@ -533,10 +620,21 @@ def _service(tmp_path, output=None, connection=None, corpus_text=None):
         candidate_service,
         gateway,
         clock=_clock,
+        external_discovery=external_discovery,
     )
     pdf_service.calls = pdf_calls
     gateway.calls_by_task = lambda task: [call for call in gateway.calls if call[0] == task]
     return connection, service, candidate_service, pdf_service, gateway
+
+
+class _FakeExternalDiscovery:
+    def __init__(self, results):
+        self.results = results
+        self.calls = []
+
+    def search(self, query, limit):
+        self.calls.append((query, limit))
+        return self.results
 
 
 def _suggestion(mention, term_type, excerpt, level, why_now):

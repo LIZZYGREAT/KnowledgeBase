@@ -70,6 +70,11 @@
 .term-discovery-lane-quota { display: grid; gap: 3px; width: 56px; }
 .term-discovery-lane-quota input, .term-discovery-setting-fields input { min-width: 0; width: 100%; }
 .term-discovery-setting-fields { display: grid; grid-template-columns: minmax(110px, .5fr) repeat(2, minmax(0, 1fr)); gap: 10px; }
+.term-discovery-external-setting { display: flex; align-items: flex-start; gap: 9px; margin-top: 12px; border: 1px solid #e9eee9; border-radius: 8px; padding: 11px; background: #fbfdfb; cursor: pointer; }
+.term-discovery-external-setting > input { width: 15px; min-height: 15px; margin: 2px 0 0; accent-color: #31745a; }
+.term-discovery-external-setting > span { display: grid; gap: 4px; }
+.term-discovery-external-setting strong { color: #405449; font-size: var(--text-sm); }
+.term-discovery-external-setting small { color: var(--text-subtle); font-size: var(--text-xs); line-height: 1.45; }
 .term-discovery-run-list { display: grid; gap: 7px; }
 .term-discovery-run { border: 1px solid #e9eee9; border-radius: 8px; background: #fbfdfb; }
 .term-discovery-run > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; color: #52645a; font-size: var(--text-sm); cursor: pointer; }

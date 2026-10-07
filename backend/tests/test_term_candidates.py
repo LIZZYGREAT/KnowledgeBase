@@ -31,13 +31,13 @@ from backend.app.services.term_merge_service import (
 )
 
 
-def test_runtime_schema_12_migrates_to_term_core_and_discovery_state_16():
+def test_runtime_schema_12_migrates_to_term_core_and_discovery_state_17():
     connection = sqlite3.connect(":memory:")
     connection.execute("PRAGMA user_version = 12")
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
     tables = {
         row[0]
         for row in connection.execute(
@@ -51,6 +51,22 @@ def test_runtime_schema_12_migrates_to_term_core_and_discovery_state_16():
         "term_merge_history",
         "document_term_analysis_state",
     } <= tables
+    setting_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(term_discovery_settings)")
+    }
+    evidence_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(term_candidate_evidence)")
+    }
+    assert "external_enabled" in setting_columns
+    assert "origin_title" in evidence_columns
+    connection.execute(
+        """INSERT INTO term_discovery_settings (
+               id, enabled_lanes_json, quota_json, source_preferences_json, updated_at
+           ) VALUES (1, '[]', '{}', '[]', 'now')"""
+    )
+    assert connection.execute(
+        "SELECT external_enabled FROM term_discovery_settings WHERE id = 1"
+    ).fetchone()[0] == 0
     connection.close()
 
 

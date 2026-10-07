@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS term_candidate_evidence (
     ),
     origin_id TEXT NOT NULL,
     mention TEXT NOT NULL,
+    origin_title TEXT,
     context_excerpt TEXT,
     confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
     rationale TEXT,
@@ -173,6 +174,7 @@ CREATE TABLE IF NOT EXISTS term_discovery_settings (
     quota_json TEXT NOT NULL,
     source_preferences_json TEXT NOT NULL,
     focus_override TEXT,
+  external_enabled INTEGER NOT NULL DEFAULT 0 CHECK (external_enabled IN (0, 1)),
     updated_at TEXT NOT NULL
 );
 

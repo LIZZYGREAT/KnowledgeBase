@@ -39,7 +39,7 @@ class TermCandidateRepository:
     def get_evidence(self, candidate_id: str) -> list[TermCandidateEvidence]:
         rows = self.connection.execute(
             """SELECT e.*,
-                      COALESCE(d.title, s.title, rw.title) AS origin_title,
+                      COALESCE(e.origin_title, d.title, s.title, rw.title) AS origin_title,
                       EXISTS (
                           SELECT 1 FROM rejected_candidates r
                           JOIN term_candidates c ON c.id = e.candidate_id
@@ -422,10 +422,13 @@ class TermCandidateRepository:
             self.connection.execute(
                 """INSERT INTO term_candidate_evidence (
                        id, candidate_id, origin_type, origin_id, mention,
-                       context_excerpt, confidence, rationale, discovered_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       origin_title, context_excerpt, confidence, rationale, discovered_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(candidate_id, origin_type, origin_id, mention)
-                   DO UPDATE SET context_excerpt = excluded.context_excerpt,
+                   DO UPDATE SET origin_title = COALESCE(
+                                     excluded.origin_title, term_candidate_evidence.origin_title
+                                 ),
+                                 context_excerpt = excluded.context_excerpt,
                                  confidence = excluded.confidence,
                                  rationale = excluded.rationale,
                                  discovered_at = excluded.discovered_at""",
@@ -435,6 +438,7 @@ class TermCandidateRepository:
                     item.origin_type,
                     item.origin_id,
                     item.mention,
+                    item.origin_title,
                     item.context_excerpt,
                     item.confidence,
                     item.rationale,

@@ -52,6 +52,7 @@ export interface TermDiscoverySettings {
   lane_capacities: Record<TermDiscoveryLane, number>;
   source_preferences: string[];
   focus_override: string | null;
+  external_enabled: boolean;
 }
 
 export interface TermDiscoveryRunItem {

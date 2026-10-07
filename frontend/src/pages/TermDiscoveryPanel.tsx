@@ -123,7 +123,7 @@ export function TermDiscoveryPanel() {
     <section className="term-discovery-panel" aria-label="Term Discovery">
       <div className="term-discovery-overview surface">
         <div className="term-discovery-overview-heading">
-          <div><span className="section-kicker">FOCUS-AWARE RECOMMENDATIONS</span><h2>Discovery</h2><p>从本地 PDF Corpus 中挑选少量适合当前学习进度的 Term。</p></div>
+          <div><span className="section-kicker">FOCUS-AWARE RECOMMENDATIONS</span><h2>Discovery</h2><p>从本地 PDF、Notes 和可选的外部摘要中挑选少量适合当前学习进度的 Term。</p></div>
           <button className="button button-primary" type="button" disabled={busy} onClick={() => void runNow()}>{busy ? "正在运行…" : "Run Now"}</button>
         </div>
         <div className="term-discovery-capacity-grid">
@@ -148,6 +148,10 @@ export function TermDiscoveryPanel() {
           <label className="field-label">Focus override（可选）<input value={draft.focus_override ?? ""} maxLength={500} onChange={(event) => setDraft((current) => current ? { ...current, focus_override: event.target.value || null } : current)} placeholder="沿用 Research Profile 的方向" /></label>
           <label className="field-label">优先 Source ID（逗号分隔）<input value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="例如 source-alpha, source-beta" /></label>
         </div>
+        <label className="term-discovery-external-setting">
+          <input type="checkbox" checked={draft.external_enabled} onChange={(event) => setDraft((current) => current ? { ...current, external_enabled: event.target.checked } : current)} />
+          <span><strong>启用 Wikipedia 外部发现</strong><small>开启后，每次手动或定时运行最多发送一次 Focus 查询并读取两条摘要；Focus 查询会发给 Wikipedia，摘要会交给 AI 分析。只用于 Concept 和 Entity。</small></span>
+        </label>
       </form>
 
       {notice && <p className="editor-notice success-notice" role="status">{notice}</p>}

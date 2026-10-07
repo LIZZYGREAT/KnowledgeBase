@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import uuid
 from typing import Callable, Optional
+from urllib.parse import urlsplit
 
 from backend.app.domain.ai import TermDiscoveryOutput
 from backend.app.domain.term_discovery import (
@@ -37,6 +38,11 @@ from backend.app.services.term_candidate_service import (
 from backend.app.services.term_registry import TermRegistry
 from backend.app.services.term_resolver import TermResolver
 from backend.app.services.vocabulary_mining import mine_vocabulary
+from backend.app.services.wikipedia_discovery import (
+    MAX_RESULTS as MAX_EXTERNAL_RESULTS,
+    ExternalDiscoveryResult,
+    WikipediaDiscovery,
+)
 
 
 DISCOVERY_ANALYSIS_VERSION = 1
@@ -47,6 +53,7 @@ MAX_VOCABULARY_OPTIONS = 20
 MAX_DOCUMENTS_PER_RUN = 3
 MAX_DOCUMENT_BYTES = 2_000_000
 MAX_RECENT_DOCUMENTS = 12
+MAX_EXTERNAL_QUERY_FOCUS_ITEMS = 4
 _LANE_ORDER: tuple[DiscoveryLane, ...] = ("concept", "entity", "vocabulary")
 
 
@@ -82,6 +89,7 @@ class TermDiscoveryService:
         ai_gateway,
         knowledge_state_service: Optional[KnowledgeStateService] = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        external_discovery=None,
     ):
         self.repository_root = Path(repository_root).resolve()
         self.repository = repository
@@ -89,6 +97,9 @@ class TermDiscoveryService:
         self.candidate_service = candidate_service
         self.ai_gateway = ai_gateway
         self.clock = clock
+        self.external_discovery = (
+            external_discovery if external_discovery is not None else WikipediaDiscovery()
+        )
         self._lock = GlobalResearchLock(
             self.repository_root / "runtime" / "term-discovery.lock"
         )
@@ -183,6 +194,7 @@ class TermDiscoveryService:
         source_registry = SourceRegistry.load(
             self.repository_root / "knowledge" / "sources"
         )
+        settings = self.repository.get_settings()
         has_pdf = any(
             source.attachments.local_pdf
             and (
@@ -199,11 +211,22 @@ class TermDiscoveryService:
             for path in (
                 self.repository_root / "knowledge" / "documents" / folder
             ).glob("*.md")
-        ) and any(
-            lane in self.repository.get_settings().enabled_lanes
-            for lane in ("concept", "entity")
-        )
-        if not has_pdf and not has_note:
+        ) and any(lane in settings.enabled_lanes for lane in ("concept", "entity"))
+        has_external = False
+        if settings.external_enabled and any(
+            lane in settings.enabled_lanes for lane in ("concept", "entity")
+        ):
+            explicit_focus = _focus_context(self.repository_root, settings)
+            focus_snapshot = self.knowledge_state.build_snapshot(explicit_focus)
+            focus = _discovery_focus(explicit_focus, focus_snapshot)
+            state = self.get_state()
+            open_by_lane = state.lane_open
+            has_external = bool(focus) and state.daily_remaining > 0 and any(
+                lane in settings.enabled_lanes
+                and open_by_lane.get(lane, 0) < settings.lane_capacities[lane]
+                for lane in ("concept", "entity")
+            ) and state.open_count < GLOBAL_OPEN_CAPACITY
+        if not has_pdf and not has_note and not has_external:
             return None
         return self.run(trigger="scheduled")
 
@@ -311,6 +334,47 @@ class TermDiscoveryService:
             focus_hash,
             registry,
         )
+        external_corpora: list[DiscoveryCorpus] = []
+        external_errors: list[str] = []
+        external_lanes = tuple(
+            lane
+            for lane in enabled_lanes
+            if lane in {"concept", "entity"} and remaining_budgets[lane] > 0
+        )
+        external_query = _external_query(focus)
+        if settings.external_enabled and external_lanes and external_query:
+            try:
+                results = self.external_discovery.search(
+                    external_query, limit=MAX_EXTERNAL_RESULTS
+                )
+                for result in results[:MAX_EXTERNAL_RESULTS]:
+                    if not isinstance(result, ExternalDiscoveryResult):
+                        continue
+                    if not _is_wikipedia_result_url(result.url):
+                        continue
+                    title = " ".join(result.title.split())[:200]
+                    text = " ".join(result.snippet.split())[:600]
+                    if not title or not text:
+                        continue
+                    context = _DocumentContext(
+                        id=result.url,
+                        title=title,
+                        domains=(),
+                        topics=(),
+                    )
+                    external_corpora.append(
+                        DiscoveryCorpus(
+                            "external",
+                            result.url,
+                            context,
+                            text,
+                            sha256(text.encode("utf-8")).hexdigest(),
+                            "external:{}".format(sha256(result.url.encode("utf-8")).hexdigest()),
+                            external_lanes,
+                        )
+                    )
+            except Exception as error:
+                external_errors.append("Wikipedia discovery: {}".format(str(error)[:200]))
         self.repository.retain_vocabulary_sources(
             {
                 source.id
@@ -321,14 +385,14 @@ class TermDiscoveryService:
         raw_counts = {lane: 0 for lane in _LANE_ORDER}
         filtered_counts = {lane: 0 for lane in _LANE_ORDER}
         items: list[TermDiscoveryRunItem] = []
-        errors: list[str] = []
+        errors: list[str] = external_errors
         created_count = 0
 
-        if not sources and not documents:
+        if not sources and not documents and not external_corpora:
             return self._finish_run(
                 run_id,
                 trigger,
-                "success",
+                "partial" if errors else "success",
                 started_at,
                 snapshot,
                 budgets,
@@ -336,7 +400,7 @@ class TermDiscoveryService:
                 filtered_counts,
                 0,
                 items,
-                None,
+                "; ".join(errors[:6]) or None,
             )
 
         for source in sources:
@@ -387,6 +451,20 @@ class TermDiscoveryService:
 
         created_count += self._process_additional_corpora(
             documents,
+            run_id,
+            snapshot,
+            focus,
+            registry,
+            resolver,
+            focus_hash,
+            remaining_budgets,
+            raw_counts,
+            filtered_counts,
+            items,
+            errors,
+        )
+        created_count += self._process_additional_corpora(
+            external_corpora,
             run_id,
             snapshot,
             focus,
@@ -577,6 +655,11 @@ class TermDiscoveryService:
                         origin_type=corpus.origin_type,
                         origin_id=corpus.origin_id,
                         mention=suggestion.mention,
+                        origin_title=(
+                            getattr(corpus.origin, "title", None)
+                            if corpus.origin_type == "external"
+                            else None
+                        ),
                         context_excerpt=suggestion.context_excerpt,
                         confidence=suggestion.confidence,
                         rationale=suggestion.rationale,
@@ -1045,6 +1128,31 @@ def _tokens(text: str) -> list[str]:
 def _json_hash(value) -> str:
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _external_query(focus: list[str]) -> str:
+    phrases = []
+    for value in focus:
+        normalized = " ".join(value.split())
+        if normalized and normalized not in phrases:
+            phrases.append(normalized)
+        if len(phrases) >= MAX_EXTERNAL_QUERY_FOCUS_ITEMS:
+            break
+    return " ".join(phrases)[:180]
+
+
+def _is_wikipedia_result_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+    except (TypeError, ValueError):
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.netloc == "en.wikipedia.org"
+        and parsed.path.startswith("/wiki/")
+        and not parsed.query
+        and not parsed.fragment
+    )
 
 
 def _term_excerpt(text: str, term: str, maximum: int = 300) -> str:

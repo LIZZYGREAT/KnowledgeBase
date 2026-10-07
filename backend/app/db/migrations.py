@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 16
+CURRENT_SCHEMA_VERSION = 17
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -49,6 +49,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_pdf_corpus
         elif target_version == 16:
             migration = _migrate_to_term_discovery_runtime
+        elif target_version == 17:
+            migration = _migrate_to_external_term_discovery
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -968,3 +970,19 @@ def _migrate_to_term_discovery_runtime(connection: sqlite3.Connection) -> None:
     )
     for statement in statements:
         connection.execute(statement)
+
+
+def _migrate_to_external_term_discovery(connection: sqlite3.Connection) -> None:
+    if not _column_exists(connection, "term_discovery_settings", "external_enabled"):
+        connection.execute(
+            """ALTER TABLE term_discovery_settings
+               ADD COLUMN external_enabled INTEGER NOT NULL DEFAULT 0
+               CHECK (external_enabled IN (0, 1))"""
+        )
+    if _table_exists(connection, "term_candidate_evidence") and not _column_exists(
+        connection, "term_candidate_evidence", "origin_title"
+    ):
+        connection.execute(
+            """ALTER TABLE term_candidate_evidence
+               ADD COLUMN origin_title TEXT"""
+        )

@@ -22,6 +22,7 @@ class TermCandidateEvidenceInput(TermRuntimeModel):
     origin_type: TermOriginType
     origin_id: NonEmptyText
     mention: NonEmptyText
+    origin_title: Optional[str] = None
     context_excerpt: Optional[str] = None
     confidence: Optional[float] = Field(default=None, ge=0, le=1)
     rationale: Optional[str] = None
@@ -31,7 +32,6 @@ class TermCandidateEvidence(TermCandidateEvidenceInput):
     id: NonEmptyText
     candidate_id: NonEmptyText
     discovered_at: NonEmptyText
-    origin_title: Optional[str] = None
     origin_rejected: bool = False
 
 

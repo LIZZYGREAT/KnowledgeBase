@@ -30,6 +30,7 @@ class TermDiscoveryRepository:
                 "lane_capacities": json.loads(row["quota_json"])["lane_capacities"],
                 "source_preferences": json.loads(row["source_preferences_json"]),
                 "focus_override": row["focus_override"],
+                "external_enabled": bool(row["external_enabled"]),
             }
         )
 
@@ -43,19 +44,21 @@ class TermDiscoveryRepository:
             self.connection.execute(
                 """INSERT INTO term_discovery_settings (
                        id, enabled_lanes_json, quota_json, source_preferences_json,
-                       focus_override, updated_at
-                   ) VALUES (1, ?, ?, ?, ?, ?)
+                       focus_override, external_enabled, updated_at
+                   ) VALUES (1, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                        enabled_lanes_json = excluded.enabled_lanes_json,
                        quota_json = excluded.quota_json,
                        source_preferences_json = excluded.source_preferences_json,
                        focus_override = excluded.focus_override,
+                       external_enabled = excluded.external_enabled,
                        updated_at = excluded.updated_at""",
                 (
                     json.dumps(settings.enabled_lanes, ensure_ascii=False),
                     json.dumps(quota, ensure_ascii=False, sort_keys=True),
                     json.dumps(settings.source_preferences, ensure_ascii=False),
                     settings.focus_override,
+                    int(settings.external_enabled),
                     now,
                 ),
             )
