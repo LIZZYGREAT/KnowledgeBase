@@ -1,28 +1,4 @@
-/* Home */
-.home-intro { position: relative; display: flex; min-height: 280px; overflow: hidden; align-items: center; justify-content: space-between; border: 1px solid #dce9df; border-radius: 16px; padding: 35px 46px; background: linear-gradient(115deg, #edf5ef 0%, #eaf3ed 57%, #e0ede4 100%); }
-.home-intro-copy { position: relative; z-index: 1; max-width: 630px; }
-.home-intro-copy .eyebrow { margin-bottom: 14px; color: #568469; }
-.home-intro h1 { max-width: 580px; margin: 0; color: #21372c; font-family: Manrope, "Noto Sans SC", sans-serif; font-size: clamp(27px, 3.2vw, 39px); font-weight: 600; letter-spacing: -.06em; line-height: 1.4; }
-.home-intro-copy > p:not(.eyebrow) { max-width: 540px; margin: 10px 0 21px; color: #74867b; font-size: var(--text-base); line-height: 1.85; }
-.home-search-link { min-height: 38px; padding: 0 16px; }
-.home-search-link span { font-size: var(--text-lg); }
-.home-orbit { position: relative; width: 275px; height: 230px; flex: 0 0 275px; margin-right: 20px; opacity: .93; }
-.orbit { position: absolute; top: 50%; left: 50%; border: 1px solid #94bba14c; border-radius: 50%; transform: translate(-50%, -50%) rotate(-27deg); }
-.orbit-one { width: 250px; height: 128px; }
-.orbit-two { width: 192px; height: 206px; transform: translate(-50%, -50%) rotate(44deg); }
-.orbit-three { width: 219px; height: 160px; transform: translate(-50%, -50%) rotate(-63deg); }
-.orbit-core { position: absolute; top: 50%; left: 50%; display: grid; width: 58px; height: 58px; place-items: center; border: 5px solid #eff7f0; border-radius: 19px; color: #f8fff9; background: linear-gradient(145deg, #639578, #317555); box-shadow: 0 10px 23px #25573e30; font-family: Manrope, sans-serif; font-size: 22px; font-weight: 800; transform: translate(-50%, -50%) rotate(-9deg); }
-.orbit-node { position: absolute; display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid #d8e8dc; border-radius: 11px; color: #538268; background: #fbfefb; box-shadow: 0 5px 15px #3862440d; font-size: var(--text-xs); font-weight: 700; }
-.node-one { top: 17px; left: 107px; }
-.node-two { right: 7px; bottom: 58px; }
-.node-three { left: 3px; bottom: 68px; color: #7a8a72; }
-.summary-strip { display: grid; grid-template-columns: repeat(4, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: white; box-shadow: var(--shadow); }
-.summary-strip > div { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 0 11px; padding: 15px 19px; }
-.summary-strip > div + div { border-left: 1px solid #eef1ee; }
-.summary-strip strong { color: #334d3e; font-family: Manrope, sans-serif; font-size: 20px; font-weight: 600; }
-.summary-strip span { color: #86938a; font-size: var(--text-xs); }
-.home-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 17px; }
-.home-section { min-height: 206px; padding: 18px 19px 10px; }
+/* Shared content lists */
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
 .section-heading h2 { margin: 0; color: #34473c; font-family: Manrope, "Noto Sans SC", sans-serif; font-size: var(--text-lg); font-weight: 700; letter-spacing: -.02em; }
 .section-heading p { margin: 4px 0 0; color: #9aa49d; font-size: var(--text-xs); }
@@ -36,11 +12,6 @@
 .entity-row:hover .row-arrow { color: #649275; transform: translate(2px, -2px); }
 .compact-list .entity-row { min-height: 50px; }
 .compact-list .chip { display: none; }
-.queue-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.queue-metrics button { display: flex; min-height: 57px; align-items: center; gap: 10px; border: 1px solid #edf0ed; border-radius: 8px; padding: 8px 10px; background: #fbfcfb; text-align: left; cursor: pointer; }
-.queue-metrics button:hover { border-color: #d5e3d9; background: #f7fbf8; }
-.queue-metrics strong { color: #50775c; font-family: Manrope, sans-serif; font-size: 17px; font-weight: 600; }
-.queue-metrics span { color: #78877e; font-size: var(--text-xs); }
 
 /* Search and lists */
 .search-panel { padding: 18px; }

@@ -2,7 +2,6 @@
 
 @media (max-width: 1260px) {
   .reader-layout:not(.reader-layout-source) { grid-template-columns: minmax(0, var(--reader-outline-width)) minmax(0, var(--reader-body-max)); gap: 22px; }
-  .home-orbit { margin-right: -24px; opacity: .75; }
 }
 @media (max-width: 1100px) {
   .reader-layout:not(.reader-layout-source) { grid-template-columns: minmax(0, 1fr); gap: 12px; }
@@ -50,16 +49,6 @@
   .main-footer { flex-direction: column; gap: 5px; padding: 14px 15px 19px; }
   .page-header { align-items: flex-start; }
   .page-header h1 { font-size: 29px; }
-  .home-intro { min-height: 310px; padding: 25px 22px; }
-  .home-intro h1 { max-width: 410px; font-size: 28px; }
-  .home-orbit { position: absolute; right: -115px; bottom: -98px; width: 235px; opacity: .27; transform: scale(.9); }
-  .summary-strip { grid-template-columns: 1fr 1fr; }
-  .summary-strip > div { padding: 12px; }
-  .summary-strip > div:nth-child(3) { border-left: 0; border-top: 1px solid #eef1ee; }
-  .summary-strip > div:nth-child(4) { border-top: 1px solid #eef1ee; }
-  .summary-strip strong { font-size: 18px; }
-  .home-grid { grid-template-columns: 1fr; gap: 11px; }
-  .home-section { min-height: 165px; padding: 16px 14px 8px; }
   .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .search-panel { padding: 11px; }
   .search-input-wrap { gap: 6px; padding-left: 9px; }
