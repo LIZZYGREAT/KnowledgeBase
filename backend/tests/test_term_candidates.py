@@ -117,6 +117,48 @@ def test_candidate_resolution_evidence_dedup_and_existing_acceptance(tmp_path):
         connection.close()
 
 
+def test_semantic_existing_suggestion_cannot_create_a_new_term_draft(tmp_path):
+    _write_term(tmp_path)
+    connection = connect_database(":memory:")
+    try:
+        repository = TermCandidateRepository(connection)
+        drafts = DraftService(DraftRepository(connection))
+        target_resolver = CanonicalTargetResolver(tmp_path, connection)
+
+        class FakeGit:
+            def current_revision(self):
+                return "a" * 40
+
+            def content_hash(self, path):
+                return "b" * 64
+
+        service = TermCandidateService(
+            tmp_path, repository, drafts, FakeGit(), target_resolver
+        )
+        candidate = service.create_candidate(
+            "Earlier category performance drops",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type="external",
+                    origin_id="ref:semantic-existing",
+                    mention="Earlier category performance drops",
+                    context_excerpt="Earlier category performance drops after learning a new task.",
+                )
+            ],
+            preferred_term_id="neural-indexing",
+        )
+
+        resolution = service.resolve_against_registry(candidate)
+        assert candidate.suggested_term_id == "neural-indexing"
+        assert resolution.status == "existing_term"
+        assert resolution.term_id == "neural-indexing"
+        with pytest.raises(TermCandidateConflict, match="existing Term"):
+            service.create_term_draft(candidate.id)
+    finally:
+        connection.close()
+
+
 def test_local_reject_memory_is_origin_scoped_and_global_reject_blocks_new_candidates(
     tmp_path,
 ):

@@ -168,6 +168,18 @@ class TermCandidateService:
                 matched_by=registry_match.matched_by,
             )
 
+        if candidate.suggested_term_id:
+            suggested_term = TermRegistry.load(
+                self.repository_root / "knowledge" / "terms"
+            ).get(candidate.suggested_term_id)
+            if suggested_term is not None:
+                return CandidateResolution(
+                    "existing_term",
+                    normalized_name,
+                    term_id=suggested_term.id,
+                    matched_by="suggested",
+                )
+
         pending = self.repository.find_open_candidate(normalized_name)
         if pending is not None and pending.id != candidate.id:
             return CandidateResolution(
