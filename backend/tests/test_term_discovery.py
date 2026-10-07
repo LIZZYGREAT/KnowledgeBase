@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 import os
+from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -17,10 +19,14 @@ from backend.app.services.knowledge_state_service import KnowledgeStateService
 from backend.app.services.pdf_corpus_service import PdfCorpusService
 from backend.app.services.term_candidate_service import TermCandidateService
 from backend.app.services.term_discovery_service import (
+    DiscoveryCorpus,
     TermDiscoveryService,
     _allocate_lane_budgets,
     _dynamic_allowance,
 )
+from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
+from backend.app.services.term_registry import TermRegistry
+from backend.app.services.term_resolver import TermResolver
 from backend.app.services.vocabulary_mining import mine_vocabulary
 from backend.app.services.wikipedia_discovery import ExternalDiscoveryResult
 
@@ -146,6 +152,268 @@ def test_scheduled_check_runs_once_per_utc_day(tmp_path):
     assert first.status == "success"
     assert second is None
     assert [call[0] for call in gateway.calls] == ["discover_terms"]
+    connection.close()
+
+
+def test_scheduled_accepted_note_is_not_recreated_after_focus_and_content_change(tmp_path):
+    output = {
+        "candidates": [
+            {
+                **_suggestion(
+                    "elastic weight consolidation",
+                    "concept",
+                    "Elastic weight consolidation limits catastrophic forgetting.",
+                    "core_gap",
+                    "It connects to the current learning focus.",
+                ),
+                "existing_term_id": "accepted-term",
+            }
+        ]
+    }
+    connection, service, candidate_service, _pdf_service, _gateway = _service(
+        tmp_path, output
+    )
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    _write_term(
+        tmp_path / "knowledge" / "terms" / "accepted-term.md",
+        "accepted-term",
+        "Accepted Term",
+        "stub",
+    )
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        "Elastic weight consolidation limits catastrophic forgetting. "
+        "It protects previously learned tasks.",
+        topics=["continual-learning"],
+    )
+    now = datetime(2026, 10, 7, 12, tzinfo=timezone.utc)
+    service.clock = lambda: now
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"], focus_override="continual learning"
+        )
+    )
+
+    first = service.scheduled_check()
+    assert first is not None and first.candidate_count == 1
+    candidate = candidate_service.list_candidates("pending")[0]
+    candidate_service.canonical_target_resolver = CanonicalTargetResolver(
+        tmp_path, connection
+    )
+    accepted = candidate_service.accept_existing(candidate.id, "accepted-term")
+    assert accepted.status == "accepted"
+
+    now += timedelta(hours=24)
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"], focus_override="continual learning systems"
+        )
+    )
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        "Elastic weight consolidation limits catastrophic forgetting. "
+        "It protects previously learned tasks and supports stable retention.",
+        topics=["continual-learning"],
+    )
+    second = service.scheduled_check()
+
+    assert second is not None
+    assert second.candidate_count == 0
+    assert [(item.outcome, item.mention) for item in second.items] == [
+        ("duplicate", "elastic weight consolidation")
+    ]
+    assert candidate_service.list_candidates("accepted")[0].id == candidate.id
+    assert candidate_service.list_candidates("pending") == []
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    ("origin_type", "origin_id"),
+    [
+        ("document", "note-one"),
+        ("source", "source-alpha"),
+        ("research_work", "work-one"),
+        ("external", "https://en.wikipedia.org/wiki/Elastic_weight_consolidation"),
+    ],
+)
+def test_discovery_skips_accepted_evidence_for_same_origin_and_normalized_mention(
+    tmp_path, origin_type, origin_id
+):
+    text = "ELASTIC WEIGHT CONSOLIDATION limits catastrophic forgetting."
+    output = {
+        "candidates": [
+            {
+                **_suggestion(
+                    "ELASTIC WEIGHT CONSOLIDATION",
+                    "concept",
+                    text,
+                    "core_gap",
+                    "It connects to the current learning focus.",
+                ),
+                "existing_term_id": "accepted-term",
+            }
+        ]
+    }
+    connection, service, candidate_service, _pdf_service, _gateway = _service(
+        tmp_path, output
+    )
+    _write_term(
+        tmp_path / "knowledge" / "terms" / "accepted-term.md",
+        "accepted-term",
+        "Accepted Term",
+        "stub",
+    )
+    if origin_type == "document":
+        _write_document(tmp_path, origin_id, "Accepted Note", text)
+    elif origin_type == "research_work":
+        connection.execute(
+            """INSERT INTO research_works (
+                   id, canonical_key, title, normalized_title, authors_json,
+                   created_at, updated_at
+               ) VALUES (?, ?, ?, ?, '[]', 'now', 'now')""",
+            (origin_id, "doi:10.1/work-one", "Accepted Research Work", "accepted work"),
+        )
+    candidate_service.canonical_target_resolver = CanonicalTargetResolver(
+        tmp_path, connection
+    )
+    accepted_candidate = candidate_service.create_candidate(
+        "elastic weight consolidation",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type=origin_type,
+                origin_id=origin_id,
+                mention="elastic weight consolidation",
+                context_excerpt="Elastic weight consolidation limits catastrophic forgetting.",
+                rationale="Previously accepted evidence.",
+            )
+        ],
+        preferred_term_id="accepted-term",
+    )
+    accepted_candidate = candidate_service.accept_existing(
+        accepted_candidate.id, "accepted-term"
+    )
+    assert accepted_candidate.status == "accepted"
+
+    corpus_origin = SimpleNamespace(
+        id=origin_id, title="Corpus Title", domains=(), topics=()
+    )
+    corpus = DiscoveryCorpus(
+        origin_type,
+        origin_id,
+        corpus_origin,
+        text,
+        "changed-text-hash",
+        "{}:analysis".format(origin_id),
+        ("concept",),
+    )
+    registry = TermRegistry.load(tmp_path / "knowledge" / "terms")
+    budgets = {"concept": 1, "entity": 0, "vocabulary": 0}
+    raw_counts = {"concept": 0, "entity": 0, "vocabulary": 0}
+    filtered_counts = {"concept": 0, "entity": 0, "vocabulary": 0}
+    items = []
+    errors = []
+
+    created = service._process_additional_corpora(
+        [corpus],
+        "run-accepted",
+        {},
+        ["continual learning"],
+        registry,
+        TermResolver(registry),
+        "new-focus-hash",
+        budgets,
+        raw_counts,
+        filtered_counts,
+        items,
+        errors,
+    )
+
+    assert created == 0
+    assert filtered_counts["concept"] == 1
+    assert [(item.outcome, item.source_id) for item in items] == [
+        ("duplicate", origin_id)
+    ]
+    assert errors == []
+    connection.close()
+
+
+def test_discovery_skips_note_already_related_to_existing_term_without_candidate_evidence(
+    tmp_path,
+):
+    text = "A later note section explains elastic consolidation in more detail."
+    output = {
+        "candidates": [
+            {
+                **_suggestion(
+                    "elastic consolidation",
+                    "concept",
+                    "A later note section explains elastic consolidation in more detail.",
+                    "core_gap",
+                    "It connects to the current learning focus.",
+                ),
+                "existing_term_id": "accepted-term",
+            }
+        ]
+    }
+    connection, service, _candidate_service, _pdf_service, _gateway = _service(
+        tmp_path, output
+    )
+    _write_term(
+        tmp_path / "knowledge" / "terms" / "accepted-term.md",
+        "accepted-term",
+        "Accepted Term",
+        "stub",
+    )
+    _write_document(tmp_path, "note-one", "Continual Learning Notes", text)
+    connection.execute(
+        """INSERT INTO term_entity_relations (
+               id, entity_type, entity_id, term_id,
+               created_from_candidate_id, created_at
+           ) VALUES ('accepted-relation', 'document', 'note-one',
+                     'accepted-term', NULL, '2026-10-07T00:00:00+00:00')"""
+    )
+    registry = TermRegistry.load(tmp_path / "knowledge" / "terms")
+    corpus = DiscoveryCorpus(
+        "document",
+        "note-one",
+        SimpleNamespace(id="note-one", title="Continual Learning Notes", domains=(), topics=()),
+        text,
+        "updated-note-content-hash",
+        "note-one:analysis",
+        ("concept",),
+    )
+    budgets = {"concept": 1, "entity": 0, "vocabulary": 0}
+    raw_counts = {"concept": 0, "entity": 0, "vocabulary": 0}
+    filtered_counts = {"concept": 0, "entity": 0, "vocabulary": 0}
+    items = []
+    errors = []
+
+    created = service._process_additional_corpora(
+        [corpus],
+        "run-related",
+        {},
+        ["continual learning"],
+        registry,
+        TermResolver(registry),
+        "new-focus-hash",
+        budgets,
+        raw_counts,
+        filtered_counts,
+        items,
+        errors,
+    )
+
+    assert created == 0
+    assert filtered_counts["concept"] == 1
+    assert [item.outcome for item in items] == ["duplicate"]
+    assert connection.execute(
+        "SELECT COUNT(*) FROM term_candidates"
+    ).fetchone()[0] == 0
     connection.close()
 
 

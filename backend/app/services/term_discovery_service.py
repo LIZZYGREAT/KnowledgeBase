@@ -630,23 +630,7 @@ class TermDiscoveryService:
                         continue
 
                     normalized = normalize_key(suggestion.mention)
-                    existing_open = self.candidate_service.repository.find_open_candidate(
-                        normalized
-                    )
                     registry_match = resolver.resolve(suggestion.mention)
-                    if existing_open is not None and existing_open.suggested_type != lane:
-                        filtered_counts[lane] += 1
-                        items.append(
-                            self._item(
-                                run_id,
-                                lane,
-                                corpus.origin_id,
-                                suggestion,
-                                "duplicate",
-                                existing_open.id,
-                            )
-                        )
-                        continue
                     if registry_match.status == "ambiguous":
                         filtered_counts[lane] += 1
                         items.append(
@@ -671,6 +655,47 @@ class TermDiscoveryService:
                             )
                         )
                         filtered_counts[lane] += 1
+                        continue
+                    existing_term_id = (
+                        registry_match.entity_id
+                        if registry_match.status == "resolved"
+                        else suggestion.existing_term_id
+                    )
+                    candidate_repository = self.candidate_service.repository
+                    if candidate_repository.has_accepted_candidate_evidence(
+                        normalized, corpus.origin_type, corpus.origin_id
+                    ) or (
+                        corpus.origin_type != "external"
+                        and existing_term_id is not None
+                        and candidate_repository.has_relation(
+                            corpus.origin_type, corpus.origin_id, existing_term_id
+                        )
+                    ):
+                        filtered_counts[lane] += 1
+                        items.append(
+                            self._item(
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "duplicate",
+                                None,
+                            )
+                        )
+                        continue
+                    existing_open = candidate_repository.find_open_candidate(normalized)
+                    if existing_open is not None and existing_open.suggested_type != lane:
+                        filtered_counts[lane] += 1
+                        items.append(
+                            self._item(
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "duplicate",
+                                existing_open.id,
+                            )
+                        )
                         continue
                     evidence = TermCandidateEvidenceInput(
                         origin_type=corpus.origin_type,
