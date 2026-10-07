@@ -98,14 +98,15 @@ async def accept_existing_term_candidate(
 
 @router.post("/merge/preview", response_model=TermMergePreviewView)
 async def preview_term_merge(body: TermMergePreviewRequest, request: Request):
-    return request.app.state.term_merge_service.preview(
+    result = request.app.state.term_merge_service.preview(
         body.survivor_term_id, body.loser_term_ids, body.final_title
     )
+    return _term_merge_preview_view(result)
 
 
 @router.post("/merge", response_model=TermMergeResultView)
 async def merge_terms(body: TermMergeRequest, request: Request):
-    return request.app.state.term_merge_service.merge(
+    result = request.app.state.term_merge_service.merge(
         body.survivor_term_id,
         body.loser_term_ids,
         body.final_title,
@@ -113,3 +114,30 @@ async def merge_terms(body: TermMergeRequest, request: Request):
         final_type=body.final_type,
         final_depth=body.final_depth,
     )
+    return {
+        **_term_merge_preview_view(result),
+        "commit_revision": result.commit_revision,
+        "warnings": list(result.warnings),
+    }
+
+
+def _term_merge_preview_view(result):
+    """Convert immutable service tuples/dataclasses to the public JSON shape."""
+    return {
+        "survivor_term_id": result.survivor_term_id,
+        "loser_term_ids": list(result.loser_term_ids),
+        "final_title": result.final_title,
+        "aliases": list(result.aliases),
+        "loser_bodies_not_merged": list(result.loser_bodies_not_merged),
+        "selected_terms": [
+            {
+                "id": item.id,
+                "title": item.title,
+                "type": item.type,
+                "depth": item.depth,
+            }
+            for item in result.selected_terms
+        ],
+        "type_conflict": result.type_conflict,
+        "depth_conflict": result.depth_conflict,
+    }

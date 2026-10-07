@@ -21,7 +21,11 @@ from backend.app.services.term_candidate_service import (
     TermCandidateConflict,
     TermCandidateService,
 )
-from backend.app.services.term_merge_service import TermMergePreview, TermMergeResult
+from backend.app.services.term_merge_service import (
+    TermMergePreview,
+    TermMergeResult,
+    TermMergeSelectedTerm,
+)
 
 
 def test_runtime_schema_12_migrates_to_term_core_and_analysis_state_14():
@@ -72,10 +76,15 @@ def test_term_entity_type_is_canonical_and_available_to_term_drafts():
 
 def test_candidate_resolution_evidence_dedup_and_existing_acceptance(tmp_path):
     _write_term(tmp_path)
+    _write_document(tmp_path, "note-one")
     connection = connect_database(":memory:")
     try:
         repository = TermCandidateRepository(connection)
-        service = TermCandidateService(tmp_path, repository)
+        service = TermCandidateService(
+            tmp_path,
+            repository,
+            canonical_target_resolver=CanonicalTargetResolver(tmp_path, connection),
+        )
         evidence = TermCandidateEvidenceInput(
             origin_type="document",
             origin_id="note-one",
@@ -803,6 +812,16 @@ def test_term_merge_api_serializes_preview_and_result():
                 final_title,
                 ("Former Title", "former-id"),
                 ("former-id",),
+                (
+                    TermMergeSelectedTerm(
+                        "survivor-term", "Survivor Term", "concept", "standard"
+                    ),
+                    TermMergeSelectedTerm(
+                        "former-id", "Former Title", "concept", "stub"
+                    ),
+                ),
+                True,
+                True,
             )
 
         def merge(
@@ -822,6 +841,16 @@ def test_term_merge_api_serializes_preview_and_result():
                 ("former-id",),
                 "a" * 40,
                 ("Index rebuild warning",),
+                (
+                    TermMergeSelectedTerm(
+                        "survivor-term", "Survivor Term", "concept", "standard"
+                    ),
+                    TermMergeSelectedTerm(
+                        "former-id", "Former Title", "concept", "stub"
+                    ),
+                ),
+                True,
+                True,
             )
 
     app = FastAPI()
@@ -838,12 +867,29 @@ def test_term_merge_api_serializes_preview_and_result():
         preview = client.post("/api/terms/merge/preview", json=payload)
         assert preview.status_code == 200, preview.json()
         assert preview.json()["aliases"] == ["Former Title", "former-id"]
+        assert preview.json()["selected_terms"] == [
+            {
+                "id": "survivor-term",
+                "title": "Survivor Term",
+                "type": "concept",
+                "depth": "standard",
+            },
+            {
+                "id": "former-id",
+                "title": "Former Title",
+                "type": "concept",
+                "depth": "stub",
+            },
+        ]
+        assert isinstance(preview.json()["loser_term_ids"], list)
+        assert preview.json()["type_conflict"] is True
         merged = client.post(
             "/api/terms/merge",
             json={**payload, "confirm_loser_bodies_not_merged": True},
         )
         assert merged.status_code == 200, merged.json()
         assert merged.json()["commit_revision"] == "a" * 40
+        assert merged.json()["warnings"] == ["Index rebuild warning"]
 
 
 def _write_term(repository_root):
@@ -853,6 +899,16 @@ def _write_term(repository_root):
         "---\nschema_version: 1\nid: neural-indexing\ntitle: Neural Indexing\n"
         "type: concept\ndepth: standard\naliases:\n  - Calibrated Optimizer\n"
         "domains: []\ntopics: []\ntags: []\nsources: []\n---\n# Neural Indexing\n",
+        encoding="utf-8",
+    )
+
+
+def _write_document(repository_root, document_id):
+    documents = repository_root / "knowledge" / "documents" / "learning"
+    documents.mkdir(parents=True, exist_ok=True)
+    (documents / "{}.md".format(document_id)).write_text(
+        "---\nschema_version: 1\nid: {}\ntitle: Test Note\ntype: learning-note\n"
+        "domains: []\ntopics: []\ntags: []\nsources: []\n---\nA valid canonical note.\n".format(document_id),
         encoding="utf-8",
     )
 

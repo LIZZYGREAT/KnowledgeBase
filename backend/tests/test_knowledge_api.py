@@ -16,6 +16,7 @@ from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.domain.term_runtime import TermCandidateEvidenceInput
 from backend.app.main import app
 from backend.app.repositories.proposal_repository import ProposalRepository
+from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.repositories.research_control_event_repository import (
     ResearchControlEventRepository,
 )
@@ -27,6 +28,7 @@ from backend.app.services.indexer import Indexer
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.research_providers.base import ProviderWork
 from backend.app.services.research_watermark import ResearchWatermarkService
+from backend.app.services.term_candidate_service import TermCandidateService
 from backend.tests.runtime_db import open_test_runtime
 from backend.tests.test_research_runs import FakeProvider, _service
 
@@ -48,6 +50,26 @@ def api_client(tmp_path, monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     with TestClient(app) as client:
         yield client
+
+
+def _seed_term_candidate(api_client, display_name, suggested_type, evidence):
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        service = TermCandidateService(
+            api_client.app.state.repository_root,
+            TermCandidateRepository(connection),
+        )
+        return service.create_candidate(display_name, suggested_type, evidence)
+    finally:
+        connection.close()
+
+
+def _runtime_rows(api_client, query, parameters=()):
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        return [tuple(row) for row in connection.execute(query, parameters).fetchall()]
+    finally:
+        connection.close()
 
 
 def test_read_api_search_openapi_and_missing_entities(api_client):
@@ -142,8 +164,8 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
 
 
 def test_term_candidate_api_lists_accepts_and_rejects_runtime_candidates(api_client):
-    service = api_client.app.state.term_candidate_service
-    accepted_candidate = service.create_candidate(
+    accepted_candidate = _seed_term_candidate(
+        api_client,
         "Calibrated Optimizer",
         "entity",
         [
@@ -170,12 +192,13 @@ def test_term_candidate_api_lists_accepts_and_rejects_runtime_candidates(api_cli
     )
     assert accepted.status_code == 200, accepted.json()
     assert accepted.json()["status"] == "accepted"
-    relation = api_client.app.state.runtime_connection.execute(
-        "SELECT entity_type, entity_id, term_id FROM term_entity_relations"
-    ).fetchone()
-    assert tuple(relation) == ("document", "neural-indexing", "neural-indexing")
+    assert _runtime_rows(
+        api_client,
+        "SELECT entity_type, entity_id, term_id FROM term_entity_relations",
+    ) == [("document", "neural-indexing", "neural-indexing")]
 
-    rejected_candidate = service.create_candidate(
+    rejected_candidate = _seed_term_candidate(
+        api_client,
         "Rare Phrase",
         "vocabulary",
         [
@@ -190,14 +213,16 @@ def test_term_candidate_api_lists_accepts_and_rejects_runtime_candidates(api_cli
     )
     assert rejected.status_code == 200, rejected.json()
     assert rejected.json()["status"] == "rejected"
-    assert api_client.app.state.runtime_connection.execute(
+    assert _runtime_rows(
+        api_client,
         """SELECT scope FROM rejected_candidates
-           WHERE candidate_type = 'term' AND normalized_value = 'rare phrase'"""
-    ).fetchone()[0] == "origin:source:source-alpha"
+           WHERE candidate_type = 'term' AND normalized_value = 'rare phrase'""",
+    ) == [("origin:source:source-alpha",)]
 
 
 def test_candidate_term_draft_ai_uses_generic_evidence_and_requires_consent(api_client):
-    candidate = api_client.app.state.term_candidate_service.create_candidate(
+    candidate = _seed_term_candidate(
+        api_client,
         "Stable Index",
         "concept",
         [
@@ -858,10 +883,9 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
     assert "quote" not in candidate
 
     proposal_id = result["proposal"]["id"]
-    assert not any(
-        path.endswith(("/approve", "/merge"))
-        for path in api_client.app.openapi()["paths"]
-    )
+    paths = api_client.app.openapi()["paths"]
+    assert "/api/proposals/{proposal_id}/approve" not in paths
+    assert "/api/proposals/{proposal_id}/merge" not in paths
 
     stale_draft = api_client.post(
         "/api/drafts",
