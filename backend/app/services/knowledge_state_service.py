@@ -34,13 +34,6 @@ class KnowledgeStateService:
         now_utc = now.astimezone(timezone.utc)
         cutoff = (now_utc - timedelta(days=RECENT_WINDOW_DAYS)).isoformat()
         registry = TermRegistry.load(self.repository_root / "knowledge" / "terms")
-        relations = {
-            row["term_id"]: int(row["relation_count"])
-            for row in self.connection.execute(
-                """SELECT term_id, COUNT(*) AS relation_count
-                   FROM term_entity_relations GROUP BY term_id"""
-            ).fetchall()
-        }
         relations_by_document: dict[str, list[str]] = {}
         for row in self.connection.execute(
             """SELECT entity_id, term_id FROM term_entity_relations
