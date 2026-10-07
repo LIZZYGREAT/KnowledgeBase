@@ -1,6 +1,8 @@
 import {
-  getTermDiscoveryState, getUiSummary, listRecentlyModified, listUsage,
-  type TermDiscoveryLane, type TermDiscoveryState, type UiSummary,
+  getTermDiscoveryState, getUiSummary, listRecentlyModified, listResearchProfiles,
+  listTermCandidates, listUsage,
+  type ResearchProfileSummary, type TermCandidate, type TermDiscoveryLane,
+  type TermDiscoveryState, type UiSummary,
 } from "../api";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, formatDate } from "../ui";
 import { readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
@@ -8,22 +10,26 @@ import { readString, useResource, type Navigate, type SelectEntity } from "./Pag
 interface HomeCriticalData {
   summary: UiSummary;
   termDiscovery: TermDiscoveryState;
+  pendingCandidates: TermCandidate[];
+  researchProfiles: ResearchProfileSummary[];
 }
 
 export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
   const critical = useResource("home-critical", async (): Promise<HomeCriticalData> => {
-    const [summary, termDiscovery] = await Promise.all([
+    const [summary, termDiscovery, pendingCandidates, researchProfiles] = await Promise.all([
       getUiSummary(),
       getTermDiscoveryState(),
+      listTermCandidates("pending"),
+      listResearchProfiles(),
     ]);
-    return { summary, termDiscovery };
+    return { summary, termDiscovery, pendingCandidates, researchProfiles };
   });
   const recentlyViewed = useResource("home-recent-usage", () => listUsage("recent"));
   const recentlyModified = useResource("home-recent-modified", () => listRecentlyModified());
 
   if (critical.loading) return <LoadingState />;
   if (critical.error || !critical.data) return <ErrorState message={critical.error} retry={critical.retry} />;
-  const { summary, termDiscovery } = critical.data;
+  const { summary, termDiscovery, pendingCandidates, researchProfiles } = critical.data;
   const snapshot = asRecord(termDiscovery.last_run?.snapshot);
   const snapshotFocus = asRecord(snapshot.focus);
   const knowledge = asRecord(snapshot.knowledge);
@@ -40,9 +46,9 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
     : Array.from(new Set(legacyFocus.length ? legacyFocus : readStringArray(snapshotFocus.explicit)));
   const established = readLabelArray(knowledge.established);
   const learning = readLabelArray(knowledge.learning);
-  const coreGaps = (termDiscovery.last_run?.items ?? [])
-    .filter((item) => item.outcome === "created" && item.assessment.recommendation_level === "core_gap")
-    .map((item) => item.mention);
+  const coreGaps = pendingCandidates
+    .filter((candidate) => candidate.discovery_assessment?.recommendation_level === "core_gap")
+    .map((candidate) => candidate.display_name);
 
   return (
     <div className="page-stack dashboard-page">
@@ -78,7 +84,7 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
           <div className="section-heading"><div><h2 id="agent-status-title">Agent Status</h2><p>自动发现与研究任务的最近状态。</p></div><button className="text-button" type="button" onClick={() => navigate("/terms?tab=discovery")}>打开 Discovery</button></div>
           <div className="agent-status-list">
             {TERM_LANES.map((lane) => <AgentStatusRow key={lane.id} title={lane.title} state={termLaneState(lane.id, termDiscovery)} lastResult={termLaneResult(lane.id, termDiscovery)} />)}
-            <AgentStatusRow title="Research" state={researchAgentState(summary)} lastResult={researchAgentResult(summary)} onOpen={() => navigate("/research")} />
+            <AgentStatusRow title="Research" state={researchAgentState(researchProfiles)} lastResult={researchAgentResult(researchProfiles)} onOpen={() => navigate("/research")} />
           </div>
         </section>
       </div>
@@ -125,12 +131,18 @@ function termLaneResult(lane: TermDiscoveryLane, state: TermDiscoveryState) {
   return `${runStatusLabel(run.status)} · ${created} new · ${formatDate(run.started_at)}`;
 }
 
-function researchAgentState(summary: UiSummary) {
-  return summary.research_profiles ? "configured" : "not configured";
+function researchAgentState(profiles: ResearchProfileSummary[]) {
+  if (!profiles.length) return "not configured";
+  const activeProfiles = profiles.filter((profile) => profile.enabled && !(profile.paused_until && Date.parse(profile.paused_until) > Date.now()));
+  if (!activeProfiles.length) return "paused";
+  if (activeProfiles.every((profile) => profile.inbox.remaining <= 0)) return "paused · Inbox full";
+  return "ready";
 }
 
-function researchAgentResult(summary: UiSummary) {
-  return `${summary.research_new} new · ${summary.research_profiles} profiles`;
+function researchAgentResult(profiles: ResearchProfileSummary[]) {
+  const latest = profiles.flatMap((profile) => profile.latest_run ? [profile.latest_run] : [])
+    .sort((left, right) => right.started_at.localeCompare(left.started_at))[0];
+  return latest ? `${runStatusLabel(latest.status)} · ${latest.surfaced_count} surfaced · ${formatDate(latest.started_at)}` : "No run yet";
 }
 
 function runStatusLabel(status: string) {

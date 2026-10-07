@@ -6,6 +6,8 @@ import { HomePage } from "../../src/pages/HomePage";
 const api = vi.hoisted(() => ({
   getTermDiscoveryState: vi.fn(),
   getUiSummary: vi.fn(),
+  listResearchProfiles: vi.fn(),
+  listTermCandidates: vi.fn(),
   listRecentlyModified: vi.fn(),
   listUsage: vi.fn(),
 }));
@@ -28,6 +30,17 @@ describe("Knowledge Dashboard", () => {
       pending_imports: 1,
       maintenance: 3,
     });
+    api.listTermCandidates.mockResolvedValue([
+      { id: "candidate-one", status: "pending", display_name: "Attention Routing", discovery_assessment: { recommendation_level: "core_gap" } },
+      { id: "candidate-two", status: "pending", display_name: "Other pending", discovery_assessment: { recommendation_level: "next" } },
+    ]);
+    api.listResearchProfiles.mockResolvedValue([{
+      id: "profile-one",
+      enabled: true,
+      paused_until: null,
+      inbox: { new_count: 3, capacity: 5, remaining: 2 },
+      latest_run: { status: "success", started_at: "2026-10-07T07:00:00Z", surfaced_count: 2 },
+    }]);
     api.getTermDiscoveryState.mockResolvedValue({
       settings: { enabled_lanes: ["concept", "entity", "vocabulary"], focus_override: null },
       open_count: 2,
@@ -48,7 +61,7 @@ describe("Knowledge Dashboard", () => {
           },
         },
         items: [
-          { lane: "concept", outcome: "created", mention: "Attention Routing", assessment: { recommendation_level: "core_gap" } },
+          { lane: "concept", outcome: "created", mention: "Historical Core Gap", assessment: { recommendation_level: "core_gap" } },
           { lane: "entity", outcome: "duplicate", mention: "Other Term", assessment: { recommendation_level: "next" } },
         ],
       },
@@ -68,8 +81,15 @@ describe("Knowledge Dashboard", () => {
     expect(screen.getByText("Transformers")).not.toBeNull();
     expect(screen.getByText("Diffusion")).not.toBeNull();
     expect(screen.getByText("Attention Routing")).not.toBeNull();
+    expect(screen.queryByText("Historical Core Gap")).toBeNull();
     expect(screen.getByText("Concept Discovery")).not.toBeNull();
-    expect(screen.getByText("Research")).not.toBeNull();
+    const researchButton = await screen.findByRole("button", { name: "Research" });
+    const researchRow = researchButton.parentElement;
+    expect(researchRow).not.toBeNull();
+    expect(within(researchRow as HTMLElement).getByText("ready")).not.toBeNull();
+    expect(within(researchRow as HTMLElement).getByText(/success · 2 surfaced/)).not.toBeNull();
+    expect(api.listTermCandidates).toHaveBeenCalledWith("pending");
+    expect(api.listResearchProfiles).toHaveBeenCalledOnce();
     expect(api.listUsage).toHaveBeenCalledWith("recent");
     expect(api.listUsage).not.toHaveBeenCalledWith("frequent");
   });
@@ -103,6 +123,7 @@ describe("Knowledge Dashboard", () => {
   });
 
   it("does not present exposed or unknown Terms as Core Gaps", async () => {
+    api.listTermCandidates.mockResolvedValueOnce([]);
     api.getTermDiscoveryState.mockResolvedValueOnce({
       settings: { enabled_lanes: ["concept", "entity", "vocabulary"], focus_override: null },
       open_count: 0,
@@ -122,7 +143,9 @@ describe("Knowledge Dashboard", () => {
             unknown: [{ title: "Unknown Term" }],
           },
         },
-        items: [],
+        items: [
+          { lane: "concept", outcome: "created", mention: "Old Core Gap", assessment: { recommendation_level: "core_gap" } },
+        ],
       },
     });
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
@@ -133,6 +156,38 @@ describe("Knowledge Dashboard", () => {
     expect(within(coreGaps as HTMLElement).getByText("当前没有待审阅的 Core Gap。")).not.toBeNull();
     expect(screen.queryByText("Exposed Term")).toBeNull();
     expect(screen.queryByText("Unknown Term")).toBeNull();
+    expect(screen.queryByText("Old Core Gap")).toBeNull();
+  });
+
+  it("shows Research as paused when every configured profile is disabled", async () => {
+    api.listResearchProfiles.mockResolvedValueOnce([{
+      id: "profile-one",
+      enabled: false,
+      paused_until: null,
+      inbox: { new_count: 0, capacity: 5, remaining: 5 },
+      latest_run: null,
+    }]);
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    const researchButton = await screen.findByRole("button", { name: "Research" });
+    const researchRow = researchButton.parentElement;
+    expect(researchRow).not.toBeNull();
+    expect(await within(researchRow as HTMLElement).findByText("paused")).not.toBeNull();
+  });
+
+  it("shows Research as paused when all active profile inboxes are full", async () => {
+    api.listResearchProfiles.mockResolvedValueOnce([{
+      id: "profile-one",
+      enabled: true,
+      paused_until: null,
+      inbox: { new_count: 5, capacity: 5, remaining: 0 },
+      latest_run: null,
+    }]);
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    expect(await screen.findByText("paused · Inbox full")).not.toBeNull();
   });
 
   it("uses the effective Focus stored in the Discovery run", async () => {
