@@ -76,21 +76,74 @@ Validate configuration without contacting providers with `docker compose -f dock
 
 ### Safe upgrades
 
-The Research timer runs code from the mounted checkout, while the Web backend runs code from its built image. Pause both during upgrades so a timer tick cannot migrate the shared Runtime database with a different code version:
+The Research timer runs code from the mounted checkout, while the Web backend runs code from its built image. Pause both during upgrades so a timer tick cannot migrate the shared Runtime database with a different code version. The production checkout may contain Publisher commits that are not on `origin/main`; preserve those commits by merging the fetched target when needed. The worktree must be clean before updating; existing Publisher commits are allowed, but uncommitted changes are not. Never reset the production checkout or rebase Publisher history.
 
 ```sh
+set -e
+cd /srv/KnowledgeBase
 sudo systemctl stop knowledgebase-research.timer
+systemctl status knowledgebase-research.timer --no-pager || true
 ./scripts/production-backup.sh
 docker compose --env-file .env -f docker-compose.production.yml stop frontend backend
-git pull --ff-only
+git status
+git status --short
+git log --oneline -5
+git remote -v
+git fetch origin main
+TARGET_HEAD="$(git rev-parse origin/main)"
+echo "$TARGET_HEAD"
+if ! git merge-base --is-ancestor "$TARGET_HEAD" HEAD; then
+  git merge --no-edit "$TARGET_HEAD"
+fi
+test "$(git rev-parse origin/main)" = "$TARGET_HEAD"
+git merge-base --is-ancestor "$TARGET_HEAD" HEAD
+git status
+git log --oneline --graph -10
 docker compose --env-file .env -f docker-compose.production.yml config -q
-docker compose --env-file .env -f docker-compose.production.yml up -d --build
+docker compose --env-file .env -f docker-compose.production.yml build backend frontend
+docker compose --env-file .env -f docker-compose.production.yml up -d backend
+docker compose --env-file .env -f docker-compose.production.yml ps
+docker compose --env-file .env -f docker-compose.production.yml logs --tail=100 backend
 docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/kb.py check
+docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/kb.py rebuild
 docker compose --env-file .env -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check
-sudo systemctl start knowledgebase-research.timer
+docker compose --env-file .env -f docker-compose.production.yml up -d frontend
+docker compose --env-file .env -f docker-compose.production.yml ps
 ```
 
-Start the timer only after both checks succeed. If a check fails, leave the timer stopped while resolving the issue.
+Wait for the backend to become healthy before running the checks. Its startup applies Runtime schema migrations; `kb rebuild` then recreates disposable indexes from Canonical Markdown and YAML. It does not replace or clear `runtime/knowledge.db`. If the merge reports a conflict, stop the upgrade, keep the timer and Web services stopped, retain the backup, and resolve the conflict manually. Do not start production with unresolved conflicts.
+
+Run the production smoke check after the frontend starts:
+
+```sh
+for path in \
+  api/ui/summary \
+  api/library/document-states \
+  api/library/source-states \
+  api/terms \
+  api/terms/candidates \
+  api/terms/discovery \
+  api/sources \
+  api/research/profiles \
+  api/proposals \
+  api/imports \
+  api/review/link-issues \
+  api/annotations/stale
+do
+  curl -fsS "http://127.0.0.1:8080/$path" >/dev/null || exit 1
+done
+curl -fsS http://127.0.0.1:8080/ >/dev/null
+curl -fsS http://127.0.0.1:8080/openapi.json >/dev/null
+```
+
+Only after all checks pass, restart the scheduler and confirm its status:
+
+```sh
+sudo systemctl start knowledgebase-research.timer
+systemctl status knowledgebase-research.timer --no-pager
+```
+
+If any check fails, leave the timer stopped while resolving the issue. The target commit must be an ancestor of production `HEAD`; `HEAD` does not need to equal `TARGET_HEAD` because production may retain Publisher commits.
 
 ### Tailscale
 
@@ -109,7 +162,7 @@ For a WireGuard host, set `KB_HTTP_BIND` to the server's WireGuard interface add
 
 ## Legacy migration
 
-The Reference Hub Import Review accepts paths beneath `storage/uploads/`. Copy a reviewed batch there, select the Legacy profile, and stage the directory. For a directory mounted at `/imports` in the production backend, use:
+Browser uploads are staged from Library → Import. The server-path form accepts paths beneath `storage/uploads/`. For batch migration, copy a reviewed batch there and use the CLI; for a directory mounted at `/imports` in the production backend, run:
 
 ```sh
 docker compose -f docker-compose.production.yml exec backend \
@@ -120,7 +173,7 @@ Set `KB_IMPORT_DIRECTORY` in the server's `.env` to the host directory to be mou
 
 Review each Markdown item before creating its Draft. Standard imports require valid KnowledgeBase Frontmatter. With the Legacy profile, older Markdown may omit Frontmatter; when its Draft is created, KnowledgeBase synthesizes minimal metadata, marks the note `review.human.status: unreviewed` and `maintenance.status: legacy`, and preserves the original body. Review the generated metadata and refine it before publishing when needed. Open the Draft editor to request a metadata Proposal; the editor requires explicit consent before sending the Draft and registry context to DeepSeek. Review and apply suggested fields manually, then publish through Publisher.
 
-PDF items create Source Drafts only. Confirm the suggested Source ID and title in Import Review; the PDF is copied to `storage/papers/`. A PDF never creates a Document automatically. Review a representative sample of imported notes and Sources before continuing through the batch.
+PDF items create Source Drafts only. Review the staged item and confirm the suggested Source ID and title; the PDF is copied to `storage/papers/`. A PDF never creates a Document automatically. Review a representative sample of imported notes and Sources before continuing through the batch.
 
 ## Backups
 
