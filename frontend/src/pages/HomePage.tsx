@@ -71,11 +71,9 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
       : [...readStringArray(snapshotFocus.recent_topics), ...readStringArray(snapshotFocus.recent_domains)];
   const established = readLabelArray(knowledge.established);
   const learning = readLabelArray(knowledge.learning);
-  const snapshotGaps = [...readLabelArray(knowledge.exposed), ...readLabelArray(knowledge.unknown)];
   const coreGaps = pendingCandidates
     .filter((candidate) => candidate.discovery_assessment?.recommendation_level === "core_gap")
     .map((candidate) => candidate.display_name);
-  const gapItems = coreGaps.length ? coreGaps : snapshotGaps;
 
   return (
     <div className="page-stack dashboard-page">
@@ -103,7 +101,7 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
             <ContextList title="Current Focus" items={focusItems} empty="完成一次 Discovery 后显示当前 Focus。" />
             <ContextList title="Established" items={established} empty="尚无已建立的 Term。" />
             <ContextList title="Learning" items={learning} empty="尚无正在学习的 Term。" />
-            <ContextList title="Core Gaps" items={gapItems} empty="当前没有记录的核心缺口。" />
+            <ContextList title="Core Gaps" items={coreGaps} empty="当前没有待审阅的 Core Gap。" />
           </div>
         </section>
 

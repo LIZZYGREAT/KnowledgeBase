@@ -98,4 +98,39 @@ describe("Knowledge Dashboard", () => {
     expect(navigate).toHaveBeenNthCalledWith(2, "/research");
     expect(navigate).toHaveBeenNthCalledWith(3, "/library?tab=import");
   });
+
+  it("does not present exposed or unknown Terms as Core Gaps", async () => {
+    api.getTermDiscoveryState.mockResolvedValueOnce({
+      settings: { enabled_lanes: ["concept", "entity", "vocabulary"], focus_override: null },
+      open_count: 0,
+      global_capacity: 8,
+      daily_remaining: 4,
+      lane_open: { concept: 0, entity: 0, vocabulary: 0 },
+      lane_capacity: { concept: 4, entity: 4, vocabulary: 4 },
+      last_run: {
+        status: "success",
+        started_at: "2026-10-07T08:00:00Z",
+        snapshot: {
+          focus: { explicit: [], recent_topics: [], recent_domains: [] },
+          knowledge: {
+            established: [],
+            learning: [],
+            exposed: [{ title: "Exposed Term" }],
+            unknown: [{ title: "Unknown Term" }],
+          },
+        },
+        items: [],
+      },
+    });
+    api.listTermCandidates.mockResolvedValueOnce([]);
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    expect(await screen.findByText("当前没有待审阅的 Core Gap。")).not.toBeNull();
+    const coreGaps = screen.getByRole("heading", { name: "Core Gaps" }).parentElement;
+    expect(coreGaps).not.toBeNull();
+    expect(within(coreGaps as HTMLElement).getByText("当前没有待审阅的 Core Gap。")).not.toBeNull();
+    expect(screen.queryByText("Exposed Term")).toBeNull();
+    expect(screen.queryByText("Unknown Term")).toBeNull();
+  });
 });
