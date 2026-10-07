@@ -15,6 +15,8 @@ from backend.app.api.schemas import (
     ContextExportView,
     EntityDetail,
     EntitySummary,
+    LibraryDocumentStateView,
+    LibrarySourceStateView,
     RecentlyModifiedView,
     SearchResultView,
     SourceCorpusStateView,
@@ -59,6 +61,52 @@ async def unfiled_documents(
     offset: int = Query(0, ge=0),
 ):
     return request.app.state.knowledge_read_service.unfiled_documents(limit, offset)
+
+
+@router.get("/library/document-states", response_model=list[LibraryDocumentStateView])
+async def library_document_states(request: Request):
+    documents = request.app.state.knowledge_read_service.library_documents()
+    statuses = request.app.state.term_analysis_service.get_library_analysis_statuses(
+        documents
+    )
+    return [
+        {
+            **{key: value for key, value in document.items() if key != "content_hash"},
+            "term_analysis_status": statuses[document["id"]],
+        }
+        for document in documents
+    ]
+
+
+@router.get("/library/source-states", response_model=list[LibrarySourceStateView])
+async def library_source_states(request: Request):
+    sources = request.app.state.knowledge_read_service.library_sources()
+    corpus_states = request.app.state.pdf_corpus_service.list_states(
+        [source["id"] for source in sources]
+    )
+    result = []
+    for source in sources:
+        metadata = source["metadata"]
+        attachments = metadata.get("attachments") or {}
+        attachment = attachments.get("local_pdf") if isinstance(attachments, dict) else None
+        pdf_attached = isinstance(attachment, str) and bool(attachment)
+        corpus = corpus_states.get(source["id"]) if pdf_attached else None
+        extraction_status = (
+            corpus.status
+            if corpus is not None
+            else "not_extracted" if pdf_attached else "no_pdf"
+        )
+        result.append(
+            {
+                **{key: value for key, value in source.items() if key != "related_terms"},
+                "pdf_attached": pdf_attached,
+                "extraction_status": extraction_status,
+                "discovery_usable": pdf_attached and extraction_status == "ready",
+                "error_message": corpus.error_message if corpus is not None else None,
+                "related_terms": source["related_terms"],
+            }
+        )
+    return result
 
 
 @router.get("/documents", response_model=list[EntitySummary])
@@ -113,11 +161,11 @@ async def get_source(entity_id: str, request: Request):
 
 @router.get("/sources/{entity_id}/corpus", response_model=SourceCorpusStateView)
 async def get_source_corpus_state(entity_id: str, request: Request):
-    source = request.app.state.knowledge_read_service.get_entity("source", entity_id)
+    source = request.app.state.knowledge_read_service.entity_summary("source", entity_id)
     attachments = source["metadata"].get("attachments") or {}
     attachment = attachments.get("local_pdf") if isinstance(attachments, dict) else None
     pdf_attached = isinstance(attachment, str) and bool(attachment)
-    corpus = request.app.state.pdf_corpus_service.get(entity_id) if pdf_attached else None
+    corpus = request.app.state.pdf_corpus_service.get_state(entity_id) if pdf_attached else None
     extraction_status = corpus.status if corpus is not None else "not_extracted" if pdf_attached else "no_pdf"
     return {
         "source_id": entity_id,

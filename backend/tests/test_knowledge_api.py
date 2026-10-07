@@ -3,6 +3,7 @@ import json
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -27,6 +28,7 @@ from backend.app.services.ai_client import MockDeepSeekClient
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.indexer import Indexer
+from backend.app.services.knowledge_read_service import KnowledgeReadService
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.research_providers.base import ProviderWork
 from backend.app.services.research_watermark import ResearchWatermarkService
@@ -163,6 +165,101 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         assert path in schema["paths"]
     context_schema = schema["components"]["schemas"]["ContextExportRequest"]
     assert "provisional traceability filter" in context_schema["properties"]["trust"]["description"]
+
+
+def test_library_state_endpoints_batch_runtime_status_and_omit_pdf_text(api_client):
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        document_hash = connection.execute(
+            "SELECT content_hash FROM document_index WHERE entity_id = 'neural-indexing'"
+        ).fetchone()["content_hash"]
+        TermCandidateRepository(connection).save_document_analysis_state({
+            "document_id": "neural-indexing",
+            "analyzed_content_hash": document_hash,
+            "prompt_version": "term-detection-v3",
+            "provider": "deepseek",
+            "model": "test-model",
+            "analyzed_at": "2026-10-07T00:00:00+00:00",
+        })
+        PdfCorpusRepository(connection).save(PdfCorpusRecord(
+            source_id="source-alpha",
+            pdf_hash="pdf-hash",
+            extractor_version="test-extractor",
+            text_hash="text-hash",
+            text="extracted PDF text that must never be part of a Library state read",
+            status="ready",
+            extracted_at="2026-10-07T00:00:00+00:00",
+            updated_at="2026-10-07T00:00:00+00:00",
+        ))
+    finally:
+        connection.close()
+
+    source_path = api_client.app.state.repository_root / "knowledge" / "sources" / "source-alpha.yaml"
+    source_text = source_path.read_text(encoding="utf-8").replace(
+        "metadata_review:",
+        "attachments:\n  local_pdf: storage://papers/source-alpha.pdf\nmetadata_review:",
+    )
+    source_path.write_text(source_text, encoding="utf-8")
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        Indexer(api_client.app.state.repository_root, connection).update_path(source_path)
+    finally:
+        connection.close()
+
+    documents = api_client.get("/api/library/document-states")
+    sources = api_client.get("/api/library/source-states")
+
+    assert documents.status_code == 200
+    assert documents.json()[0]["term_analysis_status"] == "up_to_date"
+    assert "content_hash" not in documents.json()[0]
+    assert sources.status_code == 200
+    source = sources.json()[0]
+    assert source["id"] == "source-alpha"
+    assert source["pdf_attached"] is True
+    assert source["extraction_status"] == "ready"
+    assert source["discovery_usable"] is True
+    assert [term["id"] for term in source["related_terms"]] == ["neural-indexing"]
+
+
+
+def test_library_state_services_use_batch_queries_and_source_detail_scans_once(api_client):
+    connection = connect_database(api_client.app.state.database_path)
+    statements = []
+    connection.set_trace_callback(statements.append)
+    try:
+        read_service = KnowledgeReadService(api_client.app.state.repository_root, connection)
+        TermCandidateRepository(connection).list_document_analysis_states(
+            ["neural-indexing"]
+        )
+        sources = read_service.library_sources()
+        PdfCorpusRepository(connection).list_states([source["id"] for source in sources])
+        read_service.get_entity("source", "source-alpha")
+    finally:
+        connection.close()
+
+    analysis_queries = [
+        statement.lower()
+        for statement in statements
+        if "from document_term_analysis_state" in statement.lower()
+    ]
+    corpus_queries = [
+        statement.lower()
+        for statement in statements
+        if "from pdf_corpus" in statement.lower()
+    ]
+    document_scans = [
+        statement.lower()
+        for statement in statements
+        if "from document_index" in statement.lower()
+    ]
+    assert len(analysis_queries) == 1
+    assert len(corpus_queries) == 1
+    assert len(document_scans) == 2
+    # One scan builds the batched Library relations; one is Source detail's single scan.
+    assert all(
+        not re.search(r"\btext\b", statement.split("from pdf_corpus")[0])
+        for statement in corpus_queries
+    )
 
 
 def test_source_related_terms_include_accepted_relations_and_deduplicate(api_client):

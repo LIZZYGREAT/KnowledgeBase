@@ -182,6 +182,23 @@ class TermCandidateRepository:
         ).fetchone()
         return dict(row) if row is not None else None
 
+    def list_document_analysis_states(self, document_ids: list[str]) -> dict[str, dict]:
+        unique_ids = list(dict.fromkeys(document_ids))
+        states: dict[str, dict] = {}
+        batch_size = 900
+        for start in range(0, len(unique_ids), batch_size):
+            batch = unique_ids[start : start + batch_size]
+            placeholders = ", ".join("?" for _ in batch)
+            rows = self.connection.execute(
+                """SELECT document_id, analyzed_content_hash, prompt_version,
+                          provider, model, analyzed_at
+                   FROM document_term_analysis_state
+                   WHERE document_id IN ({})""".format(placeholders),
+                batch,
+            ).fetchall()
+            states.update((row["document_id"], dict(row)) for row in rows)
+        return states
+
     def save_document_analysis_state(self, state: dict) -> None:
         with self.connection:
             self.connection.execute(

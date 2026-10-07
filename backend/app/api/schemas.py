@@ -46,6 +46,18 @@ class SourceCorpusStateView(APIModel):
     error_message: Optional[str] = None
 
 
+class LibraryDocumentStateView(EntitySummary):
+    term_analysis_status: Literal["never_analyzed", "up_to_date", "outdated"]
+
+
+class LibrarySourceStateView(EntitySummary):
+    pdf_attached: bool
+    extraction_status: Literal["no_pdf", "not_extracted", "pending", "ready", "unavailable", "failed"]
+    discovery_usable: bool
+    error_message: Optional[str] = None
+    related_terms: list[EntitySummary] = Field(default_factory=list)
+
+
 class TopicView(APIModel):
     id: str
     title: str

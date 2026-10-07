@@ -1,6 +1,7 @@
 """Read canonical entities through the rebuildable knowledge indexes."""
 
 import json
+from collections import defaultdict
 from pathlib import Path
 import re
 import sqlite3
@@ -43,6 +44,132 @@ class KnowledgeReadService:
             }
             for row in rows
         ]
+
+    def entity_summary(self, entity_type: str, entity_id: str) -> dict:
+        if entity_type not in _INDEX_TABLES:
+            raise ValueError("Unsupported canonical entity type: {}".format(entity_type))
+        table, _ = _INDEX_TABLES[entity_type]
+        row = self.connection.execute(
+            "SELECT entity_id, title, metadata_json FROM {} WHERE entity_id = ?".format(table),
+            (entity_id,),
+        ).fetchone()
+        if row is None:
+            raise LookupError("{} '{}' does not exist in the canonical index".format(entity_type, entity_id))
+        return {
+            "id": row["entity_id"],
+            "title": row["title"],
+            "entity_type": entity_type,
+            "metadata": json.loads(row["metadata_json"]),
+        }
+
+    def library_documents(self) -> list[dict]:
+        rows = self.connection.execute(
+            """SELECT entity_id, title, metadata_json, content_hash
+               FROM document_index
+               ORDER BY title COLLATE NOCASE, entity_id"""
+        ).fetchall()
+        return [
+            {
+                "id": row["entity_id"],
+                "title": row["title"],
+                "entity_type": "document",
+                "metadata": json.loads(row["metadata_json"]),
+                "content_hash": row["content_hash"],
+            }
+            for row in rows
+        ]
+
+    def library_sources(self) -> list[dict]:
+        """Build Library Source summaries and related Terms in bounded SQL reads."""
+        source_rows = self.connection.execute(
+            """SELECT entity_id, title, metadata_json FROM source_index
+               ORDER BY title COLLATE NOCASE, entity_id"""
+        ).fetchall()
+        if not source_rows:
+            return []
+
+        sources = {
+            row["entity_id"]: {
+                "id": row["entity_id"],
+                "title": row["title"],
+                "entity_type": "source",
+                "metadata": json.loads(row["metadata_json"]),
+                "related_terms": {},
+            }
+            for row in source_rows
+        }
+        document_sources: dict[str, set[str]] = defaultdict(set)
+        document_rows = self.connection.execute(
+            "SELECT entity_id, metadata_json FROM document_index"
+        ).fetchall()
+        for row in document_rows:
+            metadata = json.loads(row["metadata_json"])
+            source_ids = metadata.get("sources", [])
+            if isinstance(source_ids, list):
+                for source_id in source_ids:
+                    if isinstance(source_id, str) and source_id in sources:
+                        document_sources[row["entity_id"]].add(source_id)
+
+        evidence_rows = self.connection.execute(
+            """SELECT DISTINCT source_id, entity_id FROM evidence_index
+               WHERE entity_type = 'document'"""
+        ).fetchall()
+        for row in evidence_rows:
+            if row["source_id"] in sources:
+                document_sources[row["entity_id"]].add(row["source_id"])
+
+        document_ids = sorted(document_sources)
+        for start in range(0, len(document_ids), 900):
+            batch = document_ids[start : start + 900]
+            placeholders = ", ".join("?" for _ in batch)
+            linked_terms = self.connection.execute(
+                """SELECT DISTINCT b.source_entity_id AS document_id,
+                          t.entity_id, t.title, t.metadata_json
+                   FROM backlink_index b
+                   JOIN term_index t ON t.entity_id = b.term_id
+                   WHERE b.source_entity_type = 'document'
+                     AND b.source_entity_id IN ({})""".format(placeholders),
+                batch,
+            ).fetchall()
+            for row in linked_terms:
+                term = {
+                    "id": row["entity_id"],
+                    "title": row["title"],
+                    "entity_type": "term",
+                    "metadata": json.loads(row["metadata_json"]),
+                }
+                for source_id in document_sources[row["document_id"]]:
+                    sources[source_id]["related_terms"][row["entity_id"]] = term
+
+        source_ids = list(sources)
+        for start in range(0, len(source_ids), 900):
+            batch = source_ids[start : start + 900]
+            placeholders = ", ".join("?" for _ in batch)
+            accepted_terms = self.connection.execute(
+                """SELECT DISTINCT r.entity_id AS source_id,
+                          t.entity_id, t.title, t.metadata_json
+                   FROM term_entity_relations r
+                   JOIN term_index t ON t.entity_id = r.term_id
+                   WHERE r.entity_type = 'source'
+                     AND r.entity_id IN ({})""".format(placeholders),
+                batch,
+            ).fetchall()
+            for row in accepted_terms:
+                sources[row["source_id"]]["related_terms"][row["entity_id"]] = {
+                    "id": row["entity_id"],
+                    "title": row["title"],
+                    "entity_type": "term",
+                    "metadata": json.loads(row["metadata_json"]),
+                }
+
+        result = []
+        for source in sources.values():
+            terms = sorted(
+                source["related_terms"].values(),
+                key=lambda item: (item["title"].casefold(), item["id"]),
+            )
+            result.append({**source, "related_terms": terms})
+        return result
 
     def unfiled_documents(self, limit: int = 50, offset: int = 0) -> list[dict]:
         """Return Documents that have no Collection entity reference."""
@@ -116,7 +243,10 @@ class KnowledgeReadService:
         }
         if entity_type == "source":
             result["related_documents"] = self._source_documents(entity_id)
-            result["related_terms"] = self._source_terms(entity_id)
+            result["related_terms"] = self._source_terms(
+                entity_id,
+                [document["id"] for document in result["related_documents"]],
+            )
             result["evidence"] = self._source_evidence(entity_id)
         return result
 
@@ -421,8 +551,7 @@ class KnowledgeReadService:
         ).fetchall()
         return [dict(row) for row in rows]
 
-    def _source_terms(self, source_id: str) -> list[dict]:
-        document_ids = [row["id"] for row in self._source_documents(source_id)]
+    def _source_terms(self, source_id: str, document_ids: list[str]) -> list[dict]:
         terms_by_id = {}
         if document_ids:
             placeholders = ", ".join("?" for _ in document_ids)

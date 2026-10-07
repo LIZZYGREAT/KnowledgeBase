@@ -251,6 +251,27 @@ class TermAnalysisService:
         )
         return {**state, "status": status}
 
+    def get_library_analysis_statuses(self, documents: list[dict]) -> dict[str, str]:
+        """Compare indexed canonical hashes to analysis records in bounded SQL batches."""
+        states = self.candidate_repository.list_document_analysis_states(
+            [document["id"] for document in documents]
+        )
+        result = {}
+        for document in documents:
+            document_id = document["id"]
+            state = states.get(document_id)
+            if state is None:
+                status = "never_analyzed"
+            elif (
+                state["analyzed_content_hash"] == document["content_hash"]
+                and state["prompt_version"] == PROMPT_VERSION
+            ):
+                status = "up_to_date"
+            else:
+                status = "outdated"
+            result[document_id] = status
+        return result
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
