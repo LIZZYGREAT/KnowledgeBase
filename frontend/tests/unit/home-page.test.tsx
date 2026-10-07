@@ -92,8 +92,10 @@ describe("Knowledge Dashboard", () => {
 
     await user.click(await screen.findByRole("button", { name: "Review Terms" }));
     await user.click(screen.getByRole("button", { name: "Open Research" }));
+    await user.click(screen.getByRole("button", { name: /Pending Imports/ }));
 
     expect(navigate).toHaveBeenNthCalledWith(1, "/terms?tab=candidates");
     expect(navigate).toHaveBeenNthCalledWith(2, "/research");
+    expect(navigate).toHaveBeenNthCalledWith(3, "/library?tab=import");
   });
 });

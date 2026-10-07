@@ -329,7 +329,7 @@ export function WorkspaceMetadataDrawer({
       </div>
       <div className="metadata-pdf-actions">
         {canOpenPdf && <a className="button button-secondary" href={`/api/sources/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noreferrer">打开 PDF</a>}
-        <button className="button button-secondary" onClick={() => onNavigate("/review#imports")}>{pdfAttachment ? "通过 Review 检查" : "通过 Review 添加 PDF"}</button>
+        <button className="button button-secondary" onClick={() => onNavigate("/library?tab=import")}>{pdfAttachment ? "在 Library 查看导入" : "在 Library 导入 PDF"}</button>
       </div>
     </section>}
     {error && <p className="error-copy" role="alert">{error}</p>}

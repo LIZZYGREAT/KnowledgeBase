@@ -90,8 +90,8 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
           <WorkloadCard title="Term Candidates" value={`${data.termDiscovery.open_count} / ${data.termDiscovery.global_capacity}`} detail={`${pendingCandidates.length} 待审阅 · ${draftingCandidates.length} 个 Term Draft`} onClick={() => navigate("/terms?tab=candidates")} />
           <WorkloadCard title="Term Drafts" value={draftingCandidates.length} detail="等待继续编辑或发布" onClick={() => navigate("/terms?tab=candidates")} />
           <WorkloadCard title="Research Inbox" value={`${inboxCount} / ${inboxCapacity}`} detail={`${data.researchProfiles.length} 个 Research Profile`} onClick={() => navigate("/research")} />
-          <WorkloadCard title="Pending Imports" value={pendingImports.length} detail="等待检查并创建 Draft" onClick={() => navigate("/review#imports")} />
-          <WorkloadCard title="Maintenance" value={maintenanceCount} detail="审阅、修订、链接与 Proposal" onClick={() => navigate("/review")} />
+          <WorkloadCard title="Pending Imports" value={pendingImports.length} detail="等待检查并创建 Draft" onClick={() => navigate("/library?tab=import")} />
+          <WorkloadCard title="Maintenance" value={maintenanceCount} detail="审阅、修订、链接与建议" onClick={() => navigate("/review")} />
         </div>
         <div className="dashboard-primary-actions"><button className="button button-primary" type="button" onClick={() => navigate("/terms?tab=candidates")}>Review Terms</button><button className="button button-secondary" type="button" onClick={() => navigate("/research")}>Open Research</button></div>
       </section>

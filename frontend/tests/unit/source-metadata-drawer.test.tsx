@@ -50,8 +50,8 @@ describe("Source metadata drawer", () => {
     expect(screen.getByRole("link", { name: "打开 PDF" }).getAttribute("href")).toBe("/api/sources/ewc-2017/pdf");
     const advanced = document.querySelector("details.workspace-metadata-advanced") as HTMLDetailsElement;
     expect(advanced.open).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "通过 Review 检查" }));
-    expect(onNavigate).toHaveBeenCalledWith("/review#imports");
+    fireEvent.click(screen.getByRole("button", { name: "在 Library 查看导入" }));
+    expect(onNavigate).toHaveBeenCalledWith("/library?tab=import");
     fireEvent.change(screen.getByLabelText("标题"), { target: { value: "Updated paper title" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("title", "Updated paper title");
     fireEvent.change(screen.getByLabelText("资料类型"), { target: { value: "book" } });
@@ -186,8 +186,8 @@ describe("Source metadata drawer", () => {
     expect(screen.getByText("尚未关联 PDF")).toBeTruthy();
     const advanced = document.querySelector("details.workspace-metadata-advanced") as HTMLDetailsElement;
     expect(advanced.open).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "通过 Review 添加 PDF" }));
-    expect(onNavigate).toHaveBeenCalledWith("/review#imports");
+    fireEvent.click(screen.getByRole("button", { name: "在 Library 导入 PDF" }));
+    expect(onNavigate).toHaveBeenCalledWith("/library?tab=import");
     fireEvent.click(screen.getByText("高级信息"));
     expect((screen.getByLabelText("附件 URI") as HTMLInputElement).value).toBe("");
   });

@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import {
   listAllEntities, listImports, listLinkIssues, listProposals, listResearchProfiles, listStalePresentationAnnotations, listTermCandidates,
   type EntitySummary, type LinkIssue, type PresentationAnnotation, type Proposal,
@@ -32,14 +31,6 @@ export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigat
       researchInboxCount: researchProfiles.reduce((sum, profile) => sum + profile.inbox.new_count, 0),
     };
   });
-  useEffect(() => {
-    if (resource.loading || !resource.data || window.location.hash !== "#imports") return;
-    const frame = window.requestAnimationFrame(() => {
-      document.getElementById("imports")?.scrollIntoView({ block: "start" });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [resource.loading, resource.data]);
-
   if (resource.loading) return <LoadingState />;
   if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
   const { entities, proposals, imports, linkIssues, staleAnnotations, termCandidateCount, researchInboxCount } = resource.data;
@@ -55,7 +46,7 @@ export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigat
         <div className="review-workflow-links">
           <ReviewWorkflowLink title="Term Candidates" count={termCandidateCount} detail="在 Terms 中审阅候选" onClick={() => navigate("/terms?tab=candidates")} />
           <ReviewWorkflowLink title="Research Inbox" count={researchInboxCount} detail="查看新的研究发现" onClick={() => navigate("/research")} />
-          <ReviewWorkflowLink id="imports" title="Imports" count={pendingImportCount} detail="在 Library 中管理导入" onClick={() => navigate("/library?tab=import")} />
+          <ReviewWorkflowLink title="Imports" count={pendingImportCount} detail="在 Library 中管理导入" onClick={() => navigate("/library?tab=import")} />
         </div>
       </section>
       <div className="review-summary">
@@ -76,8 +67,8 @@ export function ReviewPage({ onOpen, navigate }: { onOpen: SelectEntity; navigat
   );
 }
 
-function ReviewWorkflowLink({ id, title, count, detail, onClick }: { id?: string; title: string; count: number; detail: string; onClick: () => void }) {
-  return <button id={id} type="button" className="review-workflow-link surface" onClick={onClick}>
+function ReviewWorkflowLink({ title, count, detail, onClick }: { title: string; count: number; detail: string; onClick: () => void }) {
+  return <button type="button" className="review-workflow-link surface" onClick={onClick}>
     <span className="review-workflow-link-title">{title}<span aria-hidden="true">↗</span></span>
     <strong>{count}</strong>
     <small>{detail}</small>
