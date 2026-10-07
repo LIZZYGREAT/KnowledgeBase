@@ -20,7 +20,7 @@ from backend.app.services.term_registry import TermRegistry
 from backend.app.services.term_resolver import TermResolver
 
 
-PROMPT_VERSION = "term-detection-v2"
+PROMPT_VERSION = "term-detection-v3"
 
 
 class TermAnalysisConflict(RuntimeError):
@@ -114,10 +114,8 @@ class TermAnalysisService:
         validated_items = []
         for item in result.candidates:
             normalized_name = normalize_key(item.mention)
-            if not normalized_name or item.normalized_name != normalized_name:
-                raise AIResponseError(
-                    "Term detection normalized_name does not match its mention"
-                )
+            if not normalized_name:
+                raise AIResponseError("Term detection mention must contain searchable text")
             if item.mention not in body or item.context_excerpt not in body:
                 raise AIResponseError(
                     "Term detection mention and context_excerpt must come from the canonical Document body"
@@ -132,16 +130,15 @@ class TermAnalysisService:
                 )
             registry_match = resolver.resolve(item.mention)
             if item.action == "link_existing" and (
-                registry_match.status != "resolved"
-                or registry_match.entity_id != item.term_id
+                registry_match.status == "resolved"
+                and registry_match.entity_id != item.term_id
             ):
                 raise AIResponseError(
                     "Term detection Existing match does not agree with server-side Term resolution"
                 )
-            validated_items.append((item, registry_match))
+            validated_items.append((item, registry_match, normalized_name))
 
-        for item, registry_match in validated_items:
-            normalized_name = normalize_key(item.mention)
+        for item, registry_match, normalized_name in validated_items:
             resolved_term = terms_by_id.get(registry_match.entity_id or "")
             if self.candidate_repository.has_accepted_candidate_evidence(
                 normalized_name, "document", document_id
@@ -185,7 +182,12 @@ class TermAnalysisService:
             )
             try:
                 candidate = self.candidate_service.create_candidate(
-                    item.mention, suggested_type, [evidence]
+                    item.mention,
+                    suggested_type,
+                    [evidence],
+                    preferred_term_id=(
+                        item.term_id if item.action == "link_existing" else None
+                    ),
                 )
             except TermCandidateConflict:
                 counts["skipped"] += 1

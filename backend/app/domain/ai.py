@@ -33,7 +33,6 @@ class SuggestMetadataOutput(AIOutput):
 
 class TermCandidate(AIOutput):
     mention: NonEmptyText = Field(max_length=200)
-    normalized_name: NonEmptyText = Field(max_length=200)
     action: Literal["link_existing", "propose_new"]
     term_id: Optional[Slug] = None
     suggested_type: Optional[Literal["concept", "entity", "vocabulary"]] = None

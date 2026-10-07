@@ -73,6 +73,7 @@ class TermCandidateService:
         display_name: str,
         suggested_type: TermType,
         evidence: list[TermCandidateEvidenceInput],
+        preferred_term_id: Optional[str] = None,
     ) -> TermCandidateRecord:
         """Create or enrich a Candidate after applying the current registry and rejects."""
         normalized_name = normalize_key(display_name)
@@ -91,10 +92,24 @@ class TermCandidateService:
         if self.repository.is_rejected(normalized_name, "global"):
             raise TermCandidateConflict("This Term Candidate was rejected globally")
 
-        registry_match = self._resolve_name(clean_name)
+        registry = TermRegistry.load(self.repository_root / "knowledge" / "terms")
+        registry_match = TermResolver(registry).resolve(clean_name)
+        preferred_term = registry.get(preferred_term_id) if preferred_term_id else None
+        if preferred_term_id and preferred_term is None:
+            raise ValueError("Preferred Term id must exist in the Canonical Term Registry")
+        if (
+            preferred_term is not None
+            and registry_match.status == "resolved"
+            and registry_match.entity_id != preferred_term.id
+        ):
+            raise TermCandidateConflict(
+                "Preferred Term conflicts with deterministic Term resolution"
+            )
         suggested_term_id = (
             registry_match.entity_id
             if registry_match.status == "resolved"
+            else preferred_term.id
+            if preferred_term is not None
             else None
         )
         eligible_evidence = [
@@ -111,6 +126,14 @@ class TermCandidateService:
 
         existing = self.repository.find_open_candidate(normalized_name)
         if existing is not None:
+            if (
+                existing.suggested_term_id
+                and suggested_term_id
+                and existing.suggested_term_id != suggested_term_id
+            ):
+                raise TermCandidateConflict(
+                    "Candidate has a conflicting Existing Term suggestion"
+                )
             self.repository.add_evidence(
                 existing.id, eligible_evidence, now, suggested_term_id
             )
