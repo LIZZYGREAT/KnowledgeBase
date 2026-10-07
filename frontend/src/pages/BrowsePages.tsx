@@ -80,15 +80,18 @@ export function LibraryPage({ onOpen, navigate, activeTab }: { onOpen: SelectEnt
 export function TermsPage({
   onOpen,
   navigate,
+  activeTab: controlledTab,
   initialTab = "registry",
   initialDocumentId = "",
 }: {
   onOpen: SelectEntity;
   navigate: Navigate;
+  activeTab?: "registry" | "candidates" | "mentions" | "discovery";
   initialTab?: "registry" | "candidates" | "mentions" | "discovery";
   initialDocumentId?: string;
 }) {
-  const [activeTab, setActiveTab] = useState<"registry" | "candidates" | "mentions" | "discovery">(initialTab);
+  const [localActiveTab, setLocalActiveTab] = useState<"registry" | "candidates" | "mentions" | "discovery">(initialTab);
+  const activeTab = controlledTab ?? localActiveTab;
   const [termType, setTermType] = useState<TermType | "">("");
   const [depth, setDepth] = useState("");
   const [selectedTermIds, setSelectedTermIds] = useState<string[]>([]);
@@ -125,7 +128,7 @@ export function TermsPage({
 
   function selectTab(tab: "registry" | "candidates" | "mentions" | "discovery") {
     if (activeTab === tab) return;
-    setActiveTab(tab);
+    if (controlledTab === undefined) setLocalActiveTab(tab);
     navigate(tab === "registry" ? "/terms" : `/terms?tab=${tab}`);
   }
 

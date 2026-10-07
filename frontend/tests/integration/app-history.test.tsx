@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   getUiSummary: vi.fn(),
   libraryMount: vi.fn(),
   libraryUnmount: vi.fn(),
+  termsMount: vi.fn(),
+  termsUnmount: vi.fn(),
 }));
 
 vi.mock("../../src/api", async (importOriginal) => ({
@@ -36,15 +38,21 @@ vi.mock("../../src/Pages", async () => {
         React.createElement("button", { onClick: () => onOpen("source", "history-source") }, "Open source draft"),
       );
     },
-    TermsPage: ({ initialTab, onOpen, navigate }: {
-      initialTab: string;
+    TermsPage: ({ activeTab, onOpen, navigate }: {
+      activeTab: string;
       onOpen: (type: "term", id: string) => void;
       navigate: (path: string) => void;
-    }) => React.createElement(React.Fragment, null,
-      React.createElement("div", null, `Terms mock: ${initialTab}`),
-      React.createElement("button", { onClick: () => navigate(initialTab === "candidates" ? "/terms?tab=mentions" : "/terms?tab=candidates") }, "Switch Terms tab"),
-      React.createElement("button", { onClick: () => onOpen("term", "candidate-term") }, "Open candidate term"),
-    ),
+    }) => {
+      React.useEffect(() => {
+        mocks.termsMount();
+        return () => mocks.termsUnmount();
+      }, []);
+      return React.createElement(React.Fragment, null,
+        React.createElement("div", null, `Terms mock: ${activeTab}`),
+        React.createElement("button", { onClick: () => navigate(activeTab === "candidates" ? "/terms?tab=mentions" : "/terms?tab=candidates") }, "Switch Terms tab"),
+        React.createElement("button", { onClick: () => onOpen("term", "candidate-term") }, "Open candidate term"),
+      );
+    },
     TopicsPage: () => React.createElement("div", null, "Topics mock"),
     ReviewPage: () => React.createElement("div", null, "Review mock"),
   };
@@ -77,6 +85,8 @@ describe("App browser history guards", () => {
     mocks.getUiSummary.mockReset();
     mocks.libraryMount.mockReset();
     mocks.libraryUnmount.mockReset();
+    mocks.termsMount.mockReset();
+    mocks.termsUnmount.mockReset();
     mocks.getUiSummary.mockResolvedValue({
       terms_open: 0,
       terms_pending: 0,
@@ -164,6 +174,18 @@ describe("App browser history guards", () => {
     expect(await screen.findByText("Terms mock: candidates")).toBeTruthy();
     await act(async () => dispatchPop("/terms/candidate-term", 2));
     expect(await screen.findByText("Workspace editor")).toBeTruthy();
+  });
+
+  it("keeps Terms mounted when the URL selects another tab", async () => {
+    window.history.replaceState({ __kb_index: 0 }, "", "/terms");
+    render(<App />);
+
+    expect(await screen.findByText("Terms mock: registry")).toBeTruthy();
+    expect(mocks.termsMount).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Switch Terms tab" }));
+    expect(await screen.findByText("Terms mock: candidates")).toBeTruthy();
+    expect(mocks.termsMount).toHaveBeenCalledOnce();
+    expect(mocks.termsUnmount).not.toHaveBeenCalled();
   });
 
   it("preserves the selected Library tab across source draft Back and Forward", async () => {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   acceptTermCandidate,
   createCandidateTermDraft,
@@ -43,6 +43,11 @@ export function TermCandidatesPanel({
   const [pickerCandidate, setPickerCandidate] = useState<TermCandidate | null>(null);
   const [selectedTermId, setSelectedTermId] = useState("");
   const [termQuery, setTermQuery] = useState("");
+
+  useEffect(() => {
+    setOriginFilter(initialDocumentId ? "notes" : "all");
+    setDocumentFilter(initialDocumentId);
+  }, [initialDocumentId]);
 
   const candidates = resource.data ?? [];
   const documents = useMemo(() => {

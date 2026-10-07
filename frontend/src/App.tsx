@@ -324,8 +324,8 @@ export default function App() {
   } else if (route.path === "/terms") {
     const termQuery = new URLSearchParams(location.search);
     const requestedTermTab = termQuery.get("tab");
-    const initialTermTab = requestedTermTab === "candidates" || requestedTermTab === "mentions" || requestedTermTab === "discovery" ? requestedTermTab : "registry";
-    page = <Suspense fallback={<LoadingState />}><TermsPage key={`${location.pathname}${location.search}`} onOpen={openEntity} navigate={navigate} initialTab={initialTermTab} initialDocumentId={termQuery.get("document_id") ?? ""} /></Suspense>;
+    const activeTermTab = requestedTermTab === "candidates" || requestedTermTab === "mentions" || requestedTermTab === "discovery" ? requestedTermTab : "registry";
+    page = <Suspense fallback={<LoadingState />}><TermsPage onOpen={openEntity} navigate={navigate} activeTab={activeTermTab} initialDocumentId={termQuery.get("document_id") ?? ""} /></Suspense>;
   } else if (route.path === "/topics") {
     page = <Suspense fallback={<LoadingState />}><TopicsPage onOpen={openEntity} /></Suspense>;
   } else if (route.path === "/research") {
@@ -397,7 +397,7 @@ export default function App() {
           </form>
           <div className="top-header-end"><span className="top-status-dot" /><span>私有工作区</span><button className="avatar-button" title="KnowledgeBase">KB</button></div>
         </header>
-        <div className="page-container" key={route.kind === "reader" ? "reader-workspace" : `${route.kind}:${route.path}:${route.path === "/library" ? "" : location.search}`}>
+        <div className="page-container" key={route.kind === "reader" ? "reader-workspace" : `${route.kind}:${route.path}:${route.path === "/library" || route.path === "/terms" ? "" : location.search}`}>
           {page}
         </div>
         <footer className="main-footer"><span>KnowledgeBase</span><span>Canonical knowledge stays in Markdown and YAML.</span></footer>
