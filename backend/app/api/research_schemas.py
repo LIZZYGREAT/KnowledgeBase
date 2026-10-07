@@ -197,6 +197,7 @@ class ResearchCandidateListItem(APIModel):
     work: ResearchWorkRecord
     analysis: ResearchCandidateAnalysisOutput
     recommended_score: float
+    discovered_term_candidate_count: int = Field(default=0, ge=0)
 
 
 class ResearchLinkedEntityView(APIModel):
@@ -234,6 +235,7 @@ class ResearchCandidateDetailView(APIModel):
     work: ResearchWorkRecord
     analysis: ResearchWorkAnalysisRecord
     recommended_score: float
+    discovered_term_candidate_count: int = Field(default=0, ge=0)
     conversion_blocker: Optional[Literal["ambiguous_source"]] = None
     source_match_candidates: list[ResearchSourceMatchCandidateView] = Field(
         default_factory=list

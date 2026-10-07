@@ -15,6 +15,10 @@ from backend.app.domain.research_runtime import (
     ResearchRunStatus,
     ResearchWorkRecord,
 )
+from backend.app.domain.term_runtime import (
+    TermCandidateEvidenceInput,
+    TermDiscoveryAssessment,
+)
 from backend.app.repositories.research_repository import ResearchRepository
 from backend.app.repositories.research_run_repository import (
     ResearchProfileStateRepository,
@@ -32,6 +36,7 @@ from backend.app.services.research_analysis_service import (
     ResearchAnalysisCircuitBreaker,
     ResearchAnalysisService,
 )
+from backend.app.services.term_candidate_service import TermCandidateConflict
 from backend.app.services.research_candidate_service import ResearchCandidateService
 from backend.app.services.research_context_builder import ResearchContextBuilder
 from backend.app.services.research_deduplicator import ResearchDeduplicator
@@ -113,6 +118,7 @@ class ResearchService:
         id_factory=lambda: str(uuid.uuid4()),
         stale_run_after: timedelta = timedelta(minutes=45),
         provider_failure_threshold: int = 3,
+        term_candidate_service=None,
     ):
         if provider_failure_threshold < 1:
             raise ValueError("provider_failure_threshold must be positive")
@@ -125,6 +131,7 @@ class ResearchService:
         self.context_builder = context_builder
         self.analysis_service = analysis_service
         self.candidate_service = candidate_service
+        self.term_candidate_service = term_candidate_service
         self.work_repository = ResearchRepository(connection)
         self.search_repository = ResearchSearchRepository(connection)
         self.run_repository = ResearchRunRepository(connection)
@@ -1152,12 +1159,52 @@ class ResearchService:
         if generated.outcome == "inbox_full":
             errors.append("Inbox capacity reached before the candidate could be saved")
             return False, "capacity_reached"
+        if generated.outcome in {"created", "existing"}:
+            self._store_research_term_candidates(analysis, work, warnings)
         if generated.outcome == "created":
             self.run_repository.update_progress(run.id, surfaced_count=1)
             if self.candidate_service.remaining_capacity(profile) <= 0:
                 errors.append("Inbox capacity reached before the next search round")
                 return False, "capacity_reached"
         return True, None
+
+    def _store_research_term_candidates(self, analysis, work, warnings):
+        if self.term_candidate_service is None:
+            return
+        for suggestion in analysis.analysis.term_candidates:
+            evidence = TermCandidateEvidenceInput(
+                origin_type="research_work",
+                origin_id=work.id,
+                mention=suggestion.mention,
+                context_excerpt=suggestion.context_excerpt,
+                confidence=suggestion.confidence,
+                rationale=suggestion.rationale,
+            )
+            assessment = TermDiscoveryAssessment(
+                readiness=suggestion.readiness,
+                recommendation_level=suggestion.recommendation_level,
+                known_prerequisites=suggestion.known_prerequisites,
+                missing_prerequisites=suggestion.missing_prerequisites,
+                why_now=suggestion.why_now,
+            )
+            try:
+                self.term_candidate_service.create_candidate(
+                    suggestion.mention,
+                    suggestion.term_type,
+                    [evidence],
+                    preferred_term_id=suggestion.existing_term_id,
+                    discovery_assessment=assessment,
+                )
+            except TermCandidateConflict:
+                # A scoped or global Term rejection affects only this Term origin;
+                # it never changes the independently reviewed Research Candidate.
+                continue
+            except ValueError as error:
+                warnings.append(
+                    "Term Candidate '{}' was skipped: {}".format(
+                        suggestion.mention, str(error)[:180]
+                    )
+                )
 
     def _post_enrichment_check(
         self,

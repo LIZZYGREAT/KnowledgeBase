@@ -87,7 +87,17 @@ async def lifespan(application: FastAPI):
         draft_service = DraftService(DraftRepository(connection))
         proposal_service = ProposalService(ProposalRepository(connection))
         term_candidate_repository = TermCandidateRepository(connection)
-        research_components = build_research_components(repository_root, connection)
+        canonical_target_resolver = CanonicalTargetResolver(repository_root, connection)
+        term_candidate_service = TermCandidateService(
+            repository_root,
+            term_candidate_repository,
+            draft_service,
+            git_manager,
+            canonical_target_resolver,
+        )
+        research_components = build_research_components(
+            repository_root, connection, term_candidate_service
+        )
         ai_gateway = AIGateway(
             DeepSeekClient(DeepSeekConfig.from_environment(repository_root))
         )
@@ -97,14 +107,6 @@ async def lifespan(application: FastAPI):
         usage_service = UsageService(connection)
         annotation_service = PresentationAnnotationService(AnnotationRepository(connection))
         indexer = Indexer(repository_root, connection)
-        canonical_target_resolver = CanonicalTargetResolver(repository_root, connection)
-        term_candidate_service = TermCandidateService(
-            repository_root,
-            term_candidate_repository,
-            draft_service,
-            git_manager,
-            canonical_target_resolver,
-        )
         pdf_corpus_service = PdfCorpusService(
             repository_root, PdfCorpusRepository(connection)
         )

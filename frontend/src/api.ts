@@ -504,6 +504,19 @@ export interface ResearchWork {
   updated_at: string;
 }
 export interface ResearchRelation { entity_type: "document" | "term" | "source" | "collection"; entity_id: string; relation: "extends" | "alternative" | "contrasts" | "applies" | "reviews" | "related"; reason: string; reason_zh?: string | null }
+export interface ResearchTermCandidateSuggestion {
+  mention: string;
+  term_type: TermDiscoveryLane;
+  existing_term_id?: string | null;
+  confidence: number;
+  rationale: string;
+  context_excerpt: string;
+  readiness: TermReadiness;
+  recommendation_level: "core_gap" | "next" | "stretch";
+  known_prerequisites: string[];
+  missing_prerequisites: string[];
+  why_now: string;
+}
 export interface ResearchAnalysis {
   relevant: boolean;
   profile_relevance: number;
@@ -520,6 +533,11 @@ export interface ResearchAnalysis {
   existing_relations: ResearchRelation[];
   suggested_collection?: string | null;
   suggested_section?: string | null;
+  readiness?: "high" | "medium" | "low" | null;
+  known_prerequisites?: string[];
+  missing_prerequisites?: string[];
+  why_now?: string | null;
+  term_candidates?: ResearchTermCandidateSuggestion[];
 }
 export interface ResearchCandidate {
   id: string;
@@ -541,6 +559,7 @@ export interface ResearchCandidateListItem {
   work: ResearchWork;
   analysis: ResearchAnalysis;
   recommended_score: number;
+  discovered_term_candidate_count?: number;
 }
 export interface ResearchDiscovery {
   id: string;
@@ -606,6 +625,7 @@ export interface ResearchCandidateDetail {
   work: ResearchWork;
   analysis: ResearchWorkAnalysis;
   recommended_score: number;
+  discovered_term_candidate_count?: number;
   conversion_blocker: "ambiguous_source" | null;
   source_match_candidates: Array<{
     id: string;

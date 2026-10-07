@@ -152,6 +152,21 @@ class TermCandidateRepository:
             (normalized_name, origin_type, origin_id),
         ).fetchone() is not None
 
+    def count_for_research_works(self, work_ids: list[str]) -> dict[str, int]:
+        unique_ids = list(dict.fromkeys(work_ids))
+        if not unique_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in unique_ids)
+        rows = self.connection.execute(
+            """SELECT e.origin_id, COUNT(DISTINCT e.candidate_id) AS count
+               FROM term_candidate_evidence e
+               WHERE e.origin_type = 'research_work'
+                 AND e.origin_id IN ({})
+               GROUP BY e.origin_id""".format(placeholders),
+            tuple(unique_ids),
+        ).fetchall()
+        return {row["origin_id"]: int(row["count"]) for row in rows}
+
     def get_document_analysis_state(self, document_id: str) -> Optional[dict]:
         row = self.connection.execute(
             "SELECT * FROM document_term_analysis_state WHERE document_id = ?",

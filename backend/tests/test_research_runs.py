@@ -23,6 +23,7 @@ from backend.app.repositories.research_run_request_repository import (
     ResearchRunRequestRepository,
 )
 from backend.app.repositories.research_search_repository import ResearchSearchRepository
+from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.services.ai_client import AIGatewayError, MockDeepSeekClient
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.research_analysis_service import ResearchAnalysisService
@@ -34,6 +35,7 @@ from backend.app.services.research_providers.base import (
     ResearchProviderError,
 )
 from backend.app.services.research_lock import GlobalResearchLock
+from backend.app.services.term_candidate_service import TermCandidateService
 from backend.app.services.research_service import (
     MAX_ANALYSIS_BACKLOG_PER_RUN,
     ResearchService,
@@ -77,6 +79,61 @@ def test_run_is_persisted_before_provider_and_completed_slice_advances_watermark
     assert state is not None
     assert state.completed_through == "2026-10-03T12:00:00+00:00"
     assert ResearchCandidateRepository(connection).count_new("continual-learning") == 1
+    connection.close()
+
+
+def test_research_analysis_adds_term_evidence_without_coupling_candidate_lifecycles(tmp_path):
+    connection = connect_database(":memory:")
+    output = _analysis_output()
+    output["term_candidates"] = [
+        {
+            "mention": "parameter importance",
+            "term_type": "concept",
+            "existing_term_id": None,
+            "confidence": 0.86,
+            "rationale": "It is central to the paper's method.",
+            "context_excerpt": "Fisher information measures parameter importance.",
+            "readiness": "medium",
+            "recommendation_level": "core_gap",
+            "known_prerequisites": ["Fisher information"],
+            "missing_prerequisites": [],
+            "why_now": "It connects an established concept to this paper's method.",
+        }
+    ]
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    service, _runs, _search, ai_client = _service(
+        tmp_path, connection, provider, analysis_output=output
+    )
+
+    run = service.run_profile("continual-learning")
+
+    assert run is not None and run.status == "success"
+    assert ai_client.calls == ["research_candidate_analysis"]
+    research_candidate = service.candidate_repository.list_for_profile(
+        "continual-learning"
+    )[0]
+    term_candidate = service.term_candidate_service.list_candidates("pending")[0]
+    evidence = service.term_candidate_service.repository.get_evidence(term_candidate.id)[0]
+    assert term_candidate.display_name == "parameter importance"
+    assert term_candidate.discovery_assessment.readiness == "medium"
+    assert evidence.origin_type == "research_work"
+    assert evidence.origin_id == research_candidate.work_id
+    assert evidence.context_excerpt == "Fisher information measures parameter importance."
+    assert service.term_candidate_service.repository.count_for_research_works(
+        [research_candidate.work_id]
+    ) == {research_candidate.work_id: 1}
+
+    service.candidate_service.dismiss(research_candidate.id, reason="not_interested")
+    assert service.term_candidate_service.get_candidate(term_candidate.id).status == "pending"
+    service.term_candidate_service.reject_candidate(
+        term_candidate.id,
+        scope="local",
+        reason="Not a current term",
+        origin_type="research_work",
+        origin_id=research_candidate.work_id,
+    )
+    assert service.candidate_repository.get(research_candidate.id).status == "dismissed"
+    assert service.term_candidate_service.get_candidate(term_candidate.id).status == "rejected"
     connection.close()
 
 
@@ -1806,6 +1863,9 @@ def _service(
     candidate_service = ResearchCandidateService(
         candidate_repository, clock=lambda: _NOW
     )
+    term_candidate_service = TermCandidateService(
+        root, TermCandidateRepository(connection)
+    )
     ai_client = MockDeepSeekClient(
         {"research_candidate_analysis": analysis_output or _analysis_output()}
     )
@@ -1813,6 +1873,7 @@ def _service(
         research_repository,
         AIGateway(ai_client),
         clock=lambda: _NOW,
+        repository_root=root,
     )
     providers = {provider.name: provider}
     providers.update(additional_providers or {})
@@ -1824,6 +1885,7 @@ def _service(
         context_builder=FakeContextBuilder(),
         analysis_service=analysis_service,
         candidate_service=candidate_service,
+        term_candidate_service=term_candidate_service,
         source_registry=SourceRegistry(()),
         global_lock=GlobalResearchLock(tmp_path / "runtime" / "research.lock"),
         clock=lambda: _NOW,

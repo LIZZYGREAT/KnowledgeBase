@@ -202,6 +202,14 @@ async def list_candidates(
         limit=limit,
         ranking_weights=weights,
     )
+    term_candidate_service = getattr(service, "term_candidate_service", None)
+    term_candidate_counts = (
+        term_candidate_service.repository.count_for_research_works(
+            [candidate.work_id for candidate in page]
+        )
+        if term_candidate_service is not None
+        else {}
+    )
     items = []
     for candidate in page:
         work = service.work_repository.get_work(candidate.work_id)
@@ -220,6 +228,9 @@ async def list_candidates(
                 work=work,
                 analysis=output,
                 recommended_score=score,
+                discovered_term_candidate_count=term_candidate_counts.get(
+                    candidate.work_id, 0
+                ),
             )
         )
     return {
@@ -260,6 +271,13 @@ async def get_candidate(candidate_id: str, request: Request):
         "work": work,
         "analysis": analysis,
         "recommended_score": recommended_score,
+        "discovered_term_candidate_count": (
+            service.term_candidate_service.repository.count_for_research_works(
+                [work.id]
+            ).get(work.id, 0)
+            if getattr(service, "term_candidate_service", None) is not None
+            else 0
+        ),
         "conversion_blocker": "ambiguous_source" if source_match.ambiguous else None,
         "source_match_candidates": [
             {

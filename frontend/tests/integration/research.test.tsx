@@ -124,7 +124,12 @@ describe("Research workspace", () => {
     expect(screen.getByRole("button", { name: /Research/ }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByText("Discoveries", {}, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
-    fireEvent.click(within(screen.getByRole("heading", { name: "A New Regularization Method" }).closest(".research-candidate-card") as HTMLElement).getByRole("button", { name: "中文" }));
+    const candidateCard = screen.getByRole("heading", { name: "A New Regularization Method" }).closest(".research-candidate-card") as HTMLElement;
+    expect(within(candidateCard).getByText("Readiness")).toBeTruthy();
+    expect(within(candidateCard).getByText(/Why now: It connects a known foundation/)).toBeTruthy();
+    expect(within(candidateCard).getByText("Discovered Terms: 2")).toBeTruthy();
+    expect(within(candidateCard).getByRole("button", { name: /Review in Terms/ })).toBeTruthy();
+    fireEvent.click(within(candidateCard).getByRole("button", { name: "中文" }));
     expect(screen.getByText("关联知识")).toBeTruthy();
     expect(screen.getByText("为什么值得读")).toBeTruthy();
     expect(screen.queryByText("What may be new")).toBeNull();
@@ -135,6 +140,10 @@ describe("Research workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Why this candidate/ }));
     expect(await screen.findByRole("heading", { name: "Why this candidate" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Readiness" })).toBeTruthy();
+    expect(screen.getByText("Known prerequisites")).toBeTruthy();
+    expect(screen.getByText("Missing prerequisites")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Review in Terms/ })).toHaveLength(2);
     expect(screen.getByRole("alert").textContent).toContain("为避免重复记录");
     expect(screen.getByText("可能已存在 2 个 Source")).toBeTruthy();
     expect(screen.getByText("有多条 Source 同时匹配标题、第一作者和年份，请检查是否存在重复 Source。")).toBeTruthy();
@@ -1210,15 +1219,17 @@ const analysis = {
   relevant: true, profile_relevance: 0.91, knowledge_relevance: 0.8, novelty_to_library: 0.73, matched_lenses: ["regularization"], matched_topics: ["Fisher information", "Catastrophic forgetting"],
   summary: "A new parameter importance estimation method for continual learning.", why_relevant: "It matches the regularization Lens and studies parameter importance.", reading_reason: "Compare its adaptive estimates against EWC.",
   summary_zh: "这篇论文提出一种新的持续学习参数重要性估计方法。", why_relevant_zh: "它与正则化方向相关，并研究参数重要性。", reading_reason_zh: "将其自适应估计结果与 EWC 进行比较。",
+  readiness: "medium", known_prerequisites: ["Fisher information"], missing_prerequisites: ["Online curvature estimation"], why_now: "It connects a known foundation to the current gap.", term_candidates: [],
   existing_relations: [{ entity_type: "term", entity_id: "fisher-information", relation: "extends", reason: "Uses Fisher information to estimate parameter importance.", reason_zh: "使用 Fisher 信息估计参数重要性。" }],
   suggested_collection: "continual-learning", suggested_section: "Regularization",
 };
 
-const candidateListItem = { candidate, work, analysis, recommended_score: 0.84 };
+const candidateListItem = { candidate, work, analysis, recommended_score: 0.84, discovered_term_candidate_count: 2 };
 const candidateDetail = {
   candidate: { ...candidate, first_viewed_at: "2026-10-03T00:00:00+00:00", last_viewed_at: "2026-10-03T00:00:00+00:00" },
   work,
   recommended_score: 0.84,
+  discovered_term_candidate_count: 2,
   analysis: { id: "analysis-1", work_id: work.id, profile_id: profile.id, input_hash: "sha256:abc", outcome: "surface", analysis, provider: "deepseek", model: "deepseek-chat", prompt_version: "research-candidate-analysis-v1", analysis_version: 1, context_entity_ids: ["gem-sgd"], input_context: { analysis_version: 1, prompt_version: "research-candidate-analysis-v1", provider: "deepseek", model: "deepseek-chat", work: { ...work }, profile: { id: profile.id, title: profile.title, description: profile.description, breadth: "balanced", breadth_policy: "Include work related to the core topic and adjacent methods." }, matched_lens: { ...profile.lenses[0] }, knowledge_context: { focus_query: "fisher information catastrophic forgetting", budget: 5, omitted_count: 0, cards: [{ entity_type: "document", entity_id: "gem-sgd", title: "Elastic Weight Consolidation", review_status: "reviewed", topics: ["continual-learning"], domains: [], relevant_sections: [{ heading: "Method", excerpt: "Snapshot excerpt used at analysis time." }], metadata: {}, pinned: true, retrieval_score: 0.9 }] } }, analyzed_at: "2026-10-03T00:00:00+00:00" },
   conversion_blocker: null,
   source_match_candidates: [],

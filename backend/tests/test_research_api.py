@@ -13,6 +13,7 @@ from backend.app.domain.research import ResearchLens
 from backend.app.domain.source import SourceMetadata
 from backend.app.domain.runtime import Draft
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
+from backend.app.domain.term_runtime import TermCandidateEvidenceInput
 from backend.app.services.research_providers.base import ProviderWork
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.api.research import router
@@ -299,6 +300,18 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
     )
     analysis, _ = service.work_repository.add_analysis_if_missing(analysis)
     generated = service.candidate_service.generate(analysis, profile, profile.lenses[0])
+    service.term_candidate_service.create_candidate(
+        "parameter importance",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="research_work",
+                origin_id=ingested.work.id,
+                mention="parameter importance",
+                context_excerpt="Fisher information measures parameter importance.",
+            )
+        ],
+    )
     other_profile_discovery = service.deduplicator.record_discovery(
         "another-profile",
         "another-lens",
@@ -345,12 +358,14 @@ def test_research_candidate_reads_and_actions_are_human_controlled(tmp_path):
             assert listing.status_code == 200, listing.json()
             assert listing.json()["count"] == 1
             assert listing.json()["candidates"][0]["work"]["id"] == ingested.work.id
+            assert listing.json()["candidates"][0]["discovered_term_candidate_count"] == 1
 
             details = await client.get(
                 "/api/research/candidates/{}".format(generated.candidate.id)
             )
             assert details.status_code == 200, details.json()
             assert details.json()["candidate"]["first_viewed_at"] == _NOW.isoformat()
+            assert details.json()["discovered_term_candidate_count"] == 1
             assert details.json()["conversion_blocker"] == "ambiguous_source"
             assert details.json()["source_match_candidates"] == [
                 {

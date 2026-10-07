@@ -24,6 +24,7 @@ export function ResearchCandidateCard({
   onDismiss,
   onRestore,
   onCreateNote,
+  onReviewTerms,
 }: {
   item: ResearchCandidateListItem;
   profile: ResearchProfile;
@@ -36,6 +37,7 @@ export function ResearchCandidateCard({
   onDismiss: () => void;
   onRestore: () => void;
   onCreateNote: () => void;
+  onReviewTerms?: () => void;
 }) {
   const [language, setLanguage] = useState<ResearchLanguage>("en");
   const chinese = language === "zh";
@@ -63,7 +65,9 @@ export function ResearchCandidateCard({
         ? chinese ? `与 ${item.analysis.existing_relations.length} 条现有知识有关。` : `Related to ${item.analysis.existing_relations.length} existing knowledge items.`
         : chinese ? "尚未找到明确的已有知识关联。" : "No clear links to existing knowledge were found."}</p></div>
       <div><span>{chinese ? "为什么值得读" : "Why read it"}</span><p>{readingReason}</p></div>
+      <div className="research-readiness-insight"><span>{chinese ? "当前适合度" : "Readiness"}</span><p>{item.analysis.readiness ?? "not available"}</p><small>{chinese ? "为什么现在" : "Why now"}: {item.analysis.why_now ?? "not available"}</small><small>Known prerequisites: {(item.analysis.known_prerequisites ?? []).join(", ") || "not available"}</small><small>Missing prerequisites: {(item.analysis.missing_prerequisites ?? []).join(", ") || "not available"}</small></div>
     </div>
+    {(item.discovered_term_candidate_count ?? 0) > 0 && <div className="research-discovered-terms"><span>Discovered Terms: {item.discovered_term_candidate_count}</span>{onReviewTerms && <button className="text-button" onClick={onReviewTerms}>Review in Terms →</button>}</div>}
     <div className="research-candidate-footer">
       <span>收录于 {formatDate(item.candidate.created_at)}</span>
       <div className="research-card-actions">
@@ -244,6 +248,7 @@ export function ResearchCandidateDrawer({
   onOpenEntity,
   onSaveSource,
   onSaveNote,
+  onReviewTerms,
 }: {
   detail: ResearchCandidateDetail;
   profile: ResearchProfile;
@@ -255,6 +260,7 @@ export function ResearchCandidateDrawer({
   onOpenEntity: (path: string) => void;
   onSaveSource: () => void;
   onSaveNote: (note: string) => void;
+  onReviewTerms?: () => void;
 }) {
   const { candidate, work, analysis } = detail;
   const chinese = language === "zh";
@@ -340,6 +346,7 @@ export function ResearchCandidateDrawer({
         </section>}
         <section className="research-detail-section"><h3>{chinese ? "论文简介与相关性" : "Why this paper"}</h3><p>{summary}</p><p>{relevance}</p>{chinese && !hasChineseAnalysis && <p className="subtle-copy research-translation-note">此历史候选暂无中文分析</p>}</section>
         <section className="research-detail-section"><h3>{chinese ? "为什么值得读" : "Why read it"}</h3><p>{readingReason}</p></section>
+        <section className="research-detail-section research-readiness-detail"><h3>Readiness</h3><DetailRow label="Readiness" value={analysis.analysis.readiness ?? "not available"} /><DetailRow label="Why now" value={analysis.analysis.why_now ?? "not available"} /><DetailRow label="Known prerequisites" value={(analysis.analysis.known_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Missing prerequisites" value={(analysis.analysis.missing_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Discovered Terms" value={String(detail.discovered_term_candidate_count ?? 0)} />{(detail.discovered_term_candidate_count ?? 0) > 0 && onReviewTerms && <button className="button button-secondary" onClick={onReviewTerms}>Review in Terms →</button>}</section>
         <section className="research-detail-section"><h3>Paper</h3><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Year" value={work.year == null ? undefined : String(work.year)} /><DetailRow label="Venue" value={work.venue} /><DetailRow label="Abstract" value={work.abstract} /></section>
         <section className="research-detail-section"><h3>Research focus</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Focus" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} /></section>
         {(candidate.status === "new" || candidate.status === "shortlisted") && <section className="research-detail-section"><h3>Save Source</h3><p className="subtle-copy">只保存论文引用，不创建笔记。</p><button className="button button-secondary" disabled={noteBusy || detail.conversion_blocker === "ambiguous_source"} onClick={onSaveSource}>Save Source</button></section>}

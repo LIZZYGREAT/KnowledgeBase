@@ -3,11 +3,13 @@
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
+from typing import Optional
 
 from backend.app.repositories.research_candidate_repository import (
     ResearchCandidateRepository,
 )
 from backend.app.repositories.research_repository import ResearchRepository
+from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.services.ai_client import DeepSeekClient, DeepSeekConfig
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.collection_service import CollectionService
@@ -24,6 +26,7 @@ from backend.app.services.research_providers import (
 )
 from backend.app.services.research_service import ResearchService
 from backend.app.services.source_registry import SourceRegistry
+from backend.app.services.term_candidate_service import TermCandidateService
 
 
 @dataclass(frozen=True)
@@ -56,7 +59,9 @@ def load_research_configuration(
 
 
 def build_research_components(
-    repository_root: Path, connection: sqlite3.Connection
+    repository_root: Path,
+    connection: sqlite3.Connection,
+    term_candidate_service: Optional[TermCandidateService] = None,
 ) -> ResearchComponents:
     """Create the same Research services for FastAPI and standalone commands."""
     root = Path(repository_root).expanduser().resolve()
@@ -77,6 +82,9 @@ def build_research_components(
         "crossref": CrossrefProvider(**provider_options),
     }
     work_repository = ResearchRepository(connection)
+    term_candidate_service = term_candidate_service or TermCandidateService(
+        root, TermCandidateRepository(connection)
+    )
     candidate_service = ResearchCandidateService(
         ResearchCandidateRepository(connection)
     )
@@ -99,6 +107,7 @@ def build_research_components(
         analysis_service=analysis_service,
         candidate_service=candidate_service,
         source_registry=source_registry,
+        term_candidate_service=term_candidate_service,
     )
     return ResearchComponents(
         repository_root=root,
