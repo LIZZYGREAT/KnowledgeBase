@@ -211,6 +211,36 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     setPublishedOutcome(null);
   }, [discardRuntimeDraft, id, identity, resetRuntimeDraft, setRuntimeError, type]);
 
+  const retryCanonicalEntity = useCallback(async () => {
+    const activeIdentity = identity;
+    if (identityRef.current !== activeIdentity) return;
+    setCanonicalState((current) => current.identity === activeIdentity
+      ? { ...current, loading: true, error: "" }
+      : current);
+    try {
+      const entity = await getEntity(type, id);
+      if (identityRef.current !== activeIdentity) return;
+      const content = entity.canonical_content ?? "";
+      canonicalContentRef.current = content;
+      setCanonicalState({ identity: activeIdentity, entity, content, loading: false, error: "", missing: false });
+      if (!runtimeDraft && !runtimeIsDirty) resetRuntimeDraft(content);
+    } catch (reason) {
+      if (identityRef.current !== activeIdentity) return;
+      const missing = (reason as { status?: number })?.status === 404;
+      if (missing) canonicalContentRef.current = "";
+      setCanonicalState((current) => current.identity === activeIdentity
+        ? {
+            ...current,
+            entity: missing ? null : current.entity,
+            content: missing ? "" : current.content,
+            loading: false,
+            error: errorMessage(reason),
+            missing,
+          }
+        : current);
+    }
+  }, [id, identity, resetRuntimeDraft, runtimeDraft, runtimeIsDirty, type]);
+
   const applyRebase = useCallback(async (contentValue: string) => {
     const activeIdentity = identity;
     if (identityRef.current !== activeIdentity) return;
@@ -333,6 +363,7 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
     saveNow,
     openComparison,
     reloadCanonical,
+    retryCanonicalEntity,
     applyRebase,
     discard,
     publish,

@@ -1,5 +1,4 @@
-import { getEntity, listAllEntities, recordDocumentOpen, type EntityDetail, type EntitySummary, type EntityType, type TermRelation } from "../api";
-import { readList } from "../pages/PageShared";
+import { recordDocumentOpen, type EntitySummary, type TermRelation } from "../api";
 
 export interface ReaderSelection {
   selected_text: string;
@@ -68,20 +67,6 @@ export function markdownHeadings(markdown: string) {
     counts.set(base, count);
     return [{ level: match[1].length, text, slug: count === 1 ? base : `${base}-${count}` }];
   });
-}
-
-export async function loadEntity(type: EntityType, id: string): Promise<EntityDetail> {
-  try {
-    return await getEntity(type, id);
-  } catch (error) {
-    if (type !== "term") throw error;
-    const terms = await listAllEntities("term");
-    const match = terms.find((term) => term.id.toLocaleLowerCase() === id.toLocaleLowerCase()
-      || term.title.toLocaleLowerCase() === id.toLocaleLowerCase()
-      || readList(term.metadata, "aliases").some((alias) => alias.toLocaleLowerCase() === id.toLocaleLowerCase()));
-    if (!match) throw error;
-    return getEntity("term", match.id);
-  }
 }
 
 export async function recordDocumentOpenSafely(id: string) {

@@ -467,6 +467,7 @@ describe("Workspace React integration", () => {
     const user = userEvent.setup();
     const { container } = renderWorkspace();
     await screen.findByRole("heading", { name: "Quick Start" });
+    expect(api.getEntity.mock.calls.filter(([type, id]) => type === "document" && id === "quick-start")).toHaveLength(1);
 
     await user.click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
     const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
@@ -489,6 +490,20 @@ describe("Workspace React integration", () => {
     await user.click(publishButton);
     await waitFor(() => expect(api.publishDraft).toHaveBeenCalledOnce());
     expect(api.publishDraft).toHaveBeenCalledWith("draft-1", 1);
+  });
+
+  it("fetches the Reader entity once and retries canonical hydration through the Workspace owner", async () => {
+    const user = userEvent.setup();
+    const entity = makeEntity();
+    api.getEntity.mockRejectedValueOnce(new Error("temporary read failure"))
+      .mockResolvedValueOnce(entity);
+    renderWorkspace();
+
+    expect(await screen.findByText("temporary read failure")).toBeTruthy();
+    expect(api.getEntity).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    await screen.findByRole("heading", { name: "Quick Start" });
+    expect(api.getEntity).toHaveBeenCalledTimes(2);
   });
 
   it("flushes a dirty Draft before internal navigation", async () => {
@@ -713,7 +728,7 @@ describe("Workspace React integration", () => {
     await user.click(publishButton);
 
     await screen.findByRole("heading", { name: "Published Title" });
-    await waitFor(() => expect(api.getEntity.mock.calls.filter(([type, id]) => type === "document" && id === "quick-start").length).toBeGreaterThanOrEqual(3));
+    await waitFor(() => expect(api.getEntity.mock.calls.filter(([type, id]) => type === "document" && id === "quick-start").length).toBe(2));
     await user.click(screen.getByRole("button", { name: "More" }));
     expect(await screen.findByRole("button", { name: /Updated Source/ })).toBeTruthy();
 

@@ -20,7 +20,7 @@ import type { WorkspaceEditorController } from "../workspace/useWorkspaceEditorC
 import { WorkspaceEditorDrawers } from "../workspace/WorkspaceEditorDrawers";
 import { CollectionReaderContext, ContextCard, ContextExportPanel, MetaChipList } from "./ReaderContext";
 import { maintenanceStatus, readList, readString, reviewStatus, typeLabel, entityPath, useResource, type Navigate } from "../pages/PageShared";
-import { combineDocumentTerms, hashText, loadEntity, markdownHeadings, readArtifacts, recordDocumentOpenSafely, resolveReaderSelectionSourceRange, type ReaderSelection, type ReaderSourceBlock } from "./readerModel";
+import { combineDocumentTerms, hashText, markdownHeadings, readArtifacts, recordDocumentOpenSafely, resolveReaderSelectionSourceRange, type ReaderSelection, type ReaderSourceBlock } from "./readerModel";
 export function EntityPage({
   type,
   id,
@@ -36,20 +36,7 @@ export function EntityPage({
   workspaceDraft: WorkspaceDraftController;
   workspaceEditorController: WorkspaceEditorController;
 }) {
-  const resource = useResource(`entity:${type}:${id}`, () => loadEntity(type, id));
-  const resourceRetryRef = useRef(resource.retry);
-  resourceRetryRef.current = resource.retry;
-  const lastPublishedRevisionRef = useRef("");
-  useEffect(() => {
-    const revision = workspaceDraft.publishedRevision;
-    if (!revision) {
-      lastPublishedRevisionRef.current = "";
-      return;
-    }
-    if (revision === lastPublishedRevisionRef.current) return;
-    lastPublishedRevisionRef.current = revision;
-    resourceRetryRef.current();
-  }, [workspaceDraft.publishedRevision]);
+  const canonicalEntity = workspaceDraft.canonicalEntity;
   const collectionNavigation = useResource(
     `collection-navigation:${collectionId ?? ""}:${type}:${id}`,
     () => collectionId ? getCollectionNavigation(collectionId, type, id) : Promise.resolve(null),
@@ -78,10 +65,10 @@ export function EntityPage({
   }, []);
   const workspaceEnvelope = useMemo(() => splitMarkdownFrontmatter(workspaceDraft.content), [workspaceDraft.content]);
   const draftOnlyEntity = useMemo(() => {
-    if (resource.data || !workspaceDraft.draft || workspaceDraft.canonicalEntity) return null;
+    if (canonicalEntity || !workspaceDraft.draft) return null;
     return makeDraftReaderEntity(type, id, workspaceDraft.content);
-  }, [id, resource.data, type, workspaceDraft.canonicalEntity, workspaceDraft.content, workspaceDraft.draft]);
-  const currentEntity = resource.data ?? draftOnlyEntity;
+  }, [canonicalEntity, id, type, workspaceDraft.content, workspaceDraft.draft]);
+  const currentEntity = canonicalEntity ?? draftOnlyEntity;
   const hasDraftConflict = workspaceDraft.saveState === "runtime-conflict"
     || workspaceDraft.saveState === "canonical-conflict";
   const discardBlocked = workspaceDraft.saveState === "saving" || hasDraftConflict;
@@ -93,7 +80,7 @@ export function EntityPage({
             : workspaceDraft.saveState === "error" ? "Draft 状态出错"
               : "Draft 冲突";
   const documentBody = type === "source" ? "" : workspaceEnvelope.body;
-  const annotationsMatchCanonical = Boolean(resource.data) && documentBody === (resource.data?.content ?? "");
+  const annotationsMatchCanonical = Boolean(canonicalEntity) && documentBody === (canonicalEntity?.content ?? "");
   const headings = markdownHeadings(documentBody);
   const sourceIds = currentEntity?.entity_type === "document"
     ? Array.from(new Set([...readList(currentEntity.metadata, "sources"), ...currentEntity.evidence.map((item) => item.source_id)]))
@@ -156,7 +143,7 @@ export function EntityPage({
   }, [type, workspaceDraft.publishedRevision]);
   useEffect(() => {
     let active = true;
-    if ((type !== "document" && type !== "term") || !resource.data) {
+    if ((type !== "document" && type !== "term") || !canonicalEntity) {
       setAnnotations([]);
       return () => { active = false; };
     }
@@ -164,7 +151,7 @@ export function EntityPage({
       .then((items) => { if (active) setAnnotations(items); })
       .catch((error: unknown) => { if (active) setAnnotationError(errorMessage(error)); });
     return () => { active = false; };
-  }, [type, id, resource.data?.content]);
+  }, [type, id, canonicalEntity?.content]);
   useEffect(() => {
     const root = readerMarkdownRef.current;
     if (!root || type === "source" || typeof IntersectionObserver === "undefined" || typeof MutationObserver === "undefined") {
@@ -200,9 +187,9 @@ export function EntityPage({
       intersectionObserver?.disconnect();
     };
   }, [documentBody, type]);
-  if (resource.loading || workspaceDraft.loading) return <LoadingState />;
-  if (workspaceDraft.loadError) return <ErrorState message={workspaceDraft.loadError} />;
-  if (!currentEntity) return <ErrorState message={resource.error} retry={resource.retry} />;
+  if (workspaceDraft.loading) return <LoadingState />;
+  if (workspaceDraft.loadError) return <ErrorState message={workspaceDraft.loadError} retry={workspaceDraft.retryCanonicalEntity} />;
+  if (!currentEntity) return <ErrorState message="无法载入 Canonical Entity。" retry={workspaceDraft.retryCanonicalEntity} />;
   const entity = currentEntity;
   const contextTerms = type === "document"
     ? documentTerms
@@ -414,7 +401,7 @@ export function EntityPage({
         </div>
       </div>
       {workspaceDraft.error && workspaceEditorController.activeDrawer !== "metadata" && <p className="workspace-reader-save-error" role="alert">保存失败：{workspaceDraft.error}</p>}
-      {type === "document" && resource.data && <section className="term-analysis-panel surface" aria-labelledby="term-analysis-title">
+      {type === "document" && canonicalEntity && <section className="term-analysis-panel surface" aria-labelledby="term-analysis-title">
         <div className="term-analysis-copy"><div className="term-analysis-heading"><strong id="term-analysis-title">Term Analysis</strong><Chip tone={termAnalysisResource.data?.status === "up_to_date" ? "green" : termAnalysisResource.data?.status === "outdated" ? "amber" : "neutral"}>{analysisBusy ? "Analyzing" : termAnalysisResource.loading ? "Checking status…" : termAnalysisResource.data?.status === "up_to_date" ? "Up to date" : termAnalysisResource.data?.status === "outdated" ? "Outdated" : "Never analyzed"}</Chip></div>
           <p>{workspaceDraft.draft || workspaceDraft.isDirty ? "当前存在未发布 Draft；Term Analysis 只读取 Canonical 正式内容，请先发布或处理 Draft。" : "手动分析 Canonical Note 中值得长期复用的 Terms；不会分析 Draft，也不会在发布时自动运行。"}</p>
           {analysisResult && <small role="status">最近一次分析：新增 {analysisResult.created_candidates}，复用 {analysisResult.reused_candidates}，Existing {analysisResult.existing}，New {analysisResult.new}，跳过 {analysisResult.skipped}。</small>}
