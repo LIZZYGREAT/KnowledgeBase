@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -199,6 +200,13 @@ def test_knowledge_state_keeps_activity_exposure_and_knowledge_distinct(tmp_path
     _write_term(terms / "stub-term.md", "stub-term", "Stub Term", "stub")
     _write_term(terms / "standard-term.md", "standard-term", "Standard Term", "standard")
     _write_term(terms / "deep-term.md", "deep-term", "Deep Term", "deep")
+    document = tmp_path / "knowledge" / "documents" / "learning" / "note-one.md"
+    document.parent.mkdir(parents=True)
+    document.write_text(
+        "---\nschema_version: 1\nid: note-one\ntitle: Note One\n"
+        "type: learning-note\n---\n# Note One\n",
+        encoding="utf-8",
+    )
     now = datetime(2026, 10, 7, tzinfo=timezone.utc)
     connection.execute(
         """INSERT INTO term_entity_relations (
@@ -231,6 +239,45 @@ def test_knowledge_state_keeps_activity_exposure_and_knowledge_distinct(tmp_path
     assert snapshot["activity"]["recently_used_terms"][0]["id"] == "stub-term"
     assert snapshot["exposure"]["terms"][0]["id"] == "stub-term"
     assert "stub-term" not in {item["id"] for item in snapshot["knowledge"]["established"]}
+    connection.close()
+
+
+def test_recent_note_focus_does_not_change_term_mastery(tmp_path):
+    connection = connect_database(":memory:")
+    terms = tmp_path / "knowledge" / "terms"
+    documents = tmp_path / "knowledge" / "documents" / "learning"
+    terms.mkdir(parents=True)
+    documents.mkdir(parents=True)
+    _write_term(terms / "stub-term.md", "stub-term", "Stub Term", "stub")
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    note = documents / "note-one.md"
+    note.write_text(
+        "---\nschema_version: 1\nid: note-one\ntitle: Continual Learning Notes\n"
+        "type: learning-note\ndomains: [machine-learning]\n"
+        "topics: [continual-learning]\n---\n# Notes\n[[Stub Term]]\n",
+        encoding="utf-8",
+    )
+    note_time = now.timestamp()
+    os.utime(note, (note_time, note_time))
+    connection.execute(
+        """INSERT INTO usage_events (id, entity_type, entity_id, event_type, created_at)
+           VALUES ('open-note', 'document', 'note-one', 'document_open', ?)""",
+        ((now - timedelta(days=1)).isoformat(),),
+    )
+    connection.commit()
+
+    snapshot = KnowledgeStateService(
+        tmp_path, connection, clock=lambda: now
+    ).build_snapshot(["continual learning"])
+
+    assert snapshot["focus"]["explicit"] == ["continual learning"]
+    assert snapshot["focus"]["recent_topics"] == ["continual-learning"]
+    assert snapshot["focus"]["recent_domains"] == ["machine-learning"]
+    assert snapshot["focus"]["recent_terms"] == [
+        {"id": "stub-term", "title": "Stub Term", "type": "concept"}
+    ]
+    assert snapshot["term_states"]["stub-term"] == "unknown"
+    assert snapshot["activity"]["recently_used_terms"] == []
     connection.close()
 
 

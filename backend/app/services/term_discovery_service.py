@@ -238,6 +238,7 @@ class TermDiscoveryService:
 
         focus = _focus_context(self.repository_root, settings)
         snapshot = self.knowledge_state.build_snapshot(focus)
+        focus = _discovery_focus(focus, snapshot)
         focus_hash = _json_hash(
             {
                 "focus": focus,
@@ -704,6 +705,19 @@ def _focus_context(repository_root: Path, settings: TermDiscoverySettings) -> li
             # an explicit override remains available as a bounded Focus.
             pass
     return list(dict.fromkeys(item.strip() for item in focus if item.strip()))[:20]
+
+
+def _discovery_focus(explicit_focus: list[str], snapshot: dict) -> list[str]:
+    focus = list(explicit_focus)
+    focus_state = snapshot.get("focus", {})
+    focus.extend(focus_state.get("recent_topics", []))
+    focus.extend(focus_state.get("recent_domains", []))
+    focus.extend(
+        item.get("title", "")
+        for item in focus_state.get("recent_terms", [])
+        if isinstance(item, dict)
+    )
+    return list(dict.fromkeys(value.strip() for value in focus if value.strip()))[:40]
 
 
 def _select_sources(
