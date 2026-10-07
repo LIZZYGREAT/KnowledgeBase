@@ -444,13 +444,18 @@ describe("Explorer React integration", () => {
     await user.click(screen.getByRole("button", { name: "创建 Draft 并编辑" }));
 
     await screen.findByRole("heading", { name: "Nested note" });
-    const collectionSelect = await screen.findByRole("combobox", { name: "选择 Collection" });
-    expect((collectionSelect as HTMLSelectElement).disabled).toBe(true);
+    await screen.findByRole("region", { name: "Collection 阅读位置" });
+    await waitFor(() => {
+      const route = new URL(screen.getByTestId("current-route").textContent!, window.location.origin);
+      expect(route.searchParams.get("collection")).toBe(collectionId);
+      expect(route.searchParams.get("publishAll")).toBe("1");
+    });
     expect(screen.queryByRole("button", { name: "编辑结构" })).toBeNull();
     expect(screen.queryByRole("button", { name: "编辑名称与描述" })).toBeNull();
     expect(screen.queryByRole("button", { name: "New Collection" })).toBeNull();
     expect(screen.queryByRole("button", { name: "在 Notes 中新建笔记" })).toBeNull();
-    const tree = screen.getByRole("tree");
+    await user.click(screen.getByRole("button", { name: "打开 Knowledge Explorer" }));
+    const tree = await screen.findByRole("tree");
     const notesSection = within(tree).getByRole("button", { name: /Notes/ });
     const updateCount = api.updateDraft.mock.calls.length;
     await user.click(notesSection);
