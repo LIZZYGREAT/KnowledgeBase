@@ -23,6 +23,9 @@ from backend.app.repositories.research_run_repository import (
 from backend.app.repositories.research_run_request_repository import (
     ResearchRunRequestRepository,
 )
+from backend.app.repositories.pdf_corpus_repository import PdfCorpusRepository
+from backend.app.repositories.term_candidate_repository import TermCandidateRepository
+from backend.app.repositories.term_discovery_repository import TermDiscoveryRepository
 from backend.app.bootstrap import (
     build_research_components,
     load_research_configuration,
@@ -32,6 +35,9 @@ from backend.app.services.draft_service import DraftService
 from backend.app.services.git_manager import GitManager
 from backend.app.services.research_conversion_service import ResearchConversionService
 from backend.app.services.research_profile_registry import ResearchProfileRegistry
+from backend.app.services.pdf_corpus_service import PdfCorpusService
+from backend.app.services.term_candidate_service import TermCandidateService
+from backend.app.services.term_discovery_service import TermDiscoveryService
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -206,13 +212,35 @@ def _execute(root: Path, database_path: Path, args) -> int:
     connection = None
     try:
         connection = connect_database(database_path)
-        service = build_research_components(root, connection).research_service
+        components = build_research_components(root, connection)
+        service = components.research_service
         if args.command == "tick":
             run = service.tick()
-            if run is None:
+            if run is not None:
+                _print_run("Research tick", run)
+            discovery_service = TermDiscoveryService(
+                root,
+                TermDiscoveryRepository(connection),
+                PdfCorpusService(root, PdfCorpusRepository(connection)),
+                TermCandidateService(root, TermCandidateRepository(connection)),
+                components.ai_gateway,
+            )
+            discovery_run = discovery_service.scheduled_check()
+            if discovery_run is not None:
+                print(
+                    "Term Discovery check {} · {} · {} Candidates".format(
+                        discovery_run.id,
+                        discovery_run.status,
+                        discovery_run.candidate_count,
+                    )
+                )
+            if run is None and discovery_run is None:
                 print("No queued manual request or due scheduled Profile.")
                 return 0
-            label = "Research tick"
+            return int(
+                (run is not None and run.status in {"failed", "interrupted"})
+                or (discovery_run is not None and discovery_run.status in {"failed", "partial"})
+            )
         else:
             trigger = "manual" if args.manual else "scheduled"
             run = service.run_profile(args.profile, trigger=trigger)

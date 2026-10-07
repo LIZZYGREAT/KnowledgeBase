@@ -97,6 +97,24 @@ class SuggestEvidenceOutput(AIOutput):
     candidates: list[EvidenceCandidate]
 
 
+class TermDiscoverySuggestion(AIOutput):
+    mention: NonEmptyText = Field(max_length=200)
+    term_type: Literal["concept", "entity", "vocabulary"]
+    existing_term_id: Optional[Slug] = None
+    confidence: float = Field(ge=0, le=1)
+    rationale: NonEmptyText = Field(max_length=1000)
+    context_excerpt: NonEmptyText = Field(max_length=800)
+    readiness: Literal["high", "medium", "low"]
+    recommendation_level: Literal["core_gap", "next", "stretch"]
+    known_prerequisites: list[NonEmptyText] = Field(default_factory=list, max_length=12)
+    missing_prerequisites: list[NonEmptyText] = Field(default_factory=list, max_length=12)
+    why_now: NonEmptyText = Field(max_length=1000)
+
+
+class TermDiscoveryOutput(AIOutput):
+    candidates: list[TermDiscoverySuggestion] = Field(max_length=40)
+
+
 class ResearchRelation(AIOutput):
     entity_type: Literal["document", "term", "source", "collection"]
     entity_id: NonEmptyText
@@ -143,4 +161,5 @@ TASK_OUTPUTS = {
     "suggest_revision": SuggestRevisionOutput,
     "suggest_evidence": SuggestEvidenceOutput,
     "research_candidate_analysis": ResearchCandidateAnalysisAIOutput,
+    "discover_terms": TermDiscoveryOutput,
 }

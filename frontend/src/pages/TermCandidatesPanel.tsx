@@ -186,6 +186,12 @@ export function TermCandidatesPanel({
                   <span className="term-candidate-id">{candidate.normalized_name}</span>
                 </header>
 
+                {candidate.discovery_assessment && <section className="term-candidate-readiness" aria-label="Readiness explanation">
+                  <div><Chip tone={candidate.discovery_assessment.recommendation_level === "core_gap" ? "amber" : "neutral"}>{candidate.discovery_assessment.recommendation_level.replaceAll("_", " ")}</Chip><Chip>{candidate.discovery_assessment.readiness} readiness</Chip></div>
+                  <p>{candidate.discovery_assessment.why_now}</p>
+                  {(candidate.discovery_assessment.known_prerequisites.length > 0 || candidate.discovery_assessment.missing_prerequisites.length > 0) && <small>已有：{candidate.discovery_assessment.known_prerequisites.join("、") || "—"} · 缺少：{candidate.discovery_assessment.missing_prerequisites.join("、") || "—"}</small>}
+                </section>}
+
                 <div className="term-candidate-evidence-list">
                   {candidate.evidence.map((item) => (
                     <section className={`term-candidate-evidence ${item.origin_rejected ? "rejected" : ""}`} key={item.id}>

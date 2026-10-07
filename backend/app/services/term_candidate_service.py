@@ -15,6 +15,7 @@ from backend.app.domain.term_runtime import (
     TermCandidateEvidenceInput,
     TermCandidateRecord,
     TermEntityRelation,
+    TermDiscoveryAssessment,
     TermType,
 )
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
@@ -75,6 +76,7 @@ class TermCandidateService:
         suggested_type: TermType,
         evidence: list[TermCandidateEvidenceInput],
         preferred_term_id: Optional[str] = None,
+        discovery_assessment: Optional[TermDiscoveryAssessment] = None,
     ) -> TermCandidateRecord:
         """Create or enrich a Candidate after applying the current registry and rejects."""
         normalized_name = normalize_key(display_name)
@@ -90,6 +92,12 @@ class TermCandidateService:
         ]
         if not evidence:
             raise ValueError("Term Candidates require at least one Evidence origin")
+        if discovery_assessment is not None and not isinstance(
+            discovery_assessment, TermDiscoveryAssessment
+        ):
+            discovery_assessment = TermDiscoveryAssessment.model_validate(
+                discovery_assessment
+            )
         if self.repository.is_rejected(normalized_name, "global"):
             raise TermCandidateConflict("This Term Candidate was rejected globally")
 
@@ -136,7 +144,11 @@ class TermCandidateService:
                     "Candidate has a conflicting Existing Term suggestion"
                 )
             self.repository.add_evidence(
-                existing.id, eligible_evidence, now, suggested_term_id
+                existing.id,
+                eligible_evidence,
+                now,
+                suggested_term_id,
+                discovery_assessment,
             )
             return self.repository.get_candidate(existing.id)
 
@@ -147,6 +159,7 @@ class TermCandidateService:
             suggested_type=suggested_type,
             suggested_term_id=suggested_term_id,
             status="pending",
+            discovery_assessment=discovery_assessment,
             created_at=now,
             updated_at=now,
         )

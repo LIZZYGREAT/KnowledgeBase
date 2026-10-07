@@ -35,6 +35,14 @@ class TermCandidateEvidence(TermCandidateEvidenceInput):
     origin_rejected: bool = False
 
 
+class TermDiscoveryAssessment(TermRuntimeModel):
+    readiness: Literal["high", "medium", "low"]
+    recommendation_level: Literal["core_gap", "next", "stretch"]
+    known_prerequisites: list[NonEmptyText] = Field(default_factory=list)
+    missing_prerequisites: list[NonEmptyText] = Field(default_factory=list)
+    why_now: NonEmptyText
+
+
 class TermCandidateRecord(TermRuntimeModel):
     id: NonEmptyText
     normalized_name: NonEmptyText
@@ -47,6 +55,7 @@ class TermCandidateRecord(TermRuntimeModel):
     created_at: NonEmptyText
     updated_at: NonEmptyText
     reviewed_at: Optional[NonEmptyText] = None
+    discovery_assessment: Optional[TermDiscoveryAssessment] = None
 
 
 class TermCandidateDetail(TermCandidateRecord):

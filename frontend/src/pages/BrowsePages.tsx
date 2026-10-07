@@ -13,6 +13,7 @@ import { errorMessage } from "../errors";
 import { Chip, EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading, titleCase } from "../ui";
 import { EntityList, readList, readString, useResource, type SelectEntity } from "./PageShared";
 import { TermCandidatesPanel } from "./TermCandidatesPanel";
+import { TermDiscoveryPanel } from "./TermDiscoveryPanel";
 export function LibraryPage({ onOpen }: { onOpen: SelectEntity }) {
   const [activeTab, setActiveTab] = useState<"document" | "source">(() => new URLSearchParams(window.location.search).get("tab") === "sources" ? "source" : "document");
   const [documentType, setDocumentType] = useState("");
@@ -46,7 +47,7 @@ export function TermsPage({
   initialTab?: "registry" | "candidates";
   initialDocumentId?: string;
 }) {
-  const [activeTab, setActiveTab] = useState<"registry" | "candidates">(initialTab);
+  const [activeTab, setActiveTab] = useState<"registry" | "candidates" | "discovery">(initialTab);
   const [termType, setTermType] = useState<TermType | "">("");
   const [depth, setDepth] = useState("");
   const [selectedTermIds, setSelectedTermIds] = useState<string[]>([]);
@@ -142,8 +143,9 @@ export function TermsPage({
       <div className="term-page-tabs segmented-control" role="tablist" aria-label="Terms 页面">
         <button type="button" role="tab" aria-selected={activeTab === "registry"} className={activeTab === "registry" ? "active" : ""} onClick={() => setActiveTab("registry")}>Registry</button>
         <button type="button" role="tab" aria-selected={activeTab === "candidates"} className={activeTab === "candidates" ? "active" : ""} onClick={() => setActiveTab("candidates")}>Candidates</button>
+        <button type="button" role="tab" aria-selected={activeTab === "discovery"} className={activeTab === "discovery" ? "active" : ""} onClick={() => setActiveTab("discovery")}>Discovery</button>
       </div>
-      {activeTab === "candidates" ? (
+      {activeTab === "discovery" ? <TermDiscoveryPanel /> : activeTab === "candidates" ? (
         resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <TermCandidatesPanel terms={terms} onOpen={onOpen} initialDocumentId={initialDocumentId} />
       ) : <>
       <div className="library-toolbar term-registry-toolbar">

@@ -4,6 +4,17 @@ export type DraftEntityType = EntityType | "taxonomy" | "collection" | "research
 export type AnnotationStyleType = "highlight" | "text_color" | "underline";
 export type TermCandidateStatus = "pending" | "drafting" | "accepted" | "rejected";
 export type TermOriginType = "document" | "source" | "research_work" | "external";
+export type TermDiscoveryLane = "concept" | "entity" | "vocabulary";
+export type TermReadiness = "high" | "medium" | "low";
+export type TermRecommendationLevel = "core_gap" | "next" | "stretch";
+
+export interface TermDiscoveryAssessment {
+  readiness: TermReadiness;
+  recommendation_level: TermRecommendationLevel;
+  known_prerequisites: string[];
+  missing_prerequisites: string[];
+  why_now: string;
+}
 
 export interface TermCandidateEvidence {
   id: string;
@@ -31,7 +42,55 @@ export interface TermCandidate {
   created_at: string;
   updated_at: string;
   reviewed_at: string | null;
+  discovery_assessment?: TermDiscoveryAssessment | null;
   evidence: TermCandidateEvidence[];
+}
+
+export interface TermDiscoverySettings {
+  enabled_lanes: TermDiscoveryLane[];
+  daily_max_new: number;
+  lane_capacities: Record<TermDiscoveryLane, number>;
+  source_preferences: string[];
+  focus_override: string | null;
+}
+
+export interface TermDiscoveryRunItem {
+  id: string;
+  run_id: string;
+  lane: TermDiscoveryLane;
+  source_id: string;
+  mention: string;
+  outcome: "created" | "stretch" | "duplicate" | "filtered" | "rejected" | "error";
+  candidate_id: string | null;
+  assessment: TermDiscoveryAssessment;
+  rationale: string;
+  context_excerpt: string;
+  created_at: string;
+}
+
+export interface TermDiscoveryRun {
+  id: string;
+  trigger: "manual" | "scheduled";
+  status: "success" | "partial" | "failed" | "skipped_capacity" | "skipped_disabled";
+  snapshot: Record<string, unknown>;
+  lane_budgets: Record<TermDiscoveryLane, number>;
+  raw_counts: Record<TermDiscoveryLane, number>;
+  filtered_counts: Record<TermDiscoveryLane, number>;
+  candidate_count: number;
+  started_at: string;
+  finished_at: string | null;
+  error_summary: string | null;
+  items: TermDiscoveryRunItem[];
+}
+
+export interface TermDiscoveryState {
+  settings: TermDiscoverySettings;
+  open_count: number;
+  global_capacity: number;
+  daily_remaining: number;
+  lane_open: Record<TermDiscoveryLane, number>;
+  lane_capacity: Record<TermDiscoveryLane, number>;
+  last_run: TermDiscoveryRun | null;
 }
 
 export interface CandidateTermDraftResult {
@@ -628,6 +687,27 @@ export function mergeTerms(input: TermMergeInput) {
 
 export function listTermCandidates() {
   return request<TermCandidate[]>("/api/terms/candidates");
+}
+
+export function getTermDiscoveryState() {
+  return request<TermDiscoveryState>("/api/terms/discovery");
+}
+
+export function updateTermDiscoverySettings(settings: TermDiscoverySettings) {
+  return request<TermDiscoveryState>("/api/terms/discovery/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
+export function runTermDiscovery(trigger: "manual" | "scheduled" = "manual") {
+  return request<TermDiscoveryRun>(`/api/terms/discovery/run?trigger=${trigger}`, {
+    method: "POST",
+  });
+}
+
+export function listTermDiscoveryRuns(limit = 20) {
+  return request<TermDiscoveryRun[]>(`/api/terms/discovery/runs?limit=${limit}`);
 }
 
 export function getDocumentTermAnalysis(documentId: string) {

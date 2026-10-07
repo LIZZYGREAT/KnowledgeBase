@@ -1,6 +1,7 @@
 """SQLite persistence for Term Candidates, Evidence, relations, and Reject Memory."""
 
 import sqlite3
+import json
 import uuid
 from typing import Optional
 
@@ -79,8 +80,8 @@ class TermCandidateRepository:
                 """INSERT INTO term_candidates (
                        id, normalized_name, display_name, suggested_type,
                        suggested_term_id, status, draft_id, accepted_term_id,
-                       created_at, updated_at, reviewed_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       created_at, updated_at, reviewed_at, recommendation_json
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 _candidate_values(candidate),
             )
             self._insert_evidence(candidate.id, evidence, candidate.created_at)
@@ -92,15 +93,22 @@ class TermCandidateRepository:
         evidence: list[TermCandidateEvidenceInput],
         updated_at: str,
         suggested_term_id: Optional[str] = None,
+        discovery_assessment=None,
     ) -> TermCandidateRecord:
         with self.connection:
             self._insert_evidence(candidate_id, evidence, updated_at)
             self.connection.execute(
                 """UPDATE term_candidates
                    SET updated_at = ?,
-                       suggested_term_id = COALESCE(suggested_term_id, ?)
+                       suggested_term_id = COALESCE(suggested_term_id, ?),
+                       recommendation_json = COALESCE(recommendation_json, ?)
                    WHERE id = ?""",
-                (updated_at, suggested_term_id, candidate_id),
+                (
+                    updated_at,
+                    suggested_term_id,
+                    _assessment_json(discovery_assessment),
+                    candidate_id,
+                ),
             )
         return self.get_candidate(candidate_id)
 
@@ -433,11 +441,24 @@ def _candidate_values(candidate: TermCandidateRecord) -> tuple:
         candidate.created_at,
         candidate.updated_at,
         candidate.reviewed_at,
+        _assessment_json(candidate.discovery_assessment),
     )
 
 
 def _candidate_from_row(row: sqlite3.Row) -> TermCandidateRecord:
-    return TermCandidateRecord.model_validate(dict(row))
+    data = dict(row)
+    encoded_assessment = data.pop("recommendation_json", None)
+    data["discovery_assessment"] = (
+        json.loads(encoded_assessment) if encoded_assessment else None
+    )
+    return TermCandidateRecord.model_validate(data)
+
+
+def _assessment_json(assessment) -> Optional[str]:
+    if assessment is None:
+        return None
+    value = assessment.model_dump(mode="json") if hasattr(assessment, "model_dump") else assessment
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
 def _evidence_from_row(row: sqlite3.Row) -> TermCandidateEvidence:

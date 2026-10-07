@@ -21,6 +21,8 @@ from backend.app.repositories.annotation_repository import AnnotationRepository
 from backend.app.repositories.import_repository import ImportRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
+from backend.app.repositories.pdf_corpus_repository import PdfCorpusRepository
+from backend.app.repositories.term_discovery_repository import TermDiscoveryRepository
 from backend.app.services.ai_client import (
     AIConfigurationError,
     AIGatewayError,
@@ -56,6 +58,8 @@ from backend.app.services.term_analysis_service import (
     TermAnalysisConflict,
     TermAnalysisService,
 )
+from backend.app.services.pdf_corpus_service import PdfCorpusService
+from backend.app.services.term_discovery_service import TermDiscoveryService
 from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
     PresentationAnnotationService,
@@ -100,6 +104,16 @@ async def lifespan(application: FastAPI):
             draft_service,
             git_manager,
             canonical_target_resolver,
+        )
+        pdf_corpus_service = PdfCorpusService(
+            repository_root, PdfCorpusRepository(connection)
+        )
+        term_discovery_service = TermDiscoveryService(
+            repository_root,
+            TermDiscoveryRepository(connection),
+            pdf_corpus_service,
+            term_candidate_service,
+            ai_gateway,
         )
         term_analysis_service = TermAnalysisService(
             repository_root,
@@ -159,6 +173,8 @@ async def lifespan(application: FastAPI):
         application.state.term_candidate_service = term_candidate_service
         application.state.term_merge_service = term_merge_service
         application.state.term_analysis_service = term_analysis_service
+        application.state.pdf_corpus_service = pdf_corpus_service
+        application.state.term_discovery_service = term_discovery_service
         application.state.ai_gateway = ai_gateway
         application.state.ai_proposal_service = ai_proposal_service
         application.state.usage_service = usage_service

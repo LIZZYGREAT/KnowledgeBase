@@ -12,7 +12,10 @@ from backend.app.db.migrations import migrate_database
 from backend.app.domain.ai import DraftTermOutput
 from backend.app.domain.runtime import Draft, Proposal
 from backend.app.domain.term import TermMetadata
-from backend.app.domain.term_runtime import TermCandidateEvidenceInput
+from backend.app.domain.term_runtime import (
+    TermCandidateEvidenceInput,
+    TermDiscoveryAssessment,
+)
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
@@ -28,13 +31,13 @@ from backend.app.services.term_merge_service import (
 )
 
 
-def test_runtime_schema_12_migrates_to_term_core_and_analysis_state_14():
+def test_runtime_schema_12_migrates_to_term_core_and_discovery_state_16():
     connection = sqlite3.connect(":memory:")
     connection.execute("PRAGMA user_version = 12")
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
     tables = {
         row[0]
         for row in connection.execute(
@@ -97,9 +100,19 @@ def test_candidate_resolution_evidence_dedup_and_existing_acceptance(tmp_path):
             origin_id="note-one",
             mention="calibration",
         )
+        assessment = TermDiscoveryAssessment(
+            readiness="high",
+            recommendation_level="core_gap",
+            known_prerequisites=["Fisher information"],
+            missing_prerequisites=[],
+            why_now="Connects the Focus to parameter importance.",
+        )
 
         candidate = service.create_candidate(
-            "Calibrated Optimizer", "entity", [evidence, second_mention]
+            "Calibrated Optimizer",
+            "entity",
+            [evidence, second_mention],
+            discovery_assessment=assessment,
         )
         duplicate = service.create_candidate(
             "  CALIBRATED   OPTIMIZER ", "entity", [evidence, second_mention]
@@ -109,6 +122,7 @@ def test_candidate_resolution_evidence_dedup_and_existing_acceptance(tmp_path):
         assert candidate.normalized_name == "calibrated optimizer"
         assert candidate.suggested_term_id == "neural-indexing"
         assert len(service.get_candidate(candidate.id).evidence) == 2
+        assert service.get_candidate(candidate.id).discovery_assessment == assessment
         resolution = service.resolve_against_registry(candidate)
         assert resolution.status == "existing_term"
         assert resolution.term_id == "neural-indexing"

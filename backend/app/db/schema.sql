@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS term_candidates (
     accepted_term_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    reviewed_at TEXT
+    reviewed_at TEXT,
+    recommendation_json TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS term_candidates_open_name_idx
     ON term_candidates (normalized_name)
@@ -141,6 +142,76 @@ CREATE TABLE IF NOT EXISTS pdf_corpus (
     error_message TEXT,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS corpus_analysis_state (
+    source_id TEXT NOT NULL,
+    text_hash TEXT NOT NULL,
+    focus_hash TEXT NOT NULL,
+    analysis_lane TEXT NOT NULL CHECK (
+        analysis_lane IN ('concept', 'entity', 'vocabulary')
+    ),
+    analysis_version INTEGER NOT NULL,
+    analyzed_at TEXT NOT NULL,
+    PRIMARY KEY (source_id, analysis_lane)
+);
+
+CREATE TABLE IF NOT EXISTS vocabulary_source_statistics (
+    source_id TEXT NOT NULL,
+    normalized_term TEXT NOT NULL,
+    display_term TEXT NOT NULL,
+    term_count INTEGER NOT NULL CHECK (term_count > 0),
+    text_hash TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (source_id, normalized_term)
+);
+CREATE INDEX IF NOT EXISTS vocabulary_source_statistics_term_idx
+    ON vocabulary_source_statistics (normalized_term, source_id);
+
+CREATE TABLE IF NOT EXISTS term_discovery_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled_lanes_json TEXT NOT NULL,
+    quota_json TEXT NOT NULL,
+    source_preferences_json TEXT NOT NULL,
+    focus_override TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS term_discovery_runs (
+    id TEXT PRIMARY KEY,
+    trigger TEXT NOT NULL CHECK (trigger IN ('manual', 'scheduled')),
+    status TEXT NOT NULL CHECK (
+        status IN ('success', 'partial', 'failed', 'skipped_capacity', 'skipped_disabled')
+    ),
+    snapshot_json TEXT NOT NULL,
+    lane_budgets_json TEXT NOT NULL,
+    raw_counts_json TEXT NOT NULL,
+    filtered_counts_json TEXT NOT NULL,
+    candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (candidate_count >= 0),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_summary TEXT
+);
+CREATE INDEX IF NOT EXISTS term_discovery_runs_started_idx
+    ON term_discovery_runs (started_at DESC, id);
+
+CREATE TABLE IF NOT EXISTS term_discovery_run_items (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    lane TEXT NOT NULL CHECK (lane IN ('concept', 'entity', 'vocabulary')),
+    source_id TEXT NOT NULL,
+    mention TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (
+        outcome IN ('created', 'stretch', 'duplicate', 'filtered', 'rejected', 'error')
+    ),
+    candidate_id TEXT,
+    assessment_json TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    context_excerpt TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES term_discovery_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS term_discovery_run_items_run_idx
+    ON term_discovery_run_items (run_id, lane, created_at, id);
 
 CREATE TABLE IF NOT EXISTS presentation_annotations (
     id TEXT PRIMARY KEY,

@@ -18,9 +18,43 @@ from backend.app.api.term_schemas import (
     TermMergeResultView,
 )
 from backend.app.domain.term_runtime import TermCandidateDetail, TermCandidateRecord
+from backend.app.domain.term_discovery import (
+    TermDiscoveryRun,
+    TermDiscoverySettings,
+    TermDiscoveryState,
+)
 
 
 router = APIRouter(prefix="/api/terms", tags=["Terms"])
+
+
+@router.get("/discovery", response_model=TermDiscoveryState)
+async def get_term_discovery_state(request: Request):
+    return request.app.state.term_discovery_service.get_state()
+
+
+@router.put("/discovery/settings", response_model=TermDiscoveryState)
+async def update_term_discovery_settings(
+    body: TermDiscoverySettings, request: Request
+):
+    return request.app.state.term_discovery_service.update_settings(body)
+
+
+@router.post("/discovery/run", response_model=TermDiscoveryRun)
+def run_term_discovery(request: Request, trigger: Literal["manual", "scheduled"] = "manual"):
+    return request.app.state.term_discovery_service.run(trigger)
+
+
+@router.get("/discovery/runs", response_model=list[TermDiscoveryRun])
+async def list_term_discovery_runs(
+    request: Request, limit: int = Query(default=20, ge=1, le=100)
+):
+    return request.app.state.term_discovery_service.list_runs(limit)
+
+
+@router.get("/discovery/runs/{run_id}", response_model=TermDiscoveryRun)
+async def get_term_discovery_run(run_id: str, request: Request):
+    return request.app.state.term_discovery_service.get_run(run_id)
 
 
 @router.post(

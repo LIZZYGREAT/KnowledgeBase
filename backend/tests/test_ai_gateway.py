@@ -89,6 +89,7 @@ def test_ai_task_registry_declares_output_contracts():
         "suggest_revision",
         "suggest_evidence",
         "research_candidate_analysis",
+        "discover_terms",
     }
     assert all(task.output_model.model_json_schema() for task in TASKS.values())
     assert all(
@@ -98,6 +99,39 @@ def test_ai_task_registry_declares_output_contracts():
     )
     assert TASKS["research_candidate_analysis"].output_usage == "analysis"
     assert TASKS["research_candidate_analysis"].proposal_kind is None
+    assert TASKS["discover_terms"].output_usage == "analysis"
+    assert TASKS["discover_terms"].proposal_kind is None
+
+
+def test_term_discovery_output_requires_explainable_readiness_fields():
+    client = MockDeepSeekClient(
+        {
+            "discover_terms": {
+                "candidates": [
+                    {
+                        "mention": "elastic weight consolidation",
+                        "term_type": "concept",
+                        "existing_term_id": None,
+                        "confidence": 0.93,
+                        "rationale": "A reusable continual learning method.",
+                        "context_excerpt": "Elastic weight consolidation limits forgetting.",
+                        "readiness": "high",
+                        "recommendation_level": "core_gap",
+                        "known_prerequisites": ["Fisher information"],
+                        "missing_prerequisites": [],
+                        "why_now": "It connects the selected focus to parameter importance.",
+                    }
+                ]
+            }
+        }
+    )
+
+    output = AIGateway(client).run(
+        "discover_terms", {"lane": "concept", "focus": ["continual learning"]}
+    )
+
+    assert output.candidates[0].recommendation_level == "core_gap"
+    assert output.candidates[0].why_now.startswith("It connects")
 
 
 def test_research_analysis_prompt_limits_collection_suggestions_to_profile_context():
