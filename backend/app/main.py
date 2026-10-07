@@ -64,6 +64,8 @@ from backend.app.services.presentation_annotation_service import (
     AnnotationConflictError,
     PresentationAnnotationService,
 )
+from backend.app.services.ui_summary_service import UiSummaryService
+from backend.app.middleware import install_api_timing
 
 
 @asynccontextmanager
@@ -151,6 +153,9 @@ async def lifespan(application: FastAPI):
             indexer,
         )
         research_service = research_components.research_service
+        ui_summary_service = UiSummaryService(
+            connection, research_service.profile_registry.profiles
+        )
         research_conversion_service = ResearchConversionService(
             repository_root,
             connection,
@@ -189,6 +194,7 @@ async def lifespan(application: FastAPI):
         application.state.import_service = import_service
         application.state.publisher = publisher
         application.state.research_service = research_service
+        application.state.ui_summary_service = ui_summary_service
         application.state.research_conversion_service = research_conversion_service
         try:
             result = research_conversion_service.reconcile_pending_links()
@@ -206,6 +212,7 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(title="KnowledgeBase API", version="0.8.0", lifespan=lifespan)
+install_api_timing(app)
 # Register fixed Term routes before the dynamic /api/terms/{entity_id} read route.
 app.include_router(terms_router)
 app.include_router(knowledge_router)

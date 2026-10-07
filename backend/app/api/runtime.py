@@ -9,6 +9,7 @@ from backend.app.api.imports import router as imports_router
 from backend.app.api.proposals import router as proposals_router
 from backend.app.api.publishing import router as publishing_router
 from backend.app.api.usage import router as usage_router
+from backend.app.api.ui import router as ui_router
 
 router = APIRouter()
 for child_router in (
@@ -19,5 +20,6 @@ for child_router in (
     publishing_router,
     imports_router,
     usage_router,
+    ui_router,
 ):
     router.include_router(child_router)
