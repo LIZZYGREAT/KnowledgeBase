@@ -146,6 +146,12 @@ describe("Terms Registry controls", () => {
       final_title: "Survivor Term",
       aliases: ["Current Alias", "Loser Term", "Former Alias", "loser-term"],
       loser_bodies_not_merged: ["loser-term"],
+      selected_terms: [
+        { id: "survivor-term", title: "Survivor Term", type: "concept", depth: "standard" },
+        { id: "loser-term", title: "Loser Term", type: "entity", depth: "stub" },
+      ],
+      type_conflict: true,
+      depth_conflict: true,
     };
     api.previewTermMerge.mockImplementation(async (input) => ({
       ...preview,
@@ -169,10 +175,13 @@ describe("Terms Registry controls", () => {
 
     expect(await screen.findByText("最终别名")).not.toBeNull();
     expect((await screen.findAllByText("Former Alias")).length).toBeGreaterThan(0);
+    expect(screen.getByText("所选 Terms 的类型与深度")).not.toBeNull();
     expect(screen.getByText("以下条目的正文会随合并删除，不会复制到 Survivor：")).not.toBeNull();
     const confirmButton = screen.getByRole("button", { name: "确认合并" });
     expect((confirmButton as HTMLButtonElement).disabled).toBe(true);
 
+    await user.selectOptions(screen.getByLabelText("最终类型"), "entity");
+    await user.selectOptions(screen.getByLabelText("最终深度"), "stub");
     await user.click(screen.getByRole("checkbox", { name: "我确认继续，且不合并这些正文" }));
     expect((confirmButton as HTMLButtonElement).disabled).toBe(false);
     await user.click(confirmButton);
@@ -182,6 +191,8 @@ describe("Terms Registry controls", () => {
       loser_term_ids: ["loser-term"],
       final_title: "Survivor Term",
       confirm_loser_bodies_not_merged: true,
+      final_type: "entity",
+      final_depth: "stub",
     }));
     expect((await screen.findByRole("status")).textContent).toContain("已将 1 个 Term 合并到 Survivor Term。");
     await waitFor(() => expect(screen.queryByText("Loser Term")).toBeNull());

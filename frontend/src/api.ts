@@ -115,6 +115,15 @@ export interface TermMergeInput {
   loser_term_ids: string[];
   final_title: string;
   confirm_loser_bodies_not_merged?: boolean;
+  final_type?: TermType;
+  final_depth?: "stub" | "standard" | "deep";
+}
+
+export interface TermMergeSelectedTerm {
+  id: string;
+  title: string;
+  type: TermType;
+  depth: "stub" | "standard" | "deep";
 }
 
 export interface TermMergePreview {
@@ -123,6 +132,9 @@ export interface TermMergePreview {
   final_title: string;
   aliases: string[];
   loser_bodies_not_merged: string[];
+  selected_terms: TermMergeSelectedTerm[];
+  type_conflict: boolean;
+  depth_conflict: boolean;
 }
 
 export interface TermMergeResult extends TermMergePreview {

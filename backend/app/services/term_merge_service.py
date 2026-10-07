@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
+from typing import Optional
 
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.services.markdown_parser import parse_markdown
@@ -16,12 +17,23 @@ class TermMergeConflict(RuntimeError):
 
 
 @dataclass(frozen=True)
+class TermMergeSelectedTerm:
+    id: str
+    title: str
+    type: str
+    depth: str
+
+
+@dataclass(frozen=True)
 class TermMergePreview:
     survivor_term_id: str
     loser_term_ids: tuple[str, ...]
     final_title: str
     aliases: tuple[str, ...]
     loser_bodies_not_merged: tuple[str, ...]
+    selected_terms: tuple[TermMergeSelectedTerm, ...] = ()
+    type_conflict: bool = False
+    depth_conflict: bool = False
 
 
 @dataclass(frozen=True)
@@ -33,6 +45,9 @@ class TermMergeResult:
     loser_bodies_not_merged: tuple[str, ...]
     commit_revision: str
     warnings: tuple[str, ...] = ()
+    selected_terms: tuple[TermMergeSelectedTerm, ...] = ()
+    type_conflict: bool = False
+    depth_conflict: bool = False
 
 
 class TermMergeService:
@@ -118,12 +133,24 @@ class TermMergeService:
                 )
             ).strip()
         )
+        selected_terms = tuple(
+            TermMergeSelectedTerm(
+                id=term.id,
+                title=term.title,
+                type=term.type,
+                depth=term.depth,
+            )
+            for term in (terms[term_id] for term_id in (survivor_term_id, *loser_term_ids))
+        )
         return TermMergePreview(
             survivor_term_id=survivor_term_id,
             loser_term_ids=tuple(loser_term_ids),
             final_title=final_title,
             aliases=aliases,
             loser_bodies_not_merged=bodyful_losers,
+            selected_terms=selected_terms,
+            type_conflict=len({term.type for term in selected_terms}) > 1,
+            depth_conflict=len({term.depth for term in selected_terms}) > 1,
         )
 
     def merge(
@@ -132,12 +159,20 @@ class TermMergeService:
         loser_term_ids: list[str],
         final_title: str,
         confirm_loser_bodies_not_merged: bool = False,
+        final_type: Optional[str] = None,
+        final_depth: Optional[str] = None,
     ) -> TermMergeResult:
         preview = self.preview(survivor_term_id, loser_term_ids, final_title)
         if preview.loser_bodies_not_merged and not confirm_loser_bodies_not_merged:
             raise TermMergeConflict(
                 "Confirm that loser Term bodies will not be copied into the survivor"
             )
+        final_type = _final_metadata_value(
+            "type", final_type, preview.selected_terms, preview.type_conflict
+        )
+        final_depth = _final_metadata_value(
+            "depth", final_depth, preview.selected_terms, preview.depth_conflict
+        )
 
         canonical_merge = None
         self.connection.execute("BEGIN IMMEDIATE")
@@ -151,6 +186,8 @@ class TermMergeService:
                 list(preview.loser_term_ids),
                 preview.final_title,
                 list(preview.aliases),
+                final_type,
+                final_depth,
             )
             self.connection.commit()
         except Exception as error:
@@ -181,6 +218,9 @@ class TermMergeService:
             loser_bodies_not_merged=preview.loser_bodies_not_merged,
             commit_revision=canonical_merge.commit_revision,
             warnings=tuple(warnings),
+            selected_terms=preview.selected_terms,
+            type_conflict=preview.type_conflict,
+            depth_conflict=preview.depth_conflict,
         )
 
 
@@ -189,13 +229,15 @@ def merge_aliases(survivor, losers, final_title: str) -> tuple[str, ...]:
     final_key = normalize_key(final_title)
     seen = set()
     aliases = []
-    values = list(survivor.aliases)
-    values.extend(loser.title for loser in losers)
-    values.extend(alias for loser in losers for alias in loser.aliases)
-    for value in values:
+    values = [(survivor.title, True)]
+    values.extend((value, False) for value in survivor.aliases)
+    values.extend((loser.title, False) for loser in losers)
+    values.extend((alias, False) for loser in losers for alias in loser.aliases)
+    for value, preserve_survivor_title in values:
         clean = value.strip()
         key = normalize_key(clean)
-        if not clean or not key or key == final_key or key in seen:
+        keep_former_title = preserve_survivor_title and clean != final_title
+        if not clean or not key or (key == final_key and not keep_former_title) or key in seen:
             continue
         seen.add(key)
         aliases.append(clean)
@@ -205,6 +247,26 @@ def merge_aliases(survivor, losers, final_title: str) -> tuple[str, ...]:
         if normalize_key(loser.id) != final_key and loser.id not in aliases:
             aliases.append(loser.id)
     return tuple(aliases)
+
+
+def _final_metadata_value(
+    field: str, requested: Optional[str], selected_terms, conflict: bool
+) -> str:
+    allowed = {getattr(term, field) for term in selected_terms}
+    survivor_value = getattr(selected_terms[0], field)
+    if conflict and requested is None:
+        raise TermMergeConflict(
+            "Select a final Term {} from the selected Terms".format(field)
+        )
+    if requested is not None and requested not in allowed:
+        raise TermMergeConflict(
+            "Final Term {} must match one of the selected Terms".format(field)
+        )
+    if not conflict and requested is not None and requested != survivor_value:
+        raise TermMergeConflict(
+            "Without a {} conflict, the Survivor {} is retained".format(field, field)
+        )
+    return requested or survivor_value
 
 
 def _term_body(content: str) -> str:

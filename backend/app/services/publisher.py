@@ -615,6 +615,8 @@ class Publisher:
         loser_term_ids: Sequence[str],
         final_title: str,
         aliases: Sequence[str],
+        final_type: str,
+        final_depth: str,
     ) -> CanonicalTermMergeCommit:
         """Publish one canonical Git change containing a Term update and deletions."""
         if not loser_term_ids or len(loser_term_ids) != len(set(loser_term_ids)):
@@ -649,6 +651,8 @@ class Publisher:
         updated_metadata = dict(parsed.frontmatter)
         updated_metadata["title"] = final_title
         updated_metadata["aliases"] = list(aliases)
+        updated_metadata["type"] = final_type
+        updated_metadata["depth"] = final_depth
         try:
             validated_metadata = TermMetadata.model_validate(updated_metadata)
         except ValidationError as error:

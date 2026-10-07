@@ -769,6 +769,8 @@ def test_term_merge_api_serializes_preview_and_result():
             loser_term_ids,
             final_title,
             confirm_loser_bodies_not_merged=False,
+            final_type=None,
+            final_depth=None,
         ):
             return TermMergeResult(
                 survivor_term_id,

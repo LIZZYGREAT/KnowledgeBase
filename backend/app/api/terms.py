@@ -110,4 +110,6 @@ async def merge_terms(body: TermMergeRequest, request: Request):
         body.loser_term_ids,
         body.final_title,
         body.confirm_loser_bodies_not_merged,
+        final_type=body.final_type,
+        final_depth=body.final_depth,
     )

@@ -212,6 +212,75 @@ def test_term_merge_moves_aliases_relations_and_resolves_old_ids(publish_context
     ) == (loser_id, "fisher-information")
 
 
+def test_term_merge_preserves_old_title_and_requires_selected_metadata(publish_context):
+    repository, connection, _, _, publisher = publish_context
+    terms_dir = repository / "knowledge" / "terms"
+    survivor_id = "state-of-the-art"
+    loser_id = "sota-method"
+    survivor_path = terms_dir / "{}.md".format(survivor_id)
+    loser_path = terms_dir / "{}.md".format(loser_id)
+    survivor_path.write_text(
+        _term(survivor_id, "State of the Art"), encoding="utf-8"
+    )
+    loser_path.write_text(
+        _term(loser_id, "State of the Art Method")
+        .replace("type: concept", "type: vocabulary")
+        .replace("depth: standard", "depth: stub"),
+        encoding="utf-8",
+    )
+    _git(repository, "add", str(survivor_path.relative_to(repository)), str(loser_path.relative_to(repository)))
+    _git(repository, "commit", "-m", "add metadata conflict Terms")
+
+    indexer = Indexer(repository, connection)
+    indexer.full_rebuild()
+    service = TermMergeService(
+        repository,
+        connection,
+        TermCandidateRepository(connection),
+        publisher,
+        indexer,
+    )
+    final_title = "state-of-the-art"
+    preview = service.preview(survivor_id, [loser_id], final_title)
+
+    assert "State of the Art" in preview.aliases
+    assert preview.type_conflict is True
+    assert preview.depth_conflict is True
+    assert [
+        (term.id, term.title, term.type, term.depth)
+        for term in preview.selected_terms
+    ] == [
+        (survivor_id, "State of the Art", "concept", "standard"),
+        (loser_id, "State of the Art Method", "vocabulary", "stub"),
+    ]
+    with pytest.raises(TermMergeConflict, match="Select a final Term type"):
+        service.merge(
+            survivor_id,
+            [loser_id],
+            final_title,
+            confirm_loser_bodies_not_merged=True,
+        )
+
+    result = service.merge(
+        survivor_id,
+        [loser_id],
+        final_title,
+        confirm_loser_bodies_not_merged=True,
+        final_type="vocabulary",
+        final_depth="stub",
+    )
+    metadata = parse_markdown(survivor_path.read_text(encoding="utf-8")).frontmatter
+    assert metadata["title"] == final_title
+    assert "State of the Art" in metadata["aliases"]
+    assert metadata["type"] == "vocabulary"
+    assert metadata["depth"] == "stub"
+    assert result.type_conflict is True
+    assert result.depth_conflict is True
+    resolved = TermResolver(TermRegistry.load(terms_dir)).resolve("State of the Art")
+    assert resolved.status == "resolved"
+    assert resolved.entity_id == survivor_id
+
+
 def test_term_merge_git_failure_rolls_back_runtime_migration_and_canonical_files(
     publish_context, monkeypatch
 ):

@@ -86,6 +86,15 @@ class TermMergePreviewRequest(TermRequest):
 
 class TermMergeRequest(TermMergePreviewRequest):
     confirm_loser_bodies_not_merged: bool = False
+    final_type: Optional[Literal["concept", "entity", "vocabulary"]] = None
+    final_depth: Optional[Literal["stub", "standard", "deep"]] = None
+
+
+class TermMergeSelectedTermView(TermRequest):
+    id: str
+    title: str
+    type: Literal["concept", "entity", "vocabulary"]
+    depth: Literal["stub", "standard", "deep"]
 
 
 class TermMergePreviewView(TermRequest):
@@ -94,6 +103,9 @@ class TermMergePreviewView(TermRequest):
     final_title: str
     aliases: list[str]
     loser_bodies_not_merged: list[str]
+    selected_terms: list[TermMergeSelectedTermView] = Field(default_factory=list)
+    type_conflict: bool = False
+    depth_conflict: bool = False
 
 
 class TermMergeResultView(TermMergePreviewView):
