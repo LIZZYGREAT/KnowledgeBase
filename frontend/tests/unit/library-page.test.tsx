@@ -74,4 +74,16 @@ describe("Library tabs and Import", () => {
     await userEvent.click(screen.getByRole("button", { name: "Term One" }));
     expect(onOpen).toHaveBeenCalledWith("term", "term-one");
   });
+
+  it("updates the navigable URL for each Library tab", async () => {
+    const navigate = vi.fn();
+    render(<LibraryPage onOpen={vi.fn()} navigate={navigate} />);
+
+    await userEvent.click(await screen.findByRole("tab", { name: /Sources/ }));
+    expect(navigate).toHaveBeenLastCalledWith("/library?tab=sources");
+    await userEvent.click(screen.getByRole("tab", { name: "Import" }));
+    expect(navigate).toHaveBeenLastCalledWith("/library?tab=import");
+    await userEvent.click(screen.getByRole("tab", { name: /Documents/ }));
+    expect(navigate).toHaveBeenLastCalledWith("/library");
+  });
 });

@@ -17,8 +17,9 @@ import { TermDiscoveryPanel } from "./TermDiscoveryPanel";
 import { TermMentionsPanel } from "./TermMentionsPanel";
 import { ImportReviewPanel } from "./ImportReviewPanel";
 import { LibraryDocumentsPanel, LibrarySourcesPanel } from "./LibraryCorpusPanels";
-export function LibraryPage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
+export function LibraryPage({ onOpen, navigate, initialTab }: { onOpen: SelectEntity; navigate: Navigate; initialTab?: "documents" | "sources" | "import" }) {
   const [activeTab, setActiveTab] = useState<"document" | "source" | "import">(() => {
+    if (initialTab) return initialTab === "documents" ? "document" : initialTab === "sources" ? "source" : "import";
     const tab = new URLSearchParams(window.location.search).get("tab");
     return tab === "sources" ? "source" : tab === "import" ? "import" : "document";
   });
@@ -29,14 +30,21 @@ export function LibraryPage({ onOpen, navigate }: { onOpen: SelectEntity; naviga
   const visible = activeTab === "document"
     ? documents.filter((item) => !documentType || item.metadata.type === documentType)
     : activeTab === "source" ? sources : [];
+
+  function selectTab(tab: "document" | "source" | "import") {
+    if (activeTab === tab) return;
+    setActiveTab(tab);
+    navigate(tab === "document" ? "/library" : tab === "source" ? "/library?tab=sources" : "/library?tab=import");
+  }
+
   return (
     <div className="page-stack">
       <PageHeader eyebrow="CORPUS MANAGEMENT" title="Library" description="管理 Agent 可使用的知识输入、笔记和来源文献。" />
       <div className="library-toolbar">
         <div className="segmented-control" role="tablist" aria-label="Library 类型">
-          <button role="tab" aria-selected={activeTab === "document"} className={activeTab === "document" ? "active" : ""} onClick={() => setActiveTab("document")}>Documents <span>{documents.length}</span></button>
-          <button role="tab" aria-selected={activeTab === "source"} className={activeTab === "source" ? "active" : ""} onClick={() => setActiveTab("source")}>Sources <span>{sources.length}</span></button>
-          <button role="tab" aria-selected={activeTab === "import"} className={activeTab === "import" ? "active" : ""} onClick={() => setActiveTab("import")}>Import</button>
+          <button role="tab" aria-selected={activeTab === "document"} className={activeTab === "document" ? "active" : ""} onClick={() => selectTab("document")}>Documents <span>{documents.length}</span></button>
+          <button role="tab" aria-selected={activeTab === "source"} className={activeTab === "source" ? "active" : ""} onClick={() => selectTab("source")}>Sources <span>{sources.length}</span></button>
+          <button role="tab" aria-selected={activeTab === "import"} className={activeTab === "import" ? "active" : ""} onClick={() => selectTab("import")}>Import</button>
         </div>
         {activeTab === "document" && <label className="field-label compact-field">Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">Paper notes</option><option value="learning-note">Learning notes</option><option value="course-note">Course notes</option></select></label>}
       </div>
@@ -90,6 +98,12 @@ export function TermsPage({
       && (!topicFilter || readList(term.metadata, "topics").includes(topicFilter));
   });
   const loserTermIds = selectedTermIds.filter((id) => id !== mergeSurvivorId);
+
+  function selectTab(tab: "registry" | "candidates" | "mentions" | "discovery") {
+    if (activeTab === tab) return;
+    setActiveTab(tab);
+    navigate(tab === "registry" ? "/terms" : `/terms?tab=${tab}`);
+  }
 
   useEffect(() => {
     if (!mergeDialogOpen || !mergeSurvivorId || !mergeFinalTitle.trim() || !loserTermIds.length) {
@@ -164,10 +178,10 @@ export function TermsPage({
     <div className="page-stack">
       <PageHeader eyebrow="TERMS REGISTRY" title="Terms" description="浏览并维护可链接、可复用的知识节点。" />
       <div className="term-page-tabs segmented-control" role="tablist" aria-label="Terms 页面">
-        <button type="button" role="tab" aria-selected={activeTab === "registry"} className={activeTab === "registry" ? "active" : ""} onClick={() => setActiveTab("registry")}>Registry</button>
-        <button type="button" role="tab" aria-selected={activeTab === "candidates"} className={activeTab === "candidates" ? "active" : ""} onClick={() => setActiveTab("candidates")}>Candidates</button>
-        <button type="button" role="tab" aria-selected={activeTab === "mentions"} className={activeTab === "mentions" ? "active" : ""} onClick={() => setActiveTab("mentions")}>Mentions</button>
-        <button type="button" role="tab" aria-selected={activeTab === "discovery"} className={activeTab === "discovery" ? "active" : ""} onClick={() => setActiveTab("discovery")}>Discovery</button>
+        <button type="button" role="tab" aria-selected={activeTab === "registry"} className={activeTab === "registry" ? "active" : ""} onClick={() => selectTab("registry")}>Registry</button>
+        <button type="button" role="tab" aria-selected={activeTab === "candidates"} className={activeTab === "candidates" ? "active" : ""} onClick={() => selectTab("candidates")}>Candidates</button>
+        <button type="button" role="tab" aria-selected={activeTab === "mentions"} className={activeTab === "mentions" ? "active" : ""} onClick={() => selectTab("mentions")}>Mentions</button>
+        <button type="button" role="tab" aria-selected={activeTab === "discovery"} className={activeTab === "discovery" ? "active" : ""} onClick={() => selectTab("discovery")}>Discovery</button>
       </div>
       {activeTab === "discovery" ? <TermDiscoveryPanel /> : activeTab === "mentions" ? (
         resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <TermMentionsPanel terms={terms} navigate={navigate} />

@@ -27,14 +27,26 @@ vi.mock("../../src/Pages", async () => {
   return {
     HomePage: () => React.createElement("div", null, "Home mock"),
     SearchPage: () => React.createElement("div", null, "Search mock"),
-    LibraryPage: ({ onOpen }: { onOpen: (type: "document", id: string) => void }) =>
-      React.createElement(
-        "div",
-        null,
-        "Library mock",
-        React.createElement("button", { onClick: () => onOpen("document", "history-note") }, "Open workspace"),
-      ),
-    TermsPage: ({ initialTab }: { initialTab: string }) => React.createElement("div", null, `Terms mock: ${initialTab}`),
+    LibraryPage: ({ onOpen, navigate, initialTab }: {
+      onOpen: (type: "document" | "source", id: string) => void;
+      navigate: (path: string) => void;
+      initialTab: string;
+    }) => React.createElement(React.Fragment, null,
+      React.createElement("div", null, "Library mock"),
+      React.createElement("div", null, `Library tab: ${initialTab}`),
+      React.createElement("button", { onClick: () => onOpen("document", "history-note") }, "Open workspace"),
+      React.createElement("button", { onClick: () => navigate(initialTab === "import" ? "/library" : "/library?tab=import") }, "Switch Library tab"),
+      React.createElement("button", { onClick: () => onOpen("source", "history-source") }, "Open source draft"),
+    ),
+    TermsPage: ({ initialTab, onOpen, navigate }: {
+      initialTab: string;
+      onOpen: (type: "term", id: string) => void;
+      navigate: (path: string) => void;
+    }) => React.createElement(React.Fragment, null,
+      React.createElement("div", null, `Terms mock: ${initialTab}`),
+      React.createElement("button", { onClick: () => navigate(initialTab === "candidates" ? "/terms?tab=mentions" : "/terms?tab=candidates") }, "Switch Terms tab"),
+      React.createElement("button", { onClick: () => onOpen("term", "candidate-term") }, "Open candidate term"),
+    ),
     TopicsPage: () => React.createElement("div", null, "Topics mock"),
     ReviewPage: () => React.createElement("div", null, "Review mock"),
   };
@@ -113,6 +125,46 @@ describe("App browser history guards", () => {
     render(<App />);
 
     expect(await screen.findByText("Terms mock: mentions")).toBeTruthy();
+  });
+
+  it("preserves the selected Terms tab across reader Back and Forward", async () => {
+    window.history.replaceState({ __kb_index: 0 }, "", "/terms");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Terms tab" }));
+    expect(await screen.findByText("Terms mock: candidates")).toBeTruthy();
+    expect(window.location.pathname + window.location.search).toBe("/terms?tab=candidates");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open candidate term" }));
+    expect(await screen.findByText("Workspace editor")).toBeTruthy();
+    await act(async () => dispatchPop("/terms?tab=candidates", 1));
+    expect(await screen.findByText("Terms mock: candidates")).toBeTruthy();
+    await act(async () => dispatchPop("/terms/candidate-term", 2));
+    expect(await screen.findByText("Workspace editor")).toBeTruthy();
+  });
+
+  it("preserves the selected Library tab across source draft Back and Forward", async () => {
+    window.history.replaceState({ __kb_index: 0 }, "", "/library");
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Library tab" }));
+    expect(await screen.findByText("Library tab: import")).toBeTruthy();
+    expect(window.location.pathname + window.location.search).toBe("/library?tab=import");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open source draft" }));
+    expect(await screen.findByText("Workspace editor")).toBeTruthy();
+    await act(async () => dispatchPop("/library?tab=import", 1));
+    expect(await screen.findByText("Library tab: import")).toBeTruthy();
+    await act(async () => dispatchPop("/sources/history-source", 2));
+    expect(await screen.findByText("Workspace editor")).toBeTruthy();
+  });
+
+  it("opens Library directly on the tab requested by the URL", async () => {
+    window.history.replaceState({ __kb_index: 0 }, "", "/library?tab=import");
+
+    render(<App />);
+
+    expect(await screen.findByText("Library tab: import")).toBeTruthy();
   });
 
   it("flushes before browser Back and changes route after the guard succeeds", async () => {

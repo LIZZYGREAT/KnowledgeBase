@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({
   getEntity: vi.fn(),
   listTaxonomy: vi.fn(),
   listTermCandidates: vi.fn(),
+  getTermDiscoveryState: vi.fn(),
+  listTermDiscoveryRuns: vi.fn(),
   previewTermMerge: vi.fn(),
   mergeTerms: vi.fn(),
   acceptTermCandidate: vi.fn(),
@@ -126,6 +128,23 @@ describe("Terms Registry controls", () => {
       ? [{ id: "ai", title: "Artificial Intelligence", kind: "domain" }, { id: "biology", title: "Biology", kind: "domain" }]
       : [{ id: "agents", title: "Agents", kind: "topic" }, { id: "methods", title: "Methods", kind: "topic" }]);
     api.listTermCandidates.mockResolvedValue(candidates);
+    api.getTermDiscoveryState.mockResolvedValue({
+      settings: {
+        enabled_lanes: ["concept", "entity", "vocabulary"],
+        daily_max_new: 5,
+        lane_capacities: { concept: 5, entity: 4, vocabulary: 6 },
+        source_preferences: [],
+        focus_override: null,
+        external_enabled: false,
+      },
+      open_count: 0,
+      global_capacity: 12,
+      daily_remaining: 5,
+      lane_open: { concept: 0, entity: 0, vocabulary: 0 },
+      lane_capacity: { concept: 5, entity: 4, vocabulary: 6 },
+      last_run: null,
+    });
+    api.listTermDiscoveryRuns.mockResolvedValue([]);
     api.acceptTermCandidate.mockResolvedValue({});
     api.rejectTermCandidate.mockResolvedValue({});
     api.requestCandidateTermDraftProposal.mockResolvedValue({});
@@ -143,6 +162,21 @@ describe("Terms Registry controls", () => {
     expect(screen.getByText("Loser Term")).not.toBeNull();
     expect(screen.queryByText("Survivor Term")).toBeNull();
     expect(screen.queryByText("Word Term")).toBeNull();
+  });
+
+  it("sends Terms tab selections to their matching URLs", async () => {
+    const navigate = vi.fn();
+    render(<TermsPage onOpen={vi.fn()} navigate={navigate} />);
+    await screen.findByText("Survivor Term");
+
+    await userEvent.click(screen.getByRole("tab", { name: "Candidates" }));
+    expect(navigate).toHaveBeenLastCalledWith("/terms?tab=candidates");
+    await userEvent.click(screen.getByRole("tab", { name: "Mentions" }));
+    expect(navigate).toHaveBeenLastCalledWith("/terms?tab=mentions");
+    await userEvent.click(screen.getByRole("tab", { name: "Discovery" }));
+    expect(navigate).toHaveBeenLastCalledWith("/terms?tab=discovery");
+    await userEvent.click(screen.getByRole("tab", { name: "Registry" }));
+    expect(navigate).toHaveBeenLastCalledWith("/terms");
   });
 
   it("searches Registry titles, IDs and aliases and filters by Domain and Topic", async () => {

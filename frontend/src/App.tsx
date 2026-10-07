@@ -333,7 +333,19 @@ export default function App() {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;
   } else if (route.path === "/library") {
-    page = <Suspense fallback={<LoadingState />}><LibraryPage onOpen={openEntity} navigate={navigate} /></Suspense>;
+    const libraryQuery = new URLSearchParams(location.search);
+    const requestedLibraryTab = libraryQuery.get("tab");
+    const initialLibraryTab = requestedLibraryTab === "sources" || requestedLibraryTab === "import" ? requestedLibraryTab : "documents";
+    page = (
+      <Suspense fallback={<LoadingState />}>
+        <LibraryPage
+          key={`${location.pathname}${location.search}`}
+          onOpen={openEntity}
+          navigate={navigate}
+          initialTab={initialLibraryTab}
+        />
+      </Suspense>
+    );
   } else if (route.path === "/terms") {
     const termQuery = new URLSearchParams(location.search);
     const requestedTermTab = termQuery.get("tab");
