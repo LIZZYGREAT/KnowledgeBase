@@ -106,6 +106,47 @@ def test_run_creates_only_non_stretch_candidate_with_explainable_assessment(tmp_
     connection.close()
 
 
+def test_run_snapshot_records_the_effective_focus_sent_to_discovery(tmp_path, monkeypatch):
+    connection, service, _candidate_service, _pdf_service, gateway = _service(tmp_path)
+    service.update_settings(TermDiscoverySettings(enabled_lanes=["concept"]))
+    monkeypatch.setattr(
+        "backend.app.services.term_discovery_service._focus_context",
+        lambda _root, _settings: ["Continual Learning"],
+    )
+
+    class SnapshotWithRecentTerms:
+        def build_snapshot(self, explicit_focus):
+            return {
+                "focus": {
+                    "explicit": list(explicit_focus),
+                    "recent_terms": [
+                        {"id": "icarl", "title": "iCaRL"},
+                        {"id": "herding", "title": "Herding"},
+                    ],
+                    "recent_topics": [],
+                    "recent_domains": [],
+                },
+                "knowledge": {},
+                "activity": {"recent_documents": []},
+                "term_states": {},
+            }
+
+    service.knowledge_state = SnapshotWithRecentTerms()
+
+    run = service.run()
+
+    discovery_calls = [context for task, context in gateway.calls if task == "discover_terms"]
+    assert run.status == "success"
+    assert discovery_calls
+    assert run.snapshot["effective_focus"] == [
+        "iCaRL",
+        "Herding",
+        "Continual Learning",
+    ]
+    assert all(context["focus"] == run.snapshot["effective_focus"] for context in discovery_calls)
+    connection.close()
+
+
 def test_dynamic_quota_and_lane_backpressure_bound_each_run():
     assert [_dynamic_allowance(count) for count in (0, 3, 4, 7, 8, 11, 12)] == [
         5, 5, 3, 3, 1, 1, 0

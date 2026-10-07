@@ -64,11 +64,17 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
   const snapshot = asRecord(data.termDiscovery.last_run?.snapshot);
   const snapshotFocus = asRecord(snapshot.focus);
   const knowledge = asRecord(snapshot.knowledge);
-  const focusItems = data.termDiscovery.settings.focus_override
-    ? [data.termDiscovery.settings.focus_override]
-    : readStringArray(snapshotFocus.explicit).length
-      ? readStringArray(snapshotFocus.explicit)
-      : [...readStringArray(snapshotFocus.recent_topics), ...readStringArray(snapshotFocus.recent_domains)];
+  const hasEffectiveFocus = Array.isArray(snapshot.effective_focus);
+  const legacyFocus = [
+    ...(data.termDiscovery.settings.focus_override ? [data.termDiscovery.settings.focus_override] : []),
+    ...readLabelArray(snapshotFocus.recent_terms),
+    ...readStringArray(snapshotFocus.recent_topics),
+    ...readStringArray(snapshotFocus.recent_domains),
+    ...readStringArray(snapshotFocus.explicit),
+  ];
+  const focusItems = hasEffectiveFocus
+    ? readStringArray(snapshot.effective_focus)
+    : Array.from(new Set(legacyFocus.length ? legacyFocus : readStringArray(snapshotFocus.explicit)));
   const established = readLabelArray(knowledge.established);
   const learning = readLabelArray(knowledge.learning);
   const coreGaps = pendingCandidates

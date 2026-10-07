@@ -323,6 +323,7 @@ class TermDiscoveryService:
         focus = _focus_context(self.repository_root, settings)
         snapshot = self.knowledge_state.build_snapshot(focus)
         focus = _discovery_focus(focus, snapshot, settings.focus_override)
+        snapshot["effective_focus"] = focus[:20]
         focus_hash = _json_hash(
             {
                 "focus": focus,

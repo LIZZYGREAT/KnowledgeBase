@@ -133,4 +133,78 @@ describe("Knowledge Dashboard", () => {
     expect(screen.queryByText("Exposed Term")).toBeNull();
     expect(screen.queryByText("Unknown Term")).toBeNull();
   });
+
+  it("uses the effective Focus stored in the Discovery run", async () => {
+    api.getTermDiscoveryState.mockResolvedValueOnce({
+      settings: { enabled_lanes: ["concept"], focus_override: "Current override" },
+      open_count: 0,
+      global_capacity: 8,
+      daily_remaining: 4,
+      lane_open: { concept: 0, entity: 0, vocabulary: 0 },
+      lane_capacity: { concept: 4, entity: 4, vocabulary: 4 },
+      last_run: {
+        status: "success",
+        started_at: "2026-10-07T08:00:00Z",
+        snapshot: {
+          effective_focus: ["iCaRL", "Herding", "Continual Learning"],
+          focus: {
+            explicit: ["Continual Learning"],
+            recent_terms: [{ title: "iCaRL" }, { title: "Herding" }],
+            recent_topics: [],
+            recent_domains: [],
+          },
+          knowledge: { established: [], learning: [], exposed: [], unknown: [] },
+        },
+        items: [],
+      },
+    });
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    await screen.findByText("iCaRL");
+    const focus = screen.getByRole("heading", { name: "Current Focus" }).parentElement;
+    expect(within(focus as HTMLElement).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "iCaRL",
+      "Herding",
+      "Continual Learning",
+    ]);
+    expect(screen.queryByText("Current override")).toBeNull();
+  });
+
+  it("reconstructs legacy Focus from override, recent context, then explicit profile", async () => {
+    api.getTermDiscoveryState.mockResolvedValueOnce({
+      settings: { enabled_lanes: ["concept"], focus_override: "Current override" },
+      open_count: 0,
+      global_capacity: 8,
+      daily_remaining: 4,
+      lane_open: { concept: 0, entity: 0, vocabulary: 0 },
+      lane_capacity: { concept: 4, entity: 4, vocabulary: 4 },
+      last_run: {
+        status: "success",
+        started_at: "2026-10-07T08:00:00Z",
+        snapshot: {
+          focus: {
+            explicit: ["Continual Learning"],
+            recent_terms: [{ title: "iCaRL" }],
+            recent_topics: ["Class-Incremental Learning"],
+            recent_domains: ["Machine Learning"],
+          },
+          knowledge: { established: [], learning: [], exposed: [], unknown: [] },
+        },
+        items: [],
+      },
+    });
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    await screen.findByText("iCaRL");
+    const focus = screen.getByRole("heading", { name: "Current Focus" }).parentElement;
+    expect(within(focus as HTMLElement).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "Current override",
+      "iCaRL",
+      "Class-Incremental Learning",
+      "Machine Learning",
+      "Continual Learning",
+    ]);
+  });
 });
