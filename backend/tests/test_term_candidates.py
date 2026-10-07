@@ -4,12 +4,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from backend.app.api.ai import router as ai_router
 from backend.app.api.terms import router as terms_router
 from backend.app.api.knowledge import router as knowledge_router
 from backend.app.db.connection import connect_database, initialize_database
 from backend.app.db.migrations import migrate_database
 from backend.app.domain.ai import DraftTermOutput
-from backend.app.domain.runtime import Draft
+from backend.app.domain.runtime import Draft, Proposal
 from backend.app.domain.term import TermMetadata
 from backend.app.domain.term_runtime import TermCandidateEvidenceInput
 from backend.app.repositories.draft_repository import DraftRepository
@@ -299,6 +300,329 @@ def test_candidate_term_draft_lifecycle_and_publish_relations(tmp_path):
                 "SELECT entity_type, entity_id, term_id FROM term_entity_relations"
             ).fetchall()
         ] == [("document", "note-one", "adaptive-token-pruning")]
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("origin_type", ["source", "research_work", "external"])
+def test_candidate_term_draft_accepts_generic_evidence_origins(tmp_path, origin_type):
+    _write_term(tmp_path)
+    origin_id = {
+        "source": "source-one",
+        "research_work": "work-one",
+        "external": "https://example.test/paper-one",
+    }[origin_type]
+    if origin_type == "source":
+        source_path = tmp_path / "knowledge" / "sources" / "source-one.yaml"
+        source_path.parent.mkdir(parents=True)
+        source_path.write_text(
+            "schema_version: 1\nid: source-one\ntype: paper\ntitle: Source One\n",
+            encoding="utf-8",
+        )
+
+    connection = connect_database(":memory:")
+    try:
+        if origin_type == "research_work":
+            connection.execute(
+                """INSERT INTO research_works (
+                       id, canonical_key, title, normalized_title, authors_json,
+                       created_at, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (origin_id, "doi:10.1/work-one", "Work One", "work one", "[]", "now", "now"),
+            )
+        repository = TermCandidateRepository(connection)
+        drafts = DraftService(DraftRepository(connection))
+        target_resolver = CanonicalTargetResolver(tmp_path, connection)
+
+        class FakeGit:
+            def current_revision(self):
+                return "a" * 40
+
+            def content_hash(self, path):
+                return "b" * 64
+
+        service = TermCandidateService(
+            tmp_path, repository, drafts, FakeGit(), target_resolver
+        )
+        candidate = service.create_candidate(
+            "Generic Evidence Term",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type=origin_type,
+                    origin_id=origin_id,
+                    mention="Generic Evidence Term",
+                    context_excerpt="A bounded excerpt about the generic evidence term.",
+                    rationale="This evidence is useful context for a reusable term.",
+                )
+            ],
+        )
+
+        result = service.create_term_draft(candidate.id)
+        assert result["candidate"].status == "drafting"
+        assert result["draft"].entity_id == "generic-evidence-term"
+
+        service.finalize_published_drafts(
+            [
+                Draft(
+                    id=result["draft"].id,
+                    entity_type="term",
+                    entity_id=result["draft"].entity_id,
+                    base_git_revision=result["draft"].base_git_revision,
+                    base_content_hash=result["draft"].base_content_hash,
+                    content=result["draft"].content,
+                    revision=result["draft"].revision,
+                    created_at=result["draft"].created_at,
+                    updated_at=result["draft"].updated_at,
+                )
+            ]
+        )
+        relations = connection.execute(
+            "SELECT entity_type, entity_id FROM term_entity_relations"
+        ).fetchall()
+        if origin_type == "external":
+            assert relations == []
+        else:
+            assert [(row["entity_type"], row["entity_id"]) for row in relations] == [
+                (origin_type, origin_id)
+            ]
+    finally:
+        connection.close()
+
+
+def test_candidate_term_draft_rejects_all_rejected_evidence(tmp_path):
+    _write_term(tmp_path)
+    connection = connect_database(":memory:")
+    try:
+        repository = TermCandidateRepository(connection)
+        drafts = DraftService(DraftRepository(connection))
+        target_resolver = CanonicalTargetResolver(tmp_path, connection)
+
+        class FakeGit:
+            def current_revision(self):
+                return "a" * 40
+
+            def content_hash(self, path):
+                return "b" * 64
+
+        service = TermCandidateService(
+            tmp_path, repository, drafts, FakeGit(), target_resolver
+        )
+        candidate = service.create_candidate(
+            "Rejected Evidence Term",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type="external",
+                    origin_id="ref:one",
+                    mention="Rejected Evidence Term",
+                    context_excerpt="A short excerpt.",
+                )
+            ],
+        )
+        service.reject_candidate(
+            candidate.id,
+            "local",
+            origin_type="external",
+            origin_id="ref:one",
+        )
+        with pytest.raises(TermCandidateConflict):
+            service.create_term_draft(candidate.id)
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("missing_origin_type", ["document", "source", "research_work"])
+def test_candidate_term_draft_skips_missing_canonical_origins(
+    tmp_path, missing_origin_type
+):
+    _write_term(tmp_path)
+    connection = connect_database(":memory:")
+    try:
+        repository = TermCandidateRepository(connection)
+        drafts = DraftService(DraftRepository(connection))
+        target_resolver = CanonicalTargetResolver(tmp_path, connection)
+
+        class FakeGit:
+            def current_revision(self):
+                return "a" * 40
+
+            def content_hash(self, path):
+                return "b" * 64
+
+        service = TermCandidateService(
+            tmp_path, repository, drafts, FakeGit(), target_resolver
+        )
+        candidate = service.create_candidate(
+            "Remaining External Evidence",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type=missing_origin_type,
+                    origin_id="missing-origin",
+                    mention="Remaining External Evidence",
+                    context_excerpt="Stale canonical context.",
+                ),
+                TermCandidateEvidenceInput(
+                    origin_type="external",
+                    origin_id="ref:remaining",
+                    mention="Remaining External Evidence",
+                    rationale="A live external evidence record.",
+                ),
+            ],
+        )
+
+        evidence = service.active_term_draft_evidence(candidate.id)
+        assert [(item.origin_type, item.origin_id) for item in evidence] == [
+            ("external", "ref:remaining")
+        ]
+        result = service.create_term_draft(candidate.id)
+        service.finalize_published_drafts(
+            [
+                Draft(
+                    id=result["draft"].id,
+                    entity_type="term",
+                    entity_id=result["draft"].entity_id,
+                    base_git_revision=result["draft"].base_git_revision,
+                    base_content_hash=result["draft"].base_content_hash,
+                    content=result["draft"].content,
+                    revision=result["draft"].revision,
+                    created_at=result["draft"].created_at,
+                    updated_at=result["draft"].updated_at,
+                )
+            ]
+        )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM term_entity_relations"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_external_evidence_without_excerpt_or_rationale_cannot_create_term_draft(
+    tmp_path,
+):
+    _write_term(tmp_path)
+    connection = connect_database(":memory:")
+    try:
+        repository = TermCandidateRepository(connection)
+        drafts = DraftService(DraftRepository(connection))
+        target_resolver = CanonicalTargetResolver(tmp_path, connection)
+
+        class FakeGit:
+            def current_revision(self):
+                return "a" * 40
+
+            def content_hash(self, path):
+                return "b" * 64
+
+        service = TermCandidateService(
+            tmp_path, repository, drafts, FakeGit(), target_resolver
+        )
+        candidate = service.create_candidate(
+            "External Evidence Without Context",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type="external",
+                    origin_id="ref:no-context",
+                    mention="External Evidence Without Context",
+                )
+            ],
+        )
+
+        with pytest.raises(TermCandidateConflict, match="active Candidate Evidence"):
+            service.create_term_draft(candidate.id)
+    finally:
+        connection.close()
+
+
+def test_term_draft_ai_context_uses_generic_evidence(tmp_path):
+    _write_term(tmp_path)
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    initialize_database(connection)
+    try:
+        repository = TermCandidateRepository(connection)
+        drafts = DraftService(DraftRepository(connection))
+        target_resolver = CanonicalTargetResolver(tmp_path, connection)
+
+        class FakeGit:
+            def current_revision(self):
+                return "a" * 40
+
+            def content_hash(self, path):
+                return "b" * 64
+
+        service = TermCandidateService(
+            tmp_path, repository, drafts, FakeGit(), target_resolver
+        )
+        candidate = service.create_candidate(
+            "External Evidence Term",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type="external",
+                    origin_id="ref:42",
+                    mention="External Evidence Term",
+                    context_excerpt="The external evidence excerpt.",
+                    rationale="The external evidence rationale.",
+                )
+            ],
+        )
+        draft = service.create_term_draft(candidate.id)["draft"]
+
+        class FakeAIProposalService:
+            def __init__(self):
+                self.context = None
+
+            async def generate_async(self, task_name, draft_id, extra_context):
+                self.context = extra_context
+                return Proposal(
+                    id="proposal-one",
+                    target_type="term",
+                    target_id=draft.entity_id,
+                    kind="new_term",
+                    status="proposed",
+                    base_content_hash="b" * 64,
+                    payload={},
+                    diff_text=None,
+                    created_by="ai",
+                    provider="mock",
+                    model="mock",
+                    created_at="now",
+                    reviewed_at=None,
+                    review_note=None,
+                )
+
+        ai_proposals = FakeAIProposalService()
+        app = FastAPI()
+        app.include_router(ai_router)
+        app.state.term_candidate_service = service
+        app.state.draft_service = drafts
+        app.state.ai_proposal_service = ai_proposals
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai/term-draft",
+                json={
+                    "draft_id": draft.id,
+                    "candidate_id": candidate.id,
+                    "confirm_deepseek_transfer": True,
+                },
+            )
+
+        assert response.status_code == 201, response.json()
+        evidence = ai_proposals.context["term_candidate"]["evidence"][0]
+        assert evidence == {
+            "origin_type": "external",
+            "origin_id": "ref:42",
+            "origin_title": "ref:42",
+            "context_excerpt": "The external evidence excerpt.",
+            "rationale": "The external evidence rationale.",
+        }
+        assert "note_evidence" not in ai_proposals.context["term_candidate"]
     finally:
         connection.close()
 

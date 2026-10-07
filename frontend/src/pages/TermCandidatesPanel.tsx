@@ -174,7 +174,7 @@ export function TermCandidatesPanel({
           {visibleCandidates.map((candidate) => {
             const suggestedTerm = terms.find((term) => term.id === candidate.suggested_term_id);
             const isExisting = Boolean(candidate.suggested_term_id);
-            const canCreateTerm = candidate.evidence.some((item) => item.origin_type === "document" && !item.origin_rejected);
+            const canCreateTerm = candidate.evidence.some((item) => !item.origin_rejected);
             return (
               <article key={candidate.id} className="term-candidate-card surface">
                 <header className="term-candidate-heading">
@@ -211,7 +211,7 @@ export function TermCandidatesPanel({
                       <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => acceptTermCandidate(candidate.id, candidate.suggested_term_id!))}>Accept Relation</button>
                       <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => openTermPicker(candidate)}>Choose Another Existing…</button>
                     </> : <>
-                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 Term Draft 需要至少一个未拒绝的 Canonical Note 来源" : undefined} onClick={() => startCreate(candidate)}>Create Term</button>
+                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 Term Draft 需要至少一个未拒绝的候选来源" : undefined} onClick={() => startCreate(candidate)}>Create Term</button>
                       <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => openTermPicker(candidate)}>Link Existing…</button>
                     </>}
                     <button className="button button-danger term-global-reject" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }))}>全局不再推荐</button>
@@ -225,11 +225,11 @@ export function TermCandidatesPanel({
 
       {createCandidate && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !createBusy) setCreateCandidate(null); }}>
         <section className="explorer-modal term-candidate-dialog surface" role="dialog" aria-modal="true" aria-labelledby="create-term-candidate-title">
-          <div className="section-heading"><div><h2 id="create-term-candidate-title">创建 Term Draft</h2><p>先生成本地 Draft，再让 AI 根据候选词和笔记片段给出可审核的定义建议。</p></div><button className="text-button" type="button" disabled={createBusy} onClick={() => setCreateCandidate(null)}>关闭</button></div>
+          <div className="section-heading"><div><h2 id="create-term-candidate-title">创建 Term Draft</h2><p>先生成本地 Draft，再让 AI 根据候选来源的摘录和分析理由给出可审核的定义建议。</p></div><button className="text-button" type="button" disabled={createBusy} onClick={() => setCreateCandidate(null)}>关闭</button></div>
           <div className="term-candidate-dialog-context">
             <strong>{createCandidate.display_name} · {titleCase(createCandidate.suggested_type)}</strong>
-            {createCandidate.evidence.filter((item) => item.origin_type === "document" && !item.origin_rejected).slice(0, 5).map((item) => <blockquote key={item.id}><span>{item.origin_title || item.origin_id}</span>{item.context_excerpt || item.mention}</blockquote>)}
-            <p>将发送 Term Registry、候选词类型、最多 5 条笔记标题、摘录和分析理由。不会发送整篇笔记。</p>
+            {createCandidate.evidence.filter((item) => !item.origin_rejected).slice(0, 5).map((item) => <blockquote key={item.id}><span>{titleCase(item.origin_type)} · {item.origin_title || item.origin_id}</span>{item.context_excerpt && <span>{item.context_excerpt}</span>}{item.rationale && <span>{item.rationale}</span>}</blockquote>)}
+            <p>将发送 Term Registry、候选词类型，以及最多 5 条候选来源的标题或标识、摘录和分析理由。不会发送整份文档或网页。</p>
           </div>
           <label className="ai-consent term-candidate-consent"><input type="checkbox" checked={createConsent} onChange={(event) => setCreateConsent(event.target.checked)} /><span>我同意将上述信息发送给 DeepSeek，用于生成 Term Draft 建议。</span></label>
           {createError && <p className="error-copy" role="alert">{createdDraftId ? `Term Draft 已创建；AI 建议未完成。${createError}` : createError}</p>}

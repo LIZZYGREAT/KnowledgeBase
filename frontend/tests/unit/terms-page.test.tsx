@@ -243,4 +243,36 @@ describe("Terms Registry controls", () => {
     expect(api.createCandidateTermDraft.mock.invocationCallOrder[0]).toBeLessThan(api.requestCandidateTermDraftProposal.mock.invocationCallOrder[0]);
     expect(onOpen).toHaveBeenCalledWith("term", "adaptive-token-pruning");
   });
+
+  it("allows Create Term from an active external Candidate source", async () => {
+    api.listTermCandidates.mockResolvedValue([
+      candidate({
+        id: "candidate-external",
+        normalized_name: "external evidence term",
+        display_name: "External Evidence Term",
+        evidence: [{
+          id: "evidence-external",
+          candidate_id: "candidate-external",
+          origin_type: "external",
+          origin_id: "ref:42",
+          origin_title: "Paper record",
+          origin_rejected: false,
+          mention: "external evidence term",
+          context_excerpt: "A bounded external excerpt.",
+          confidence: 0.8,
+          rationale: "Useful context from the external source.",
+          discovered_at: "2026-01-04T00:00:00Z",
+        }],
+      }),
+    ]);
+    render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
+
+    const createButton = await screen.findByRole("button", { name: "Create Term" });
+    expect((createButton as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(createButton);
+    expect(screen.getByText(/候选来源的摘录和分析理由/)).not.toBeNull();
+    expect(screen.getByText("External · Paper record")).not.toBeNull();
+    expect(screen.getAllByText("A bounded external excerpt.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Useful context from the external source.").length).toBeGreaterThan(0);
+  });
 });

@@ -49,22 +49,21 @@ async def draft_term(body: TermDraftRequest, request: Request):
         )
         if candidate.status != "drafting" or candidate.draft_id != body.draft_id:
             raise ValueError("Term Candidate must be linked to this active Term Draft")
-        evidence = [
-            item
-            for item in candidate.evidence
-            if item.origin_type == "document" and not item.origin_rejected
-        ][:5]
+        evidence = request.app.state.term_candidate_service.active_term_draft_evidence(
+            candidate.id
+        )[:5]
         if not evidence:
-            raise ValueError("Term Candidate has no active Canonical Note evidence")
+            raise ValueError("Term Candidate has no active usable evidence")
         extra_context = {
             "term_candidate": {
                 "candidate_id": candidate.id,
                 "display_name": candidate.display_name,
                 "suggested_type": candidate.suggested_type,
-                "note_evidence": [
+                "evidence": [
                     {
-                        "note_id": item.origin_id,
-                        "note_title": item.origin_title or item.origin_id,
+                        "origin_type": item.origin_type,
+                        "origin_id": item.origin_id,
+                        "origin_title": item.origin_title or item.origin_id,
                         "context_excerpt": item.context_excerpt,
                         "rationale": item.rationale,
                     }

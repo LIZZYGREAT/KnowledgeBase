@@ -196,7 +196,7 @@ def test_term_candidate_api_lists_accepts_and_rejects_runtime_candidates(api_cli
     ).fetchone()[0] == "origin:source:source-alpha"
 
 
-def test_candidate_term_draft_ai_uses_note_context_and_requires_consent(api_client):
+def test_candidate_term_draft_ai_uses_generic_evidence_and_requires_consent(api_client):
     candidate = api_client.app.state.term_candidate_service.create_candidate(
         "Stable Index",
         "concept",
@@ -254,10 +254,13 @@ def test_candidate_term_draft_ai_uses_note_context_and_requires_consent(api_clie
     assert generated.status_code == 201, generated.json()
     assert mock_client.calls == ["draft_term"]
     context = json.loads(mock_client.messages[0][1]["content"])["request"]
-    evidence = context["term_candidate"]["note_evidence"][0]
-    assert evidence["note_title"] == "Neural Indexing"
+    evidence = context["term_candidate"]["evidence"][0]
+    assert evidence["origin_type"] == "document"
+    assert evidence["origin_id"] == "neural-indexing"
+    assert evidence["origin_title"] == "Neural Indexing"
     assert evidence["context_excerpt"] == "A stable index retains canonical facts."
     assert context["term_candidate"]["suggested_type"] == "concept"
+    assert "note_evidence" not in context["term_candidate"]
 
 
 def test_presentation_annotations_never_change_canonical_markdown(api_client):

@@ -11,6 +11,7 @@ import yaml
 
 from backend.app.domain.term_runtime import (
     TermCandidateDetail,
+    TermCandidateEvidence,
     TermCandidateEvidenceInput,
     TermCandidateRecord,
     TermEntityRelation,
@@ -253,23 +254,10 @@ class TermCandidateService:
         if candidate.status != "pending":
             raise TermCandidateConflict("Only pending Term Candidates can create a Term Draft")
 
-        evidence = self.repository.get_evidence(candidate_id)
-        document_evidence = [
-            item
-            for item in evidence
-            if item.origin_type == "document"
-            and self.canonical_target_resolver.resolve_existing_target_path(
-                "document", item.origin_id
-            )
-            is not None
-            and not self.repository.is_rejected(
-                candidate.normalized_name,
-                _origin_scope(item.origin_type, item.origin_id),
-            )
-        ]
-        if not document_evidence:
+        evidence = self.active_term_draft_evidence(candidate_id)
+        if not evidence:
             raise TermCandidateConflict(
-                "A new Term Draft requires an active Canonical Document origin"
+                "A new Term Draft requires at least one active Candidate Evidence origin"
             )
         resolution = self.resolve_against_registry(candidate)
         if resolution.status == "existing_term":
@@ -308,6 +296,17 @@ class TermCandidateService:
         )
         return {"candidate": updated, "draft": acquire.draft, "created": True}
 
+    def active_term_draft_evidence(
+        self, candidate_id: str
+    ) -> list[TermCandidateEvidence]:
+        """Return un-rejected evidence with a live origin and usable external context."""
+        evidence = self.repository.get_evidence(candidate_id)
+        return [
+            item
+            for item in evidence
+            if not item.origin_rejected and self._evidence_origin_available(item)
+        ]
+
     def discard_term_draft(self, draft_id: str) -> Optional[TermCandidateRecord]:
         return self.repository.reset_candidate_draft(draft_id, _utc_now())
 
@@ -321,6 +320,8 @@ class TermCandidateService:
                 relations = []
                 for item in self.repository.get_evidence(candidate.id):
                     if item.origin_type not in {"document", "source", "research_work"}:
+                        continue
+                    if not self._evidence_origin_available(item):
                         continue
                     if self.repository.is_rejected(
                         candidate.normalized_name,
@@ -394,6 +395,25 @@ class TermCandidateService:
             or self.canonical_target_resolver is None
         ):
             raise RuntimeError("Term Candidate Draft workflow is not configured")
+
+    def _evidence_origin_available(self, item: TermCandidateEvidence) -> bool:
+        if item.origin_type in {"document", "source"}:
+            try:
+                return (
+                    self.canonical_target_resolver.resolve_existing_target_path(
+                        item.origin_type, item.origin_id
+                    )
+                    is not None
+                )
+            except ValueError:
+                return False
+        if item.origin_type == "research_work":
+            return self.repository.connection.execute(
+                "SELECT 1 FROM research_works WHERE id = ?", (item.origin_id,)
+            ).fetchone() is not None
+        if item.origin_type == "external":
+            return bool((item.context_excerpt or "").strip() or (item.rationale or "").strip())
+        return False
 
     def _candidate_term_id(self, candidate, registry: TermRegistry) -> str:
         base = re.sub(r"[^a-z0-9]+", "-", normalize_key(candidate.display_name)).strip("-")
