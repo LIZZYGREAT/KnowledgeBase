@@ -140,12 +140,19 @@ class TermAnalysisService:
 
         for item, registry_match, normalized_name in validated_items:
             resolved_term = terms_by_id.get(registry_match.entity_id or "")
+            effective_existing_term_id = (
+                registry_match.entity_id
+                if registry_match.status == "resolved"
+                else item.term_id
+                if item.action == "link_existing"
+                else None
+            )
             if self.candidate_repository.has_accepted_candidate_evidence(
                 normalized_name, "document", document_id
             ) or (
-                resolved_term is not None
+                effective_existing_term_id is not None
                 and self.candidate_repository.has_relation(
-                    "document", document_id, resolved_term.id
+                    "document", document_id, effective_existing_term_id
                 )
             ):
                 counts["skipped"] += 1

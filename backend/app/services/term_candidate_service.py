@@ -377,6 +377,8 @@ class TermCandidateService:
         for item in evidence:
             if item.origin_type not in {"document", "source", "research_work"}:
                 continue
+            if not self._evidence_origin_available(item):
+                continue
             if self.repository.is_rejected(
                 candidate.normalized_name,
                 _origin_scope(item.origin_type, item.origin_id),
@@ -410,6 +412,8 @@ class TermCandidateService:
 
     def _evidence_origin_available(self, item: TermCandidateEvidence) -> bool:
         if item.origin_type in {"document", "source"}:
+            if self.canonical_target_resolver is None:
+                return False
             try:
                 return (
                     self.canonical_target_resolver.resolve_existing_target_path(

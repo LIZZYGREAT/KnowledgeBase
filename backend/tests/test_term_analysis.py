@@ -81,11 +81,15 @@ def _service(tmp_path, response=None):
     )
     connection = connect_database(":memory:")
     candidate_repository = TermCandidateRepository(connection)
-    candidate_service = TermCandidateService(root, candidate_repository)
     draft_service = DraftService(DraftRepository(connection))
+    target_resolver = CanonicalTargetResolver(root, connection)
+    candidate_service = TermCandidateService(
+        root,
+        candidate_repository,
+        canonical_target_resolver=target_resolver,
+    )
     ai_client = MockDeepSeekClient({"detect_terms": response or _response()})
     gateway = AIGateway(ai_client)
-    target_resolver = CanonicalTargetResolver(root, connection)
     service = TermAnalysisService(
         root,
         candidate_repository,
@@ -263,6 +267,64 @@ async def test_semantic_existing_match_can_be_reviewed_without_literal_alias(tmp
         ).fetchone()[0] == 0
 
         candidate_service.accept_existing(candidate.id, "catastrophic-forgetting")
+        assert connection.execute(
+            "SELECT COUNT(*) FROM term_entity_relations"
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+@pytest.mark.asyncio
+async def test_accepted_semantic_relation_skips_a_different_mention(tmp_path):
+    response = _response(
+        mention="旧类别性能明显下降",
+        action="link_existing",
+        term_id="catastrophic-forgetting",
+        suggested_type=None,
+        context_excerpt="旧类别性能明显下降，说明出现了遗忘。",
+    )
+    connection, repository, candidate_service, _, ai_client, service = _service(
+        tmp_path, response
+    )
+    term_path = tmp_path / "knowledge" / "terms" / "catastrophic-forgetting.md"
+    term_path.write_text(
+        "---\nschema_version: 1\nid: catastrophic-forgetting\n"
+        "title: Catastrophic Forgetting\ntype: concept\ndepth: standard\n"
+        "aliases: []\n---\nA model forgets earlier tasks.\n",
+        encoding="utf-8",
+    )
+    note_path = tmp_path / "knowledge" / "documents" / "learning" / "note-one.md"
+    note_path.write_text(
+        NOTE_CONTENT.replace(NOTE_BODY, "旧类别性能明显下降，说明出现了遗忘。"),
+        encoding="utf-8",
+    )
+    try:
+        await service.analyze_document("note-one")
+        candidate = repository.list_candidates("pending")[0]
+        candidate_service.accept_existing(candidate.id, "catastrophic-forgetting")
+
+        second_mention = "模型忘掉之前学过的任务"
+        ai_client.responses["detect_terms"] = _response(
+            mention=second_mention,
+            action="link_existing",
+            term_id="catastrophic-forgetting",
+            suggested_type=None,
+            context_excerpt="模型忘掉之前学过的任务，体现灾难性遗忘。",
+        )
+        note_path.write_text(
+            NOTE_CONTENT.replace(
+                NOTE_BODY,
+                "旧类别性能明显下降，说明出现了遗忘。\n"
+                "模型忘掉之前学过的任务，体现灾难性遗忘。",
+            ),
+            encoding="utf-8",
+        )
+
+        repeated = await service.analyze_document("note-one")
+
+        assert repeated["statistics"]["skipped"] == 1
+        assert repository.list_candidates("pending") == []
+        assert len(repository.list_candidates("accepted")) == 1
         assert connection.execute(
             "SELECT COUNT(*) FROM term_entity_relations"
         ).fetchone()[0] == 1

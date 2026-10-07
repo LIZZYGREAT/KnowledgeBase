@@ -126,6 +126,72 @@ def test_candidate_resolution_evidence_dedup_and_existing_acceptance(tmp_path):
         connection.close()
 
 
+@pytest.mark.parametrize(
+    ("origin_type", "origin_id", "origin_exists", "expect_relation"),
+    [
+        ("source", "source-one", True, True),
+        ("source", "source-one", False, False),
+        ("research_work", "work-one", True, True),
+        ("research_work", "work-one", False, False),
+        ("external", "https://example.test/paper-one", True, False),
+    ],
+)
+def test_accept_existing_only_links_live_canonical_origins(
+    tmp_path, origin_type, origin_id, origin_exists, expect_relation
+):
+    _write_term(tmp_path)
+    connection = connect_database(":memory:")
+    try:
+        if origin_type == "source" and origin_exists:
+            sources = tmp_path / "knowledge" / "sources"
+            sources.mkdir(parents=True)
+            (sources / "source-one.yaml").write_text(
+                "schema_version: 1\nid: source-one\ntype: paper\ntitle: Source One\n",
+                encoding="utf-8",
+            )
+        elif origin_type == "research_work" and origin_exists:
+            connection.execute(
+                """INSERT INTO research_works (
+                       id, canonical_key, title, normalized_title, authors_json,
+                       created_at, updated_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (origin_id, "doi:10.1/work-one", "Work One", "work one", "[]", "now", "now"),
+            )
+
+        repository = TermCandidateRepository(connection)
+        service = TermCandidateService(
+            tmp_path,
+            repository,
+            canonical_target_resolver=CanonicalTargetResolver(tmp_path, connection),
+        )
+        candidate = service.create_candidate(
+            "Existing Term Evidence",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type=origin_type,
+                    origin_id=origin_id,
+                    mention="Existing Term Evidence",
+                )
+            ],
+        )
+
+        accepted = service.accept_existing(candidate.id, "neural-indexing")
+
+        assert accepted.status == "accepted"
+        relations = connection.execute(
+            "SELECT entity_type, entity_id FROM term_entity_relations"
+        ).fetchall()
+        if expect_relation:
+            assert [(row["entity_type"], row["entity_id"]) for row in relations] == [
+                (origin_type, origin_id)
+            ]
+        else:
+            assert relations == []
+    finally:
+        connection.close()
+
+
 def test_semantic_existing_suggestion_cannot_create_a_new_term_draft(tmp_path):
     _write_term(tmp_path)
     connection = connect_database(":memory:")
@@ -743,11 +809,21 @@ def test_candidate_unique_open_name_and_evidence_constraints():
 
 def test_term_candidate_api_routes_bind_to_candidate_service(tmp_path):
     _write_term(tmp_path)
+    sources = tmp_path / "knowledge" / "sources"
+    sources.mkdir(parents=True)
+    (sources / "paper-one.yaml").write_text(
+        "schema_version: 1\nid: paper-one\ntype: paper\ntitle: Paper One\n",
+        encoding="utf-8",
+    )
     connection = sqlite3.connect(":memory:", check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     initialize_database(connection)
-    service = TermCandidateService(tmp_path, TermCandidateRepository(connection))
+    service = TermCandidateService(
+        tmp_path,
+        TermCandidateRepository(connection),
+        canonical_target_resolver=CanonicalTargetResolver(tmp_path, connection),
+    )
     candidate = service.create_candidate(
         "Calibrated Optimizer",
         "entity",
