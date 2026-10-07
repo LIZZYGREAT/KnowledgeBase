@@ -1,4 +1,4 @@
-import { getEntity, listAllEntities, recordDocumentOpen, type EntityDetail, type EntityType } from "../api";
+import { getEntity, listAllEntities, recordDocumentOpen, type EntityDetail, type EntitySummary, type EntityType, type TermRelation } from "../api";
 import { readList } from "../pages/PageShared";
 
 export interface ReaderSelection {
@@ -15,6 +15,39 @@ export interface ReaderSourceBlock {
   start: number;
   end: number;
 }
+
+export interface DocumentTermLink {
+  id: string;
+  title: string;
+  labels: string[];
+}
+
+export function combineDocumentTerms(
+  explicitTerms: EntitySummary[],
+  relations: TermRelation[],
+  documentId: string,
+): DocumentTermLink[] {
+  const byId = new Map<string, { id: string; title: string; labels: Set<string> }>();
+  for (const term of explicitTerms) {
+    const item = byId.get(term.id) ?? { id: term.id, title: term.title, labels: new Set<string>() };
+    item.labels.add("Explicit link");
+    byId.set(item.id, item);
+  }
+  for (const relation of relations) {
+    if (relation.entity_type !== "document" || relation.entity_id !== documentId) continue;
+    const item = byId.get(relation.term_id) ?? {
+      id: relation.term_id,
+      title: relation.title || relation.term_id,
+      labels: new Set<string>(),
+    };
+    item.labels.add("Accepted detection");
+    byId.set(item.id, item);
+  }
+  return Array.from(byId.values())
+    .map((item) => ({ ...item, labels: Array.from(item.labels) }))
+    .sort((left, right) => left.title.localeCompare(right.title));
+}
+
 export function readArtifacts(value: unknown): Array<{ type: string; variant: string; url: string; owner?: string }> {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is { type: string; variant: string; url: string } =>

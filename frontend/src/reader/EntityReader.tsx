@@ -20,7 +20,7 @@ import type { WorkspaceEditorController } from "../workspace/useWorkspaceEditorC
 import { WorkspaceEditorDrawers } from "../workspace/WorkspaceEditorDrawers";
 import { CollectionReaderContext, ContextCard, ContextExportPanel, MetaChipList } from "./ReaderContext";
 import { maintenanceStatus, readList, readString, reviewStatus, typeLabel, entityPath, useResource, type Navigate } from "../pages/PageShared";
-import { hashText, loadEntity, markdownHeadings, readArtifacts, recordDocumentOpenSafely, resolveReaderSelectionSourceRange, type ReaderSelection, type ReaderSourceBlock } from "./readerModel";
+import { combineDocumentTerms, hashText, loadEntity, markdownHeadings, readArtifacts, recordDocumentOpenSafely, resolveReaderSelectionSourceRange, type ReaderSelection, type ReaderSourceBlock } from "./readerModel";
 export function EntityPage({
   type,
   id,
@@ -135,6 +135,13 @@ export function EntityPage({
     }
     return Array.from(byDocument.values()).sort((left, right) => left.title.localeCompare(right.title));
   }, [currentEntity]);
+  const documentTerms = useMemo(() => currentEntity?.entity_type === "document"
+    ? combineDocumentTerms(
+      currentEntity.related_terms,
+      currentEntity.term_relations ?? [],
+      currentEntity.id,
+    )
+    : [], [currentEntity]);
   useEffect(() => {
     if (type === "document" && id) void recordDocumentOpenSafely(id);
   }, [type, id]);
@@ -194,6 +201,9 @@ export function EntityPage({
   if (workspaceDraft.loadError) return <ErrorState message={workspaceDraft.loadError} />;
   if (!currentEntity) return <ErrorState message={resource.error} retry={resource.retry} />;
   const entity = currentEntity;
+  const contextTerms = type === "document"
+    ? documentTerms
+    : entity.related_terms.map((term) => ({ id: term.id, title: term.title, labels: [] as string[] }));
   const status = type === "source" ? readString((entity.metadata.metadata_review as Record<string, unknown> | undefined)?.status) || "unreviewed" : reviewStatus(entity);
   const evidence = entity.evidence;
   const artifacts = entity.entity_type === "document"
@@ -413,14 +423,14 @@ export function EntityPage({
       <details id="reader-context-panel" ref={contextPanelRef} className="reader-context-panel surface" open={contextExpanded} onToggle={(event) => setContextExpanded(event.currentTarget.open)}>
         <summary className="reader-context-summary">
           <span className="reader-context-status"><strong>{typeLabel(entity)}</strong><span>·</span><span>{titleCase(status)}</span><span>·</span><span>{titleCase(maintenanceStatus(entity))}</span></span>
-          <span className="reader-context-counts">{(type === "document" ? [`${sourceIds.length} Sources`, `${entity.related_terms.length} Terms`, `${evidence.length} Evidence`] : type === "term" ? [`${termWhereAppears.length} Where it appears`, `${entity.detected_mentions.length} Detected mentions`] : [`${entity.related_documents.length} Documents`, `${evidence.length} Evidence`]).map((item) => <span key={item}>{item}</span>)}</span>
+          <span className="reader-context-counts">{(type === "document" ? [`${sourceIds.length} Sources`, `${documentTerms.length} Terms`, `${evidence.length} Evidence`] : type === "term" ? [`${termWhereAppears.length} Where it appears`, `${entity.detected_mentions.length} Detected mentions`] : [`${entity.related_documents.length} Documents`, `${evidence.length} Evidence`]).map((item) => <span key={item}>{item}</span>)}</span>
           <span className="reader-context-toggle">{contextExpanded ? "收起详情" : "展开详情"}</span>
         </summary>
         <div className="reader-context-details">
           <div className="reader-context">
             {type === "document" && <ContextCard title="分类"><MetaChipList values={[...readList(entity.metadata, "domains"), ...readList(entity.metadata, "topics"), ...readList(entity.metadata, "tags")]} /></ContextCard>}
             {type === "document" && <ContextCard id="reader-context-sources" title="Sources" detail={sourceIds.length ? `${sourceIds.length} 个关联来源` : "没有关联来源"}>{sourceResource.data?.map((source) => <button className="context-link" key={source.id} onClick={() => navigate(entityPath(source))}><span className="context-icon source">S</span><span><strong>{source.title}</strong><small>{readString(source.metadata.type) || "Source"}</small></span><span>↗</span></button>)}</ContextCard>}
-            <ContextCard title="Terms" detail={`${entity.related_terms.length} 个关联术语`}>{entity.related_terms.length ? entity.related_terms.map((term) => <button className="context-link" key={term.id} onClick={() => navigate(entityPath({ entity_type: "term", id: term.id }))}><span className="context-icon term">T</span><span><strong>{term.title}</strong><small>{term.id}</small></span><span>↗</span></button>) : <p className="subtle-copy">正文中的 Wiki Link 会在这里形成关系。</p>}</ContextCard>
+            <ContextCard title="Terms" detail={`${contextTerms.length} 个关联术语`}>{contextTerms.length ? contextTerms.map((term) => <button className="context-link" key={term.id} onClick={() => navigate(entityPath({ entity_type: "term", id: term.id }))}><span className="context-icon term">T</span><span><strong>{term.title}</strong><small>{[term.id, ...term.labels].join(" · ")}</small></span><span>↗</span></button>) : <p className="subtle-copy">{type === "document" ? "显式 Wiki Link 与已接受的检测关系会在这里显示。" : "正文中的 Wiki Link 会在这里形成关系。"}</p>}</ContextCard>
             {type === "term" && <ContextCard title="Where it appears" detail="区分正文显式链接与已接受的 Term 检测关系">{termWhereAppears.length ? termWhereAppears.map((item) => <button className="context-link term-appearance-link" key={item.id} onClick={() => navigate(`/documents/${encodeURIComponent(item.id)}`)}><span><strong>{item.title}</strong><small>{Array.from(item.labels).join(" · ")}</small>{item.details.size > 0 && <small>{Array.from(item.details).join(" · ")}</small>}</span><span>↗</span></button>) : <p className="subtle-copy">还没有显式链接或已接受的 Note 关系。</p>}</ContextCard>}
             {type === "term" && <ContextCard title="Term backlinks" detail="其他 Term 正文中的 Wiki Link">{entity.backlinks.filter((backlink) => readString(backlink.source_entity_type) === "term").length ? entity.backlinks.filter((backlink) => readString(backlink.source_entity_type) === "term").map((backlink, index) => { const sourceId = readString(backlink.source_entity_id); return <button className="context-link" key={`${sourceId}:${index}`} onClick={() => navigate(`/terms/${encodeURIComponent(sourceId)}`)}><span><strong>{readString(backlink.source_title) || sourceId}</strong><small>{sourceId} · 第 {String(backlink.line)} 行 · {readString(backlink.label) || readString(backlink.link_target)}</small></span><span>↗</span></button>; }) : <p className="subtle-copy">没有其他 Term 链接到此条目。</p>}</ContextCard>}
             {type === "term" && <ContextCard title="Detected Mentions" detail="文本提及尚未成为正式 Wiki Link">{entity.detected_mentions.length ? entity.detected_mentions.map((mention) => <button className="context-link" key={mention.id} onClick={() => navigate(`/documents/${encodeURIComponent(mention.id)}`)}><span><strong>{mention.title}</strong><small>{mention.id}</small></span><span>↗</span></button>) : <p className="subtle-copy">没有发现未链接的提及。</p>}</ContextCard>}

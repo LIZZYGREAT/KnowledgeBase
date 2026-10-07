@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "vitest";
 import { readStyles } from "../readStyles";
+import { combineDocumentTerms } from "../../src/reader/readerModel";
+import type { EntitySummary, TermRelation } from "../../src/api";
 
 const reader = readFileSync(resolve(process.cwd(), "src/reader/EntityReader.tsx"), "utf8");
 const readerModel = readFileSync(resolve(process.cwd(), "src/reader/readerModel.ts"), "utf8");
@@ -63,6 +65,33 @@ test("Term Analysis is manual and Term appearance separates explicit links from 
   assert.match(reader, /"Accepted detection"/);
   assert.match(reader, /"Explicit link"/);
   assert.doesNotMatch(reader, /analyzeDocumentTerms\(.*publishedRevision/);
+});
+
+test("Document Terms combine explicit links and accepted detections by Term id", () => {
+  const explicit: EntitySummary = {
+    id: "term-one",
+    title: "Term One",
+    entity_type: "term",
+    metadata: {},
+  };
+  const accepted: TermRelation = {
+    entity_type: "document",
+    entity_id: "note-one",
+    term_id: "term-one",
+    title: "Term One",
+    created_from_candidate_id: "candidate-one",
+    created_at: "now",
+  };
+
+  assert.deepEqual(combineDocumentTerms([explicit], [], "note-one"), [
+    { id: "term-one", title: "Term One", labels: ["Explicit link"] },
+  ]);
+  assert.deepEqual(combineDocumentTerms([], [accepted], "note-one"), [
+    { id: "term-one", title: "Term One", labels: ["Accepted detection"] },
+  ]);
+  assert.deepEqual(combineDocumentTerms([explicit], [accepted], "note-one"), [
+    { id: "term-one", title: "Term One", labels: ["Explicit link", "Accepted detection"] },
+  ]);
 });
 
 test("Workspace Explorer is a floating overlay and does not allocate a content column", () => {
