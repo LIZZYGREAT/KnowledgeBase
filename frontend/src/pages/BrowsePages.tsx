@@ -15,26 +15,31 @@ import { EntityList, readList, readString, useResource, type Navigate, type Sele
 import { TermCandidatesPanel } from "./TermCandidatesPanel";
 import { TermDiscoveryPanel } from "./TermDiscoveryPanel";
 import { TermMentionsPanel } from "./TermMentionsPanel";
-export function LibraryPage({ onOpen }: { onOpen: SelectEntity }) {
-  const [activeTab, setActiveTab] = useState<"document" | "source">(() => new URLSearchParams(window.location.search).get("tab") === "sources" ? "source" : "document");
+import { ImportReviewPanel } from "./ImportReviewPanel";
+export function LibraryPage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
+  const [activeTab, setActiveTab] = useState<"document" | "source" | "import">(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    return tab === "sources" ? "source" : tab === "import" ? "import" : "document";
+  });
   const [documentType, setDocumentType] = useState("");
   const resource = useResource("library", () => Promise.all([listAllEntities("document"), listAllEntities("source")]));
   const documents = resource.data?.[0] ?? [];
   const sources = resource.data?.[1] ?? [];
   const visible = activeTab === "document"
     ? documents.filter((item) => !documentType || item.metadata.type === documentType)
-    : sources;
+    : activeTab === "source" ? sources : [];
   return (
     <div className="page-stack">
-      <PageHeader eyebrow="LIBRARY" title="Library" description="浏览正式发布的笔记和来源文献。" />
+      <PageHeader eyebrow="CORPUS MANAGEMENT" title="Library" description="管理 Agent 可使用的知识输入、笔记和来源文献。" />
       <div className="library-toolbar">
         <div className="segmented-control" role="tablist" aria-label="Library 类型">
           <button role="tab" aria-selected={activeTab === "document"} className={activeTab === "document" ? "active" : ""} onClick={() => setActiveTab("document")}>Documents <span>{documents.length}</span></button>
           <button role="tab" aria-selected={activeTab === "source"} className={activeTab === "source" ? "active" : ""} onClick={() => setActiveTab("source")}>Sources <span>{sources.length}</span></button>
+          <button role="tab" aria-selected={activeTab === "import"} className={activeTab === "import" ? "active" : ""} onClick={() => setActiveTab("import")}>Import</button>
         </div>
         {activeTab === "document" && <label className="field-label compact-field">Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">Paper notes</option><option value="learning-note">Learning notes</option><option value="course-note">Course notes</option></select></label>}
       </div>
-      {resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <div className="surface list-surface"><EntityList entities={visible} onOpen={(entity) => onOpen(entity.entity_type, entity.id)} emptyTitle={activeTab === "document" ? "Library 还是空的" : "还没有来源文献"} emptyDescription={activeTab === "document" ? "发布一篇笔记后，它就会出现在这里。" : "导入 PDF 或发布 Source 元数据后，可从这里打开来源。"} /></div>}
+      {activeTab === "import" ? <ImportReviewPanel navigate={navigate} /> : resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <div className="surface list-surface"><EntityList entities={visible} onOpen={(entity) => onOpen(entity.entity_type, entity.id)} emptyTitle={activeTab === "document" ? "Library 还是空的" : "还没有来源文献"} emptyDescription={activeTab === "document" ? "发布一篇笔记后，它就会出现在这里。" : "导入 PDF 或发布 Source 元数据后，可从这里打开来源。"} /></div>}
     </div>
   );
 }
