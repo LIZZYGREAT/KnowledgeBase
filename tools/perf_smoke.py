@@ -36,7 +36,8 @@ def main() -> int:
     cases = [
         ("Home summary", "/api/ui/summary"),
         ("Home Discovery state", "/api/terms/discovery"),
-        ("Library documents", "/api/documents?limit=1&offset=0"),
+        ("Library document states", "/api/library/document-states"),
+        ("Library source states", "/api/library/source-states"),
         ("Terms list", "/api/terms?limit=1&offset=0"),
         ("Research profiles", "/api/research/profiles"),
     ]
