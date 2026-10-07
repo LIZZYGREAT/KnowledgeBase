@@ -165,6 +165,42 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
     assert "provisional traceability filter" in context_schema["properties"]["trust"]["description"]
 
 
+def test_source_related_terms_include_accepted_relations_and_deduplicate(api_client):
+    repository = api_client.app.state.repository_root
+    source_path = repository / "knowledge" / "sources" / "source-beta.yaml"
+    source_path.write_text(
+        "schema_version: 1\nid: source-beta\ntype: paper\ntitle: Source Beta\n",
+        encoding="utf-8",
+    )
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        Indexer(repository, connection).update_path(source_path)
+        with connection:
+            connection.executemany(
+                """INSERT INTO term_entity_relations (
+                       id, entity_type, entity_id, term_id,
+                       created_from_candidate_id, created_at
+                   ) VALUES (?, 'source', ?, 'neural-indexing', NULL, ?)""",
+                [
+                    ("relation-source-beta", "source-beta", "2026-10-07T00:00:00+00:00"),
+                    ("relation-source-alpha", "source-alpha", "2026-10-07T00:00:00+00:00"),
+                ],
+            )
+    finally:
+        connection.close()
+
+    source_without_documents = api_client.get("/api/sources/source-beta").json()
+    assert source_without_documents["related_documents"] == []
+    assert [term["id"] for term in source_without_documents["related_terms"]] == [
+        "neural-indexing"
+    ]
+
+    source_with_document_link = api_client.get("/api/sources/source-alpha").json()
+    assert [term["id"] for term in source_with_document_link["related_terms"]] == [
+        "neural-indexing"
+    ]
+
+
 def test_term_candidate_api_lists_accepts_and_rejects_runtime_candidates(api_client):
     accepted_candidate = _seed_term_candidate(
         api_client,

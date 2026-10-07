@@ -423,20 +423,36 @@ class KnowledgeReadService:
 
     def _source_terms(self, source_id: str) -> list[dict]:
         document_ids = [row["id"] for row in self._source_documents(source_id)]
-        if not document_ids:
-            return []
-        placeholders = ", ".join("?" for _ in document_ids)
-        rows = self.connection.execute(
+        terms_by_id = {}
+        if document_ids:
+            placeholders = ", ".join("?" for _ in document_ids)
+            rows = self.connection.execute(
+                """SELECT DISTINCT t.entity_id, t.title, t.metadata_json
+                   FROM backlink_index b JOIN term_index t ON t.entity_id = b.term_id
+                   WHERE b.source_entity_type = 'document'
+                     AND b.source_entity_id IN ({})""".format(placeholders),
+                document_ids,
+            ).fetchall()
+            terms_by_id.update((row["entity_id"], row) for row in rows)
+
+        accepted_rows = self.connection.execute(
             """SELECT DISTINCT t.entity_id, t.title, t.metadata_json
-               FROM backlink_index b JOIN term_index t ON t.entity_id = b.term_id
-               WHERE b.source_entity_type = 'document'
-                 AND b.source_entity_id IN ({})
-               ORDER BY t.title COLLATE NOCASE, t.entity_id""".format(placeholders),
-            document_ids,
+               FROM term_entity_relations r JOIN term_index t ON t.entity_id = r.term_id
+               WHERE r.entity_type = 'source' AND r.entity_id = ?""",
+            (source_id,),
         ).fetchall()
+        terms_by_id.update((row["entity_id"], row) for row in accepted_rows)
+
         return [
-            {"id": row["entity_id"], "title": row["title"], "metadata": json.loads(row["metadata_json"])}
-            for row in rows
+            {
+                "id": row["entity_id"],
+                "title": row["title"],
+                "metadata": json.loads(row["metadata_json"]),
+            }
+            for row in sorted(
+                terms_by_id.values(),
+                key=lambda item: (item["title"].casefold(), item["entity_id"]),
+            )
         ]
 
     def _canonical_path(self, relative_path: str, extension: str) -> Path:

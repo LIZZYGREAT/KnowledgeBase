@@ -110,6 +110,44 @@ def test_collection_indexes_preserve_tree_order_and_derive_unfiled_documents(tmp
     connection.close()
 
 
+def test_source_related_terms_include_runtime_relations_and_deduplicate(tmp_path):
+    repository = _create_knowledge_tree(tmp_path / "repo")
+    connection = connect_database(":memory:")
+    indexer = Indexer(repository, connection)
+    indexer.full_rebuild()
+
+    source_path = repository / "knowledge" / "sources" / "source-beta.yaml"
+    source_path.write_text(
+        "schema_version: 1\nid: source-beta\ntype: paper\ntitle: Source Beta\n",
+        encoding="utf-8",
+    )
+    indexer.update_path(source_path)
+    with connection:
+        connection.executemany(
+            """INSERT INTO term_entity_relations (
+                   id, entity_type, entity_id, term_id,
+                   created_from_candidate_id, created_at
+               ) VALUES (?, 'source', ?, 'neural-indexing', NULL, ?)""",
+            [
+                ("relation-source-beta", "source-beta", "2026-10-07T00:00:00+00:00"),
+                ("relation-source-alpha", "source-alpha", "2026-10-07T00:00:00+00:00"),
+            ],
+        )
+
+    knowledge = KnowledgeReadService(repository, connection)
+    source_without_documents = knowledge.get_entity("source", "source-beta")
+    assert source_without_documents["related_documents"] == []
+    assert [term["id"] for term in source_without_documents["related_terms"]] == [
+        "neural-indexing"
+    ]
+
+    source_with_document_link = knowledge.get_entity("source", "source-alpha")
+    assert [term["id"] for term in source_with_document_link["related_terms"]] == [
+        "neural-indexing"
+    ]
+    connection.close()
+
+
 def test_search_exact_title_alias_fts_evidence_and_structured_filters(tmp_path):
     repository = _create_knowledge_tree(tmp_path / "repo")
     connection = connect_database(":memory:")
