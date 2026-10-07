@@ -56,6 +56,19 @@ export function maintenanceStatus(entity: EntitySummary) {
   return readString(maintenance?.status) || "current";
 }
 
+export function maintenanceActionCount(
+  entities: EntitySummary[],
+  proposalCount: number,
+  linkIssueCount: number,
+  staleAnnotationCount: number,
+) {
+  const entitiesWithActions = entities.filter((entity) =>
+    reviewStatus(entity) === "unreviewed" || maintenanceStatus(entity) === "needs_revision",
+  );
+  const uniqueEntityCount = new Set(entitiesWithActions.map((entity) => `${entity.entity_type}:${entity.id}`)).size;
+  return uniqueEntityCount + proposalCount + linkIssueCount + staleAnnotationCount;
+}
+
 export function statusTone(value: string) {
   if (["approved", "verified", "current", "merged"].includes(value)) return "green";
   if (["needs_revision", "needs_attention", "stale", "ambiguous"].includes(value)) return "amber";

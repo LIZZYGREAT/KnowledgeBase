@@ -6,7 +6,7 @@ import {
   type TermCandidate, type TermDiscoveryLane, type TermDiscoveryState, type UsageDocument,
 } from "../api";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, formatDate } from "../ui";
-import { maintenanceStatus, readString, reviewStatus, useResource, type Navigate, type SelectEntity } from "./PageShared";
+import { maintenanceActionCount, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
 interface HomeData {
   recentlyViewed: UsageDocument[];
   recentlyModified: Array<EntitySummary & { modified_at: string }>;
@@ -55,16 +55,12 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
   if (resource.loading) return <LoadingState />;
   if (resource.error || !resource.data) return <ErrorState message={resource.error} retry={resource.retry} />;
   const { data } = resource;
-  const needsReview = data.entities.filter((entity) => reviewStatus(entity) === "unreviewed");
-  const needsRevision = data.entities.filter((entity) => maintenanceStatus(entity) === "needs_revision");
   const pendingImports = data.imports.flatMap((job) => job.items.filter((item) => ["ready", "needs_review"].includes(item.status)).map((item) => ({ job, item })));
   const pendingCandidates = data.termCandidates.filter((candidate) => candidate.status === "pending");
   const draftingCandidates = data.termCandidates.filter((candidate) => candidate.status === "drafting");
   const inboxCount = data.researchProfiles.reduce((sum, profile) => sum + profile.inbox.new_count, 0);
   const inboxCapacity = data.researchProfiles.reduce((sum, profile) => sum + profile.inbox.capacity, 0);
-  const reviewedEntityKeys = new Set([...needsReview, ...needsRevision].map((entity) => `${entity.entity_type}:${entity.id}`));
-  const maintenanceCount = reviewedEntityKeys.size + data.proposals.length
-    + data.linkIssues.length + data.staleAnnotations.length;
+  const maintenanceCount = maintenanceActionCount(data.entities, data.proposals.length, data.linkIssues.length, data.staleAnnotations.length);
   const snapshot = asRecord(data.termDiscovery.last_run?.snapshot);
   const snapshotFocus = asRecord(snapshot.focus);
   const knowledge = asRecord(snapshot.knowledge);

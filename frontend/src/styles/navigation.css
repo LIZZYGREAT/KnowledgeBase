@@ -5,8 +5,11 @@
 .brand-copy { display: grid; gap: 3px; }
 .brand-copy strong { font-family: Manrope, sans-serif; font-size: var(--text-base); font-weight: 700; letter-spacing: -.025em; }
 .brand-copy small { color: #8fa89a; font-size: var(--text-xs); font-weight: 700; letter-spacing: .19em; }
-.sidebar-caption { padding: 0 12px 11px; color: #71877b; font-size: var(--text-xs); font-weight: 700; letter-spacing: .15em; text-transform: uppercase; }
-.main-navigation { display: grid; gap: 4px; }
+.main-navigation { display: grid; min-height: 0; gap: 10px; overflow-y: auto; overscroll-behavior: contain; }
+.nav-group { display: grid; gap: 3px; }
+.nav-group + .nav-group { border-top: 1px solid #ffffff10; padding-top: 9px; }
+.nav-group-label { padding: 0 12px 5px; color: #71877b; font-size: var(--text-xs); font-weight: 700; letter-spacing: .15em; }
+.nav-group-help .nav-item { min-height: 44px; }
 .nav-item { position: relative; display: flex; width: 100%; min-height: 50px; align-items: center; gap: 12px; border: 0; border-radius: 10px; padding: 7px 12px; color: #c1cdc6; background: transparent; text-align: left; cursor: pointer; transition: background .16s ease, color .16s ease; }
 .nav-item:hover { color: #fff; background: #ffffff0b; }
 .nav-item.nav-active { color: #f9fcfa; background: #ffffff12; }
@@ -17,6 +20,8 @@
 .nav-active .nav-icon { color: #a5d2b4; }
 .nav-active .nav-copy small { color: #9ab1a3; }
 .nav-current-mark { position: absolute; top: 13px; right: 0; width: 3px; height: 24px; border-radius: 3px 0 0 3px; background: #94c5a2; }
+.nav-badge { display: grid; min-width: 21px; height: 21px; place-items: center; margin-left: auto; border: 1px solid #ffffff15; border-radius: 999px; padding: 0 5px; color: #c7d9cc; background: #ffffff0b; font-size: var(--text-xs); font-weight: 700; }
+.nav-active .nav-badge { color: #e2f2e6; background: #ffffff18; }
 .sidebar-bottom { display: grid; gap: 18px; margin-top: auto; padding: 12px 7px 0; }
 .sidebar-pin-button { border: 1px solid #ffffff1a; border-radius: 7px; padding: 8px 9px; color: #b7c8bd; background: #ffffff08; text-align: left; font-size: var(--text-xs); cursor: pointer; }
 .sidebar-pin-button:hover { color: #f5faf6; background: #ffffff12; }

@@ -1,8 +1,26 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../src/App";
 
-const mocks = vi.hoisted(() => ({ navigationGuard: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  navigationGuard: vi.fn(),
+  listAllEntities: vi.fn(),
+  listLinkIssues: vi.fn(),
+  listProposals: vi.fn(),
+  listResearchProfiles: vi.fn(),
+  listStalePresentationAnnotations: vi.fn(),
+  listTermCandidates: vi.fn(),
+}));
+
+vi.mock("../../src/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/api")>()),
+  listAllEntities: mocks.listAllEntities,
+  listLinkIssues: mocks.listLinkIssues,
+  listProposals: mocks.listProposals,
+  listResearchProfiles: mocks.listResearchProfiles,
+  listStalePresentationAnnotations: mocks.listStalePresentationAnnotations,
+  listTermCandidates: mocks.listTermCandidates,
+}));
 
 vi.mock("../../src/Pages", async () => {
   const React = await import("react");
@@ -37,12 +55,56 @@ vi.mock("../../src/Workspace", async () => {
   };
 });
 
+vi.mock("../../src/Explorer", async () => {
+  const React = await import("react");
+  return { ExplorerPage: () => React.createElement("div", null, "Explorer mock") };
+});
+
 describe("App browser history guards", () => {
   beforeEach(() => {
     mocks.navigationGuard.mockReset();
     mocks.navigationGuard.mockResolvedValue(true);
+    mocks.listAllEntities.mockResolvedValue([]);
+    mocks.listLinkIssues.mockResolvedValue([]);
+    mocks.listProposals.mockResolvedValue([]);
+    mocks.listResearchProfiles.mockResolvedValue([]);
+    mocks.listStalePresentationAnnotations.mockResolvedValue([]);
+    mocks.listTermCandidates.mockResolvedValue([]);
     window.history.replaceState({ __kb_index: 0 }, "", "/library");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("groups primary navigation and removes Explorer from the first-level menu", async () => {
+    render(<App />);
+    const nav = await screen.findByRole("navigation", { name: "主导航" });
+    const labels = within(nav).getAllByRole("button").map((button) => button.textContent?.match(/Home|Terms|Research|Library|Search|Topics|Review|Help/)?.[0]);
+
+    expect(labels).toEqual(["Home", "Terms", "Research", "Library", "Search", "Topics", "Review", "Help"]);
+    expect(within(nav).getByText("CORE")).toBeTruthy();
+    expect(within(nav).getByText("KNOWLEDGE")).toBeTruthy();
+    expect(within(nav).getByText("MAINTENANCE")).toBeTruthy();
+    expect(within(nav).queryByRole("button", { name: /Explorer/ })).toBeNull();
+  });
+
+  it("keeps the Explorer deep link available and shows action badge counts", async () => {
+    window.history.replaceState({ __kb_index: 0 }, "", "/explorer");
+    mocks.listTermCandidates.mockResolvedValue([{ status: "pending" }, { status: "drafting" }, { status: "accepted" }]);
+    mocks.listResearchProfiles.mockResolvedValue([{ inbox: { new_count: 3 } }]);
+    mocks.listAllEntities.mockImplementation(async (type: string) => type === "document"
+      ? [{ id: "revision", entity_type: "document", metadata: { maintenance: { status: "needs_revision" } } }]
+      : []);
+    mocks.listLinkIssues.mockResolvedValue([{}]);
+    mocks.listProposals.mockImplementation(async (status: string) => status === "proposed" ? [{ id: "proposal" }] : []);
+
+    render(<App />);
+
+    expect(await screen.findByText("Explorer mock")).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "主导航" });
+    expect(await within(nav).findByLabelText("2 Terms pending")).toBeTruthy();
+    expect(await within(nav).findByLabelText("3 Research pending")).toBeTruthy();
+    expect(await within(nav).findByLabelText("3 Review pending")).toBeTruthy();
   });
 
   it("flushes before browser Back and changes route after the guard succeeds", async () => {

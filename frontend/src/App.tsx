@@ -1,10 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
+  listAllEntities,
+  listLinkIssues,
+  listProposals,
+  listResearchProfiles,
+  listStalePresentationAnnotations,
+  listTermCandidates,
   recordSearchClick,
   type EntityType,
 } from "./api";
 import { LoadingState } from "./ui";
 import { navigateWithGuards, type NavigationGuard, type RegisterBeforeNavigate } from "./navigation";
+import { maintenanceActionCount } from "./pages/PageShared";
 
 const HomePage = lazy(() => import("./Pages").then((module) => ({ default: module.HomePage })));
 const SearchPage = lazy(() => import("./Pages").then((module) => ({ default: module.SearchPage })));
@@ -39,17 +46,45 @@ function stateWithHistoryIndex(state: unknown, index: number): Record<string, un
   return { ...existing, [HISTORY_INDEX_KEY]: index };
 }
 
-const navigation = [
-  { route: "/", title: "Home", translation: "首页", icon: "⌂" },
-  { route: "/search", title: "Search", translation: "搜索", icon: "⌕" },
-  { route: "/library", title: "Library", translation: "资料库", icon: "▤" },
-  { route: "/terms", title: "Terms", translation: "术语", icon: "Aa" },
-  { route: "/topics", title: "Topics", translation: "主题", icon: "✳" },
-  { route: "/research", title: "Research", translation: "研究发现", icon: "⌕" },
-  { route: "/review", title: "Review", translation: "审阅", icon: "✓" },
-  { route: "/help", title: "Help", translation: "帮助", icon: "?" },
-  { route: "/explorer", title: "Explorer", translation: "知识探索", icon: "⌘" },
+interface NavigationBadges {
+  terms: number;
+  research: number;
+  review: number;
+}
+
+interface NavigationItem {
+  route: string;
+  title: string;
+  translation: string;
+  icon: string;
+  badge?: keyof NavigationBadges;
+}
+
+interface NavigationGroup {
+  label: string;
+  items: NavigationItem[];
+}
+
+const navigationGroups: NavigationGroup[] = [
+  { label: "CORE", items: [
+    { route: "/", title: "Home", translation: "首页", icon: "⌂" },
+    { route: "/terms", title: "Terms", translation: "术语", icon: "Aa", badge: "terms" as const },
+    { route: "/research", title: "Research", translation: "研究发现", icon: "⌕", badge: "research" as const },
+  ] },
+  { label: "KNOWLEDGE", items: [
+    { route: "/library", title: "Library", translation: "资料库", icon: "▤" },
+    { route: "/search", title: "Search", translation: "搜索", icon: "⌕" },
+    { route: "/topics", title: "Topics", translation: "主题", icon: "✳" },
+  ] },
+  { label: "MAINTENANCE", items: [
+    { route: "/review", title: "Review", translation: "审阅", icon: "✓", badge: "review" as const },
+  ] },
+  { label: "", items: [
+    { route: "/help", title: "Help", translation: "帮助", icon: "?" },
+  ] },
 ];
+const navigation = navigationGroups.flatMap((group) => group.items);
+const availablePageRoutes = [...navigation.map((item) => item.route), "/explorer"];
 
 function currentLocation(): LocationState {
   return {
@@ -61,6 +96,7 @@ function currentLocation(): LocationState {
 
 export default function App() {
   const [location, setLocation] = useState<LocationState>(() => currentLocation());
+  const [navigationBadges, setNavigationBadges] = useState<NavigationBadges>({ terms: 0, research: 0, review: 0 });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [quickSearch, setQuickSearch] = useState("");
   const [sidebarPinned, setSidebarPinned] = useState(() => {
@@ -143,6 +179,47 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    async function refreshNavigationBadges() {
+      const [terms, research, review] = await Promise.allSettled([
+        listTermCandidates(),
+        listResearchProfiles(),
+        Promise.all([
+          Promise.all([listAllEntities("document"), listAllEntities("term"), listAllEntities("source")]),
+          Promise.all([listProposals("proposed"), listProposals("drafted")]),
+          listLinkIssues(),
+          listStalePresentationAnnotations(),
+        ]),
+      ]);
+      if (!active) return;
+      setNavigationBadges((current) => ({
+        terms: terms.status === "fulfilled"
+          ? terms.value.filter((candidate) => candidate.status === "pending" || candidate.status === "drafting").length
+          : current.terms,
+        research: research.status === "fulfilled"
+          ? research.value.reduce((sum, profile) => sum + profile.inbox.new_count, 0)
+          : current.research,
+        review: review.status === "fulfilled"
+          ? maintenanceActionCount(
+            review.value[0].flat(),
+            review.value[1].flat().length,
+            review.value[2].length,
+            review.value[3].length,
+          )
+          : current.review,
+      }));
+    }
+    void refreshNavigationBadges();
+    const interval = window.setInterval(() => void refreshNavigationBadges(), 60_000);
+    window.addEventListener("focus", refreshNavigationBadges);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshNavigationBadges);
+    };
+  }, [location.pathname]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem("knowledgebase.sidebar-pinned", String(sidebarPinned));
     } catch {
@@ -218,10 +295,10 @@ export default function App() {
   }
   const activeNav = route.kind === "reader"
     ? route.entityType === "term" ? "/terms" : "/library"
-    : navigation.find((item) => item.route === route.path)?.route ?? "/";
+    : navigation.find((item) => item.route === route.path)?.route ?? (route.path === "/explorer" ? "/explorer" : "/");
   const pageTitle = route.kind === "reader"
     ? route.entityType === "document" ? "Document" : route.entityType === "term" ? "Term" : "Source"
-    : route.kind === "new-note" ? "New Note" : navigation.find((item) => item.route === activeNav)?.title ?? "Home";
+    : route.kind === "new-note" ? "New Note" : route.path === "/explorer" ? "Explorer" : navigation.find((item) => item.route === activeNav)?.title ?? "Home";
 
   const openEntity = useCallback((
     type: EntityType,
@@ -292,20 +369,24 @@ export default function App() {
           <span className="brand-copy"><strong>KnowledgeBase</strong><small>REFERENCE HUB</small></span>
         </button>
 
-        <div className="sidebar-caption">工作区</div>
         <nav className="main-navigation" aria-label="主导航">
-          {navigation.map((item) => (
-            <button
-              key={item.route}
-              className={`nav-item ${activeNav === item.route ? "nav-active" : ""}`}
-              aria-current={activeNav === item.route ? "page" : undefined}
-              onClick={() => navigate(item.route)}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-copy"><strong>{item.title}</strong><small>{item.translation}</small></span>
-              {activeNav === item.route && <span className="nav-current-mark" />}
-            </button>
-          ))}
+          {navigationGroups.map((group) => <div className={`nav-group${group.label ? "" : " nav-group-help"}`} key={group.label || "help"}>
+            {group.label && <div className="nav-group-label">{group.label}</div>}
+            {group.items.map((item) => {
+              const badgeCount = item.badge ? navigationBadges[item.badge] : 0;
+              return <button
+                key={item.route}
+                className={`nav-item ${activeNav === item.route ? "nav-active" : ""}`}
+                aria-current={activeNav === item.route ? "page" : undefined}
+                onClick={() => navigate(item.route)}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span className="nav-copy"><strong>{item.title}</strong><small>{item.translation}</small></span>
+                {badgeCount > 0 && <span className="nav-badge" aria-label={`${badgeCount} ${item.title} pending`}>{badgeCount}</span>}
+                {activeNav === item.route && <span className="nav-current-mark" />}
+              </button>;
+            })}
+          </div>)}
         </nav>
 
         <div className="sidebar-bottom">
@@ -347,5 +428,5 @@ function resolveRoute(pathname: string):
   if (parts[0] === "terms" && parts[1]) return { kind: "reader", entityType: "term", id: parts[1], path: "/terms" };
   if (parts[0] === "sources" && parts[1]) return { kind: "reader", entityType: "source", id: parts[1], path: "/library" };
   const route = `/${parts[0]}`;
-  return navigation.some((item) => item.route === route) ? { kind: "page", path: route } : { kind: "page", path: "/" };
+  return availablePageRoutes.includes(route) ? { kind: "page", path: route } : { kind: "page", path: "/" };
 }
