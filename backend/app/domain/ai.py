@@ -143,6 +143,11 @@ class ResearchCandidateAnalysisOutput(AIOutput):
     existing_relations: list[ResearchRelation] = Field(default_factory=list, max_length=12)
     suggested_collection: Optional[Slug] = None
     suggested_section: Optional[NonEmptyText] = None
+    readiness: Optional[Literal["high", "medium", "low"]] = None
+    known_prerequisites: list[NonEmptyText] = Field(default_factory=list, max_length=12)
+    missing_prerequisites: list[NonEmptyText] = Field(default_factory=list, max_length=12)
+    why_now: Optional[NonEmptyText] = None
+    term_candidates: list[TermDiscoverySuggestion] = Field(default_factory=list, max_length=12)
 
 
 class ResearchCandidateAnalysisAIOutput(ResearchCandidateAnalysisOutput):
@@ -150,6 +155,11 @@ class ResearchCandidateAnalysisAIOutput(ResearchCandidateAnalysisOutput):
     why_relevant_zh: NonEmptyText
     reading_reason_zh: NonEmptyText
     existing_relations: list[ResearchRelationAnalysisOutput] = Field(default_factory=list, max_length=12)
+    readiness: Literal["high", "medium", "low"]
+    known_prerequisites: list[NonEmptyText] = Field(max_length=12)
+    missing_prerequisites: list[NonEmptyText] = Field(max_length=12)
+    why_now: NonEmptyText
+    term_candidates: list[TermDiscoverySuggestion] = Field(max_length=12)
 
 
 TASK_OUTPUTS = {

@@ -86,7 +86,9 @@ def build_research_components(
         context_export,
         registry.global_config.analysis.max_context_entities,
     )
-    analysis_service = ResearchAnalysisService(work_repository, gateway)
+    analysis_service = ResearchAnalysisService(
+        work_repository, gateway, repository_root=root
+    )
     source_registry = SourceRegistry.load(root / "knowledge" / "sources")
     research_service = ResearchService(
         repository_root=root,

@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 import hashlib
 import json
+from pathlib import Path
+import re
 from typing import Callable, Optional
 import uuid
 
@@ -19,10 +21,12 @@ from backend.app.domain.research_runtime import (
 from backend.app.repositories.research_repository import ResearchRepository
 from backend.app.services.ai_client import AIProviderError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway
+from backend.app.services.knowledge_state_service import KnowledgeStateService
+from backend.app.services.term_registry import TermRegistry
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v6"
-RESEARCH_ANALYSIS_VERSION = 6
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v7"
+RESEARCH_ANALYSIS_VERSION = 7
 
 
 class ResearchAnalysisCircuitBreaker:
@@ -66,10 +70,16 @@ class ResearchAnalysisService:
         repository: ResearchRepository,
         gateway: AIGateway,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        repository_root: Optional[Path] = None,
     ):
         self.repository = repository
         self.gateway = gateway
         self.clock = clock
+        self.repository_root = (
+            Path(repository_root).expanduser().resolve()
+            if repository_root is not None
+            else None
+        )
 
     def input_hash(
         self,
@@ -92,6 +102,9 @@ class ResearchAnalysisService:
         """Return the exact semantic payload sent to the Research analysis model."""
         _validate_lens(profile, matched_lens)
         breadth = profile.search.breadth
+        readiness_context, term_registry = self._readiness_input(
+            work, profile, matched_lens, context_pack
+        )
         return {
             "analysis_version": RESEARCH_ANALYSIS_VERSION,
             "prompt_version": RESEARCH_ANALYSIS_PROMPT_VERSION,
@@ -110,7 +123,60 @@ class ResearchAnalysisService:
             },
             "matched_lens": matched_lens.model_dump(mode="json"),
             "knowledge_context": context_pack.model_dump(mode="json"),
+            "readiness_context": readiness_context,
+            "term_registry": term_registry,
         }
+
+    def _readiness_input(self, work, profile, matched_lens, context_pack):
+        focus = [
+            profile.title,
+            profile.description or "",
+            matched_lens.title,
+            *matched_lens.queries,
+            context_pack.focus_query,
+        ]
+        if self.repository_root is None:
+            return {"explicit_focus": [value for value in focus if value][:12]}, []
+
+        registry = TermRegistry.load(self.repository_root / "knowledge" / "terms")
+        snapshot = KnowledgeStateService(
+            self.repository_root, self.repository.connection
+        ).build_snapshot(focus)
+        selected_ids = {
+            card.entity_id
+            for card in context_pack.cards
+            if card.entity_type == "term"
+        }
+        focus_tokens = set(_tokens(" ".join(focus + [work.title])))
+        terms_by_state = {"established": [], "learning": [], "gaps": []}
+        for term in snapshot["registry"]:
+            term_tokens = set(_tokens(" ".join([term["title"], *term["aliases"]])))
+            if term["id"] not in selected_ids and not (focus_tokens & term_tokens):
+                continue
+            state = term["state"]
+            if state in {"established", "learning"}:
+                terms_by_state[state].append({"id": term["id"], "title": term["title"]})
+            elif state in {"exposed", "unknown"}:
+                terms_by_state["gaps"].append(
+                    {"id": term["id"], "title": term["title"], "state": state}
+                )
+        readiness_context = {
+            "explicit_focus": [value for value in focus if value][:12],
+            "established_terms": terms_by_state["established"][:20],
+            "learning_terms": terms_by_state["learning"][:20],
+            "current_gaps": terms_by_state["gaps"][:20],
+            "selected_term_ids": sorted(selected_ids)[:20],
+        }
+        term_registry = [
+            {
+                "id": term.id,
+                "title": term.title,
+                "aliases": list(term.aliases[:6]),
+                "type": term.type,
+            }
+            for term in registry.terms[:200]
+        ]
+        return readiness_context, term_registry
 
     def analyze(
         self,
@@ -143,6 +209,7 @@ class ResearchAnalysisService:
         if not isinstance(output, ResearchCandidateAnalysisAIOutput):
             raise AIResponseError("Research analysis returned an unexpected output model")
         _validate_analysis_references(output, profile, matched_lens, context_pack)
+        _validate_term_candidate_references(output, work, self.repository_root)
 
         analyzed_at = self.clock()
         if analyzed_at.tzinfo is None or analyzed_at.utcoffset() is None:
@@ -245,3 +312,29 @@ def _validate_analysis_references(
         raise AIResponseError(
             "Research analysis suggested a Section without a Collection"
         )
+
+
+def _validate_term_candidate_references(output, work, repository_root):
+    registry = (
+        TermRegistry.load(repository_root / "knowledge" / "terms")
+        if repository_root is not None
+        else None
+    )
+    work_text = " ".join((work.title, work.abstract or ""))
+    normalized_work_text = " ".join(work_text.casefold().split())
+    for candidate in output.term_candidates:
+        excerpt = " ".join(candidate.context_excerpt.casefold().split())
+        mention = " ".join(candidate.mention.casefold().split())
+        if not excerpt or excerpt not in normalized_work_text or mention not in excerpt:
+            raise AIResponseError(
+                "Research analysis term candidate evidence must be copied from the Work title or abstract"
+            )
+        if candidate.existing_term_id:
+            if registry is None or registry.get(candidate.existing_term_id) is None:
+                raise AIResponseError(
+                    "Research analysis referenced an unknown Existing Term id"
+                )
+
+
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+(?:[-'][a-z0-9]+)*", text.casefold())

@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -61,8 +62,8 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert first.analysis.why_relevant_zh == "这与正则化研究主题相符。"
     assert first.analysis.reading_reason_zh == "这可能有助于理解巩固方法。"
     assert first.analysis.existing_relations[0].reason_zh == "它扩展了置顶的 EWC 笔记。"
-    assert first.analysis_version == 6
-    assert first.prompt_version == "research-candidate-analysis-v6"
+    assert first.analysis_version == 7
+    assert first.prompt_version == "research-candidate-analysis-v7"
     assert [
         (relation.entity_type, relation.entity_id)
         for relation in first.analysis.existing_relations
@@ -386,6 +387,129 @@ def test_research_analysis_schema_rejects_out_of_range_scores():
     connection.close()
 
 
+def test_historical_analysis_json_without_readiness_remains_readable():
+    historical = _analysis_output()
+    for key in (
+        "readiness",
+        "known_prerequisites",
+        "missing_prerequisites",
+        "why_now",
+        "term_candidates",
+    ):
+        historical.pop(key)
+
+    parsed = ResearchCandidateAnalysisOutput.model_validate(historical)
+
+    assert parsed.readiness is None
+    assert parsed.why_now is None
+    assert parsed.known_prerequisites == []
+    assert parsed.missing_prerequisites == []
+    assert parsed.term_candidates == []
+
+
+def test_research_analysis_rejects_unknown_existing_term_id(tmp_path):
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    (tmp_path / "knowledge" / "terms").mkdir(parents=True)
+    output = _analysis_output()
+    output["term_candidates"] = [
+        {
+            "mention": "parameter importance",
+            "term_type": "concept",
+            "existing_term_id": "missing-term",
+            "confidence": 0.8,
+            "rationale": "It is central to this work.",
+            "context_excerpt": "Parameter importance helps prevent forgetting.",
+            "readiness": "medium",
+            "recommendation_level": "next",
+            "known_prerequisites": [],
+            "missing_prerequisites": ["Fisher information"],
+            "why_now": "It connects the selected concepts.",
+        }
+    ]
+    service = ResearchAnalysisService(
+        repository,
+        AIGateway(MockDeepSeekClient({"research_candidate_analysis": output})),
+        repository_root=tmp_path,
+    )
+
+    with pytest.raises(AIResponseError, match="unknown Existing Term id"):
+        service.analyze(work, _profile(), _profile().lenses[0], _context_pack())
+
+    assert connection.execute("SELECT COUNT(*) FROM research_work_analyses").fetchone()[0] == 0
+    connection.close()
+
+
+def test_research_analysis_input_includes_bounded_knowledge_readiness_context(tmp_path):
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    term_dir = tmp_path / "knowledge" / "terms"
+    term_dir.mkdir(parents=True)
+    for term_id, title, depth in (
+        ("fisher-information", "Fisher Information", "standard"),
+        ("weight-decay", "Weight Decay", "stub"),
+        ("parameter-importance", "Parameter Importance", "stub"),
+    ):
+        (term_dir / (term_id + ".md")).write_text(
+            "---\nschema_version: 1\nid: {}\ntitle: {}\ntype: concept\n"
+            "depth: {}\naliases: []\n---\n\n# {}\n".format(
+                term_id, title, depth, title
+            ),
+            encoding="utf-8",
+        )
+    connection.execute(
+        """INSERT INTO term_entity_relations (
+               id, entity_type, entity_id, term_id, created_from_candidate_id, created_at
+           ) VALUES ('established-link', 'document', 'note-one', 'fisher-information', NULL,
+                     '2025-01-01T00:00:00+00:00')"""
+    )
+    connection.execute(
+        """INSERT INTO term_entity_relations (
+               id, entity_type, entity_id, term_id, created_from_candidate_id, created_at
+           ) VALUES ('learning-link', 'document', 'note-one', 'weight-decay', NULL,
+                     '2026-10-01T00:00:00+00:00')"""
+    )
+    connection.commit()
+    profile = _profile()
+    context = _context_pack()
+    selected_terms = tuple(
+        ResearchContextCard(
+            entity_type="term",
+            entity_id=term_id,
+            title=title,
+            review_status="approved",
+            metadata={},
+            pinned=False,
+            retrieval_score=0.5,
+        )
+        for term_id, title in (
+            ("weight-decay", "Weight Decay"),
+            ("parameter-importance", "Parameter Importance"),
+        )
+    )
+    context = context.model_copy(update={"cards": (*context.cards, *selected_terms)})
+    service = ResearchAnalysisService(
+        repository, AIGateway(MockDeepSeekClient({})), repository_root=tmp_path
+    )
+
+    payload = service.build_analysis_input(work, profile, profile.lenses[0], context)
+
+    readiness = payload["readiness_context"]
+    assert readiness["established_terms"] == [
+        {"id": "fisher-information", "title": "Fisher Information"}
+    ]
+    assert readiness["learning_terms"] == [{"id": "weight-decay", "title": "Weight Decay"}]
+    assert readiness["current_gaps"] == [
+        {"id": "parameter-importance", "title": "Parameter Importance", "state": "unknown"}
+    ]
+    assert len(payload["term_registry"]) == 3
+    connection.close()
+
+
 def test_run_circuit_breaker_opens_after_three_transient_failures():
     breaker = ResearchAnalysisCircuitBreaker()
     calls = []
@@ -511,6 +635,11 @@ def _analysis_output():
         "summary_zh": "这篇论文研究参数重要性。",
         "why_relevant_zh": "这与正则化研究主题相符。",
         "reading_reason_zh": "这可能有助于理解巩固方法。",
+        "readiness": "high",
+        "known_prerequisites": ["Fisher information"],
+        "missing_prerequisites": [],
+        "why_now": "It builds on the selected regularization context.",
+        "term_candidates": [],
         "existing_relations": [
             {
                 "entity_type": "document",

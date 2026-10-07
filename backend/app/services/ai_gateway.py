@@ -89,7 +89,13 @@ TASKS = {
         (),
         (
             "Analyze a discovered Work against its Research Profile and selected Knowledge Context. "
-            "Write summary, why_relevant, reading_reason, and each relation reason in English; also provide "
+            "Also use readiness_context and the bounded Term Registry to assess what the reader can use now. "
+            "Return readiness (high/medium/low), known_prerequisites, missing_prerequisites, and a specific why_now. "
+            "Activity, PDF exposure, recency, or Term rejection do not establish mastery. "
+            "Return at most 12 term_candidates in this same analysis call; use only terms supported by the supplied Work title or abstract, "
+            "copy context_excerpt from that Work, and set existing_term_id only to an exact id in term_registry. "
+            "Term candidates are review suggestions and must not alter the paper relevance decision. "
+            "Write summary, why_relevant, reading_reason, why_now, and each relation reason in English; also provide "
             "summary_zh, why_relevant_zh, reading_reason_zh, and reason_zh as faithful, natural Simplified Chinese. "
             "Keep each pair semantically aligned, and do not translate bibliographic metadata or entity IDs. "
             "The supplied profile.breadth_policy is the admission policy: set relevant=false whenever "
