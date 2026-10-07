@@ -289,6 +289,39 @@ describe("Terms Registry controls", () => {
     await waitFor(() => expect(api.acceptTermCandidate).toHaveBeenCalledWith("candidate-existing", "loser-term"));
   });
 
+  it("filters Candidates by Notes, PDF, Research, and Web Discovery and collapses long evidence", async () => {
+    const pdfCandidate = candidate({ id: "candidate-pdf", display_name: "PDF Candidate", evidence: [{ ...candidate({}).evidence[0], id: "evidence-pdf", candidate_id: "candidate-pdf", origin_type: "source", origin_id: "source-pdf", origin_title: "PDF Source" }] });
+    const researchCandidate = candidate({ id: "candidate-research-work", display_name: "Research Candidate", evidence: [{ ...candidate({}).evidence[0], id: "evidence-research-work", candidate_id: "candidate-research-work", origin_type: "research_work", origin_id: "work-one", origin_title: "Research Work" }] });
+    const webCandidate = candidate({ id: "candidate-web", display_name: "Web Candidate", evidence: [{ ...candidate({}).evidence[0], id: "evidence-web", candidate_id: "candidate-web", origin_type: "external", origin_id: "https://example.com/discovery", origin_title: "Web Discovery" }] });
+    const manyEvidenceCandidate = candidate({
+      id: "candidate-many-evidence",
+      display_name: "Many Evidence Candidate",
+      evidence: Array.from({ length: 4 }, (_, index) => ({ ...candidate({}).evidence[0], id: `evidence-many-${index}`, candidate_id: "candidate-many-evidence", origin_id: `note-${index}`, origin_title: `Note ${index}`, context_excerpt: `Context ${index}` })),
+    });
+    api.listTermCandidates.mockResolvedValue([candidate({}), pdfCandidate, researchCandidate, webCandidate, manyEvidenceCandidate]);
+    const user = userEvent.setup();
+    render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
+
+    expect(await screen.findByText("Adaptive Token Pruning")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "PDF" }));
+    expect(screen.getByText("PDF Candidate")).not.toBeNull();
+    expect(screen.queryByText("Adaptive Token Pruning")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Research" }));
+    expect(screen.getByText("Research Candidate")).not.toBeNull();
+    expect(screen.queryByText("PDF Candidate")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Web Discovery" }));
+    expect(screen.getByText("Web Candidate")).not.toBeNull();
+    expect(screen.queryByText("Research Candidate")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "All" }));
+
+    const evidenceSummary = await screen.findByText("4 条来源证据");
+    const evidenceDetails = evidenceSummary.closest("details") as HTMLDetailsElement;
+    expect(evidenceDetails.open).toBe(false);
+    await user.click(evidenceSummary);
+    expect(evidenceDetails.open).toBe(true);
+    expect(screen.getByText("Context 0")).not.toBeNull();
+  });
+
   it("requires explicit consent before creating a Candidate Term Draft and AI Proposal", async () => {
     const draft: Draft = {
       id: "draft-adaptive",

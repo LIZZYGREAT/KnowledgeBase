@@ -12,6 +12,7 @@
 .term-candidates-panel { display: grid; gap: 14px; }
 .term-candidate-toolbar { display: flex; align-items: end; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 12px 14px; }
 .term-candidate-origin-filter, .term-candidate-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
+.term-candidate-origin-filter .segmented-control { display: flex; flex-wrap: wrap; }
 .term-candidate-list { display: grid; gap: 12px; }
 .term-candidate-card { display: grid; gap: 13px; min-width: 0; padding: 17px; }
 .term-candidate-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
@@ -20,6 +21,10 @@
 .term-candidate-id { color: var(--text-subtle); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .term-candidate-match { margin: 5px 0 0; color: var(--text-secondary); font-size: var(--text-sm); }
 .term-candidate-evidence-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 9px; }
+.term-candidate-evidence-disclosure { display: grid; gap: 10px; border: 1px solid #e7ece7; border-radius: 8px; padding: 9px 10px; background: #fbfdfb; }
+.term-candidate-evidence-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #52665a; font-size: var(--text-sm); cursor: pointer; }
+.term-candidate-evidence-disclosure > summary span { color: var(--text-subtle); font-size: var(--text-xs); }
+.term-candidate-evidence-disclosure[open] > summary { border-bottom: 1px solid #edf1ed; padding-bottom: 8px; }
 .term-candidate-evidence { min-width: 0; border: 1px solid #e9eee9; border-radius: 9px; padding: 11px 12px; background: #fbfcfb; }
 .term-candidate-evidence.rejected { border-style: dashed; background: #f8f8f6; }
 .term-candidate-evidence-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; color: var(--text-subtle); font-size: var(--text-xs); }

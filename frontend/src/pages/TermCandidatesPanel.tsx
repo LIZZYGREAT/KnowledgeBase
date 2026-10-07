@@ -14,7 +14,7 @@ import { errorMessage } from "../errors";
 import { Chip, EmptyState, ErrorState, LoadingState, titleCase } from "../ui";
 import { readList, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
 
-type OriginFilter = "all" | "notes";
+type OriginFilter = "all" | "notes" | "pdf" | "research" | "web";
 type ResolutionFilter = "all" | "existing" | "new";
 
 export function TermCandidatesPanel({
@@ -60,7 +60,12 @@ export function TermCandidatesPanel({
   }, [candidates]);
   const visibleCandidates = candidates.filter((candidate) => {
     if (candidate.status !== "pending" && candidate.status !== "drafting") return false;
-    if (originFilter === "notes" && !candidate.evidence.some((item) => item.origin_type === "document")) return false;
+    const originType = originFilter === "notes" ? "document"
+      : originFilter === "pdf" ? "source"
+        : originFilter === "research" ? "research_work"
+          : originFilter === "web" ? "external"
+            : null;
+    if (originType && !candidate.evidence.some((item) => item.origin_type === originType)) return false;
     if (documentFilter && !candidate.evidence.some((item) => item.origin_type === "document" && item.origin_id === documentFilter)) return false;
     if (termTypeFilter && candidate.suggested_type !== termTypeFilter) return false;
     if (resolutionFilter === "existing" && !candidate.suggested_term_id) return false;
@@ -145,13 +150,21 @@ export function TermCandidatesPanel({
     setCreatedDraftId("");
   }
 
+  function selectOriginFilter(filter: OriginFilter) {
+    setOriginFilter(filter);
+    if (filter !== "notes") setDocumentFilter("");
+  }
+
   return (
     <section className="term-candidates-panel" aria-label="Term Candidates">
       <div className="term-candidate-toolbar surface">
         <div className="term-candidate-origin-filter">
           <div className="segmented-control" role="group" aria-label="候选来源">
-            <button type="button" aria-pressed={originFilter === "all"} className={originFilter === "all" ? "active" : ""} onClick={() => { setOriginFilter("all"); setDocumentFilter(""); }}>All</button>
-            <button type="button" aria-pressed={originFilter === "notes"} className={originFilter === "notes" ? "active" : ""} onClick={() => setOriginFilter("notes")}>Notes</button>
+            <button type="button" aria-pressed={originFilter === "all"} className={originFilter === "all" ? "active" : ""} onClick={() => selectOriginFilter("all")}>All</button>
+            <button type="button" aria-pressed={originFilter === "notes"} className={originFilter === "notes" ? "active" : ""} onClick={() => selectOriginFilter("notes")}>Notes</button>
+            <button type="button" aria-pressed={originFilter === "pdf"} className={originFilter === "pdf" ? "active" : ""} onClick={() => selectOriginFilter("pdf")}>PDF</button>
+            <button type="button" aria-pressed={originFilter === "research"} className={originFilter === "research" ? "active" : ""} onClick={() => selectOriginFilter("research")}>Research</button>
+            <button type="button" aria-pressed={originFilter === "web"} className={originFilter === "web" ? "active" : ""} onClick={() => selectOriginFilter("web")}>Web Discovery</button>
           </div>
           {originFilter === "notes" && <label className="field-label compact-field">来源笔记
             <select value={documentFilter} onChange={(event) => setDocumentFilter(event.target.value)}>
@@ -177,6 +190,33 @@ export function TermCandidatesPanel({
             const suggestedTerm = terms.find((term) => term.id === candidate.suggested_term_id);
             const isExisting = Boolean(candidate.suggested_term_id);
             const canCreateTerm = candidate.evidence.some((item) => !item.origin_rejected);
+            const evidenceContent = <div className="term-candidate-evidence-list">
+              {candidate.evidence.map((item) => (
+                <section className={`term-candidate-evidence ${item.origin_rejected ? "rejected" : ""}`} key={item.id}>
+                  <div className="term-candidate-evidence-title">
+                    {item.origin_type === "document" || item.origin_type === "source" ? (
+                      <button type="button" className="term-candidate-origin-link" onClick={() => onOpen(item.origin_type === "document" ? "document" : "source", item.origin_id)}>
+                        {item.origin_title || item.origin_id}
+                      </button>
+                    ) : item.origin_type === "research_work" ? (
+                      <button type="button" className="term-candidate-origin-link" onClick={() => navigate(`/research?work_id=${encodeURIComponent(item.origin_id)}`)}>
+                        {item.origin_title || item.origin_id}
+                      </button>
+                    ) : externalEvidenceHref(item.origin_id) ? (
+                      <a className="term-candidate-origin-link" href={externalEvidenceHref(item.origin_id)!} target="_blank" rel="noopener noreferrer">
+                        {item.origin_title || item.origin_id}
+                      </a>
+                    ) : <span className="term-candidate-origin-link">{item.origin_title || item.origin_id}</span>}
+                    <span>{titleCase(item.origin_type)} · {item.mention}</span>
+                    {item.confidence !== null && <span className="term-candidate-confidence">判断把握 {Math.round(item.confidence * 100)}%</span>}
+                    {item.origin_rejected && <Chip tone="rose">此来源已拒绝</Chip>}
+                  </div>
+                  {item.context_excerpt && <blockquote>{item.context_excerpt}</blockquote>}
+                  {item.rationale && <p>{item.rationale}</p>}
+                  {!item.origin_rejected && candidate.status === "pending" && <button className="text-button term-local-reject" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "local", origin_type: item.origin_type, origin_id: item.origin_id }))}>仅此来源不再推荐</button>}
+                </section>
+              ))}
+            </div>;
             return (
               <article key={candidate.id} className="term-candidate-card surface">
                 <header className="term-candidate-heading">
@@ -194,33 +234,10 @@ export function TermCandidatesPanel({
                   {(candidate.discovery_assessment.known_prerequisites.length > 0 || candidate.discovery_assessment.missing_prerequisites.length > 0) && <small>已有：{candidate.discovery_assessment.known_prerequisites.join("、") || "—"} · 缺少：{candidate.discovery_assessment.missing_prerequisites.join("、") || "—"}</small>}
                 </section>}
 
-                <div className="term-candidate-evidence-list">
-                  {candidate.evidence.map((item) => (
-                    <section className={`term-candidate-evidence ${item.origin_rejected ? "rejected" : ""}`} key={item.id}>
-                      <div className="term-candidate-evidence-title">
-                        {item.origin_type === "document" || item.origin_type === "source" ? (
-                          <button type="button" className="term-candidate-origin-link" onClick={() => onOpen(item.origin_type === "document" ? "document" : "source", item.origin_id)}>
-                            {item.origin_title || item.origin_id}
-                          </button>
-                        ) : item.origin_type === "research_work" ? (
-                          <button type="button" className="term-candidate-origin-link" onClick={() => navigate(`/research?work_id=${encodeURIComponent(item.origin_id)}`)}>
-                            {item.origin_title || item.origin_id}
-                          </button>
-                        ) : externalEvidenceHref(item.origin_id) ? (
-                          <a className="term-candidate-origin-link" href={externalEvidenceHref(item.origin_id)!} target="_blank" rel="noopener noreferrer">
-                            {item.origin_title || item.origin_id}
-                          </a>
-                        ) : <span className="term-candidate-origin-link">{item.origin_title || item.origin_id}</span>}
-                        <span>{titleCase(item.origin_type)} · {item.mention}</span>
-                        {item.confidence !== null && <span className="term-candidate-confidence">判断把握 {Math.round(item.confidence * 100)}%</span>}
-                        {item.origin_rejected && <Chip tone="rose">此来源已拒绝</Chip>}
-                      </div>
-                      {item.context_excerpt && <blockquote>{item.context_excerpt}</blockquote>}
-                      {item.rationale && <p>{item.rationale}</p>}
-                      {!item.origin_rejected && candidate.status === "pending" && <button className="text-button term-local-reject" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "local", origin_type: item.origin_type, origin_id: item.origin_id }))}>仅此来源不再推荐</button>}
-                    </section>
-                  ))}
-                </div>
+                {candidate.evidence.length > 3 ? <details className="term-candidate-evidence-disclosure">
+                  <summary><strong>{candidate.evidence.length} 条来源证据</strong><span>展开摘录与分析理由</span></summary>
+                  {evidenceContent}
+                </details> : evidenceContent}
 
                 {actionErrors[candidate.id] && <p className="error-copy" role="alert">{actionErrors[candidate.id]}</p>}
                 <footer className="term-candidate-actions">
