@@ -336,7 +336,9 @@ export default function App() {
     page = <Suspense fallback={<LoadingState />}><LibraryPage onOpen={openEntity} /></Suspense>;
   } else if (route.path === "/terms") {
     const termQuery = new URLSearchParams(location.search);
-    page = <Suspense fallback={<LoadingState />}><TermsPage key={`${location.pathname}${location.search}`} onOpen={openEntity} navigate={navigate} initialTab={termQuery.get("tab") === "candidates" ? "candidates" : "registry"} initialDocumentId={termQuery.get("document_id") ?? ""} /></Suspense>;
+    const requestedTermTab = termQuery.get("tab");
+    const initialTermTab = requestedTermTab === "candidates" || requestedTermTab === "mentions" || requestedTermTab === "discovery" ? requestedTermTab : "registry";
+    page = <Suspense fallback={<LoadingState />}><TermsPage key={`${location.pathname}${location.search}`} onOpen={openEntity} navigate={navigate} initialTab={initialTermTab} initialDocumentId={termQuery.get("document_id") ?? ""} /></Suspense>;
   } else if (route.path === "/topics") {
     page = <Suspense fallback={<LoadingState />}><TopicsPage onOpen={openEntity} /></Suspense>;
   } else if (route.path === "/research") {

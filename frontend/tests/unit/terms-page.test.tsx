@@ -1,11 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Draft, EntitySummary, TermCandidate, TermMergePreview } from "../../src/api";
+import type { Draft, EntityDetail, EntitySummary, TermCandidate, TermMergePreview } from "../../src/api";
 import { TermsPage } from "../../src/pages/BrowsePages";
 
 const api = vi.hoisted(() => ({
   listAllEntities: vi.fn(),
+  getEntity: vi.fn(),
   listTermCandidates: vi.fn(),
   previewTermMerge: vi.fn(),
   mergeTerms: vi.fn(),
@@ -119,6 +120,7 @@ describe("Terms Registry controls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.listAllEntities.mockResolvedValue(terms);
+    api.getEntity.mockResolvedValue(null);
     api.listTermCandidates.mockResolvedValue(candidates);
     api.acceptTermCandidate.mockResolvedValue({});
     api.rejectTermCandidate.mockResolvedValue({});
@@ -137,6 +139,48 @@ describe("Terms Registry controls", () => {
     expect(screen.getByText("Loser Term")).not.toBeNull();
     expect(screen.queryByText("Survivor Term")).toBeNull();
     expect(screen.queryByText("Word Term")).toBeNull();
+  });
+
+  it("groups explicit links, detections, Sources, PDFs, and Research Works by Term", async () => {
+    api.getEntity.mockResolvedValue({
+      ...terms[0],
+      content: "",
+      canonical_content: "",
+      related_terms: [],
+      backlinks: [
+        { source_entity_type: "document", source_entity_id: "note-one", source_title: "Note One", link_target: "Survivor Term", line: 14 },
+        { source_entity_type: "term", source_entity_id: "word-term", source_title: "Word Term", link_target: "Survivor Term", line: 7 },
+      ],
+      detected_mentions: [
+        { id: "note-one", title: "Note One" },
+        { id: "unlinked-note", title: "Unlinked Note" },
+      ],
+      evidence: [],
+      related_documents: [],
+      term_relations: [
+        { entity_type: "document", entity_id: "note-one", term_id: "survivor-term", title: "Note One", created_from_candidate_id: "candidate-one", created_at: "2026-01-01T00:00:00Z" },
+        { entity_type: "source", entity_id: "source-paper", term_id: "survivor-term", title: "Source Paper", created_from_candidate_id: "candidate-two", created_at: "2026-01-02T00:00:00Z" },
+        { entity_type: "research_work", entity_id: "work-one", term_id: "survivor-term", title: "Research Work", created_from_candidate_id: "candidate-three", created_at: "2026-01-03T00:00:00Z" },
+      ],
+    } satisfies EntityDetail);
+    const navigate = vi.fn();
+    render(<TermsPage onOpen={vi.fn()} navigate={navigate} initialTab="mentions" />);
+
+    const notes = await screen.findByRole("region", { name: "Notes" });
+    expect(within(notes).getByText("Note One")).toBeTruthy();
+    expect(within(notes).getByText("Accepted detection")).toBeTruthy();
+    expect(within(notes).getByText("Explicit link")).toBeTruthy();
+    expect(within(notes).getByText("Unlinked Note")).toBeTruthy();
+    expect(within(await screen.findByRole("region", { name: "Sources & PDFs" })).getByText("Source Paper")).toBeTruthy();
+    expect(within(await screen.findByRole("region", { name: "Research Works" })).getByText("Research Work")).toBeTruthy();
+    expect(within(await screen.findByRole("region", { name: "Related Terms" })).getByText("Word Term")).toBeTruthy();
+
+    await userEvent.click(within(notes).getByRole("button", { name: /Note One/ }));
+    await userEvent.click(within(screen.getByRole("region", { name: "Sources & PDFs" })).getByRole("button", { name: /Source Paper/ }));
+    await userEvent.click(within(screen.getByRole("region", { name: "Research Works" })).getByRole("button", { name: /Research Work/ }));
+    expect(navigate).toHaveBeenNthCalledWith(1, "/documents/note-one");
+    expect(navigate).toHaveBeenNthCalledWith(2, "/sources/source-paper");
+    expect(navigate).toHaveBeenNthCalledWith(3, "/research?work_id=work-one");
   });
 
   it("previews aliases and requires confirmation when loser bodies will be discarded", async () => {

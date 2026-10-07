@@ -34,7 +34,7 @@ vi.mock("../../src/Pages", async () => {
         "Library mock",
         React.createElement("button", { onClick: () => onOpen("document", "history-note") }, "Open workspace"),
       ),
-    TermsPage: () => React.createElement("div", null, "Terms mock"),
+    TermsPage: ({ initialTab }: { initialTab: string }) => React.createElement("div", null, `Terms mock: ${initialTab}`),
     TopicsPage: () => React.createElement("div", null, "Topics mock"),
     ReviewPage: () => React.createElement("div", null, "Review mock"),
   };
@@ -105,6 +105,14 @@ describe("App browser history guards", () => {
     expect(await within(nav).findByLabelText("2 Terms pending")).toBeTruthy();
     expect(await within(nav).findByLabelText("3 Research pending")).toBeTruthy();
     expect(await within(nav).findByLabelText("3 Review pending")).toBeTruthy();
+  });
+
+  it("opens Terms directly on the Mentions tab", async () => {
+    window.history.replaceState({ __kb_index: 0 }, "", "/terms?tab=mentions");
+
+    render(<App />);
+
+    expect(await screen.findByText("Terms mock: mentions")).toBeTruthy();
   });
 
   it("flushes before browser Back and changes route after the guard succeeds", async () => {

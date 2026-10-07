@@ -14,6 +14,7 @@ import { Chip, EmptyState, ErrorState, LoadingState, PageHeader, SectionHeading,
 import { EntityList, readList, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
 import { TermCandidatesPanel } from "./TermCandidatesPanel";
 import { TermDiscoveryPanel } from "./TermDiscoveryPanel";
+import { TermMentionsPanel } from "./TermMentionsPanel";
 export function LibraryPage({ onOpen }: { onOpen: SelectEntity }) {
   const [activeTab, setActiveTab] = useState<"document" | "source">(() => new URLSearchParams(window.location.search).get("tab") === "sources" ? "source" : "document");
   const [documentType, setDocumentType] = useState("");
@@ -46,10 +47,10 @@ export function TermsPage({
 }: {
   onOpen: SelectEntity;
   navigate: Navigate;
-  initialTab?: "registry" | "candidates";
+  initialTab?: "registry" | "candidates" | "mentions" | "discovery";
   initialDocumentId?: string;
 }) {
-  const [activeTab, setActiveTab] = useState<"registry" | "candidates" | "discovery">(initialTab);
+  const [activeTab, setActiveTab] = useState<"registry" | "candidates" | "mentions" | "discovery">(initialTab);
   const [termType, setTermType] = useState<TermType | "">("");
   const [depth, setDepth] = useState("");
   const [selectedTermIds, setSelectedTermIds] = useState<string[]>([]);
@@ -145,9 +146,12 @@ export function TermsPage({
       <div className="term-page-tabs segmented-control" role="tablist" aria-label="Terms 页面">
         <button type="button" role="tab" aria-selected={activeTab === "registry"} className={activeTab === "registry" ? "active" : ""} onClick={() => setActiveTab("registry")}>Registry</button>
         <button type="button" role="tab" aria-selected={activeTab === "candidates"} className={activeTab === "candidates" ? "active" : ""} onClick={() => setActiveTab("candidates")}>Candidates</button>
+        <button type="button" role="tab" aria-selected={activeTab === "mentions"} className={activeTab === "mentions" ? "active" : ""} onClick={() => setActiveTab("mentions")}>Mentions</button>
         <button type="button" role="tab" aria-selected={activeTab === "discovery"} className={activeTab === "discovery" ? "active" : ""} onClick={() => setActiveTab("discovery")}>Discovery</button>
       </div>
-      {activeTab === "discovery" ? <TermDiscoveryPanel /> : activeTab === "candidates" ? (
+      {activeTab === "discovery" ? <TermDiscoveryPanel /> : activeTab === "mentions" ? (
+        resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <TermMentionsPanel terms={terms} navigate={navigate} />
+      ) : activeTab === "candidates" ? (
         resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : <TermCandidatesPanel terms={terms} onOpen={onOpen} navigate={navigate} initialDocumentId={initialDocumentId} />
       ) : <>
       <div className="library-toolbar term-registry-toolbar">
