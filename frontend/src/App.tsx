@@ -1,17 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import {
-  listAllEntities,
-  listLinkIssues,
-  listProposals,
-  listResearchProfiles,
-  listStalePresentationAnnotations,
-  listTermCandidates,
-  recordSearchClick,
-  type EntityType,
-} from "./api";
+import { getUiSummary, recordSearchClick, type EntityType } from "./api";
 import { LoadingState } from "./ui";
 import { navigateWithGuards, type NavigationGuard, type RegisterBeforeNavigate } from "./navigation";
-import { maintenanceActionCount } from "./pages/PageShared";
 
 const HomePage = lazy(() => import("./Pages").then((module) => ({ default: module.HomePage })));
 const SearchPage = lazy(() => import("./Pages").then((module) => ({ default: module.SearchPage })));
@@ -181,43 +171,29 @@ export default function App() {
   useEffect(() => {
     let active = true;
     async function refreshNavigationBadges() {
-      const [terms, research, review] = await Promise.allSettled([
-        listTermCandidates(),
-        listResearchProfiles(),
-        Promise.all([
-          Promise.all([listAllEntities("document"), listAllEntities("term"), listAllEntities("source")]),
-          Promise.all([listProposals("proposed"), listProposals("drafted")]),
-          listLinkIssues(),
-          listStalePresentationAnnotations(),
-        ]),
-      ]);
-      if (!active) return;
-      setNavigationBadges((current) => ({
-        terms: terms.status === "fulfilled"
-          ? terms.value.filter((candidate) => candidate.status === "pending" || candidate.status === "drafting").length
-          : current.terms,
-        research: research.status === "fulfilled"
-          ? research.value.reduce((sum, profile) => sum + profile.inbox.new_count, 0)
-          : current.research,
-        review: review.status === "fulfilled"
-          ? maintenanceActionCount(
-            review.value[0].flat(),
-            review.value[1].flat().length,
-            review.value[2].length,
-            review.value[3].length,
-          )
-          : current.review,
-      }));
+      try {
+        const summary = await getUiSummary();
+        if (!active) return;
+        setNavigationBadges({
+          terms: summary.terms_open,
+          research: summary.research_new,
+          review: summary.maintenance,
+        });
+      } catch {
+        // Keep the last known badge values when the lightweight summary is unavailable.
+      }
     }
     void refreshNavigationBadges();
     const interval = window.setInterval(() => void refreshNavigationBadges(), 60_000);
     window.addEventListener("focus", refreshNavigationBadges);
+    window.addEventListener("kb:workload-changed", refreshNavigationBadges);
     return () => {
       active = false;
       window.clearInterval(interval);
       window.removeEventListener("focus", refreshNavigationBadges);
+      window.removeEventListener("kb:workload-changed", refreshNavigationBadges);
     };
-  }, [location.pathname]);
+  }, []);
 
   useEffect(() => {
     try {

@@ -4,22 +4,12 @@ import App from "../../src/App";
 
 const mocks = vi.hoisted(() => ({
   navigationGuard: vi.fn(),
-  listAllEntities: vi.fn(),
-  listLinkIssues: vi.fn(),
-  listProposals: vi.fn(),
-  listResearchProfiles: vi.fn(),
-  listStalePresentationAnnotations: vi.fn(),
-  listTermCandidates: vi.fn(),
+  getUiSummary: vi.fn(),
 }));
 
 vi.mock("../../src/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/api")>()),
-  listAllEntities: mocks.listAllEntities,
-  listLinkIssues: mocks.listLinkIssues,
-  listProposals: mocks.listProposals,
-  listResearchProfiles: mocks.listResearchProfiles,
-  listStalePresentationAnnotations: mocks.listStalePresentationAnnotations,
-  listTermCandidates: mocks.listTermCandidates,
+  getUiSummary: mocks.getUiSummary,
 }));
 
 vi.mock("../../src/Pages", async () => {
@@ -76,12 +66,17 @@ describe("App browser history guards", () => {
   beforeEach(() => {
     mocks.navigationGuard.mockReset();
     mocks.navigationGuard.mockResolvedValue(true);
-    mocks.listAllEntities.mockResolvedValue([]);
-    mocks.listLinkIssues.mockResolvedValue([]);
-    mocks.listProposals.mockResolvedValue([]);
-    mocks.listResearchProfiles.mockResolvedValue([]);
-    mocks.listStalePresentationAnnotations.mockResolvedValue([]);
-    mocks.listTermCandidates.mockResolvedValue([]);
+    mocks.getUiSummary.mockReset();
+    mocks.getUiSummary.mockResolvedValue({
+      terms_open: 0,
+      terms_pending: 0,
+      term_drafts: 0,
+      research_new: 0,
+      research_capacity: 0,
+      research_profiles: 0,
+      pending_imports: 0,
+      maintenance: 0,
+    });
     window.history.replaceState({ __kb_index: 0 }, "", "/library");
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
   });
@@ -102,13 +97,16 @@ describe("App browser history guards", () => {
 
   it("keeps the Explorer deep link available and shows action badge counts", async () => {
     window.history.replaceState({ __kb_index: 0 }, "", "/explorer");
-    mocks.listTermCandidates.mockResolvedValue([{ status: "pending" }, { status: "drafting" }, { status: "accepted" }]);
-    mocks.listResearchProfiles.mockResolvedValue([{ inbox: { new_count: 3 } }]);
-    mocks.listAllEntities.mockImplementation(async (type: string) => type === "document"
-      ? [{ id: "revision", entity_type: "document", metadata: { maintenance: { status: "needs_revision" } } }]
-      : []);
-    mocks.listLinkIssues.mockResolvedValue([{}]);
-    mocks.listProposals.mockImplementation(async (status: string) => status === "proposed" ? [{ id: "proposal" }] : []);
+    mocks.getUiSummary.mockResolvedValue({
+      terms_open: 2,
+      terms_pending: 1,
+      term_drafts: 1,
+      research_new: 3,
+      research_capacity: 5,
+      research_profiles: 1,
+      pending_imports: 0,
+      maintenance: 3,
+    });
 
     render(<App />);
 
@@ -117,6 +115,18 @@ describe("App browser history guards", () => {
     expect(await within(nav).findByLabelText("2 Terms pending")).toBeTruthy();
     expect(await within(nav).findByLabelText("3 Research pending")).toBeTruthy();
     expect(await within(nav).findByLabelText("3 Review pending")).toBeTruthy();
+    expect(mocks.getUiSummary).toHaveBeenCalledOnce();
+  });
+
+  it("does not reload workload counts on navigation and refreshes on a workload event", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Switch Library tab" }));
+    await screen.findByText("Library tab: import");
+    expect(mocks.getUiSummary).toHaveBeenCalledOnce();
+
+    await act(async () => window.dispatchEvent(new Event("kb:workload-changed")));
+    await waitFor(() => expect(mocks.getUiSummary).toHaveBeenCalledTimes(2));
   });
 
   it("opens Terms directly on the Mentions tab", async () => {

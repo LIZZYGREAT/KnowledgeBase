@@ -668,6 +668,17 @@ export interface ResearchCandidateList {
   limit: number;
 }
 
+export interface UiSummary {
+  terms_open: number;
+  terms_pending: number;
+  term_drafts: number;
+  research_new: number;
+  research_capacity: number;
+  research_profiles: number;
+  pending_imports: number;
+  maintenance: number;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(path, {
@@ -693,7 +704,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       current_revision: body.current_revision,
     }) satisfies ApiError;
   }
-  return (await response.json()) as T;
+  const result = (await response.json()) as T;
+  if ((init?.method ?? "GET").toUpperCase() !== "GET" && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("kb:workload-changed"));
+  }
+  return result;
+}
+
+export function getUiSummary() {
+  return request<UiSummary>("/api/ui/summary");
 }
 
 export function getEntity(type: EntityType, id: string) {
