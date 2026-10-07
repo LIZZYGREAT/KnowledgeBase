@@ -679,7 +679,12 @@ export interface UiSummary {
   maintenance: number;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+interface RequestOptions extends RequestInit {
+  workloadChanged?: boolean;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { workloadChanged = false, ...init } = options;
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(path, {
     ...init,
@@ -705,7 +710,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }) satisfies ApiError;
   }
   const result = (await response.json()) as T;
-  if ((init?.method ?? "GET").toUpperCase() !== "GET" && typeof window !== "undefined") {
+  if (workloadChanged && typeof window !== "undefined") {
     window.dispatchEvent(new Event("kb:workload-changed"));
   }
   return result;
@@ -730,11 +735,13 @@ export function mergeTerms(input: TermMergeInput) {
   return request<TermMergeResult>("/api/terms/merge", {
     method: "POST",
     body: JSON.stringify(input),
+    workloadChanged: true,
   });
 }
 
-export function listTermCandidates() {
-  return request<TermCandidate[]>("/api/terms/candidates");
+export function listTermCandidates(status?: TermCandidateStatus) {
+  const params = status ? `?status=${status}` : "";
+  return request<TermCandidate[]>(`/api/terms/candidates${params}`);
 }
 
 export function getTermDiscoveryState() {
@@ -751,6 +758,7 @@ export function updateTermDiscoverySettings(settings: TermDiscoverySettings) {
 export function runTermDiscovery(trigger: "manual" | "scheduled" = "manual") {
   return request<TermDiscoveryRun>(`/api/terms/discovery/run?trigger=${trigger}`, {
     method: "POST",
+    workloadChanged: true,
   });
 }
 
@@ -774,6 +782,7 @@ export function analyzeDocumentTerms(documentId: string) {
     {
       method: "POST",
       body: JSON.stringify({ confirm_deepseek_transfer: true }),
+      workloadChanged: true,
     },
   );
 }
@@ -784,21 +793,21 @@ export function rejectTermCandidate(
 ) {
   return request<TermCandidate>(
     `/api/terms/candidates/${encodeURIComponent(candidateId)}/reject`,
-    { method: "POST", body: JSON.stringify(input) },
+    { method: "POST", body: JSON.stringify(input), workloadChanged: true },
   );
 }
 
 export function acceptTermCandidate(candidateId: string, termId: string) {
   return request<TermCandidate>(
     `/api/terms/candidates/${encodeURIComponent(candidateId)}/accept-existing`,
-    { method: "POST", body: JSON.stringify({ term_id: termId }) },
+    { method: "POST", body: JSON.stringify({ term_id: termId }), workloadChanged: true },
   );
 }
 
 export function createCandidateTermDraft(candidateId: string) {
   return request<CandidateTermDraftResult>(
     `/api/terms/candidates/${encodeURIComponent(candidateId)}/create-term-draft`,
-    { method: "POST" },
+    { method: "POST", workloadChanged: true },
   );
 }
 
@@ -810,6 +819,7 @@ export function requestCandidateTermDraftProposal(draftId: string, candidateId: 
       candidate_id: candidateId,
       confirm_deepseek_transfer: true,
     }),
+    workloadChanged: true,
   });
 }
 
@@ -977,6 +987,7 @@ export function discardDraft(draftId: string, expectedRevision: number) {
   return request<{ deleted: boolean }>(`/api/drafts/${encodeURIComponent(draftId)}`, {
     method: "DELETE",
     body: JSON.stringify({ expected_revision: expectedRevision }),
+    workloadChanged: true,
   });
 }
 
@@ -990,6 +1001,7 @@ export function publishDraft(
       draft_id: draftId,
       expected_revision: expectedRevision,
     }),
+    workloadChanged: true,
   });
 }
 
@@ -997,6 +1009,7 @@ export function publishDraftsBatch(drafts: DraftPublishExpectation[], commitMess
   return request<BatchPublishedDrafts>("/api/publish/batch", {
     method: "POST",
     body: JSON.stringify({ drafts, commit_message: commitMessage }),
+    workloadChanged: true,
   });
 }
 
@@ -1029,6 +1042,7 @@ export function requestAIProposal(
       confirm_deepseek_transfer: true,
       ...(selection ? { selection } : {}),
     }),
+    workloadChanged: true,
   });
 }
 
@@ -1036,6 +1050,7 @@ export function rejectProposal(proposalId: string) {
   return request<Proposal>(`/api/proposals/${encodeURIComponent(proposalId)}/reject`, {
     method: "POST",
     body: JSON.stringify({ review_note: "用户拒绝此 Proposal" }),
+    workloadChanged: true,
   });
 }
 
@@ -1061,6 +1076,7 @@ export function createImport(paths: string[], profile: "standard" | "legacy") {
   return request<ImportJob>("/api/imports", {
     method: "POST",
     body: JSON.stringify({ paths, profile }),
+    workloadChanged: true,
   });
 }
 
@@ -1068,7 +1084,7 @@ export function uploadImportFiles(files: File[], profile: "standard" | "legacy")
   const body = new FormData();
   files.forEach((file) => body.append("files[]", file, file.name));
   body.append("profile", profile);
-  return request<ImportJob>("/api/imports/upload", { method: "POST", body });
+  return request<ImportJob>("/api/imports/upload", { method: "POST", body, workloadChanged: true });
 }
 
 export interface ImportItemContent {
@@ -1091,11 +1107,12 @@ export function updateImportItem(itemId: string, content: string) {
   }>(`/api/import-items/${encodeURIComponent(itemId)}`, {
     method: "PUT",
     body: JSON.stringify({ content }),
+    workloadChanged: true,
   });
 }
 
 export function createImportDraft(itemId: string) {
-  return request<Draft>(`/api/import-items/${encodeURIComponent(itemId)}/draft`, { method: "POST" });
+  return request<Draft>(`/api/import-items/${encodeURIComponent(itemId)}/draft`, { method: "POST", workloadChanged: true });
 }
 
 export function confirmImportSource(
@@ -1105,6 +1122,7 @@ export function confirmImportSource(
   return request<Draft>(`/api/import-items/${encodeURIComponent(itemId)}/confirm-source`, {
     method: "POST",
     body: JSON.stringify(source),
+    workloadChanged: true,
   });
 }
 
@@ -1131,12 +1149,14 @@ export function updatePresentationAnnotation(
   return request<PresentationAnnotation>(`/api/annotations/${encodeURIComponent(id)}`, {
     method: "PUT",
     body: JSON.stringify({ style_type: styleType, style_value: styleValue }),
+    workloadChanged: true,
   });
 }
 
 export function deletePresentationAnnotation(id: string) {
   return request<{ deleted: boolean }>(`/api/annotations/${encodeURIComponent(id)}`, {
     method: "DELETE",
+    workloadChanged: true,
   });
 }
 
@@ -1209,7 +1229,7 @@ export function getResearchCandidate(candidateId: string) {
 
 export function shortlistResearchCandidate(candidateId: string, note?: string) {
   return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/shortlist`, {
-    method: "POST", body: JSON.stringify(note ? { note } : {}),
+    method: "POST", body: JSON.stringify(note ? { note } : {}), workloadChanged: true,
   });
 }
 
@@ -1222,12 +1242,13 @@ export function updateResearchCandidateNote(candidateId: string, note: string) {
 export function dismissResearchCandidate(candidateId: string, reason?: ResearchDismissReason, note?: string) {
   return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/dismiss`, {
     method: "POST", body: JSON.stringify({ ...(reason ? { reason } : {}), ...(note ? { note } : {}) }),
+    workloadChanged: true,
   });
 }
 
 export function restoreResearchCandidate(candidateId: string) {
   return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/restore`, {
-    method: "POST",
+    method: "POST", workloadChanged: true,
   });
 }
 
@@ -1237,7 +1258,9 @@ export function saveResearchSource(candidateId: string) {
     source_id: string;
     draft_id: string | null;
     candidate: ResearchCandidate;
-  }>(`/api/research/candidates/${encodeURIComponent(candidateId)}/save-source`, { method: "POST" });
+  }>(`/api/research/candidates/${encodeURIComponent(candidateId)}/save-source`, {
+    method: "POST",
+  });
 }
 
 export interface CreateResearchNoteInput {
