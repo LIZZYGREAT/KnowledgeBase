@@ -1,29 +1,12 @@
 import { useState } from "react";
 import {
-  analyzeDocumentTerms, getDocumentTermAnalysis, getEntity, getSourceCorpusState,
-  type DocumentTermAnalysisState, type EntitySummary, type SourceCorpusState,
+  analyzeDocumentTerms, type LibraryDocumentState, type LibrarySourceState,
 } from "../api";
 import { Chip, EmptyState } from "../ui";
-import { readList, readString, useResource, type SelectEntity } from "./PageShared";
+import { readList, readString, type SelectEntity } from "./PageShared";
 
-type DocumentAnalysisMap = Record<string, DocumentTermAnalysisState | null>;
-interface SourceLibraryState {
-  relatedTerms: Array<{ id: string; title: string }>;
-  corpus: SourceCorpusState | null;
-}
-
-export function LibraryDocumentsPanel({ documents, onOpen }: { documents: EntitySummary[]; onOpen: SelectEntity }) {
-  const analysisResource = useResource<DocumentAnalysisMap>(
-    `library-term-analysis:${documents.map((document) => document.id).join(",")}`,
-    async () => Object.fromEntries(await Promise.all(documents.map(async (document) => {
-      try {
-        return [document.id, await getDocumentTermAnalysis(document.id)] as const;
-      } catch {
-        return [document.id, null] as const;
-      }
-    }))),
-  );
-  const [analysisTarget, setAnalysisTarget] = useState<EntitySummary | null>(null);
+export function LibraryDocumentsPanel({ documents, onOpen, onAnalysisComplete }: { documents: LibraryDocumentState[]; onOpen: SelectEntity; onAnalysisComplete: () => void }) {
+  const [analysisTarget, setAnalysisTarget] = useState<LibraryDocumentState | null>(null);
   const [transferConsent, setTransferConsent] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
@@ -39,7 +22,7 @@ export function LibraryDocumentsPanel({ documents, onOpen }: { documents: Entity
       setAnalysisNotice(`${analysisTarget.title}：新增 ${result.statistics.created_candidates}，复用 ${result.statistics.reused_candidates}，Existing ${result.statistics.existing}，New ${result.statistics.new}，跳过 ${result.statistics.skipped}。`);
       setAnalysisTarget(null);
       setTransferConsent(false);
-      analysisResource.retry();
+      onAnalysisComplete();
     } catch (reason) {
       setAnalysisError(reason instanceof Error ? reason.message : "Term Analysis 失败。");
     } finally {
@@ -52,13 +35,10 @@ export function LibraryDocumentsPanel({ documents, onOpen }: { documents: Entity
   return <div className="library-corpus-list">
     {analysisNotice && <p className="editor-notice success-notice" role="status">{analysisNotice}</p>}
     {documents.map((document) => {
-      const analysis = analysisResource.data?.[document.id];
-      const status = analysis?.status;
-      const statusLabel = analysisResource.loading ? "Checking…"
-        : status === "up_to_date" ? "Up to date"
+      const status = document.term_analysis_status;
+      const statusLabel = status === "up_to_date" ? "Up to date"
           : status === "outdated" ? "Outdated"
-            : status === "never_analyzed" ? "Never analyzed"
-              : "Unavailable";
+            : "Never analyzed";
       const statusTone = status === "up_to_date" ? "green" : status === "outdated" ? "amber" : "neutral";
       const detail = [readString(document.metadata.type), document.id, ...readList(document.metadata, "domains"), ...readList(document.metadata, "topics")].filter(Boolean).join(" · ");
       return <article className="library-document-row surface" key={document.id}>
@@ -68,7 +48,7 @@ export function LibraryDocumentsPanel({ documents, onOpen }: { documents: Entity
         </button>
         <div className="library-record-actions">
           <button type="button" className="button button-secondary" onClick={() => onOpen("document", document.id)}>Open Workspace</button>
-          <button type="button" className="button button-primary" disabled={analysisBusy || analysisResource.loading} onClick={() => { setAnalysisError(""); setTransferConsent(false); setAnalysisTarget(document); }}>Analyze Terms</button>
+          <button type="button" className="button button-primary" disabled={analysisBusy} onClick={() => { setAnalysisError(""); setTransferConsent(false); setAnalysisTarget(document); }}>Analyze Terms</button>
         </div>
       </article>;
     })}
@@ -84,35 +64,17 @@ export function LibraryDocumentsPanel({ documents, onOpen }: { documents: Entity
   </div>;
 }
 
-export function LibrarySourcesPanel({ sources, onOpen }: { sources: EntitySummary[]; onOpen: SelectEntity }) {
-  const resource = useResource<Record<string, SourceLibraryState>>(
-    `library-source-state:${sources.map((source) => source.id).join(",")}`,
-    async () => Object.fromEntries(await Promise.all(sources.map(async (source) => {
-      const [detail, corpus] = await Promise.all([
-        getEntity("source", source.id).catch(() => null),
-        getSourceCorpusState(source.id).catch(() => null),
-      ]);
-      return [source.id, {
-        relatedTerms: (detail?.related_terms ?? []).flatMap((term) => {
-          const id = readString(term.id);
-          return id ? [{ id, title: readString(term.title) || id }] : [];
-        }),
-        corpus,
-      }] as const;
-    }))),
-  );
-
+export function LibrarySourcesPanel({ sources, onOpen }: { sources: LibrarySourceState[]; onOpen: SelectEntity }) {
   if (!sources.length) return <EmptyState title="还没有来源文献" description="导入 PDF 或发布 Source 元数据后，可从这里打开来源。" />;
 
   return <div className="library-corpus-list">
     {sources.map((source) => {
-      const state = resource.data?.[source.id];
-      const pdfAttached = state?.corpus?.pdf_attached ?? Boolean(readString((source.metadata.attachments as Record<string, unknown> | undefined)?.local_pdf));
-      const corpusStatus = state?.corpus?.extraction_status ?? "unavailable";
-      const corpusLabel = resource.loading ? "Checking…" : corpusStatus === "ready" ? "Ready" : corpusStatus === "pending" ? "Pending" : corpusStatus === "failed" ? "Failed" : corpusStatus === "unavailable" ? "Unavailable" : corpusStatus === "not_extracted" ? "Not extracted" : corpusStatus === "no_pdf" ? "No PDF" : "Unknown";
-      const usable = state?.corpus?.discovery_usable ?? false;
+      const pdfAttached = source.pdf_attached;
+      const corpusStatus = source.extraction_status;
+      const corpusLabel = corpusStatus === "ready" ? "Ready" : corpusStatus === "pending" ? "Pending" : corpusStatus === "failed" ? "Failed" : corpusStatus === "unavailable" ? "Unavailable" : corpusStatus === "not_extracted" ? "Not extracted" : corpusStatus === "no_pdf" ? "No PDF" : "Unknown";
+      const usable = source.discovery_usable;
       const metadata = source.metadata;
-      const relatedTerms = state?.relatedTerms ?? [];
+      const relatedTerms = source.related_terms;
       return <article className="library-source-row surface" key={source.id}>
         <div className="library-source-heading">
           <button type="button" className="library-record-main" onClick={() => onOpen("source", source.id)}>
@@ -125,7 +87,7 @@ export function LibrarySourcesPanel({ sources, onOpen }: { sources: EntitySummar
           <div><small>Term Discovery</small><Chip tone={usable ? "green" : "neutral"}>{usable ? "Usable" : "Not usable"}</Chip></div>
         </div>
         <div className="library-source-terms"><small>Related Terms</small>{relatedTerms.length ? <div>{relatedTerms.map((term) => <button className="library-related-term" type="button" key={term.id} onClick={() => onOpen("term", term.id)}>{term.title}</button>)}</div> : <span>暂无关联 Terms</span>}</div>
-        {state?.corpus?.error_message && <small className="library-source-error">{state.corpus.error_message}</small>}
+        {source.error_message && <small className="library-source-error">{source.error_message}</small>}
       </article>;
     })}
   </div>;

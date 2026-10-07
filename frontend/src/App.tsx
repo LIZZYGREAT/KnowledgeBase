@@ -311,14 +311,13 @@ export default function App() {
   } else if (route.path === "/library") {
     const libraryQuery = new URLSearchParams(location.search);
     const requestedLibraryTab = libraryQuery.get("tab");
-    const initialLibraryTab = requestedLibraryTab === "sources" || requestedLibraryTab === "import" ? requestedLibraryTab : "documents";
+    const activeLibraryTab = requestedLibraryTab === "sources" || requestedLibraryTab === "import" ? requestedLibraryTab : "documents";
     page = (
       <Suspense fallback={<LoadingState />}>
         <LibraryPage
-          key={`${location.pathname}${location.search}`}
           onOpen={openEntity}
           navigate={navigate}
-          initialTab={initialLibraryTab}
+          activeTab={activeLibraryTab}
         />
       </Suspense>
     );
@@ -398,7 +397,7 @@ export default function App() {
           </form>
           <div className="top-header-end"><span className="top-status-dot" /><span>私有工作区</span><button className="avatar-button" title="KnowledgeBase">KB</button></div>
         </header>
-        <div className="page-container" key={route.kind === "reader" ? "reader-workspace" : `${route.kind}:${route.path}:${location.search}`}>
+        <div className="page-container" key={route.kind === "reader" ? "reader-workspace" : `${route.kind}:${route.path}:${route.path === "/library" ? "" : location.search}`}>
           {page}
         </div>
         <footer className="main-footer"><span>KnowledgeBase</span><span>Canonical knowledge stays in Markdown and YAML.</span></footer>

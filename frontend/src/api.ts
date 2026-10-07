@@ -158,6 +158,18 @@ export interface EntitySummary {
   metadata: Record<string, unknown>;
 }
 
+export interface LibraryDocumentState extends EntitySummary {
+  term_analysis_status: DocumentTermAnalysisState["status"];
+}
+
+export interface LibrarySourceState extends EntitySummary {
+  pdf_attached: boolean;
+  extraction_status: SourceCorpusState["extraction_status"];
+  discovery_usable: boolean;
+  error_message: string | null;
+  related_terms: EntitySummary[];
+}
+
 export interface EntityDetail extends EntitySummary {
   content: string | null;
   canonical_content: string | null;
@@ -780,6 +792,14 @@ export function getDocumentTermAnalysis(documentId: string) {
 
 export function getSourceCorpusState(sourceId: string) {
   return request<SourceCorpusState>(`/api/sources/${encodeURIComponent(sourceId)}/corpus`);
+}
+
+export function listLibraryDocumentStates() {
+  return request<LibraryDocumentState[]>("/api/library/document-states");
+}
+
+export function listLibrarySourceStates() {
+  return request<LibrarySourceState[]>("/api/library/source-states");
 }
 
 export function analyzeDocumentTerms(documentId: string) {

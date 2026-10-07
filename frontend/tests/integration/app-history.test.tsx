@@ -5,6 +5,8 @@ import App from "../../src/App";
 const mocks = vi.hoisted(() => ({
   navigationGuard: vi.fn(),
   getUiSummary: vi.fn(),
+  libraryMount: vi.fn(),
+  libraryUnmount: vi.fn(),
 }));
 
 vi.mock("../../src/api", async (importOriginal) => ({
@@ -17,17 +19,23 @@ vi.mock("../../src/Pages", async () => {
   return {
     HomePage: () => React.createElement("div", null, "Home mock"),
     SearchPage: () => React.createElement("div", null, "Search mock"),
-    LibraryPage: ({ onOpen, navigate, initialTab }: {
+    LibraryPage: ({ onOpen, navigate, activeTab }: {
       onOpen: (type: "document" | "source", id: string) => void;
       navigate: (path: string) => void;
-      initialTab: string;
-    }) => React.createElement(React.Fragment, null,
-      React.createElement("div", null, "Library mock"),
-      React.createElement("div", null, `Library tab: ${initialTab}`),
-      React.createElement("button", { onClick: () => onOpen("document", "history-note") }, "Open workspace"),
-      React.createElement("button", { onClick: () => navigate(initialTab === "import" ? "/library" : "/library?tab=import") }, "Switch Library tab"),
-      React.createElement("button", { onClick: () => onOpen("source", "history-source") }, "Open source draft"),
-    ),
+      activeTab: string;
+    }) => {
+      React.useEffect(() => {
+        mocks.libraryMount();
+        return () => mocks.libraryUnmount();
+      }, []);
+      return React.createElement(React.Fragment, null,
+        React.createElement("div", null, "Library mock"),
+        React.createElement("div", null, `Library tab: ${activeTab}`),
+        React.createElement("button", { onClick: () => onOpen("document", "history-note") }, "Open workspace"),
+        React.createElement("button", { onClick: () => navigate(activeTab === "import" ? "/library" : "/library?tab=import") }, "Switch Library tab"),
+        React.createElement("button", { onClick: () => onOpen("source", "history-source") }, "Open source draft"),
+      );
+    },
     TermsPage: ({ initialTab, onOpen, navigate }: {
       initialTab: string;
       onOpen: (type: "term", id: string) => void;
@@ -67,6 +75,8 @@ describe("App browser history guards", () => {
     mocks.navigationGuard.mockReset();
     mocks.navigationGuard.mockResolvedValue(true);
     mocks.getUiSummary.mockReset();
+    mocks.libraryMount.mockReset();
+    mocks.libraryUnmount.mockReset();
     mocks.getUiSummary.mockResolvedValue({
       terms_open: 0,
       terms_pending: 0,
@@ -121,8 +131,11 @@ describe("App browser history guards", () => {
   it("does not reload workload counts on navigation and refreshes on a workload event", async () => {
     render(<App />);
 
+    expect(mocks.libraryMount).toHaveBeenCalledOnce();
     fireEvent.click(await screen.findByRole("button", { name: "Switch Library tab" }));
     await screen.findByText("Library tab: import");
+    expect(mocks.libraryMount).toHaveBeenCalledOnce();
+    expect(mocks.libraryUnmount).not.toHaveBeenCalled();
     expect(mocks.getUiSummary).toHaveBeenCalledOnce();
 
     await act(async () => window.dispatchEvent(new Event("kb:workload-changed")));

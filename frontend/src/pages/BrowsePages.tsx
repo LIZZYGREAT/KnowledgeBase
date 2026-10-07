@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   listAllEntities,
+  listLibraryDocumentStates,
+  listLibrarySourceStates,
   listTaxonomy,
   mergeTerms,
   previewTermMerge,
@@ -17,24 +19,46 @@ import { TermDiscoveryPanel } from "./TermDiscoveryPanel";
 import { TermMentionsPanel } from "./TermMentionsPanel";
 import { ImportReviewPanel } from "./ImportReviewPanel";
 import { LibraryDocumentsPanel, LibrarySourcesPanel } from "./LibraryCorpusPanels";
-export function LibraryPage({ onOpen, navigate, initialTab }: { onOpen: SelectEntity; navigate: Navigate; initialTab?: "documents" | "sources" | "import" }) {
-  const [activeTab, setActiveTab] = useState<"document" | "source" | "import">(() => {
-    if (initialTab) return initialTab === "documents" ? "document" : initialTab === "sources" ? "source" : "import";
-    const tab = new URLSearchParams(window.location.search).get("tab");
-    return tab === "sources" ? "source" : tab === "import" ? "import" : "document";
-  });
-  const [documentType, setDocumentType] = useState("");
-  const resource = useResource("library", () => Promise.all([listAllEntities("document"), listAllEntities("source")]));
-  const documents = resource.data?.[0] ?? [];
-  const sources = resource.data?.[1] ?? [];
-  const visible = activeTab === "document"
-    ? documents.filter((item) => !documentType || item.metadata.type === documentType)
-    : activeTab === "source" ? sources : [];
+type LibraryTab = "documents" | "sources" | "import";
 
-  function selectTab(tab: "document" | "source" | "import") {
-    if (activeTab === tab) return;
-    setActiveTab(tab);
-    navigate(tab === "document" ? "/library" : tab === "source" ? "/library?tab=sources" : "/library?tab=import");
+function useDeferredResource<T>(key: string, enabled: boolean, load: () => Promise<T>) {
+  const [state, setState] = useState<{ data: T | null; error: string; loading: boolean }>({ data: null, error: "", loading: false });
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    if (!enabled || state.data !== null) return;
+    let active = true;
+    setState((current) => ({ ...current, error: "", loading: true }));
+    load()
+      .then((data) => { if (active) setState({ data, error: "", loading: false }); })
+      .catch((reason: unknown) => { if (active) setState({ data: null, error: errorMessage(reason), loading: false }); });
+    return () => { active = false; };
+  }, [enabled, key, state.data, version, load]);
+  return {
+    ...state,
+    retry: () => {
+      setState((current) => ({ ...current, data: null, error: "", loading: false }));
+      setVersion((current) => current + 1);
+    },
+  };
+}
+
+export function LibraryPage({ onOpen, navigate, activeTab }: { onOpen: SelectEntity; navigate: Navigate; activeTab?: LibraryTab }) {
+  const [localActiveTab, setLocalActiveTab] = useState<LibraryTab>(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    return tab === "sources" ? "sources" : tab === "import" ? "import" : "documents";
+  });
+  const selectedTab = activeTab ?? localActiveTab;
+  const documentResource = useDeferredResource("library-documents", selectedTab === "documents", listLibraryDocumentStates);
+  const sourceResource = useDeferredResource("library-sources", selectedTab === "sources", listLibrarySourceStates);
+  const [documentType, setDocumentType] = useState("");
+  const documents = documentResource.data ?? [];
+  const sources = sourceResource.data ?? [];
+  const visible = documents.filter((item) => !documentType || item.metadata.type === documentType);
+
+  function selectTab(tab: LibraryTab) {
+    if (selectedTab === tab) return;
+    if (activeTab === undefined) setLocalActiveTab(tab);
+    navigate(tab === "documents" ? "/library" : `/library?tab=${tab}`);
   }
 
   return (
@@ -42,13 +66,13 @@ export function LibraryPage({ onOpen, navigate, initialTab }: { onOpen: SelectEn
       <PageHeader eyebrow="CORPUS MANAGEMENT" title="Library" description="管理 Agent 可使用的知识输入、笔记和来源文献。" />
       <div className="library-toolbar">
         <div className="segmented-control" role="tablist" aria-label="Library 类型">
-          <button role="tab" aria-selected={activeTab === "document"} className={activeTab === "document" ? "active" : ""} onClick={() => selectTab("document")}>Documents <span>{documents.length}</span></button>
-          <button role="tab" aria-selected={activeTab === "source"} className={activeTab === "source" ? "active" : ""} onClick={() => selectTab("source")}>Sources <span>{sources.length}</span></button>
-          <button role="tab" aria-selected={activeTab === "import"} className={activeTab === "import" ? "active" : ""} onClick={() => selectTab("import")}>Import</button>
+          <button role="tab" aria-selected={selectedTab === "documents"} className={selectedTab === "documents" ? "active" : ""} onClick={() => selectTab("documents")}>Documents <span>{documents.length}</span></button>
+          <button role="tab" aria-selected={selectedTab === "sources"} className={selectedTab === "sources" ? "active" : ""} onClick={() => selectTab("sources")}>Sources <span>{sources.length}</span></button>
+          <button role="tab" aria-selected={selectedTab === "import"} className={selectedTab === "import" ? "active" : ""} onClick={() => selectTab("import")}>Import</button>
         </div>
-        {activeTab === "document" && <label className="field-label compact-field">Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">Paper notes</option><option value="learning-note">Learning notes</option><option value="course-note">Course notes</option></select></label>}
+        {selectedTab === "documents" && <label className="field-label compact-field">Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">Paper notes</option><option value="learning-note">Learning notes</option><option value="course-note">Course notes</option></select></label>}
       </div>
-      {activeTab === "import" ? <ImportReviewPanel navigate={navigate} /> : resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : activeTab === "document" ? <LibraryDocumentsPanel documents={visible} onOpen={onOpen} /> : <LibrarySourcesPanel sources={visible} onOpen={onOpen} />}
+      {selectedTab === "import" ? <ImportReviewPanel navigate={navigate} /> : selectedTab === "documents" ? documentResource.error ? <ErrorState message={documentResource.error} retry={documentResource.retry} /> : documentResource.loading ? <LoadingState /> : <LibraryDocumentsPanel documents={visible} onOpen={onOpen} onAnalysisComplete={documentResource.retry} /> : sourceResource.error ? <ErrorState message={sourceResource.error} retry={sourceResource.retry} /> : sourceResource.loading ? <LoadingState /> : <LibrarySourcesPanel sources={sources} onOpen={onOpen} />}
     </div>
   );
 }
