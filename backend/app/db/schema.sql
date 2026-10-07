@@ -128,6 +128,20 @@ CREATE TABLE IF NOT EXISTS document_term_analysis_state (
     analyzed_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS pdf_corpus (
+    source_id TEXT PRIMARY KEY,
+    pdf_hash TEXT NOT NULL,
+    extractor_version TEXT NOT NULL,
+    text_hash TEXT,
+    text TEXT,
+    status TEXT NOT NULL CHECK (
+        status IN ('pending', 'ready', 'unavailable', 'failed')
+    ),
+    extracted_at TEXT,
+    error_message TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS presentation_annotations (
     id TEXT PRIMARY KEY,
     entity_type TEXT NOT NULL CHECK (entity_type IN ('document', 'term')),

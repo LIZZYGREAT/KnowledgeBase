@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 15
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -45,6 +45,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_term_core
         elif target_version == 14:
             migration = _migrate_to_document_term_analysis_state
+        elif target_version == 15:
+            migration = _migrate_to_pdf_corpus
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -863,5 +865,23 @@ def _migrate_to_document_term_analysis_state(connection: sqlite3.Connection) -> 
                provider TEXT NOT NULL,
                model TEXT NOT NULL,
                analyzed_at TEXT NOT NULL
+           )"""
+    )
+
+
+def _migrate_to_pdf_corpus(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS pdf_corpus (
+               source_id TEXT PRIMARY KEY,
+               pdf_hash TEXT NOT NULL,
+               extractor_version TEXT NOT NULL,
+               text_hash TEXT,
+               text TEXT,
+               status TEXT NOT NULL CHECK (
+                   status IN ('pending', 'ready', 'unavailable', 'failed')
+               ),
+               extracted_at TEXT,
+               error_message TEXT,
+               updated_at TEXT NOT NULL
            )"""
     )
