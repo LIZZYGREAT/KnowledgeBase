@@ -70,6 +70,68 @@ def test_runtime_schema_12_migrates_to_term_core_and_discovery_state_17():
     connection.close()
 
 
+def test_candidate_evidence_uses_canonical_origin_title_fallbacks(tmp_path):
+    connection = connect_database(":memory:")
+    try:
+        (tmp_path / "knowledge" / "terms").mkdir(parents=True)
+        connection.execute(
+            """INSERT INTO document_index (
+                   entity_id, path, title, document_type, metadata_json, content_hash
+               ) VALUES ('note-one', 'knowledge/documents/note-one.md',
+                         'Canonical Note Title', 'learning-note', '{}', 'hash')"""
+        )
+        connection.execute(
+            """INSERT INTO source_index (
+                   entity_id, path, title, source_type, metadata_json, content_hash
+               ) VALUES ('source-one', 'knowledge/sources/source-one.yaml',
+                         'Canonical Source Title', 'paper', '{}', 'hash')"""
+        )
+        connection.execute(
+            """INSERT INTO research_works (
+                   id, canonical_key, title, normalized_title, authors_json,
+                   created_at, updated_at
+               ) VALUES ('work-one', 'doi:10.1/work-one', 'Research Work Title',
+                         'research work title', '[]', 'now', 'now')"""
+        )
+        repository = TermCandidateRepository(connection)
+        service = TermCandidateService(tmp_path, repository)
+        candidate = service.create_candidate(
+            "Evidence Titles",
+            "concept",
+            [
+                TermCandidateEvidenceInput(
+                    origin_type="document", origin_id="note-one", mention="note"
+                ),
+                TermCandidateEvidenceInput(
+                    origin_type="source", origin_id="source-one", mention="source"
+                ),
+                TermCandidateEvidenceInput(
+                    origin_type="research_work", origin_id="work-one", mention="work"
+                ),
+                TermCandidateEvidenceInput(
+                    origin_type="external",
+                    origin_id="https://en.wikipedia.org/wiki/Evidence",
+                    mention="external",
+                    origin_title="Stored External Title",
+                ),
+            ],
+        )
+
+        titles = {
+            (item.origin_type, item.origin_id): item.origin_title
+            for item in repository.get_evidence(candidate.id)
+        }
+
+        assert titles[("document", "note-one")] == "Canonical Note Title"
+        assert titles[("source", "source-one")] == "Canonical Source Title"
+        assert titles[("research_work", "work-one")] == "Research Work Title"
+        assert titles[("external", "https://en.wikipedia.org/wiki/Evidence")] == (
+            "Stored External Title"
+        )
+    finally:
+        connection.close()
+
+
 def test_term_entity_type_is_canonical_and_available_to_term_drafts():
     metadata = {
         "schema_version": 1,

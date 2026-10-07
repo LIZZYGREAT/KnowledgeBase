@@ -38,8 +38,16 @@ class TermCandidateRepository:
 
     def get_evidence(self, candidate_id: str) -> list[TermCandidateEvidence]:
         rows = self.connection.execute(
-            """SELECT e.*,
+            """SELECT e.id,
+                      e.candidate_id,
+                      e.origin_type,
+                      e.origin_id,
+                      e.mention,
                       COALESCE(e.origin_title, d.title, s.title, rw.title) AS origin_title,
+                      e.context_excerpt,
+                      e.confidence,
+                      e.rationale,
+                      e.discovered_at,
                       EXISTS (
                           SELECT 1 FROM rejected_candidates r
                           JOIN term_candidates c ON c.id = e.candidate_id
