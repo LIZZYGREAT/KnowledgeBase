@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../src/api";
@@ -24,6 +24,8 @@ describe("Library tabs and Import", () => {
     render(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     expect((await screen.findByRole("tab", { name: "Import" })).getAttribute("aria-selected")).toBe("true");
+    expect(within(screen.getByRole("tab", { name: /Documents/ })).queryByText("0")).toBeNull();
+    expect(within(screen.getByRole("tab", { name: /Sources/ })).queryByText("0")).toBeNull();
     expect(await screen.findByRole("heading", { name: "Import Review" })).toBeTruthy();
     expect(api.listLibraryDocumentStates).not.toHaveBeenCalled();
     expect(api.listLibrarySourceStates).not.toHaveBeenCalled();
@@ -49,6 +51,7 @@ describe("Library tabs and Import", () => {
     render(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     expect(await screen.findByText("Never analyzed")).toBeTruthy();
+    expect(within(screen.getByRole("tab", { name: /Documents/ })).getByText("1")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Analyze Terms" }));
     expect(await screen.findByRole("dialog", { name: "分析 Canonical Note" })).toBeTruthy();
     expect(api.analyzeDocumentTerms).not.toHaveBeenCalled();
@@ -78,6 +81,7 @@ describe("Library tabs and Import", () => {
     expect(detailRequest).not.toHaveBeenCalled();
     expect(corpusRequest).not.toHaveBeenCalled();
     expect(await screen.findByText("PDF attached")).toBeTruthy();
+    expect(within(screen.getByRole("tab", { name: /Sources/ })).getByText("1")).toBeTruthy();
     expect(await screen.findByText("Ready")).toBeTruthy();
     expect(screen.getByText("Usable")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Term One" }));
@@ -97,17 +101,37 @@ describe("Library tabs and Import", () => {
   });
 
   it("loads only the selected Library tab and reuses its batch result", async () => {
+    let resolveDocuments!: (value: LibraryDocumentState[]) => void;
+    let resolveSources!: (value: LibrarySourceState[]) => void;
+    const documentsRequest = vi.mocked(api.listLibraryDocumentStates).mockImplementation(
+      () => new Promise((resolve) => { resolveDocuments = resolve; }),
+    );
+    const sourcesRequest = vi.mocked(api.listLibrarySourceStates).mockImplementation(
+      () => new Promise((resolve) => { resolveSources = resolve; }),
+    );
     const view = render(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} activeTab="documents" />);
+
+    const documentsTab = screen.getByRole("tab", { name: /Documents/ });
+    const sourcesTab = screen.getByRole("tab", { name: /Sources/ });
+    expect(within(documentsTab).queryByText("0")).toBeNull();
+    expect(within(sourcesTab).queryByText("0")).toBeNull();
+    expect(documentsRequest).toHaveBeenCalledTimes(1);
+    expect(sourcesRequest).not.toHaveBeenCalled();
+
+    resolveDocuments([]);
     await screen.findByText("Library 还是空的");
-    expect(api.listLibraryDocumentStates).toHaveBeenCalledTimes(1);
-    expect(api.listLibrarySourceStates).not.toHaveBeenCalled();
+    expect(within(documentsTab).getByText("0")).toBeTruthy();
+    expect(within(sourcesTab).queryByText("0")).toBeNull();
 
     view.rerender(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} activeTab="sources" />);
+    expect(within(sourcesTab).queryByText("0")).toBeNull();
+    expect(sourcesRequest).toHaveBeenCalledTimes(1);
+    resolveSources([]);
     await screen.findByText("还没有来源文献");
-    expect(api.listLibrarySourceStates).toHaveBeenCalledTimes(1);
+    expect(within(sourcesTab).getByText("0")).toBeTruthy();
 
     view.rerender(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} activeTab="documents" />);
     await screen.findByText("Library 还是空的");
-    expect(api.listLibraryDocumentStates).toHaveBeenCalledTimes(1);
+    expect(documentsRequest).toHaveBeenCalledTimes(1);
   });
 });

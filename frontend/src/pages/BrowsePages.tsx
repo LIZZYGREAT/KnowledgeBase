@@ -53,6 +53,8 @@ export function LibraryPage({ onOpen, navigate, activeTab }: { onOpen: SelectEnt
   const [documentType, setDocumentType] = useState("");
   const documents = documentResource.data ?? [];
   const sources = sourceResource.data ?? [];
+  const documentCount = documentResource.data?.length;
+  const sourceCount = sourceResource.data?.length;
   const visible = documents.filter((item) => !documentType || item.metadata.type === documentType);
 
   function selectTab(tab: LibraryTab) {
@@ -66,8 +68,8 @@ export function LibraryPage({ onOpen, navigate, activeTab }: { onOpen: SelectEnt
       <PageHeader eyebrow="CORPUS MANAGEMENT" title="Library" description="管理 Agent 可使用的知识输入、笔记和来源文献。" />
       <div className="library-toolbar">
         <div className="segmented-control" role="tablist" aria-label="Library 类型">
-          <button role="tab" aria-selected={selectedTab === "documents"} className={selectedTab === "documents" ? "active" : ""} onClick={() => selectTab("documents")}>Documents <span>{documents.length}</span></button>
-          <button role="tab" aria-selected={selectedTab === "sources"} className={selectedTab === "sources" ? "active" : ""} onClick={() => selectTab("sources")}>Sources <span>{sources.length}</span></button>
+          <button role="tab" aria-selected={selectedTab === "documents"} className={selectedTab === "documents" ? "active" : ""} onClick={() => selectTab("documents")}>Documents {documentCount !== undefined && <span>{documentCount}</span>}</button>
+          <button role="tab" aria-selected={selectedTab === "sources"} className={selectedTab === "sources" ? "active" : ""} onClick={() => selectTab("sources")}>Sources {sourceCount !== undefined && <span>{sourceCount}</span>}</button>
           <button role="tab" aria-selected={selectedTab === "import"} className={selectedTab === "import" ? "active" : ""} onClick={() => selectTab("import")}>Import</button>
         </div>
         {selectedTab === "documents" && <label className="field-label compact-field">Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">Paper notes</option><option value="learning-note">Learning notes</option><option value="course-note">Course notes</option></select></label>}
