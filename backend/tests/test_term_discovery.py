@@ -23,6 +23,8 @@ from backend.app.services.term_discovery_service import (
     TermDiscoveryService,
     _allocate_lane_budgets,
     _dynamic_allowance,
+    _discovery_focus,
+    _external_query,
 )
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.term_registry import TermRegistry
@@ -543,6 +545,86 @@ def test_external_discovery_creates_wikipedia_evidence_with_focus_query(tmp_path
     assert evidence.origin_title == result.title
     assert evidence.context_excerpt == result.snippet
     connection.close()
+
+
+def test_notes_run_before_pdfs_and_external_search_waits_for_remaining_budget(tmp_path):
+    output = {
+        "candidates": [
+            _suggestion(
+                "elastic weight consolidation",
+                "concept",
+                "Elastic weight consolidation limits catastrophic forgetting.",
+                "core_gap",
+                "It connects directly to the current learning focus.",
+            )
+        ]
+    }
+    external = _FakeExternalDiscovery([])
+    connection, service, candidate_service, pdf_service, gateway = _service(
+        tmp_path, output, external_discovery=external
+    )
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        "Elastic weight consolidation limits catastrophic forgetting.",
+        topics=["continual-learning"],
+    )
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"],
+            lane_capacities={"concept": 1, "entity": 4, "vocabulary": 6},
+            focus_override="continual learning",
+            external_enabled=True,
+        )
+    )
+
+    run = service.run()
+
+    candidate = candidate_service.list_candidates("pending")[0]
+    evidence = candidate_service.get_candidate(candidate.id).evidence[0]
+    assert run.candidate_count == 1
+    assert run.items[0].source_id == "note-one"
+    assert evidence.origin_type == "document"
+    assert pdf_service.calls == []
+    assert external.calls == []
+    assert [call[1]["source"]["id"] for call in gateway.calls] == ["note-one"]
+    connection.close()
+
+
+def test_external_query_prioritizes_recent_terms_and_topics_over_profile_queries():
+    explicit_focus = [
+        "continual learning",
+        "Continual Learning Profile",
+        "Class-Incremental Learning",
+        "continual learning methods",
+        "class incremental learning",
+    ]
+    snapshot = {
+        "focus": {
+            "recent_terms": [
+                {"title": "iCaRL"},
+                {"title": "Herding"},
+            ],
+            "recent_topics": ["exemplar selection"],
+            "recent_domains": ["machine-learning"],
+        }
+    }
+
+    focus = _discovery_focus(
+        explicit_focus, snapshot, focus_override="continual learning"
+    )
+
+    assert focus[:5] == [
+        "continual learning",
+        "iCaRL",
+        "Herding",
+        "exemplar selection",
+        "machine-learning",
+    ]
+    query = _external_query(focus)
+    assert query == "continual learning iCaRL Herding exemplar selection"
+    assert "Continual Learning Profile" not in query
 
 
 def test_scheduled_external_discovery_can_run_without_local_corpus(tmp_path):

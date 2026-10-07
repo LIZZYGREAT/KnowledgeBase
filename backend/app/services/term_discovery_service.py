@@ -213,7 +213,9 @@ class TermDiscoveryService:
         if core_lanes or settings.external_enabled:
             explicit_focus = _focus_context(self.repository_root, settings)
             focus_snapshot = self.knowledge_state.build_snapshot(explicit_focus)
-            focus = _discovery_focus(explicit_focus, focus_snapshot)
+            focus = _discovery_focus(
+                explicit_focus, focus_snapshot, settings.focus_override
+            )
         if core_lanes:
             focus_hash = _json_hash(
                 {
@@ -320,7 +322,7 @@ class TermDiscoveryService:
 
         focus = _focus_context(self.repository_root, settings)
         snapshot = self.knowledge_state.build_snapshot(focus)
-        focus = _discovery_focus(focus, snapshot)
+        focus = _discovery_focus(focus, snapshot, settings.focus_override)
         focus_hash = _json_hash(
             {
                 "focus": focus,
@@ -353,47 +355,6 @@ class TermDiscoveryService:
             focus_hash,
             registry,
         )
-        external_corpora: list[DiscoveryCorpus] = []
-        external_errors: list[str] = []
-        external_lanes = tuple(
-            lane
-            for lane in enabled_lanes
-            if lane in {"concept", "entity"} and remaining_budgets[lane] > 0
-        )
-        external_query = _external_query(focus)
-        if settings.external_enabled and external_lanes and external_query:
-            try:
-                results = self.external_discovery.search(
-                    external_query, limit=MAX_EXTERNAL_RESULTS
-                )
-                for result in results[:MAX_EXTERNAL_RESULTS]:
-                    if not isinstance(result, ExternalDiscoveryResult):
-                        continue
-                    if not _is_wikipedia_result_url(result.url):
-                        continue
-                    title = " ".join(result.title.split())[:200]
-                    text = " ".join(result.snippet.split())[:600]
-                    if not title or not text:
-                        continue
-                    context = _DocumentContext(
-                        id=result.url,
-                        title=title,
-                        domains=(),
-                        topics=(),
-                    )
-                    external_corpora.append(
-                        DiscoveryCorpus(
-                            "external",
-                            result.url,
-                            context,
-                            text,
-                            sha256(text.encode("utf-8")).hexdigest(),
-                            "external:{}".format(sha256(result.url.encode("utf-8")).hexdigest()),
-                            external_lanes,
-                        )
-                    )
-            except Exception as error:
-                external_errors.append("Wikipedia discovery: {}".format(str(error)[:200]))
         self.repository.retain_vocabulary_sources(
             {
                 source.id
@@ -404,23 +365,23 @@ class TermDiscoveryService:
         raw_counts = {lane: 0 for lane in _LANE_ORDER}
         filtered_counts = {lane: 0 for lane in _LANE_ORDER}
         items: list[TermDiscoveryRunItem] = []
-        errors: list[str] = external_errors
+        errors: list[str] = []
         created_count = 0
 
-        if not sources and not documents and not external_corpora:
-            return self._finish_run(
-                run_id,
-                trigger,
-                "partial" if errors else "success",
-                started_at,
-                snapshot,
-                budgets,
-                raw_counts,
-                filtered_counts,
-                0,
-                items,
-                "; ".join(errors[:6]) or None,
-            )
+        created_count += self._process_additional_corpora(
+            documents,
+            run_id,
+            snapshot,
+            focus,
+            registry,
+            resolver,
+            focus_hash,
+            remaining_budgets,
+            raw_counts,
+            filtered_counts,
+            items,
+            errors,
+        )
 
         for source in sources:
             if not any(remaining_budgets.values()):
@@ -468,20 +429,51 @@ class TermDiscoveryService:
                 errors,
             )
 
-        created_count += self._process_additional_corpora(
-            documents,
-            run_id,
-            snapshot,
-            focus,
-            registry,
-            resolver,
-            focus_hash,
-            remaining_budgets,
-            raw_counts,
-            filtered_counts,
-            items,
-            errors,
+        external_corpora: list[DiscoveryCorpus] = []
+        external_lanes = tuple(
+            lane
+            for lane in enabled_lanes
+            if lane in {"concept", "entity"} and remaining_budgets[lane] > 0
         )
+        external_query = _external_query(focus)
+        if (
+            settings.external_enabled
+            and external_lanes
+            and external_query
+            and self.repository.open_candidate_count() < GLOBAL_OPEN_CAPACITY
+        ):
+            try:
+                results = self.external_discovery.search(
+                    external_query, limit=MAX_EXTERNAL_RESULTS
+                )
+                for result in results[:MAX_EXTERNAL_RESULTS]:
+                    if not isinstance(result, ExternalDiscoveryResult):
+                        continue
+                    if not _is_wikipedia_result_url(result.url):
+                        continue
+                    title = " ".join(result.title.split())[:200]
+                    text = " ".join(result.snippet.split())[:600]
+                    if not title or not text:
+                        continue
+                    context = _DocumentContext(
+                        id=result.url,
+                        title=title,
+                        domains=(),
+                        topics=(),
+                    )
+                    external_corpora.append(
+                        DiscoveryCorpus(
+                            "external",
+                            result.url,
+                            context,
+                            text,
+                            sha256(text.encode("utf-8")).hexdigest(),
+                            "external:{}".format(sha256(result.url.encode("utf-8")).hexdigest()),
+                            external_lanes,
+                        )
+                    )
+            except Exception as error:
+                errors.append("Wikipedia discovery: {}".format(str(error)[:200]))
         created_count += self._process_additional_corpora(
             external_corpora,
             run_id,
@@ -969,15 +961,29 @@ def _focus_context(repository_root: Path, settings: TermDiscoverySettings) -> li
     return list(dict.fromkeys(item.strip() for item in focus if item.strip()))[:20]
 
 
-def _discovery_focus(explicit_focus: list[str], snapshot: dict) -> list[str]:
-    focus = list(explicit_focus)
+def _discovery_focus(
+    explicit_focus: list[str], snapshot: dict, focus_override: Optional[str] = None
+) -> list[str]:
     focus_state = snapshot.get("focus", {})
-    focus.extend(focus_state.get("recent_topics", []))
-    focus.extend(focus_state.get("recent_domains", []))
-    focus.extend(
+    recent_terms = [
         item.get("title", "")
         for item in focus_state.get("recent_terms", [])
         if isinstance(item, dict)
+    ]
+    profile_focus = list(explicit_focus)
+    override = " ".join((focus_override or "").split())
+    if (
+        override
+        and profile_focus
+        and " ".join(profile_focus[0].split()).casefold() == override.casefold()
+    ):
+        profile_focus = profile_focus[1:]
+    focus = (
+        ([override] if override else [])
+        + recent_terms
+        + list(focus_state.get("recent_topics", []))
+        + list(focus_state.get("recent_domains", []))
+        + profile_focus
     )
     return list(dict.fromkeys(value.strip() for value in focus if value.strip()))[:40]
 
