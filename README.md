@@ -45,7 +45,7 @@ Copy `.env.example` to `.env` before starting Compose. The backend mounts the re
 
 The backend API is available at `http://127.0.0.1:8000`; OpenAPI is at `/openapi.json` and the interactive schema at `/docs`. Context Export and read responses do not expose repository paths. AI requests require caller confirmation before sending Draft content and task-specific registry context to DeepSeek; AI results are stored as Proposals.
 
-Batch-stage local Markdown and PDFs for review with `python tools/kb.py import <path...> --profile legacy`. This only stages input; Review is still required to create Drafts, confirm PDF Sources, apply metadata suggestions, and publish. Production migration and restore steps are in [Import workflow](docs/IMPORT_WORKFLOW.md) and [Deployment](docs/DEPLOYMENT.md).
+Browser uploads start at Library → Import. Batch-stage local Markdown and PDFs with `python tools/kb.py import <path...> --profile legacy`. Staging does not publish Canonical content; review each staged item before creating Drafts, confirming PDF Sources, applying metadata suggestions, and publishing. Production migration and restore steps are in [Import workflow](docs/IMPORT_WORKFLOW.md) and [Deployment](docs/DEPLOYMENT.md).
 
 ## Repository map
 

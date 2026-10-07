@@ -87,6 +87,7 @@ systemctl status knowledgebase-research.timer --no-pager || true
 docker compose --env-file .env -f docker-compose.production.yml stop frontend backend
 git status
 git status --short
+test -z "$(git status --porcelain)"
 git log --oneline -5
 git remote -v
 git fetch origin main
@@ -98,6 +99,7 @@ fi
 test "$(git rev-parse origin/main)" = "$TARGET_HEAD"
 git merge-base --is-ancestor "$TARGET_HEAD" HEAD
 git status
+test -z "$(git status --porcelain)"
 git log --oneline --graph -10
 docker compose --env-file .env -f docker-compose.production.yml config -q
 docker compose --env-file .env -f docker-compose.production.yml build backend frontend
@@ -134,6 +136,12 @@ do
 done
 curl -fsS http://127.0.0.1:8080/ >/dev/null
 curl -fsS http://127.0.0.1:8080/openapi.json >/dev/null
+```
+
+Record a read-only performance baseline without a fixed pass/fail threshold:
+
+```sh
+python3 tools/perf_smoke.py --base-url http://127.0.0.1:8080 --repeat 5
 ```
 
 Only after all checks pass, restart the scheduler and confirm its status:

@@ -26,6 +26,22 @@ GET  /api/search
 
 Entity lists return `id`, `title`, `entity_type`, and `metadata`. Entity detail adds Markdown `content` where applicable, related Terms, Backlinks, Evidence, related Documents, and accepted Runtime Term relations. Term IDs retained as survivor aliases resolve to the survivor detail. Search accepts `query`, `domain`, `topic`, `tag`, `document_type`, `review`, `maintenance`, `source`, `term`, and `limit`. Results include their match reason, snippet, metadata, and document usage counts.
 
+## Home, Library, and Term Discovery state
+
+```text
+GET  /api/ui/summary
+GET  /api/library/document-states
+GET  /api/library/source-states
+GET  /api/sources/{id}/corpus
+GET  /api/terms/discovery
+PUT  /api/terms/discovery/settings
+POST /api/terms/discovery/run?trigger=manual
+GET  /api/terms/discovery/runs?limit=20
+GET  /api/terms/discovery/runs/{run_id}
+```
+
+The UI summary returns aggregate Home counts. Library state endpoints return batch Document analysis and Source PDF/extraction status for the Library views. Source corpus state describes whether a local PDF is attached and its extraction usability. Term Discovery exposes current settings/state, manual or scheduled run triggering, and run history with detail. Browser Import staging starts at Library → Import; individual staged items require human review before Draft creation and publishing.
+
 Term Candidate endpoints list and inspect Runtime Candidates, reject one Evidence origin at a time with `scope: local` and `origin_type`/`origin_id`, reject all origins with `scope: global`, or accept a Candidate against an existing canonical Term using `term_id`. Accepting Existing stores one deduplicated relation for each eligible Document, Source, or Research Work Evidence origin. A New Candidate with active Document Evidence can create or reuse a linked Term Draft; discarding that Draft returns the Candidate to `pending`, and publishing it accepts the Candidate and creates eligible relations. Direct Candidate creation is not exposed. Manual Document Term Analysis accepts `confirm_deepseek_transfer: true`, reads only the current Canonical Document (and rejects an active Draft), and creates or reuses Candidates after server-side Term resolution and Reject Memory checks. The analysis-state endpoint compares the stored canonical content hash with the current file hash and reports `never_analyzed`, `up_to_date`, or `outdated`; publishing a Document never triggers AI automatically. Merge preview accepts `survivor_term_id`, `loser_term_ids`, and `final_title`; it returns the final aliases and loser IDs whose non-empty bodies will not be merged. Merge accepts the same fields plus `confirm_loser_bodies_not_merged: true` when that list is non-empty. The operation commits only the survivor Term update and loser Term deletions; it does not rewrite Documents.
 
 ## Drafts, Proposals, and publishing
@@ -59,7 +75,7 @@ POST /api/imports/blank-document
 
 `POST /api/imports` accepts `paths` relative to the backend's `storage/uploads/` directory and an optional `profile` (`standard` or `legacy`). It rejects absolute paths, parent traversal, and symbolic links. Clients can review staged Markdown, create Drafts, confirm a PDF as a Source, and confirm a suggested Markdown/PDF association through the item routes. Import response objects omit server paths and staging paths.
 
-`GET /api/import-items/{item_id}/content` returns staged Markdown text for the Review editor and never returns a server path. PDF content is not returned; the item exposes review metadata only. The CLI `python tools/kb.py import <path...> --profile legacy` stages arbitrary local paths for batch migration.
+Browser uploads start at Library → Import. `GET /api/import-items/{item_id}/content` returns staged Markdown text for the staged-item editor and never returns a server path. PDF content is not returned; the item exposes review metadata only. The CLI `python tools/kb.py import <path...> --profile legacy` stages arbitrary local paths for batch migration.
 
 ## AI Proposals
 
