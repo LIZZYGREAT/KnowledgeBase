@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
-import sqlite3
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app.api.terms import router as terms_router
-from backend.app.db.connection import connect_database, initialize_database
+from backend.app.db.connection import connect_database
 from backend.app.domain.ai import TermDiscoveryOutput
 from backend.app.domain.term_discovery import TermDiscoverySettings
 from backend.app.domain.term_runtime import TermCandidateEvidenceInput
@@ -84,6 +84,7 @@ def test_run_creates_only_non_stretch_candidate_with_explainable_assessment(tmp_
         ("stretch", "advanced consolidation variant"),
     ]
     assert run.candidate_count == 1
+    assert run.lane_budgets["concept"] == 5
     assert run.raw_counts == {"concept": 2, "entity": 0, "vocabulary": 0}
     assert [item.outcome for item in run.items] == ["created", "stretch"]
     assert candidate_service.list_candidates("pending")[0].discovery_assessment.why_now.startswith(
@@ -196,6 +197,7 @@ def test_knowledge_state_keeps_activity_exposure_and_knowledge_distinct(tmp_path
     terms = tmp_path / "knowledge" / "terms"
     terms.mkdir(parents=True)
     _write_term(terms / "stub-term.md", "stub-term", "Stub Term", "stub")
+    _write_term(terms / "standard-term.md", "standard-term", "Standard Term", "standard")
     _write_term(terms / "deep-term.md", "deep-term", "Deep Term", "deep")
     now = datetime(2026, 10, 7, tzinfo=timezone.utc)
     connection.execute(
@@ -224,6 +226,7 @@ def test_knowledge_state_keeps_activity_exposure_and_knowledge_distinct(tmp_path
     ).build_snapshot(["continual learning"])
 
     assert snapshot["term_states"]["stub-term"] == "learning"
+    assert snapshot["term_states"]["standard-term"] == "established"
     assert snapshot["term_states"]["deep-term"] == "established"
     assert snapshot["activity"]["recently_used_terms"][0]["id"] == "stub-term"
     assert snapshot["exposure"]["terms"][0]["id"] == "stub-term"
@@ -232,16 +235,19 @@ def test_knowledge_state_keeps_activity_exposure_and_knowledge_distinct(tmp_path
 
 
 def test_term_discovery_api_exposes_settings_and_run_history(tmp_path):
-    connection = sqlite3.connect(":memory:", check_same_thread=False)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    initialize_database(connection)
-    connection, service, _candidate_service, _pdf_service, _gateway = _service(
-        tmp_path, connection=connection
-    )
-    app = FastAPI()
+    @asynccontextmanager
+    async def lifespan(app):
+        connection = connect_database(tmp_path / "runtime.db")
+        app.state.term_discovery_service = _service(
+            tmp_path, connection=connection
+        )[1]
+        try:
+            yield
+        finally:
+            connection.close()
+
+    app = FastAPI(lifespan=lifespan)
     app.include_router(terms_router)
-    app.state.term_discovery_service = service
 
     with TestClient(app) as client:
         initial = client.get("/api/terms/discovery")
@@ -267,10 +273,79 @@ def test_term_discovery_api_exposes_settings_and_run_history(tmp_path):
         history = client.get("/api/terms/discovery/runs")
         assert history.status_code == 200
         assert history.json()[0]["id"] == run.json()["id"]
+
+
+def test_semantic_existing_suggestion_is_allowed_when_literal_is_unresolved(tmp_path):
+    output = {
+        "candidates": [
+            {
+                **_suggestion(
+                    "performance on previously learned classes",
+                    "concept",
+                    "Performance on previously learned classes drops sharply.",
+                    "core_gap",
+                    "This phrase describes the current learning focus.",
+                ),
+                "existing_term_id": "catastrophic-forgetting",
+            }
+        ]
+    }
+    connection, service, candidate_service, _pdf_service, _gateway = _service(
+        tmp_path,
+        output,
+        corpus_text=(
+            "Performance on previously learned classes drops sharply. "
+            "This pattern indicates that an old model has lost prior capability. "
+            "Continual learning systems measure retention after learning new tasks. "
+        ) * 2,
+    )
+    _write_term(
+        tmp_path / "knowledge" / "terms" / "catastrophic-forgetting.md",
+        "catastrophic-forgetting",
+        "Catastrophic Forgetting",
+        "standard",
+    )
+
+    run = service.run()
+
+    assert run.candidate_count == 1, run.model_dump()
+    candidate = candidate_service.list_candidates("pending")[0]
+    assert candidate.display_name == "performance on previously learned classes"
+    assert candidate.suggested_term_id == "catastrophic-forgetting"
     connection.close()
 
 
-def _service(tmp_path, output=None, connection=None):
+def test_semantic_existing_suggestion_rejects_deterministic_conflict(tmp_path):
+    output = {
+        "candidates": [
+            {
+                **_suggestion(
+                    "elastic weight consolidation",
+                    "concept",
+                    "Elastic weight consolidation limits catastrophic forgetting.",
+                    "core_gap",
+                    "This term is related to the current learning focus.",
+                ),
+                "existing_term_id": "catastrophic-forgetting",
+            }
+        ]
+    }
+    connection, service, candidate_service, _pdf_service, _gateway = _service(
+        tmp_path, output
+    )
+    terms = tmp_path / "knowledge" / "terms"
+    _write_term(terms / "elastic-weight-consolidation.md", "elastic-weight-consolidation", "Elastic Weight Consolidation", "standard")
+    _write_term(terms / "catastrophic-forgetting.md", "catastrophic-forgetting", "Catastrophic Forgetting", "standard")
+
+    run = service.run()
+
+    assert run.candidate_count == 0
+    assert run.filtered_counts["concept"] == 1
+    assert candidate_service.list_candidates("pending") == []
+    connection.close()
+
+
+def _service(tmp_path, output=None, connection=None, corpus_text=None):
     connection = connection or connect_database(":memory:")
     terms = tmp_path / "knowledge" / "terms"
     sources = tmp_path / "knowledge" / "sources"
@@ -284,7 +359,7 @@ def _service(tmp_path, output=None, connection=None):
         encoding="utf-8",
     )
     (papers / "source-alpha.pdf").write_bytes(b"not a real PDF; extractor is injected")
-    text = (
+    text = corpus_text or (
         "Elastic weight consolidation limits catastrophic forgetting.\n\n"
         "An advanced consolidation variant builds on elastic weight consolidation. "
         "This paper discusses continual learning and useful research methods. "

@@ -41,7 +41,9 @@ async def update_term_discovery_settings(
 
 
 @router.post("/discovery/run", response_model=TermDiscoveryRun)
-def run_term_discovery(request: Request, trigger: Literal["manual", "scheduled"] = "manual"):
+async def run_term_discovery(
+    request: Request, trigger: Literal["manual", "scheduled"] = "manual"
+):
     return request.app.state.term_discovery_service.run(trigger)
 
 

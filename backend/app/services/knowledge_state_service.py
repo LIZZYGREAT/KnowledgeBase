@@ -56,9 +56,7 @@ class KnowledgeStateService:
         exposure = _pdf_exposure(self.connection, registry.terms)
         state_by_term: dict[str, str] = {}
         for term in registry.terms:
-            if term.depth == "deep" or (
-                term.depth == "standard" and relations.get(term.id, 0) > 0
-            ):
+            if term.depth in {"standard", "deep"}:
                 state = "established"
             elif term.id in recent_activity or term.id in recent_accepted:
                 state = "learning"

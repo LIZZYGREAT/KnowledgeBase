@@ -233,6 +233,9 @@ class TermDiscoveryService:
                 None,
             )
 
+        allocated_budgets = dict(budgets)
+        remaining_budgets = dict(budgets)
+
         focus = _focus_context(self.repository_root, settings)
         snapshot = self.knowledge_state.build_snapshot(focus)
         focus_hash = _json_hash(
@@ -287,19 +290,19 @@ class TermDiscoveryService:
             )
 
         for source in sources:
-            if not any(budgets.values()):
+            if not any(remaining_budgets.values()):
                 break
             try:
                 corpus = self.pdf_corpus_service.ensure(source.id)
             except Exception as error:
                 errors.append("{}: {}".format(source.id, str(error)[:200]))
                 for lane in _LANE_ORDER:
-                    if budgets[lane] > 0:
+                    if remaining_budgets[lane] > 0:
                         filtered_counts[lane] += 1
                 continue
             if corpus.status != "ready" or not corpus.text or not corpus.text_hash:
                 for lane in _LANE_ORDER:
-                    if budgets[lane] > 0:
+                    if remaining_budgets[lane] > 0:
                         filtered_counts[lane] += 1
                 if corpus.status in {"failed", "unavailable"}:
                     errors.append(
@@ -312,7 +315,7 @@ class TermDiscoveryService:
                 source.id, corpus.text_hash, statistics, self._now()
             )
             for lane in _LANE_ORDER:
-                if budgets[lane] <= 0:
+                if remaining_budgets[lane] <= 0:
                     continue
                 state = self.repository.get_analysis_state(source.id, lane)
                 if (
@@ -394,7 +397,7 @@ class TermDiscoveryService:
                             )
                         )
                         continue
-                    if lane_created >= budgets[lane]:
+                    if lane_created >= remaining_budgets[lane]:
                         filtered_counts[lane] += 1
                         items.append(
                             self._item(
@@ -419,9 +422,18 @@ class TermDiscoveryService:
                             )
                         )
                         continue
-                    if suggestion.existing_term_id and (
-                        registry_match.status != "resolved"
-                        or registry_match.entity_id != suggestion.existing_term_id
+                    if registry_match.status == "ambiguous":
+                        filtered_counts[lane] += 1
+                        items.append(
+                            self._item(
+                                run_id, lane, source.id, suggestion, "filtered", None
+                            )
+                        )
+                        continue
+                    if (
+                        suggestion.existing_term_id
+                        and registry_match.status == "resolved"
+                        and registry_match.entity_id != suggestion.existing_term_id
                     ):
                         errors.append(
                             "{} suggested an Existing Term id inconsistent with the Registry".format(
@@ -430,20 +442,6 @@ class TermDiscoveryService:
                         )
                         filtered_counts[lane] += 1
                         continue
-                    if registry_match.status in {"resolved", "ambiguous"}:
-                        matched_term = (
-                            registry_match.entity_id
-                            if registry_match.status == "resolved"
-                            else None
-                        )
-                        if suggestion.existing_term_id and matched_term != suggestion.existing_term_id:
-                            errors.append(
-                                "{} suggested an Existing Term id inconsistent with the Registry".format(
-                                    suggestion.mention
-                                )
-                            )
-                            filtered_counts[lane] += 1
-                            continue
                     evidence = TermCandidateEvidenceInput(
                         origin_type="source",
                         origin_id=source.id,
@@ -493,7 +491,9 @@ class TermDiscoveryService:
                     DISCOVERY_ANALYSIS_VERSION,
                     self._now(),
                 )
-                budgets[lane] = max(0, budgets[lane] - lane_created)
+                remaining_budgets[lane] = max(
+                    0, remaining_budgets[lane] - lane_created
+                )
 
         status = "partial" if errors else "success"
         return self._finish_run(
@@ -502,7 +502,7 @@ class TermDiscoveryService:
             status,
             started_at,
             snapshot,
-            budgets,
+            allocated_budgets,
             raw_counts,
             filtered_counts,
             created_count,
