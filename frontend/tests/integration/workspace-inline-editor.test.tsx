@@ -54,21 +54,32 @@ it("gives code blocks a full-width source, rendered preview, and larger height r
 });
 
 it("maps display math to one editable Workspace block while inline math stays in its paragraph", async () => {
-  const body = "Inline $x^2$ stays in this paragraph.\n\n$$\nE = mc^2\n$$\n\nA final paragraph.";
+  const displayFormula = String.raw`\frac{a+b}{c}+\sum_{i=1}^{n}i+\begin{matrix}a&b\\c&d\end{matrix}`;
+  const body = `Inline $x^2$ stays in this paragraph.\n\n$$\n${displayFormula}\n$$\n\nA final paragraph.`;
   const { container } = render(<WorkspaceInlineEditor body={body} annotations={[]} onBodyChange={() => undefined} onNavigate={() => undefined} />);
+  const preservesMathLayout = (root: ParentNode | null) => {
+    const mathSpans = Array.from(root?.querySelectorAll(".katex span[style]") ?? []);
+    return mathSpans.some((span) => /height/i.test(span.getAttribute("style") ?? ""))
+      && mathSpans.some((span) => /top/i.test(span.getAttribute("style") ?? ""));
+  };
 
   const mathBlock = await waitForEditButton(2);
   const block = container.querySelector<HTMLElement>('[data-block-index="1"]');
   expect(container.querySelectorAll(".workspace-inline-block")).toHaveLength(3);
   expect(block?.querySelector(".katex-display")).toBeTruthy();
+  expect(preservesMathLayout(block)).toBe(true);
   expect(block?.dataset.sourceStart).toBe(String(body.indexOf("$$")));
   expect(block?.querySelectorAll(".workspace-inline-edit-button")).toHaveLength(1);
 
   await userEvent.setup().click(mathBlock);
   const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
   expect(editor.closest(".workspace-inline-block-editing")?.getAttribute("data-block-type")).toBe("math");
-  expect((editor as HTMLTextAreaElement).value).toBe("$$\nE = mc^2\n$$");
-  await waitFor(() => expect(container.querySelector(".workspace-inline-preview .katex-display")).toBeTruthy());
+  expect((editor as HTMLTextAreaElement).value).toBe(`$$\n${displayFormula}\n$$`);
+  await waitFor(() => {
+    const preview = container.querySelector(".workspace-inline-preview");
+    expect(preview?.querySelector(".katex-display")).toBeTruthy();
+    expect(preservesMathLayout(preview)).toBe(true);
+  });
 });
 
 it("keeps Markdown marks and restricted colors in Workspace reading and edit previews", async () => {

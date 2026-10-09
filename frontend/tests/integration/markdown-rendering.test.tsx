@@ -13,6 +13,20 @@ it("keeps inline math inline and renders display math in its own KaTeX block", (
   expect(inline?.closest("p")?.textContent).toContain("Inline");
 });
 
+it("preserves KaTeX layout styles for fractions, sums, and matrices", () => {
+  const content = [
+    String.raw`Inline $\frac{a+b}{c}$ and $\sum_{i=1}^{n}i$.`,
+    "",
+    String.raw`$$\begin{matrix}a&b\\c&d\end{matrix}$$`,
+  ].join("\n");
+  const { container } = render(<MarkdownContent content={content} />);
+  const styledMathSpans = Array.from(container.querySelectorAll(".katex span[style]"));
+
+  expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(3);
+  expect(styledMathSpans.some((span) => /height/i.test(span.getAttribute("style") ?? ""))).toBe(true);
+  expect(styledMathSpans.some((span) => /top/i.test(span.getAttribute("style") ?? ""))).toBe(true);
+});
+
 it("renders constrained inline marks through paragraphs, tables, lists, and emphasis", () => {
   const content = [
     "中文 ==重点== and ==**加粗**==.",
@@ -47,6 +61,7 @@ it("renders only safe mark and single-color span HTML without enabling raw HTML"
     "<mark>HTML 重点</mark>",
     '<span style="color: red">red</span> <span style="color: #d35400">hex</span>',
     '<span style="color: red; background: url(javascript:alert(1))">mixed CSS</span>',
+    '<span data-katex-layout="true" style="color: red; background: url(javascript:alert(1))">spoofed layout marker</span>',
     '<span onclick="alert(1)">event</span>',
     '<mark style="background: url(javascript:alert(1))">marked style</mark>',
     '<div style="color: red">styled div</div>',

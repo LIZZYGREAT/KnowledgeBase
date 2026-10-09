@@ -1,4 +1,4 @@
-import { createElement, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { createElement, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -75,6 +75,33 @@ function rehypeWorkspaceMath() {
       });
     };
     wrapDisplayMath(tree);
+  };
+}
+
+function rehypeMarkKatexLayout() {
+  return (tree: MarkdownNode) => {
+    const hasClass = (node: MarkdownNode, className: string) => {
+      const classes = node.properties?.className;
+      return Array.isArray(classes) && classes.includes(className);
+    };
+    const markKatexSpans = (node: MarkdownNode) => {
+      if (node.type === "element" && node.tagName === "span") {
+        node.properties = { ...node.properties, "data-katex-layout": "true" };
+      }
+      node.children?.forEach(markKatexSpans);
+    };
+    const visit = (node: MarkdownNode) => {
+      if (
+        node.type === "element"
+        && node.tagName === "span"
+        && (hasClass(node, "katex") || hasClass(node, "katex-display"))
+      ) {
+        markKatexSpans(node);
+        return;
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
   };
 }
 
@@ -259,8 +286,18 @@ type PositionedRenderer = (props: PositionedRenderProps) => ReactNode;
 type MarkdownBlockRenderer = (block: MarkdownBlockRange, index: number, rendered: ReactNode) => ReactNode;
 
 function safeMarkdownSpan(props: PositionedRenderProps): ReactNode {
-  const { children, node: _node, style: _untrustedStyle, "data-markdown-color": rawColor, ...attributes } = props;
+  const {
+    children,
+    node: _node,
+    style: rawStyle,
+    "data-markdown-color": rawColor,
+    "data-katex-layout": katexLayout,
+    ...attributes
+  } = props;
   const color = normalizeMarkdownColor(rawColor);
+  const katexStyle = katexLayout === "true" && rawStyle && typeof rawStyle === "object"
+    ? rawStyle as CSSProperties
+    : undefined;
   const className = [
     typeof attributes.className === "string" ? attributes.className : "",
     color ? "markdown-text-color" : "",
@@ -268,7 +305,7 @@ function safeMarkdownSpan(props: PositionedRenderProps): ReactNode {
   return createElement("span", {
     ...attributes,
     ...(className ? { className } : {}),
-    ...(color ? { style: { color } } : {}),
+    ...(katexStyle || color ? { style: { ...katexStyle, ...(color ? { color } : {}) } } : {}),
   }, children);
 }
 
@@ -353,7 +390,7 @@ export function MarkdownContent({
           [remarkPresentationAnnotations, { annotations }],
           remarkKnowledgeLinks,
         ]}
-        rehypePlugins={[rehypeWorkspaceMath, rehypeKatex]}
+        rehypePlugins={[rehypeWorkspaceMath, rehypeKatex, rehypeMarkKatexLayout]}
         components={components}
       >
         {content}
