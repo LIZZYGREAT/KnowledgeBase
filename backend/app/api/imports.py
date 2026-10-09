@@ -16,6 +16,7 @@ from backend.app.api.schemas import (
     ConfirmSourceRequest,
     DraftView,
     ImportCreateRequest,
+    ImportDraftRequest,
     ImportItemContentView,
     ImportItemUpdateRequest,
     ImportItemView,
@@ -105,8 +106,12 @@ async def get_import_item_content(item_id: str, request: Request):
 
 
 @router.post("/import-items/{item_id}/draft", response_model=DraftView, status_code=status.HTTP_201_CREATED)
-async def create_import_draft(item_id: str, request: Request):
-    draft = request.app.state.import_service.create_draft(item_id)
+async def create_import_draft(
+    item_id: str, request: Request, body: Optional[ImportDraftRequest] = None
+):
+    draft = request.app.state.import_service.create_draft(
+        item_id, title_override=body.title if body is not None else None
+    )
     return asdict(draft)
 
 

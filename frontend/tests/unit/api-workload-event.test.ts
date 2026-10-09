@@ -71,6 +71,24 @@ describe("workload summary refresh events", () => {
     expect(dispatch.mock.calls.every(([event]) => event.type === "kb:workload-changed")).toBe(true);
   });
 
+  it("sends an optional Markdown title with Import Draft creation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    } as Response));
+
+    await createImportDraft("import-item-title", "导入标题");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/import-items/import-item-title/draft",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ title: "导入标题" }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
   it("refreshes after linking an existing Research Source and after publishing a Note", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({

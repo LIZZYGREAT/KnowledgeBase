@@ -1137,8 +1137,12 @@ export function updateImportItem(itemId: string, content: string) {
   });
 }
 
-export function createImportDraft(itemId: string) {
-  return request<Draft>(`/api/import-items/${encodeURIComponent(itemId)}/draft`, { method: "POST", workloadChanged: true });
+export function createImportDraft(itemId: string, title?: string) {
+  return request<Draft>(`/api/import-items/${encodeURIComponent(itemId)}/draft`, {
+    method: "POST",
+    body: title === undefined ? undefined : JSON.stringify({ title }),
+    workloadChanged: true,
+  });
 }
 
 export function confirmImportSource(

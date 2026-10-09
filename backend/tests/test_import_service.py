@@ -179,7 +179,7 @@ def test_import_rejects_conflicting_active_draft_without_marking_item_drafted(
     )
 
     with pytest.raises(ImportValidationError, match="different active Draft"):
-        service.create_draft(item.id)
+        service.create_draft(item.id, title_override="Different import title")
 
     unchanged = imports.get_item(item.id)
     assert unchanged.status == item.status
@@ -392,6 +392,84 @@ def test_legacy_frontmatter_inference_prefers_first_h1_over_filename(
 
     assert _frontmatter(draft.content)["title"] == "Actual H1 Title"
     assert draft.entity_id == "actual-h1-title"
+
+
+def test_legacy_import_title_override_keeps_original_h1_id_and_body(
+    import_context, tmp_path
+):
+    _, _, _, imports, service = import_context
+    source = tmp_path / "original-filename.md"
+    body = "# Original H1\n\nBody text with [[term-link]].\n"
+    source.write_text(body, encoding="utf-8")
+    original_body = source.read_bytes().decode("utf-8")
+
+    job = service.stage_paths([source], profile="legacy")
+    item = service.get_items(job.id)[0]
+    draft = service.create_draft(item.id, title_override='新标题: [A] "quoted"')
+    metadata = _frontmatter(draft.content)
+    updated_item = imports.get_item(item.id)
+
+    assert metadata["title"] == '新标题: [A] "quoted"'
+    assert draft.entity_id == "original-h1"
+    assert draft.content.endswith(original_body)
+    assert updated_item.metadata["candidate_title"] == '新标题: [A] "quoted"'
+    assert updated_item.metadata["generated_title"] == "Original H1"
+
+
+def test_legacy_title_override_without_h1_keeps_filename_based_id_and_body(
+    import_context, tmp_path
+):
+    _, _, _, _, service = import_context
+    source = tmp_path / "filename-based-note.md"
+    body = "## A section, not a title\n\n保留完整正文。\n"
+    source.write_text(body, encoding="utf-8")
+    original_body = source.read_bytes().decode("utf-8")
+
+    job = service.stage_paths([source], profile="legacy")
+    item = service.get_items(job.id)[0]
+    draft = service.create_draft(item.id, title_override="自定义: # 中文标题")
+
+    assert draft.entity_id == "filename-based-note"
+    assert _frontmatter(draft.content)["title"] == "自定义: # 中文标题"
+    assert draft.content.endswith(original_body)
+
+
+def test_standard_import_title_override_changes_only_frontmatter_title(
+    import_context, tmp_path
+):
+    _, _, _, _, service = import_context
+    source = tmp_path / "standard-title.md"
+    content = _document("standard-title", "Original Metadata Title")
+    source.write_text(content, encoding="utf-8")
+    original_body = _markdown_body(source.read_bytes().decode("utf-8"))
+    job = service.stage_paths([source], profile="standard")
+    item = service.get_items(job.id)[0]
+
+    draft = service.create_draft(item.id, title_override="标准: [新标题] #1")
+
+    assert draft.entity_id == "standard-title"
+    assert _frontmatter(draft.content)["title"] == "标准: [新标题] #1"
+    assert _markdown_body(draft.content) == original_body
+    assert "# 标准: [新标题] #1" not in draft.content
+
+
+def test_blank_import_title_override_does_not_create_or_mark_a_draft(
+    import_context, tmp_path
+):
+    _, connection, drafts, imports, service = import_context
+    source = tmp_path / "blank-title.md"
+    source.write_text("# Keep This Heading\n\nBody.\n", encoding="utf-8")
+    job = service.stage_paths([source], profile="legacy")
+    item = service.get_items(job.id)[0]
+
+    with pytest.raises(ImportValidationError, match="non-empty line"):
+        service.create_draft(item.id, title_override="  \t  ")
+
+    unchanged = imports.get_item(item.id)
+    assert unchanged.status == item.status
+    assert "draft_id" not in unchanged.metadata
+    assert drafts.list_for_target("document", "keep-this-heading") == []
+    assert connection.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 0
 
 
 def test_legacy_non_ascii_filename_uses_content_hash_document_id(import_context, tmp_path):
@@ -710,6 +788,15 @@ def _frontmatter(content):
     from backend.app.services.markdown_parser import parse_markdown
 
     return parse_markdown(content).frontmatter
+
+
+def _markdown_body(content):
+    from backend.app.services.markdown_parser import parse_markdown
+
+    parsed = parse_markdown(content)
+    if parsed.frontmatter_end_line is None:
+        return content
+    return "".join(content.splitlines(keepends=True)[parsed.frontmatter_end_line :])
 
 
 def _git(repository, *arguments):

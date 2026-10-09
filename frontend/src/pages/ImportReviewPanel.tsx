@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { parse as parseYaml } from "yaml";
 import {
   createImport, createImportDraft, confirmImportSource, getImportItemContent, listImports,
   updateImportItem, uploadImportFiles,
   type EntityType, type ImportItemContent, type ImportJob,
 } from "../api";
 import { errorMessage } from "../errors";
+import { parseMarkdownBlocks } from "../markdownBlocks";
 import { Chip, EmptyState, ErrorState, LoadingState, SectionHeading } from "../ui";
 import { useResource, type Navigate } from "./PageShared";
 import { entityWorkspaceUrl } from "../workspaceRoute";
@@ -117,6 +119,7 @@ function ImportReviewItem({
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<ImportItemContent | null>(null);
   const [content, setContent] = useState("");
+  const [markdownTitle, setMarkdownTitle] = useState("");
   const [sourceId, setSourceId] = useState(typeof item.metadata.suggested_source_id === "string" ? item.metadata.suggested_source_id : "");
   const [sourceTitle, setSourceTitle] = useState(typeof item.metadata.candidate_title === "string" ? item.metadata.candidate_title : item.display_name);
   const [sourceType, setSourceType] = useState<"paper" | "book" | "course" | "web" | "personal">("paper");
@@ -133,6 +136,7 @@ function ImportReviewItem({
         if (!active) return;
         setDetail(result);
         setContent(result.content ?? "");
+        setMarkdownTitle(initialMarkdownTitle(result.content ?? "", item, result.metadata));
         const suggestedId = result.metadata.suggested_source_id;
         const suggestedTitle = result.metadata.candidate_title;
         if (typeof suggestedId === "string") setSourceId(suggestedId);
@@ -144,11 +148,15 @@ function ImportReviewItem({
   }, [expanded, detail, item.id]);
 
   async function saveAndCreateDraft() {
+    if (!markdownTitle.trim()) {
+      setError("标题不能为空。");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       await updateImportItem(item.id, content);
-      const draft = await createImportDraft(item.id);
+      const draft = await createImportDraft(item.id, markdownTitle.trim());
       if (draft.entity_type !== "document" && draft.entity_type !== "term") throw new Error("该导入项没有创建 Document 或 Term Draft。");
       onChanged();
       onDraft(draft.entity_type, draft.entity_id);
@@ -189,7 +197,8 @@ function ImportReviewItem({
     {expanded && <div className="import-review-details">
       {loading && <p className="subtle-copy">正在读取暂存文件…</p>}
       {detail?.file_type === "markdown" && <>
-        <p className="trust-note">Legacy 导入允许缺少 KnowledgeBase Frontmatter。创建 Draft 时会自动补入最小元数据，并标记为 legacy 和 unreviewed；原正文保持不变。已有 Frontmatter 仍可在下方编辑。</p>
+        <p className="trust-note">标题只在创建 Draft 时写入 Frontmatter，不会更改 ID 或正文 H1；尚未创建 Draft 前单独修改的标题不会保存。Legacy 导入允许缺少 KnowledgeBase Frontmatter，创建时会自动补入最小元数据。</p>
+        <label className="field-label">标题<input required value={markdownTitle} onChange={(event) => setMarkdownTitle(event.target.value)} /></label>
         <textarea className="import-markdown-editor" value={content} onChange={(event) => setContent(event.target.value)} spellCheck={false} aria-label={`${item.display_name} 导入内容`} />
         <div className="import-review-actions"><button className="button button-secondary" disabled={busy || loading} onClick={() => void updateImportItem(item.id, content).then(() => setError("已保存暂存内容。"), (reason: unknown) => setError(errorMessage(reason)))}>{busy ? "保存中…" : "保存暂存内容"}</button><button className="button button-primary" disabled={busy || loading} onClick={() => void saveAndCreateDraft()}>{busy ? "正在创建…" : "保存并创建 Draft"}</button></div>
       </>}
@@ -205,4 +214,55 @@ function ImportReviewItem({
       {error && <p className="error-copy" role="alert">{error}</p>}
     </div>}
   </div>;
+}
+
+function initialMarkdownTitle(
+  content: string,
+  item: ImportedItem,
+  metadata: Record<string, unknown>,
+): string {
+  const normalizedContent = content.replace(/^\uFEFF/, "");
+  const envelope = splitMarkdownFrontmatter(normalizedContent);
+  if (envelope.hasOpening) {
+    if (envelope.yaml !== null) {
+      try {
+        const frontmatter: unknown = parseYaml(envelope.yaml);
+        if (isRecord(frontmatter) && typeof frontmatter.title === "string" && frontmatter.title.trim()) {
+          return frontmatter.title;
+        }
+      } catch {
+        // Fall back to the Import Item's existing suggestion or file name.
+      }
+    }
+  } else {
+    const heading = parseMarkdownBlocks(normalizedContent).blocks.find(
+      (block) => block.type === "heading" && /^ {0,3}#[\t ]+/.test(block.raw),
+    );
+    const headingTitle = heading?.raw
+      .replace(/^ {0,3}#[\t ]+/, "")
+      .replace(/[\t ]+#+[\t ]*$/, "")
+      .trim();
+    if (headingTitle) return headingTitle;
+  }
+
+  const candidateTitle = metadata.candidate_title;
+  if (typeof candidateTitle === "string" && candidateTitle.trim()) return candidateTitle;
+  return item.display_name.replace(/\.md$/i, "");
+}
+
+function splitMarkdownFrontmatter(content: string): {
+  hasOpening: boolean;
+  yaml: string | null;
+} {
+  const lines = content.split(/\r\n|\n|\r/);
+  if (lines[0]?.trim() !== "---") return { hasOpening: false, yaml: null };
+  const closingIndex = lines.findIndex(
+    (line, index) => index > 0 && (line.trim() === "---" || line.trim() === "..."),
+  );
+  if (closingIndex < 0) return { hasOpening: true, yaml: null };
+  return { hasOpening: true, yaml: lines.slice(1, closingIndex).join("\n") };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }

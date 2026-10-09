@@ -158,7 +158,9 @@ class ImportService:
         )
         return self.repository.update_item(updated)
 
-    def create_draft(self, item_id: str) -> Draft:
+    def create_draft(
+        self, item_id: str, title_override: Optional[str] = None
+    ) -> Draft:
         item = self._get_item(item_id)
         if item.status == "duplicate":
             raise ImportValidationError("Duplicate files do not create new Drafts")
@@ -166,6 +168,15 @@ class ImportService:
             raise ImportValidationError("Import Item is in '{}' status".format(item.status))
         if item.file_type != "markdown":
             raise ImportValidationError("PDF-only imports create Source Drafts, not Document Drafts")
+        if title_override is not None:
+            if (
+                not isinstance(title_override, str)
+                or not title_override.strip()
+                or "\n" in title_override
+                or "\r" in title_override
+            ):
+                raise ImportValidationError("Imported Markdown title must be one non-empty line")
+            title_override = title_override.strip()
 
         stage_path = self._staged_path(item)
         content = stage_path.read_bytes().decode("utf-8")
@@ -175,6 +186,8 @@ class ImportService:
         except LegacyImportError as error:
             raise ImportValidationError(str(error)) from error
         content = normalization.content
+        if title_override is not None:
+            content = _override_markdown_frontmatter_title(content, title_override)
         parsed = parse_markdown(content)
         if parsed.frontmatter is None:
             raise ImportValidationError("Markdown frontmatter must be completed before creating a Draft")
@@ -801,6 +814,26 @@ def _expand_inputs(paths: Sequence[Union[str, Path]]):
                     supported.append(resolved)
                     seen.add(resolved)
     return supported, errors
+
+
+def _override_markdown_frontmatter_title(content: str, title: str) -> str:
+    parsed = parse_markdown(content)
+    if parsed.frontmatter is None or parsed.frontmatter_end_line is None:
+        raise ImportValidationError(
+            "Markdown frontmatter must be completed before setting an Import title"
+        )
+    metadata = dict(parsed.frontmatter)
+    metadata["title"] = title
+    lines = content.splitlines(keepends=True)
+    body = "".join(lines[parsed.frontmatter_end_line :])
+    newline = "\r\n" if "\r\n" in content else "\r" if "\r" in content else "\n"
+    frontmatter = yaml.safe_dump(
+        metadata, allow_unicode=True, sort_keys=False
+    ).rstrip("\r\n")
+    frontmatter = frontmatter.replace("\n", newline)
+    return "---{}{}{}---{}{}".format(
+        newline, frontmatter, newline, newline, body
+    )
 
 
 def _blank_document_content(entity_id: str, title: str, document_type: str) -> str:

@@ -30,6 +30,7 @@ from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.indexer import Indexer
 from backend.app.services.knowledge_read_service import KnowledgeReadService
 from backend.app.services.proposal_service import ProposalService
+from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.research_providers.base import ProviderWork
 from backend.app.services.research_watermark import ResearchWatermarkService
 from backend.app.services.term_candidate_service import TermCandidateService
@@ -1206,6 +1207,34 @@ def test_draft_publish_usage_and_import_routes(api_client, tmp_path):
         "/api/import-items/{}/draft".format(item["id"])
     )
     assert created_draft.status_code == 201
+
+    title_import_path = uploads / "title-override.md"
+    title_import_content = _document_content("title-override", "Original Title")
+    title_import_path.write_text(title_import_content, encoding="utf-8")
+    title_job = api_client.post(
+        "/api/imports", json={"paths": ["title-override.md"]}
+    ).json()
+    title_item = title_job["items"][0]
+    title_draft_response = api_client.post(
+        "/api/import-items/{}/draft".format(title_item["id"]),
+        json={"title": "导入标题: [custom]"},
+    )
+    assert title_draft_response.status_code == 201, title_draft_response.json()
+    title_draft = title_draft_response.json()
+    title_metadata = yaml.safe_load(title_draft["content"].split("---", 2)[1])
+    assert title_metadata["title"] == "导入标题: [custom]"
+    assert title_metadata["id"] == "title-override"
+    original_parsed = parse_markdown(title_import_path.read_bytes().decode("utf-8"))
+    draft_parsed = parse_markdown(title_draft["content"])
+    original_body = "".join(
+        title_import_path.read_bytes().decode("utf-8").splitlines(keepends=True)[
+            original_parsed.frontmatter_end_line :
+        ]
+    )
+    draft_body = "".join(
+        title_draft["content"].splitlines(keepends=True)[draft_parsed.frontmatter_end_line :]
+    )
+    assert draft_body == original_body
 
     pdf_path = uploads / "source.pdf"
     pdf_path.write_bytes(b"%PDF-1.4\n% test PDF\n")

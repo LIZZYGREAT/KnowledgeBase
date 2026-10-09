@@ -330,6 +330,10 @@ class ImportItemUpdateRequest(APIModel):
     content: str
 
 
+class ImportDraftRequest(APIModel):
+    title: Optional[str] = None
+
+
 class BlankDocumentRequest(APIModel):
     title: NonEmptyText
     document_type: Literal["paper-note", "learning-note", "course-note"] = "learning-note"
