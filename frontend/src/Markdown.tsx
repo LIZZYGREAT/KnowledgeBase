@@ -6,6 +6,7 @@ import remarkMath from "remark-math";
 import type { PresentationAnnotation } from "./api";
 import type { MarkdownBlockRange } from "./markdownBlocks";
 import { remarkPresentationAnnotations } from "./markdownAnnotations";
+import { normalizeMarkdownColor, remarkMarkdownStyles } from "./markdownStyleSyntax";
 
 interface MarkdownNode {
   type: string;
@@ -230,6 +231,12 @@ function makeComponents(onNavigate?: (path: string) => void): Components {
     h3: heading("h3"),
     h4: heading("h4"),
     h5: heading("h5"),
+    mark({ children }) {
+      return <mark className="markdown-highlight">{children}</mark>;
+    },
+    span(props) {
+      return safeMarkdownSpan(props as PositionedRenderProps);
+    },
     code({ className, children, ...props }) {
       const source = String(children).replace(/\n$/, "");
       if (className === "language-mermaid") return <MermaidDiagram source={source} />;
@@ -250,6 +257,20 @@ interface PositionedRenderProps {
 
 type PositionedRenderer = (props: PositionedRenderProps) => ReactNode;
 type MarkdownBlockRenderer = (block: MarkdownBlockRange, index: number, rendered: ReactNode) => ReactNode;
+
+function safeMarkdownSpan(props: PositionedRenderProps): ReactNode {
+  const { children, node: _node, style: _untrustedStyle, "data-markdown-color": rawColor, ...attributes } = props;
+  const color = normalizeMarkdownColor(rawColor);
+  const className = [
+    typeof attributes.className === "string" ? attributes.className : "",
+    color ? "markdown-text-color" : "",
+  ].filter(Boolean).join(" ");
+  return createElement("span", {
+    ...attributes,
+    ...(className ? { className } : {}),
+    ...(color ? { style: { color } } : {}),
+  }, children);
+}
 
 function makeWorkspaceComponents(
   onNavigate: ((path: string) => void) | undefined,
@@ -290,8 +311,8 @@ function makeWorkspaceComponents(
     components[name] = wrap(original(name, tag));
   }
   components.span = (props) => {
-    const { node, children, ...renderProps } = props;
-    const rendered = createElement("span", renderProps, children);
+    const { node, ...renderProps } = props;
+    const rendered = safeMarkdownSpan({ ...renderProps, node } as PositionedRenderProps);
     const isDisplayMath = typeof props.className === "string"
       && props.className.split(/\s+/).includes("katex-display");
     if (!isDisplayMath) return rendered;
@@ -324,7 +345,14 @@ export function MarkdownContent({
   return (
     <div className="markdown-content">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath, remarkWorkspaceMath(blockRanges), [remarkPresentationAnnotations, { annotations }], remarkKnowledgeLinks]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkMath,
+          remarkWorkspaceMath(blockRanges),
+          [remarkMarkdownStyles, { source: content }],
+          [remarkPresentationAnnotations, { annotations }],
+          remarkKnowledgeLinks,
+        ]}
         rehypePlugins={[rehypeWorkspaceMath, rehypeKatex]}
         components={components}
       >

@@ -122,6 +122,7 @@
 .annotation-toolbar button:disabled { opacity: .55; cursor: wait; }
 .annotation-error { margin: 8px 0 0; color: #a1483d; font-size: var(--text-xs); }
 .presentation-annotation { border-radius: 2px; }
+.markdown-content mark.markdown-highlight { border-radius: 3px; padding: 0 .12em; color: inherit; background: #fff1a8; box-decoration-break: clone; }
 .annotation-highlight-yellow { background: #fff1a8; }
 .annotation-highlight-green { background: #ccefd5; }
 .annotation-highlight-blue { background: #d1e8fb; }

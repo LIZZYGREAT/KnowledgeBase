@@ -4,10 +4,16 @@ import { expect, it, vi } from "vitest";
 import { WorkspaceInlineEditor } from "../../src/workspace/WorkspaceInlineEditor";
 import { readStyles } from "../readStyles";
 
+async function waitForEditButton(blockNumber = 1) {
+  const name = `编辑第 ${blockNumber} 个区块`;
+  await waitFor(() => expect(screen.getByRole("button", { name })).toBeTruthy(), { timeout: 5000 });
+  return screen.getByRole("button", { name });
+}
+
 it("uses a compact vertical paragraph editor and keeps finish/cancel keyboard behavior", async () => {
   const onBodyChange = vi.fn();
   const { container } = render(<WorkspaceInlineEditor body="One short line." annotations={[]} onBodyChange={onBodyChange} onNavigate={() => undefined} />);
-  await userEvent.setup().click(await screen.findByRole("button", { name: "编辑第 1 个区块" }));
+  await userEvent.setup().click(await waitForEditButton());
 
   const editor = await screen.findByRole("textbox", { name: "Markdown 区块 1" });
   const editSection = container.querySelector<HTMLElement>(".workspace-inline-block-editing");
@@ -38,7 +44,7 @@ it("uses a compact vertical paragraph editor and keeps finish/cancel keyboard be
 
 it("gives code blocks a full-width source, rendered preview, and larger height range", async () => {
   const { container } = render(<WorkspaceInlineEditor body={"```ts\nconst item = 1;\n```"} annotations={[]} onBodyChange={() => undefined} onNavigate={() => undefined} />);
-  await userEvent.setup().click(await screen.findByRole("button", { name: "编辑第 1 个区块" }));
+  await userEvent.setup().click(await waitForEditButton());
 
   const editor = await screen.findByRole("textbox", { name: "Markdown 区块 1" });
   expect(container.querySelector(".workspace-inline-block-editing")?.getAttribute("data-block-type")).toBe("code");
@@ -51,7 +57,7 @@ it("maps display math to one editable Workspace block while inline math stays in
   const body = "Inline $x^2$ stays in this paragraph.\n\n$$\nE = mc^2\n$$\n\nA final paragraph.";
   const { container } = render(<WorkspaceInlineEditor body={body} annotations={[]} onBodyChange={() => undefined} onNavigate={() => undefined} />);
 
-  const mathBlock = await screen.findByRole("button", { name: "编辑第 2 个区块" });
+  const mathBlock = await waitForEditButton(2);
   const block = container.querySelector<HTMLElement>('[data-block-index="1"]');
   expect(container.querySelectorAll(".workspace-inline-block")).toHaveLength(3);
   expect(block?.querySelector(".katex-display")).toBeTruthy();
@@ -63,4 +69,18 @@ it("maps display math to one editable Workspace block while inline math stays in
   expect(editor.closest(".workspace-inline-block-editing")?.getAttribute("data-block-type")).toBe("math");
   expect((editor as HTMLTextAreaElement).value).toBe("$$\nE = mc^2\n$$");
   await waitFor(() => expect(container.querySelector(".workspace-inline-preview .katex-display")).toBeTruthy());
+});
+
+it("keeps Markdown marks and restricted colors in Workspace reading and edit previews", async () => {
+  const body = "Intro ==highlight== and <span style='color: green'>green</span>.";
+  const { container } = render(<WorkspaceInlineEditor body={body} annotations={[]} onBodyChange={() => undefined} onNavigate={() => undefined} />);
+
+  await waitFor(() => expect(container.querySelector(".workspace-inline-rendered mark")?.textContent).toBe("highlight"));
+  expect(container.querySelector(".workspace-inline-rendered .markdown-text-color")?.getAttribute("style")).toMatch(/color:\s*green/i);
+
+  await userEvent.setup().click(await waitForEditButton());
+  const editor = await screen.findByRole("textbox", { name: "Markdown 区块 1" });
+  expect((editor as HTMLTextAreaElement).value).toBe(body);
+  expect(container.querySelector(".workspace-inline-preview mark")?.textContent).toBe("highlight");
+  expect(container.querySelector(".workspace-inline-preview .markdown-text-color")?.getAttribute("style")).toMatch(/color:\s*green/i);
 });
