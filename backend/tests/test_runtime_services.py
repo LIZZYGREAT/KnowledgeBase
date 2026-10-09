@@ -211,6 +211,24 @@ def test_proposal_uses_single_apply_to_draft_publish_lifecycle(runtime_connectio
     assert finalized[0].status == "merged"
 
 
+def test_proposal_list_filters_by_target_and_allows_empty_or_unfiltered_results(runtime_connection):
+    service = ProposalService(ProposalRepository(runtime_connection))
+    base_hash = hashlib.sha256(b"base").hexdigest()
+    term_proposal = service.create(
+        "term", "stable-index", "term_revision", base_hash, {}, "ai"
+    )
+    document_proposal = service.create(
+        "document", "neural-indexing", "document_revision", base_hash, {}, "ai"
+    )
+
+    assert service.list(target_type="term", target_id="stable-index") == [term_proposal]
+    assert service.list(target_type="term", target_id="missing-term") == []
+    assert {proposal.id for proposal in service.list()} == {
+        document_proposal.id,
+        term_proposal.id,
+    }
+
+
 def test_apply_proposal_updates_draft_and_proposal_in_one_lifecycle(runtime_connection):
     drafts = DraftService(DraftRepository(runtime_connection))
     proposals = ProposalService(ProposalRepository(runtime_connection))

@@ -77,6 +77,38 @@ def _runtime_rows(api_client, query, parameters=()):
         connection.close()
 
 
+def test_proposal_list_api_validates_and_filters_target_type(api_client):
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        proposal = ProposalService(ProposalRepository(connection)).create(
+            "term",
+            "stable-index",
+            "term_revision",
+            hashlib.sha256(b"base").hexdigest(),
+            {},
+            "ai",
+        )
+    finally:
+        connection.close()
+
+    filtered = api_client.get(
+        "/api/proposals?target_type=term&target_id=stable-index"
+    )
+    missing = api_client.get(
+        "/api/proposals?target_type=term&target_id=missing-term"
+    )
+    unfiltered = api_client.get("/api/proposals")
+    invalid = api_client.get("/api/proposals?target_type=unknown")
+
+    assert filtered.status_code == 200, filtered.text
+    assert [item["id"] for item in filtered.json()] == [proposal.id]
+    assert missing.status_code == 200
+    assert missing.json() == []
+    assert unfiltered.status_code == 200
+    assert [item["id"] for item in unfiltered.json()] == [proposal.id]
+    assert invalid.status_code == 422
+
+
 def test_read_api_search_openapi_and_missing_entities(api_client):
     documents = api_client.get("/api/documents").json()
     assert [item["id"] for item in documents] == ["neural-indexing"]
@@ -377,6 +409,8 @@ def test_candidate_term_draft_ai_uses_generic_evidence_and_requires_consent(api_
     assert created.status_code == 200, created.json()
     draft = created.json()["draft"]
     assert created.json()["candidate"]["status"] == "drafting"
+    assert draft["content"].endswith("---\n\n")
+    assert "definition:" not in draft["content"]
 
     mock_client = MockDeepSeekClient(
         {
@@ -414,6 +448,7 @@ def test_candidate_term_draft_ai_uses_generic_evidence_and_requires_consent(api_
     )
     assert generated.status_code == 201, generated.json()
     assert mock_client.calls == ["draft_term"]
+    proposal = generated.json()["proposal"]
     context = json.loads(mock_client.messages[0][1]["content"])["request"]
     evidence = context["term_candidate"]["evidence"][0]
     assert evidence["origin_type"] == "document"
@@ -422,6 +457,21 @@ def test_candidate_term_draft_ai_uses_generic_evidence_and_requires_consent(api_
     assert evidence["context_excerpt"] == "A stable index retains canonical facts."
     assert context["term_candidate"]["suggested_type"] == "concept"
     assert "note_evidence" not in context["term_candidate"]
+
+    listed = api_client.get(
+        "/api/proposals?target_type=term&target_id={}".format(draft["entity_id"])
+    )
+    assert listed.status_code == 200, listed.text
+    assert [item["id"] for item in listed.json()] == [proposal["id"]]
+    assert draft["content"] == created.json()["draft"]["content"]
+
+    applied = api_client.post(
+        "/api/proposals/{}/apply".format(proposal["id"]),
+        json={"draft_id": draft["id"], "expected_draft_revision": 1},
+    )
+    assert applied.status_code == 200, applied.json()
+    assert "An index designed to retain stable facts." in applied.json()["draft"]["content"]
+    assert mock_client.calls == ["draft_term"]
 
 
 def test_presentation_annotations_never_change_canonical_markdown(api_client):

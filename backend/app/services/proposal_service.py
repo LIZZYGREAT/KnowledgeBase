@@ -117,7 +117,7 @@ class ProposalService:
         limit: int = 50,
         offset: int = 0,
     ) -> List[Proposal]:
-        if target_type is not None and target_type not in _ENTITY_TYPES:
+        if target_type is not None and target_type not in _PROPOSAL_TARGET_TYPES:
             raise ValueError("Unsupported Proposal target type: {}".format(target_type))
         if kind is not None and kind not in _PROPOSAL_KINDS:
             raise ValueError("Unsupported Proposal kind: {}".format(kind))
