@@ -35,11 +35,16 @@ test("Workspace URLs retain Collection context and batch publishing state", () =
 
 test("Term Candidate creation opens AI review with a generated Proposal notice", () => {
   assert.equal(
-    entityWorkspaceUrl("term", "stable-index", { openAIAssist: true, proposalGenerated: true }),
-    "/terms/stable-index?drawer=ai&proposalGenerated=1",
+    entityWorkspaceUrl("term", "stable-index", {
+      openAIAssist: true,
+      proposalGenerated: true,
+      termCandidateId: "candidate-stable-index",
+    }),
+    "/terms/stable-index?drawer=ai&proposalGenerated=1&candidate_id=candidate-stable-index",
   );
   assert.match(app, /query\.get\("drawer"\) === "ai"/);
   assert.match(app, /query\.get\("proposalGenerated"\) === "1"/);
+  assert.match(app, /query\.get\("candidate_id"\)/);
   assert.match(workspace, /setActiveDrawer\("ai"\)/);
 });
 

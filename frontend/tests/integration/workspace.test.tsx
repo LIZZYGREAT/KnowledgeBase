@@ -650,6 +650,7 @@ describe("Workspace React integration", () => {
       navigate={vi.fn()}
       openAIAssistOnLoad
       proposalGeneratedOnLoad
+      termCandidateId="candidate-stable-index"
     />);
 
     await screen.findByRole("heading", { name: "AI 辅助审阅" });
@@ -660,6 +661,12 @@ describe("Workspace React integration", () => {
     await userEvent.click(screen.getByRole("button", { name: "Apply to Draft" }));
     await screen.findByText(/候选已写入 Draft/);
     expect(screen.queryByText("已生成建议，等待 Apply to Draft。")).toBeNull();
+
+    await userEvent.click(screen.getByRole("checkbox", { name: /我同意/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Term Draft 建议" }));
+    await waitFor(() => expect(api.requestAIProposal).toHaveBeenCalledWith(
+      "term-draft", draft.id, undefined, "candidate-stable-index",
+    ));
   });
 
   it("applies a content Proposal to the saved Draft and advances its revision", async () => {

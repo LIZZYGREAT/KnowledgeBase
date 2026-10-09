@@ -23,6 +23,7 @@ export function useWorkspaceEditorController({
   researchGroupId,
   returnCollectionId,
   proposalGeneratedOnLoad = false,
+  termCandidateId,
 }: WorkspaceEditorContext) {
   const {
     draft,
@@ -337,7 +338,12 @@ export function useWorkspaceEditorController({
     setProposalNotice("");
     try {
       const saved = await workspaceDraft.ensureDraft();
-      const result = await requestAIProposal(task, saved.id, task === "selection-review" ? selection : undefined);
+      const result = await requestAIProposal(
+        task,
+        saved.id,
+        task === "selection-review" ? selection : undefined,
+        task === "term-draft" ? termCandidateId : undefined,
+      );
       setProposalError(result.external_provider_notice);
       await refreshProposals();
     } catch (error) {

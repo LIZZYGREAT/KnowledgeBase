@@ -17,6 +17,7 @@ export function entityWorkspaceUrl(
     researchGroupId?: string;
     openAIAssist?: boolean;
     proposalGenerated?: boolean;
+    termCandidateId?: string;
   } = {},
 ): string {
   const route = ENTITY_ROUTES[type];
@@ -34,6 +35,7 @@ export function entityWorkspaceUrl(
   if (options.researchGroupId) params.set("researchGroup", options.researchGroupId);
   if (options.openAIAssist) params.set("drawer", "ai");
   if (options.proposalGenerated) params.set("proposalGenerated", "1");
+  if (options.termCandidateId) params.set("candidate_id", options.termCandidateId);
   const query = params.toString();
   return `/${route}/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 }

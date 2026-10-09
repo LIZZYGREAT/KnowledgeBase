@@ -1059,6 +1059,7 @@ export function requestAIProposal(
   task: "document-review" | "metadata-suggest" | "selection-review" | "term-draft" | "evidence-suggest",
   draftId: string,
   selection?: string,
+  candidateId?: string,
 ) {
   const path = `/api/ai/${task}`;
   return request<{ external_provider_notice: string; proposal: Proposal }>(path, {
@@ -1067,6 +1068,7 @@ export function requestAIProposal(
       draft_id: draftId,
       confirm_deepseek_transfer: true,
       ...(selection ? { selection } : {}),
+      ...(task === "term-draft" && candidateId ? { candidate_id: candidateId } : {}),
     }),
     workloadChanged: true,
   });

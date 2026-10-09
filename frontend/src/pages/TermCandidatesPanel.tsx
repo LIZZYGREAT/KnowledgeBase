@@ -128,6 +128,7 @@ export function TermCandidatesPanel({
       navigate(entityWorkspaceUrl("term", result.draft.entity_id, {
         openAIAssist: true,
         proposalGenerated: true,
+        termCandidateId: createCandidate.id,
       }));
     } catch (reason) {
       setCreateError(errorMessage(reason));

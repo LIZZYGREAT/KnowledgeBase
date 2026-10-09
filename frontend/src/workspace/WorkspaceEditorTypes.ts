@@ -11,4 +11,5 @@ export interface WorkspaceEditorContext {
   researchGroupId?: string;
   returnCollectionId?: string;
   proposalGeneratedOnLoad?: boolean;
+  termCandidateId?: string;
 }

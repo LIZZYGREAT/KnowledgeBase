@@ -391,6 +391,7 @@ describe("Terms Registry controls", () => {
     expect(navigate).toHaveBeenCalledWith(entityWorkspaceUrl("term", "adaptive-token-pruning", {
       openAIAssist: true,
       proposalGenerated: true,
+      termCandidateId: "candidate-new",
     }));
     expect(onOpen).not.toHaveBeenCalled();
   });

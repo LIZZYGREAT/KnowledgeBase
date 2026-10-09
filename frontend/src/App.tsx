@@ -303,10 +303,11 @@ export default function App() {
     const openMetadataOnLoad = route.entityType === "source" && query.get("edit") === "1";
     const openAIAssistOnLoad = route.entityType === "term" && query.get("drawer") === "ai";
     const proposalGeneratedOnLoad = openAIAssistOnLoad && query.get("proposalGenerated") === "1";
+    const termCandidateId = route.entityType === "term" ? query.get("candidate_id") ?? undefined : undefined;
     const batchCollectionId = query.get("publishAll") === "1" ? collectionId : undefined;
     const additionalDraftIds = query.get("publishAll") === "1" ? query.getAll("relatedDraft") : [];
     const researchGroupId = query.get("researchGroup") ?? undefined;
-    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} collectionId={collectionId} batchCollectionId={batchCollectionId} additionalDraftIds={additionalDraftIds} researchGroupId={researchGroupId} openMetadataOnLoad={openMetadataOnLoad} openAIAssistOnLoad={openAIAssistOnLoad} proposalGeneratedOnLoad={proposalGeneratedOnLoad} /></Suspense>;
+    page = <Suspense fallback={<LoadingState />}><WorkspacePage key={`${route.entityType}:${route.id}`} type={route.entityType} id={route.id} navigate={navigate} registerBeforeNavigate={registerBeforeNavigate} collectionId={collectionId} batchCollectionId={batchCollectionId} additionalDraftIds={additionalDraftIds} researchGroupId={researchGroupId} openMetadataOnLoad={openMetadataOnLoad} openAIAssistOnLoad={openAIAssistOnLoad} proposalGeneratedOnLoad={proposalGeneratedOnLoad} termCandidateId={termCandidateId} /></Suspense>;
   } else if (route.path === "/search") {
     const query = new URLSearchParams(location.search).get("q") ?? "";
     page = <Suspense fallback={<LoadingState />}><SearchPage key={`${location.pathname}${location.search}`} initialQuery={query} onOpen={openEntity} /></Suspense>;

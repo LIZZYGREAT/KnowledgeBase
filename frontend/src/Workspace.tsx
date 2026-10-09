@@ -23,6 +23,7 @@ export function WorkspacePage({
   openMetadataOnLoad = false,
   openAIAssistOnLoad = false,
   proposalGeneratedOnLoad = false,
+  termCandidateId,
 }: {
   type: EntityType;
   id: string;
@@ -35,6 +36,7 @@ export function WorkspacePage({
   openMetadataOnLoad?: boolean;
   openAIAssistOnLoad?: boolean;
   proposalGeneratedOnLoad?: boolean;
+  termCandidateId?: string;
 }) {
   const workspaceDraft = useWorkspaceDraft(type, id);
   useEffect(() => {
@@ -60,6 +62,7 @@ export function WorkspacePage({
     researchGroupId,
     returnCollectionId: collectionId ?? batchCollectionId,
     proposalGeneratedOnLoad,
+    termCandidateId,
   });
   useEffect(() => {
     if (openMetadataOnLoad) workspaceEditorController.setActiveDrawer("metadata");
