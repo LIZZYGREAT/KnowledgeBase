@@ -8,6 +8,7 @@ import { entityWorkspaceUrl } from "../../src/workspaceRoute";
 const api = vi.hoisted(() => ({
   listAllEntities: vi.fn(),
   getEntity: vi.fn(),
+  getDraft: vi.fn(),
   listTaxonomy: vi.fn(),
   listTermCandidates: vi.fn(),
   getTermDiscoveryState: vi.fn(),
@@ -322,6 +323,32 @@ describe("Terms Registry controls", () => {
     await userEvent.click(screen.getByRole("button", { name: "链接到所选 Term" }));
 
     await waitFor(() => expect(api.acceptTermCandidate).toHaveBeenCalledWith("candidate-existing", "loser-term"));
+  });
+
+  it("reopens a Drafting Candidate's Term Draft with its explicit Candidate context", async () => {
+    const draft: Draft = {
+      id: "draft-research",
+      entity_type: "term",
+      entity_id: "research-reading-phrase",
+      base_git_revision: "a".repeat(40),
+      base_content_hash: "b".repeat(64),
+      content: "---\nid: research-reading-phrase\n---\n",
+      revision: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    api.getDraft.mockResolvedValue(draft);
+    const navigate = vi.fn();
+    const onOpen = vi.fn();
+    render(<TermsPage onOpen={onOpen} navigate={navigate} initialTab="candidates" />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "打开 Term Draft" }));
+
+    await waitFor(() => expect(api.getDraft).toHaveBeenCalledWith("draft-research"));
+    expect(navigate).toHaveBeenCalledWith(entityWorkspaceUrl("term", draft.entity_id, {
+      termCandidateId: "candidate-research",
+    }));
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("filters Candidates by Notes, PDF, Research, and Web Discovery and collapses long evidence", async () => {

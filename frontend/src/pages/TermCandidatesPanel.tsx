@@ -144,7 +144,7 @@ export function TermCandidatesPanel({
     setActionErrors((current) => ({ ...current, [candidate.id]: "" }));
     try {
       const draft = await getDraft(candidate.draft_id);
-      onOpen("term", draft.entity_id);
+      navigate(entityWorkspaceUrl("term", draft.entity_id, { termCandidateId: candidate.id }));
     } catch (reason) {
       setActionErrors((current) => ({ ...current, [candidate.id]: errorMessage(reason) }));
       resource.retry();
