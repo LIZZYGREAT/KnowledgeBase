@@ -39,7 +39,11 @@ from backend.app.services.research_analysis_service import (
 from backend.app.services.term_candidate_service import TermCandidateConflict
 from backend.app.services.research_candidate_service import ResearchCandidateService
 from backend.app.services.research_context_builder import ResearchContextBuilder
-from backend.app.services.research_deduplicator import ResearchDeduplicator
+from backend.app.services.research_deduplicator import (
+    ResearchDeduplicator,
+    ResearchIdentityConflict,
+    normalize_identifiers,
+)
 from backend.app.services.research_profile_registry import ResearchProfileRegistry
 from backend.app.services.research_providers.base import (
     ProviderPage,
@@ -82,6 +86,7 @@ class _SearchStream:
     seen_cursors: set[str] = field(default_factory=set)
     attempt_marked: bool = False
     complete_after_round: bool = False
+    identity_conflict_seen: bool = False
     active: bool = True
 
     @property
@@ -730,6 +735,39 @@ class ResearchService:
                 stream_order += 1
 
         pending_by_work = {}
+        identity_conflict_count = 0
+        identity_conflict_examples: list[str] = []
+        identity_conflict_error_index: Optional[int] = None
+
+        def record_identity_conflict(
+            stream: _SearchStream,
+            provider_work: ProviderWork,
+            error: ResearchIdentityConflict,
+        ) -> None:
+            nonlocal identity_conflict_count, identity_conflict_error_index
+            identity_conflict_count += 1
+            stream.identity_conflict_seen = True
+            _provider_stats(stats, stream.provider_name)["errors"] += 1
+            if len(identity_conflict_examples) < 4:
+                identity_conflict_examples.append(
+                    _format_identity_conflict_example(
+                        profile.id,
+                        stream.query.lens_id,
+                        stream.provider_name,
+                        provider_work,
+                        stream.query.query_key,
+                        error,
+                    )
+                )
+            summary = _format_identity_conflict_summary(
+                identity_conflict_count, identity_conflict_examples
+            )
+            if identity_conflict_error_index is None:
+                identity_conflict_error_index = len(errors)
+                errors.append(summary)
+            else:
+                errors[identity_conflict_error_index] = summary
+
         backlog_budget = _analysis_backlog_budget(
             profile.search.max_analyses_per_run
         )
@@ -827,14 +865,18 @@ class ResearchService:
                     self.run_repository.update_progress(run.id, fetched_count=1)
                     if not isinstance(provider_work, ProviderWork):
                         raise ValueError("Provider page contained an invalid Work")
-                    ingested = self.deduplicator.record_discovery(
-                        profile.id,
-                        stream.query.lens_id,
-                        stream.query.query_key,
-                        stream.query.text,
-                        provider_work,
-                        discovered_at=self._now(),
-                    )
+                    try:
+                        ingested = self.deduplicator.record_discovery(
+                            profile.id,
+                            stream.query.lens_id,
+                            stream.query.query_key,
+                            stream.query.text,
+                            provider_work,
+                            discovered_at=self._now(),
+                        )
+                    except ResearchIdentityConflict as error:
+                        record_identity_conflict(stream, provider_work, error)
+                        continue
                     if ingested.created_work:
                         self.run_repository.update_progress(run.id, new_work_count=1)
                     else:
@@ -924,7 +966,7 @@ class ResearchService:
                     warnings.append(
                         "Analysis budget reached; the current search slices remain incomplete and their watermarks were not advanced."
                     )
-                    return "success"
+                    return "partial" if identity_conflict_count else "success"
                 if profile.ai_analysis.enabled and (
                     self.run_repository.get(run.id).surfaced_count
                     >= profile.search.max_candidates_per_run
@@ -932,7 +974,7 @@ class ResearchService:
                     warnings.append(
                         "Candidate budget reached; the current search slices remain incomplete and their watermarks were not advanced."
                     )
-                    return "success"
+                    return "partial" if identity_conflict_count else "success"
                 if profile.ai_analysis.enabled and self.candidate_service.remaining_capacity(profile) <= 0:
                     errors.append("Inbox capacity reached before the next search round")
                     return "capacity_reached"
@@ -959,6 +1001,9 @@ class ResearchService:
             for stream in streams:
                 if not stream.complete_after_round:
                     continue
+                if stream.identity_conflict_seen:
+                    stream.active = False
+                    continue
                 if not stream.plan.manual:
                     self.watermarks.complete_slice(
                         stream.plan, stream.search_slice, self._now()
@@ -968,6 +1013,7 @@ class ResearchService:
                 stream.seen_cursors.clear()
                 stream.attempt_marked = False
                 stream.complete_after_round = False
+                stream.identity_conflict_seen = False
                 if stream.slice_index >= len(stream.plan.slices):
                     stream.active = False
         return None
@@ -1296,6 +1342,14 @@ class ResearchService:
                 enriched_work = self.deduplicator.enrich_existing_work(
                     enriched_work.id, enriched
                 )
+            except ResearchIdentityConflict as error:
+                summary["errors"] += 1
+                warnings.append(
+                    "{} enrichment identity conflict; existing Work was retained: {}".format(
+                        provider_name, str(error)[:180]
+                    )
+                )
+                continue
             except (LookupError, ValueError) as error:
                 summary["errors"] += 1
                 warnings.append(
@@ -1389,6 +1443,64 @@ def _provider_stats(stats: dict, provider: str) -> dict:
         provider,
         {"requests": 0, "pages": 0, "works": 0, "errors": 0, "circuit_open": False},
     )
+
+
+def _format_identity_conflict_example(
+    profile_id: str,
+    lens_id: str,
+    provider_name: str,
+    provider_work: ProviderWork,
+    query_key: str,
+    error: ResearchIdentityConflict,
+) -> str:
+    identifiers = normalize_identifiers(provider_work)
+    identity_text = ",".join(
+        "{}={}".format(name, _diagnostic_value(value, 38))
+        for name, value in identifiers.items()
+        if value is not None
+    ) or "none"
+    matched_ids = ",".join(
+        _diagnostic_value(work_id, 36) for work_id in error.matched_work_ids[:3]
+    ) or "unknown"
+    if len(error.matched_work_ids) > 3:
+        matched_ids += ",..."
+    return (
+        "profile={} lens={} provider={} record={} query={} ids={} reason={} works={}"
+    ).format(
+        _diagnostic_value(profile_id, 36),
+        _diagnostic_value(lens_id, 36),
+        _diagnostic_value(provider_name, 20),
+        _diagnostic_value(provider_work.provider_record_id, 48),
+        _diagnostic_value(query_key, 44),
+        identity_text,
+        _diagnostic_value(error.reason, 64),
+        matched_ids,
+    )
+
+
+def _format_identity_conflict_summary(count: int, examples: list[str]) -> str:
+    prefix = "Research identity conflicts count={}: ".format(count)
+    selected = []
+    for example in examples:
+        candidate = prefix + " | ".join(selected + [example])
+        omitted = count - len(selected) - 1
+        if omitted > 0:
+            candidate += " | additional conflicts={}".format(omitted)
+        if len(candidate) > 940:
+            break
+        selected.append(example)
+    summary = prefix + " | ".join(selected)
+    omitted = count - len(selected)
+    if omitted > 0:
+        summary += " | additional conflicts={}".format(omitted)
+    return summary[:940]
+
+
+def _diagnostic_value(value, limit: int) -> str:
+    if value is None:
+        return "-"
+    compact = " ".join(str(value).split())
+    return compact[:limit] or "-"
 
 
 def _needs_openalex_enrichment(work: ResearchWorkRecord) -> bool:

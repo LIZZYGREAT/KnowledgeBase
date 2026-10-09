@@ -29,6 +29,17 @@ _PROVIDER_PRIORITY = {"arxiv": 0, "openalex": 1, "crossref": 2}
 class ResearchIdentityConflict(RuntimeError):
     """Provider identifiers point at more than one existing Research Work."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        reason: str,
+        matched_work_ids: tuple[str, ...] = (),
+    ):
+        super().__init__(message)
+        self.reason = reason
+        self.matched_work_ids = tuple(sorted(set(matched_work_ids)))
+
 
 class ResearchDeduplicator:
     def __init__(
@@ -52,11 +63,26 @@ class ResearchDeduplicator:
             existing = self.repository.get_work(work_id)
             if existing is None:
                 raise LookupError("Research Work '{}' does not exist".format(work_id))
+            matches = self.repository.find_by_identifiers(incoming)
+            if len(matches) > 1:
+                raise ResearchIdentityConflict(
+                    "Provider identifiers resolve to multiple Research Works",
+                    reason="multiple_identifier_matches",
+                    matched_work_ids=tuple(work.id for work in matches),
+                )
+            if matches and matches[0].id != existing.id:
+                raise ResearchIdentityConflict(
+                    "Enrichment identifiers resolve to a different Research Work",
+                    reason="enrichment_target_mismatch",
+                    matched_work_ids=(existing.id, matches[0].id),
+                )
             if not any(
                 value is not None and value == getattr(existing, column)
                 for column, value in incoming.items()
             ):
                 raise ValueError("Enrichment result does not identify the requested Research Work")
+
+            self._validate_identifier_consistency(existing, incoming)
 
             identifiers = {
                 column: getattr(existing, column) or incoming[column]
@@ -152,7 +178,9 @@ class ResearchDeduplicator:
             )
             if persisted_discovery.work_id != work.id:
                 raise ResearchIdentityConflict(
-                    "Provider discovery provenance is already linked to another Research Work"
+                    "Provider discovery provenance is already linked to another Research Work",
+                    reason="discovery_provenance_mismatch",
+                    matched_work_ids=(work.id, persisted_discovery.work_id),
                 )
 
         if ambiguous:
@@ -174,10 +202,13 @@ class ResearchDeduplicator:
         matches = self.repository.find_by_identifiers(identifiers)
         if len(matches) > 1:
             raise ResearchIdentityConflict(
-                "Provider identifiers resolve to multiple Research Works"
+                "Provider identifiers resolve to multiple Research Works",
+                reason="multiple_identifier_matches",
+                matched_work_ids=tuple(work.id for work in matches),
             )
         if matches:
             matched = matches[0]
+            self._validate_identifier_consistency(matched, identifiers)
             for identifier_name, column in _IDENTIFIER_ORDER:
                 value = identifiers[column]
                 if value is not None and getattr(matched, column) == value:
@@ -199,6 +230,24 @@ class ResearchDeduplicator:
         if len(candidates) == 1:
             return candidates[0], "title_author_year", False
         return None, "ambiguous_weak_match" if candidates else "new", len(candidates) > 1
+
+    @staticmethod
+    def _validate_identifier_consistency(
+        existing: ResearchWorkRecord, incoming: dict[str, Optional[str]]
+    ) -> None:
+        conflicting_fields = tuple(
+            column
+            for _, column in _IDENTIFIER_ORDER
+            if incoming[column] is not None
+            and getattr(existing, column) is not None
+            and incoming[column] != getattr(existing, column)
+        )
+        if conflicting_fields:
+            raise ResearchIdentityConflict(
+                "Incoming strong identifiers conflict with the matched Research Work",
+                reason="conflicting_identifier_values:{}".format(",".join(conflicting_fields)),
+                matched_work_ids=(existing.id,),
+            )
 
     def _new_work(
         self,
@@ -243,18 +292,11 @@ class ResearchDeduplicator:
             incoming_rank == current_rank and provider_work.provider == preferred_provider
         )
 
-        merged_identifiers: dict[str, Optional[str]] = {}
-        for column in ("doi", "arxiv_id", "openalex_id", "semantic_scholar_id"):
-            current_value = getattr(existing, column)
-            incoming_value = identifiers[column]
-            if incoming_value is None or current_value == incoming_value:
-                merged_identifiers[column] = current_value or incoming_value
-            elif current_value is None:
-                merged_identifiers[column] = incoming_value
-            elif can_prefer_incoming:
-                merged_identifiers[column] = incoming_value
-            else:
-                merged_identifiers[column] = current_value
+        self._validate_identifier_consistency(existing, identifiers)
+        merged_identifiers = {
+            column: getattr(existing, column) or identifiers[column]
+            for column in ("doi", "arxiv_id", "openalex_id", "semantic_scholar_id")
+        }
 
         title = _choose(existing.title, provider_work.title, can_prefer_incoming)
         normalized_title = normalize_title(title) or title_key

@@ -312,7 +312,7 @@ def test_enrichment_refuses_a_record_that_cannot_be_linked_to_the_work():
 
 
 def test_conflicting_strong_ids_cannot_join_two_existing_works():
-    connection, _, deduplicator = _setup()
+    connection, repository, deduplicator = _setup()
     try:
         first = _record(
             deduplicator,
@@ -340,7 +340,7 @@ def test_conflicting_strong_ids_cannot_join_two_existing_works():
             "query-b",
         )
 
-        with pytest.raises(ResearchIdentityConflict):
+        with pytest.raises(ResearchIdentityConflict) as conflict:
             _record(
                 deduplicator,
                 _provider_work(
@@ -355,6 +355,103 @@ def test_conflicting_strong_ids_cannot_join_two_existing_works():
                 "query-c",
             )
         assert first.work.id != second.work.id
+        assert conflict.value.reason == "multiple_identifier_matches"
+        assert set(conflict.value.matched_work_ids) == {first.work.id, second.work.id}
+        assert repository.get_work(first.work.id) == first.work
+        assert repository.get_work(second.work.id) == second.work
+        assert len(repository.list_discoveries_for_work(first.work.id)) == 1
+        assert len(repository.list_discoveries_for_work(second.work.id)) == 1
+    finally:
+        connection.close()
+
+
+def test_provider_priority_cannot_replace_a_conflicting_strong_identifier():
+    connection, repository, deduplicator = _setup()
+    try:
+        original = _record(
+            deduplicator,
+            _provider_work(
+                "arxiv",
+                "2401.12345",
+                "Original title",
+                ("Ada Lovelace",),
+                2024,
+                doi="10.1000/shared",
+                openalex_id="W1",
+            ),
+            "query-a",
+        )
+
+        with pytest.raises(ResearchIdentityConflict) as conflict:
+            _record(
+                deduplicator,
+                _provider_work(
+                    "crossref",
+                    "10.1000/shared",
+                    "Provider-preferred title",
+                    ("Ada Lovelace",),
+                    2024,
+                    doi="10.1000/shared",
+                    openalex_id="W2",
+                ),
+                "query-b",
+            )
+
+        assert conflict.value.reason == "conflicting_identifier_values:openalex_id"
+        assert repository.get_work(original.work.id) == original.work
+        assert len(repository.list_discoveries_for_work(original.work.id)) == 1
+    finally:
+        connection.close()
+
+
+def test_enrichment_rejects_an_identifier_owned_by_another_work_without_mutation():
+    connection, repository, deduplicator = _setup()
+    try:
+        target = _record(
+            deduplicator,
+            _provider_work(
+                "arxiv",
+                "2401.12345",
+                "Target work",
+                ("Ada Lovelace",),
+                2024,
+                arxiv_id="2401.12345",
+            ),
+            "query-a",
+        )
+        owner = _record(
+            deduplicator,
+            _provider_work(
+                "openalex",
+                "W2",
+                "Identifier owner",
+                ("Alan Turing",),
+                2024,
+                openalex_id="W2",
+            ),
+            "query-b",
+        )
+
+        with pytest.raises(ResearchIdentityConflict) as conflict:
+            deduplicator.enrich_existing_work(
+                target.work.id,
+                _provider_work(
+                    "openalex",
+                    "W2",
+                    "Target work",
+                    ("Ada Lovelace",),
+                    2024,
+                    arxiv_id="2401.12345",
+                    openalex_id="W2",
+                ),
+            )
+
+        assert conflict.value.reason == "multiple_identifier_matches"
+        assert set(conflict.value.matched_work_ids) == {target.work.id, owner.work.id}
+        assert repository.get_work(target.work.id) == target.work
+        assert repository.get_work(owner.work.id) == owner.work
+        assert len(repository.list_discoveries_for_work(target.work.id)) == 1
+        assert len(repository.list_discoveries_for_work(owner.work.id)) == 1
     finally:
         connection.close()
 

@@ -83,6 +83,187 @@ def test_run_is_persisted_before_provider_and_completed_slice_advances_watermark
     connection.close()
 
 
+def test_identity_conflict_skips_only_that_work_and_keeps_processing_the_page(tmp_path):
+    connection = connect_database(":memory:")
+    normal_a = _provider_work().model_copy(
+        update={
+            "provider_record_id": "arrival-a",
+            "doi": "10.1000/identity-a",
+        }
+    )
+    conflict = _provider_work().model_copy(
+        update={
+            "provider_record_id": "arrival-b-conflict",
+            "doi": "10.1000/identity-b",
+            "arxiv_id": "2401.12345",
+        }
+    )
+    normal_c = _provider_work().model_copy(
+        update={
+            "provider_record_id": "arrival-c",
+            "doi": "10.1000/identity-c",
+            "arxiv_id": "2401.67890",
+        }
+    )
+    provider = FakeProvider(
+        [ProviderPage(works=(normal_a, conflict, normal_c))]
+    )
+    service, _, _, ai_client = _service(tmp_path, connection, provider)
+    work_a, work_b = _seed_identity_collision(service)
+    before_b_discoveries = len(
+        ResearchRepository(connection).list_discoveries_for_work(work_b.id)
+    )
+
+    run = service.run_profile("continual-learning")
+
+    assert run is not None and run.status == "partial"
+    assert (run.fetched_count, run.new_work_count, run.duplicate_count) == (3, 1, 1)
+    assert run.analysis_attempt_count == 2
+    assert run.analyzed_count == 2
+    assert ai_client.calls == [
+        "research_candidate_analysis",
+        "research_candidate_analysis",
+    ]
+    assert "Research identity conflicts count=1" in (run.error_summary or "")
+    assert "arrival-b-conflict" in (run.error_summary or "")
+    assert ResearchRepository(connection).get_work(work_a.id) is not None
+    assert len(ResearchRepository(connection).list_discoveries_for_work(work_b.id)) == (
+        before_b_discoveries
+    )
+    assert len(ResearchRepository(connection).list_discoveries_for_work(work_a.id)) == 2
+    connection.close()
+
+
+def test_identity_conflict_does_not_advance_later_slices_or_block_other_streams(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    conflict = _provider_work().model_copy(
+        update={
+            "provider_record_id": "slice-conflict",
+            "doi": "10.1000/identity-b",
+            "arxiv_id": "2401.12345",
+        }
+    )
+    profile = _profile(queries=("fisher information", "parameter importance"))
+    profile = profile.model_copy(
+        update={
+            "search": profile.search.model_copy(
+                update={"initial_lookback_days": 3}
+            )
+        }
+    )
+    provider = FakeProvider(
+        [
+            ProviderPage(works=(conflict,)),
+            ProviderPage(works=()),
+            ProviderPage(works=()),
+            ProviderPage(works=()),
+        ]
+    )
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    _seed_identity_collision(service)
+    queries = service.query_builder.build(profile)
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "partial"
+    assert provider.calls == 4
+    conflicted_state = search_repository.get_state(
+        profile.id, queries[0].lens_id, "arxiv", queries[0].query_key
+    )
+    other_state = search_repository.get_state(
+        profile.id, queries[1].lens_id, "arxiv", queries[1].query_key
+    )
+    assert conflicted_state is not None
+    assert conflicted_state.completed_through is None
+    assert other_state is not None and other_state.completed_through == _NOW.isoformat()
+    connection.close()
+
+
+def test_identity_conflict_slice_retries_and_advances_after_provider_data_is_fixed(
+    tmp_path,
+):
+    connection = connect_database(":memory:")
+    conflict = _provider_work().model_copy(
+        update={
+            "provider_record_id": "retry-conflict",
+            "doi": "10.1000/identity-b",
+            "arxiv_id": "2401.12345",
+        }
+    )
+    profile = _profile().model_copy(
+        update={
+            "search": _profile().search.model_copy(
+                update={"initial_lookback_days": 2}
+            )
+        }
+    )
+    provider = FakeProvider([ProviderPage(works=(conflict,))])
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    _seed_identity_collision(service)
+    query = service.query_builder.build(profile)[0]
+
+    first_run = service.run_profile(profile.id)
+    first_state = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert first_run is not None and first_run.status == "partial"
+    assert first_state is not None and first_state.completed_through is None
+
+    provider.pages = [
+        ProviderPage(
+            works=(
+                conflict.model_copy(
+                    update={"provider_record_id": "retry-fixed", "arxiv_id": None}
+                ),
+            )
+        ),
+        ProviderPage(works=()),
+    ]
+    second_run = service.run_profile(profile.id)
+
+    assert second_run is not None and second_run.status == "success"
+    assert provider.calls == 3
+    retried_state = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert retried_state is not None and retried_state.completed_through == _NOW.isoformat()
+    connection.close()
+
+
+def test_many_identity_conflicts_keep_run_diagnostics_bounded(tmp_path):
+    connection = connect_database(":memory:")
+    conflicts = tuple(
+        _provider_work().model_copy(
+            update={
+                "provider_record_id": "conflict-{}".format(index),
+                "doi": "10.1000/identity-b",
+                "arxiv_id": "2401.12345",
+            }
+        )
+        for index in range(20)
+    )
+    provider = FakeProvider([ProviderPage(works=conflicts)])
+    service, _, _, _ = _service(tmp_path, connection, provider)
+    _seed_identity_collision(service)
+
+    run = service.run_profile("continual-learning")
+
+    assert run is not None and run.status == "partial"
+    assert run.fetched_count == 20
+    assert run.new_work_count == 0
+    assert run.duplicate_count == 0
+    assert len(run.error_summary or "") <= 1_000
+    assert "Research identity conflicts count=20" in (run.error_summary or "")
+    assert "additional conflicts=" in (run.error_summary or "")
+    connection.close()
+
+
 def test_research_analysis_adds_term_evidence_without_coupling_candidate_lifecycles(tmp_path):
     connection = connect_database(":memory:")
     output = _analysis_output()
@@ -1334,6 +1515,108 @@ def test_optional_enrichment_failure_warns_but_completes_discovery_slice(tmp_pat
     connection.close()
 
 
+def test_enrichment_identity_conflict_warns_and_other_work_is_still_enriched(tmp_path):
+    connection = connect_database(":memory:")
+    conflict_work = _provider_work().model_copy(
+        update={
+            "provider_record_id": "enrichment-conflict",
+            "doi": "10.1000/enrichment-conflict",
+            "arxiv_id": None,
+            "openalex_id": None,
+            "abstract": None,
+            "venue": None,
+        }
+    )
+    clean_work = _provider_work().model_copy(
+        update={
+            "provider_record_id": "enrichment-clean",
+            "doi": "10.1000/enrichment-clean",
+            "arxiv_id": None,
+            "openalex_id": None,
+            "abstract": None,
+            "venue": None,
+        }
+    )
+    discovery = FakeProvider(
+        [ProviderPage(works=(conflict_work, clean_work))]
+    )
+
+    class ConflictThenSuccessfulEnrichment(FakeEnrichmentProvider):
+        def enrich(self, work):
+            self.enrichment_calls += 1
+            if work.doi == "10.1000/enrichment-conflict":
+                return ProviderWork(
+                    provider="openalex",
+                    provider_record_id="W-occupied",
+                    title=work.title,
+                    abstract="Should not be applied.",
+                    authors=work.authors,
+                    year=work.year,
+                    doi=work.doi,
+                    openalex_id="W-occupied",
+                    url="https://openalex.org/W-occupied",
+                )
+            return ProviderWork(
+                provider="openalex",
+                provider_record_id="W-clean",
+                title=work.title,
+                abstract="Clean enrichment.",
+                authors=work.authors,
+                year=work.year,
+                doi=work.doi,
+                openalex_id="W-clean",
+                venue="Journal of Learning",
+                url="https://openalex.org/W-clean",
+            )
+
+    enrichment = ConflictThenSuccessfulEnrichment()
+    profile = _profile(enrichment=("openalex",))
+    service, _, _, ai_client = _service(
+        tmp_path,
+        connection,
+        discovery,
+        profile=profile,
+        additional_providers={"openalex": enrichment},
+    )
+    owner = ProviderWork(
+        provider="openalex",
+        provider_record_id="W-occupied",
+        title="Different paper owning the OpenAlex identifier",
+        authors=("Alan Turing",),
+        year=2025,
+        openalex_id="W-occupied",
+    )
+    service.deduplicator.record_discovery(
+        profile.id,
+        "regularization",
+        "seed-openalex-owner",
+        "fisher information",
+        owner,
+        discovered_at=_NOW,
+    )
+
+    run = service.run_profile(profile.id)
+
+    repository = ResearchRepository(connection)
+    retained = repository.find_by_identifiers({"doi": "10.1000/enrichment-conflict"})[0]
+    enriched = repository.find_by_identifiers({"doi": "10.1000/enrichment-clean"})[0]
+    assert run is not None and run.status == "success"
+    assert "Warning: openalex enrichment identity conflict" in (run.error_summary or "")
+    assert run.provider_summary["openalex"]["errors"] == 1
+    assert run.provider_summary["openalex"]["works"] == 1
+    assert enrichment.enrichment_calls == 2
+    assert retained.openalex_id is None
+    assert retained.abstract == conflict_work.abstract
+    assert enriched.openalex_id == "w-clean"
+    assert enriched.abstract == "Clean enrichment."
+    assert run.analysis_attempt_count == 2
+    assert ai_client.calls == [
+        "research_candidate_analysis",
+        "research_candidate_analysis",
+    ]
+    connection.close()
+
+
 def test_crossref_enrichment_is_skipped_when_work_has_no_doi(tmp_path):
     connection = connect_database(":memory:")
     discovery = FakeProvider([ProviderPage(works=(_provider_work(),))])
@@ -1872,9 +2155,9 @@ class FakeEnrichmentProvider(FakeProvider):
             year=2026,
             published_at="2026-10-02",
             venue="Journal of Learning",
-            doi="10.1000/enriched",
+            doi=work.doi or "10.1000/enriched",
             arxiv_id=work.arxiv_id,
-            openalex_id="W123456",
+            openalex_id=work.openalex_id or "W123456",
             url="https://openalex.org/W123456",
         )
 
@@ -2103,6 +2386,37 @@ def _seed_existing_new_candidate(connection, profile):
         updated_at=_NOW.isoformat(),
     )
     ResearchCandidateRepository(connection).create_if_capacity(candidate, 5)
+
+
+def _seed_identity_collision(service):
+    first = service.deduplicator.record_discovery(
+        "continual-learning",
+        "regularization",
+        "seed-identity-a",
+        "fisher information",
+        _provider_work().model_copy(
+            update={
+                "provider_record_id": "seed-identity-a",
+                "doi": "10.1000/identity-a",
+            }
+        ),
+        discovered_at=_NOW,
+    )
+    second = service.deduplicator.record_discovery(
+        "continual-learning",
+        "regularization",
+        "seed-identity-b",
+        "fisher information",
+        _provider_work().model_copy(
+            update={
+                "provider_record_id": "seed-identity-b",
+                "doi": "10.1000/identity-b",
+                "arxiv_id": None,
+            }
+        ),
+        discovered_at=_NOW,
+    )
+    return first.work, second.work
 
 
 def _assert_running_run_exists(run_repository):
