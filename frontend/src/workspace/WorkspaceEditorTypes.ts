@@ -10,4 +10,5 @@ export interface WorkspaceEditorContext {
   additionalDraftIds?: string[];
   researchGroupId?: string;
   returnCollectionId?: string;
+  proposalGeneratedOnLoad?: boolean;
 }

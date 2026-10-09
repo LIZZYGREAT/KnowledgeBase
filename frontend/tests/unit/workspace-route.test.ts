@@ -33,6 +33,16 @@ test("Workspace URLs retain Collection context and batch publishing state", () =
   );
 });
 
+test("Term Candidate creation opens AI review with a generated Proposal notice", () => {
+  assert.equal(
+    entityWorkspaceUrl("term", "stable-index", { openAIAssist: true, proposalGenerated: true }),
+    "/terms/stable-index?drawer=ai&proposalGenerated=1",
+  );
+  assert.match(app, /query\.get\("drawer"\) === "ai"/);
+  assert.match(app, /query\.get\("proposalGenerated"\) === "1"/);
+  assert.match(workspace, /setActiveDrawer\("ai"\)/);
+});
+
 test("entity editing stays in the Reader workspace and the full-page editor is gone", () => {
   assert.match(app, /route\.entityType === "source" && query\.get\("edit"\) === "1"/);
   assert.match(workspace, /openMetadataOnLoad/);

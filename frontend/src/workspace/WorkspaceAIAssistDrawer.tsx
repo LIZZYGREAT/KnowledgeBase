@@ -7,7 +7,7 @@ export type ProposalTask = "document-review" | "metadata-suggest" | "selection-r
 
 export function WorkspaceAIAssistDrawer({
   type, consent, onConsentChange, busy, selection, selectedText, onSelectionChange,
-  proposalError, proposals, pendingCount, onGenerate, onReview, onApplyToDraft, onClose,
+  proposalError, proposalNotice, proposals, pendingCount, onGenerate, onReview, onApplyToDraft, onClose,
 }: {
   type: EntityType;
   consent: boolean;
@@ -17,6 +17,7 @@ export function WorkspaceAIAssistDrawer({
   selectedText: string;
   onSelectionChange: (value: string) => void;
   proposalError: string;
+  proposalNotice: string;
   proposals: Proposal[];
   pendingCount: number;
   onGenerate: (task: ProposalTask) => void;
@@ -33,6 +34,7 @@ export function WorkspaceAIAssistDrawer({
         {type === "document" && <><input className="selection-input" value={selection} onChange={(event) => onSelectionChange(event.target.value)} placeholder={selectedText ? `选中文本：${selectedText.slice(0, 45)}` : "粘贴或选择一段要审阅的文字"} /><button className="button button-secondary" disabled={!consent || busy || !selection.trim()} onClick={() => onGenerate("selection-review")}>审阅选区</button></>}
         {busy && <span className="subtle-copy">正在生成 Proposal…</span>}
       </div>
+      {proposalNotice && <p className="proposal-message" role="status">{proposalNotice}</p>}
       {proposalError && <p className="proposal-message" role="status">{proposalError}</p>}
       <div className="proposal-list">
         <div className="context-card-heading"><strong>此内容的 Proposals</strong><small>{pendingCount} 条等待处理</small></div>

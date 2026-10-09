@@ -10,7 +10,7 @@ import { WorkspaceSourceDrawer } from "./WorkspaceSourceDrawer";
 export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEditorController }) {
   const {
     type, id, navigate, returnCollectionId,
-    content, canonicalEntity, sourceEntries, sourceError, proposalError, proposalBusy, draftError,
+    content, canonicalEntity, sourceEntries, sourceError, proposalError, proposalNotice, proposalBusy, draftError,
     consent, setConsent, selection, setSelection, selectedText, saveError, setSaveError,
     proposals, publishing, activeDrawer, setActiveDrawer, publishReview, preflightBusy,
     publishedRevision, publishedOutcome, batchCollectionId, additionalDraftIds, comparison, mergeContent,
@@ -60,6 +60,7 @@ export function WorkspaceEditorDrawers({ controller }: { controller: WorkspaceEd
       selectedText={selectedText}
       onSelectionChange={setSelection}
       proposalError={proposalError}
+      proposalNotice={proposalNotice}
       proposals={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status))}
       pendingCount={proposals.filter((proposal) => ["proposed", "drafted"].includes(proposal.status)).length}
       onGenerate={(task) => void generateProposal(task)}

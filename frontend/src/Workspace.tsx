@@ -21,6 +21,8 @@ export function WorkspacePage({
   additionalDraftIds = [],
   researchGroupId,
   openMetadataOnLoad = false,
+  openAIAssistOnLoad = false,
+  proposalGeneratedOnLoad = false,
 }: {
   type: EntityType;
   id: string;
@@ -31,6 +33,8 @@ export function WorkspacePage({
   additionalDraftIds?: string[];
   researchGroupId?: string;
   openMetadataOnLoad?: boolean;
+  openAIAssistOnLoad?: boolean;
+  proposalGeneratedOnLoad?: boolean;
 }) {
   const workspaceDraft = useWorkspaceDraft(type, id);
   useEffect(() => {
@@ -55,10 +59,12 @@ export function WorkspacePage({
     additionalDraftIds,
     researchGroupId,
     returnCollectionId: collectionId ?? batchCollectionId,
+    proposalGeneratedOnLoad,
   });
   useEffect(() => {
     if (openMetadataOnLoad) workspaceEditorController.setActiveDrawer("metadata");
-  }, [id, openMetadataOnLoad, type, workspaceEditorController.setActiveDrawer]);
+    else if (openAIAssistOnLoad) workspaceEditorController.setActiveDrawer("ai");
+  }, [id, openAIAssistOnLoad, openMetadataOnLoad, type, workspaceEditorController.setActiveDrawer]);
   const batchMode = Boolean(batchCollectionId || additionalDraftIds.length);
 
   return (

@@ -608,6 +608,60 @@ describe("Workspace React integration", () => {
     expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
   });
 
+  it("opens AI review for a new Term Draft and explains that its Proposal awaits Apply", async () => {
+    const id = "stable-index";
+    const content = [
+      "---",
+      "schema_version: 1",
+      `id: ${id}`,
+      "title: Stable Index",
+      "type: concept",
+      "depth: stub",
+      "aliases: []",
+      "domains: []",
+      "topics: []",
+      "tags: []",
+      "sources: []",
+      "---",
+      "",
+    ].join("\n");
+    const draft = makeDraft("term", id, content);
+    drafts.push(draft);
+    proposals = [{
+      id: "proposal-stable-index",
+      target_type: "term",
+      target_id: id,
+      kind: "term_revision",
+      status: "proposed",
+      base_content_hash: "draft-hash",
+      payload: { draft_id: draft.id, content: "# Stable Index\n\nA stable index retains canonical facts." },
+      diff_text: "+A stable index retains canonical facts.",
+      created_by: "ai",
+      provider: "mock",
+      model: "mock",
+      created_at: "2026-10-02T00:00:00Z",
+      reviewed_at: null,
+      review_note: null,
+    }];
+
+    render(<WorkspacePage
+      type="term"
+      id={id}
+      navigate={vi.fn()}
+      openAIAssistOnLoad
+      proposalGeneratedOnLoad
+    />);
+
+    await screen.findByRole("heading", { name: "AI 辅助审阅" });
+    expect(await screen.findByText("已生成建议，等待 Apply to Draft。")).toBeTruthy();
+    expect(screen.getByText("+A stable index retains canonical facts.")).toBeTruthy();
+    expect(api.listProposals).toHaveBeenCalledWith(undefined, "term", id);
+
+    await userEvent.click(screen.getByRole("button", { name: "Apply to Draft" }));
+    await screen.findByText(/候选已写入 Draft/);
+    expect(screen.queryByText("已生成建议，等待 Apply to Draft。")).toBeNull();
+  });
+
   it("applies a content Proposal to the saved Draft and advances its revision", async () => {
     const user = userEvent.setup();
     const candidate = canonicalContent.replace("selected phrase", "AI candidate");

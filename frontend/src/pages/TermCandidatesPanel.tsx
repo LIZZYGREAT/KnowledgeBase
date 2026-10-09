@@ -12,6 +12,7 @@ import {
 } from "../api";
 import { errorMessage } from "../errors";
 import { Chip, EmptyState, ErrorState, LoadingState, titleCase } from "../ui";
+import { entityWorkspaceUrl } from "../workspaceRoute";
 import { readList, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
 
 type OriginFilter = "all" | "notes" | "pdf" | "research" | "web";
@@ -124,7 +125,10 @@ export function TermCandidatesPanel({
       await requestCandidateTermDraftProposal(result.draft.id, createCandidate.id);
       setCreateCandidate(null);
       setCreateConsent(false);
-      onOpen("term", result.draft.entity_id);
+      navigate(entityWorkspaceUrl("term", result.draft.entity_id, {
+        openAIAssist: true,
+        proposalGenerated: true,
+      }));
     } catch (reason) {
       setCreateError(errorMessage(reason));
       resource.retry();

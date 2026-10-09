@@ -22,6 +22,7 @@ export function useWorkspaceEditorController({
   additionalDraftIds = [],
   researchGroupId,
   returnCollectionId,
+  proposalGeneratedOnLoad = false,
 }: WorkspaceEditorContext) {
   const {
     draft,
@@ -46,6 +47,10 @@ export function useWorkspaceEditorController({
   const [sourceEntries, setSourceEntries] = useState<EntitySummary[]>([]);
   const [sourceError, setSourceError] = useState("");
   const [proposalError, setProposalError] = useState("");
+  const [proposalNotice, setProposalNotice] = useState(
+    proposalGeneratedOnLoad ? "已生成建议，等待 Apply to Draft。" : "",
+  );
+  const [proposalListLoaded, setProposalListLoaded] = useState(false);
   const [proposalBusy, setProposalBusy] = useState(false);
   const [consent, setConsent] = useState(false);
   const [selection, setSelection] = useState("");
@@ -64,16 +69,23 @@ export function useWorkspaceEditorController({
   }, [draft?.id, draft?.revision, isDirty]);
 
   async function refreshProposals() {
+    setProposalListLoaded(false);
     try {
       const values = await listProposals(undefined, type, id);
       setProposals(values);
       setProposalError("");
     } catch (error) {
       setProposalError(errorMessage(error));
+    } finally {
+      setProposalListLoaded(true);
     }
   }
 
   useEffect(() => { void refreshProposals(); }, [type, id]);
+  useEffect(() => {
+    if (!proposalListLoaded || proposalError || !proposalNotice) return;
+    if (!proposals.some((proposal) => proposal.status === "proposed")) setProposalNotice("");
+  }, [proposalError, proposalListLoaded, proposalNotice, proposals]);
 
   useEffect(() => {
     let active = true;
@@ -322,6 +334,7 @@ export function useWorkspaceEditorController({
     if (!consent) return;
     setProposalBusy(true);
     setProposalError("");
+    setProposalNotice("");
     try {
       const saved = await workspaceDraft.ensureDraft();
       const result = await requestAIProposal(task, saved.id, task === "selection-review" ? selection : undefined);
@@ -352,6 +365,7 @@ export function useWorkspaceEditorController({
     setProposalError("");
     try {
       await workspaceDraft.applyProposalToDraft(proposalId);
+      setProposalNotice("");
       await refreshProposals();
       setProposalError("候选已写入 Draft；发布前仍可继续编辑和检查。");
     } catch (error) {
@@ -386,7 +400,7 @@ export function useWorkspaceEditorController({
 
   return {
     type, id, navigate, workspaceDraft, batchCollectionId, additionalDraftIds,
-    researchGroupId, returnCollectionId,
+    researchGroupId, returnCollectionId, proposalNotice,
     draft, content, canonicalEntity, loading, loadError, draftError, setDraftError,
     saveState, comparison, mergeContent, setMergeContent, publishedRevision, publishedOutcome, isDirty,
     saveError, setSaveError, proposals, sourceEntries, sourceError, proposalError, proposalBusy,

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Draft, EntityDetail, EntitySummary, TermCandidate, TermMergePreview } from "../../src/api";
 import { TermsPage } from "../../src/pages/BrowsePages";
+import { entityWorkspaceUrl } from "../../src/workspaceRoute";
 
 const api = vi.hoisted(() => ({
   listAllEntities: vi.fn(),
@@ -374,7 +375,8 @@ describe("Terms Registry controls", () => {
       created: true,
     });
     const onOpen = vi.fn();
-    render(<TermsPage onOpen={onOpen} initialTab="candidates" />);
+    const navigate = vi.fn();
+    render(<TermsPage onOpen={onOpen} navigate={navigate} initialTab="candidates" />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Create Term" }));
     const generate = screen.getByRole("button", { name: "同意并生成建议" });
@@ -386,7 +388,11 @@ describe("Terms Registry controls", () => {
     await waitFor(() => expect(api.createCandidateTermDraft).toHaveBeenCalledWith("candidate-new"));
     await waitFor(() => expect(api.requestCandidateTermDraftProposal).toHaveBeenCalledWith(draft.id, "candidate-new"));
     expect(api.createCandidateTermDraft.mock.invocationCallOrder[0]).toBeLessThan(api.requestCandidateTermDraftProposal.mock.invocationCallOrder[0]);
-    expect(onOpen).toHaveBeenCalledWith("term", "adaptive-token-pruning");
+    expect(navigate).toHaveBeenCalledWith(entityWorkspaceUrl("term", "adaptive-token-pruning", {
+      openAIAssist: true,
+      proposalGenerated: true,
+    }));
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("allows Create Term from an active external Candidate source", async () => {

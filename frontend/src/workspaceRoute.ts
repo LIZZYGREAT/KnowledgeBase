@@ -15,6 +15,8 @@ export function entityWorkspaceUrl(
     publishAll?: boolean;
     additionalDraftIds?: string[];
     researchGroupId?: string;
+    openAIAssist?: boolean;
+    proposalGenerated?: boolean;
   } = {},
 ): string {
   const route = ENTITY_ROUTES[type];
@@ -30,6 +32,8 @@ export function entityWorkspaceUrl(
   }
   for (const draftId of options.additionalDraftIds ?? []) params.append("relatedDraft", draftId);
   if (options.researchGroupId) params.set("researchGroup", options.researchGroupId);
+  if (options.openAIAssist) params.set("drawer", "ai");
+  if (options.proposalGenerated) params.set("proposalGenerated", "1");
   const query = params.toString();
   return `/${route}/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 }
