@@ -21,6 +21,7 @@ from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import load_writing_standard
 from backend.app.services.taxonomy_registry import TaxonomyRegistry
 from backend.app.services.term_registry import TermRegistry
+from backend.app.services.term_language import replace_term_language
 
 
 class AIProposalService:
@@ -99,6 +100,10 @@ class AIProposalService:
             payload["content"] = proposed_content
         if task_name == "draft_term":
             payload["content"] = self._term_markdown(result_data)
+        if task_name == "rewrite_term_language":
+            if draft.entity_type != "term":
+                raise AIResponseError("Term rewrite requires a Term Draft")
+            payload["content"] = replace_term_language(draft.content, (request_context or {}).get("language"), result_data["explanation"])
 
         base_hash = sha256(draft.content.encode("utf-8")).hexdigest()
         return self.proposal_service.create(
@@ -214,6 +219,11 @@ class AIProposalService:
             "provenance": {"origin": "human-authored", "ai_assisted": True},
         }
         frontmatter = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip()
-        return "---\n{}\n---\n# {}\n\n{}\n".format(
-            frontmatter, result["title"], result["definition"].strip()
-        )
+        content = "---\n{}\n---\n# {}\n".format(frontmatter, result["title"])
+        if result.get("definition_zh") or result.get("definition_en"):
+            for language in ("zh", "en"):
+                if result.get("definition_" + language):
+                    content = replace_term_language(content, language, result["definition_" + language])
+        else:
+            content += "\n" + result["definition"].strip() + "\n"
+        return content

@@ -37,7 +37,7 @@ def test_runtime_schema_12_migrates_to_term_core_and_discovery_state_17():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
     tables = {
         row[0]
         for row in connection.execute(

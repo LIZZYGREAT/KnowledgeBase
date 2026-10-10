@@ -66,3 +66,8 @@
   .term-mentions-toolbar .field-label { width: 100%; }
   .term-mentions-grid { grid-template-columns: 1fr; }
 }
+.term-language-card { padding: 1.25rem; max-width: 900px; margin: 0 auto; }
+.term-language-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+.term-language-actions button[aria-pressed="true"] { font-weight: 700; }
+.term-language-card textarea { width: 100%; min-height: 8rem; font-family: monospace; }
+.term-language-card details { margin-top: 1rem; }

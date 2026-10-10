@@ -162,3 +162,7 @@ Scheduled Runs derive a historical anchor from related human-approved Notes and 
 ### Reviewed knowledge and recommendation budgets
 
 Research analysis v8 includes explicit approval and bounded Term explanation excerpts. Term discovery receives the same reviewed scopes; activity and PDF exposure remain separate signals. Defaults permit at most three new recommendations per Profile per UTC day, including at most one stretch recommendation. Counts include dismissed or converted cards. Budget-deferred surface analyses can be recovered through the existing discovery backlog and input-hash cache. Low relevance or information gain can yield zero recommendations. Exact long-abstract duplicates are suppressed from exposure without deleting Works or Discoveries; topical similarity alone never removes a paper.
+
+### Term language cards
+
+Terms can store Chinese and English explanations in numbered H2 sections within the same canonical Markdown. The card switches saved language content without AI; missing sections stay visibly missing. Unstructured original bodies remain readable and editable without inferred language or bulk migration. Adding a separate language keeps original content accessible. Explicit single-language rewrites return a base-hash-bound Proposal and preserve metadata and the other section. Adoption changes only the Draft. Publishing still requires the existing preflight and Publisher path. Source associations, backlinks, evidence, and the complete Markdown editor remain available.

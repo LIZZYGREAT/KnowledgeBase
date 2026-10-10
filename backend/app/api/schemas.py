@@ -434,6 +434,11 @@ class TermDraftRequest(AIRequest):
     candidate_id: Optional[NonEmptyText] = None
 
 
+class TermRewriteRequest(AIRequest):
+    language: Literal["zh", "en"]
+    requirements: NonEmptyText = Field(max_length=2000)
+
+
 class AIProposalView(APIModel):
     external_provider_notice: str
     proposal: ProposalView

@@ -10,6 +10,7 @@ from backend.app.api.schemas import (
     AIRequest,
     SelectionReviewRequest,
     TermDraftRequest,
+    TermRewriteRequest,
 )
 
 
@@ -79,6 +80,12 @@ async def draft_term(body: TermDraftRequest, request: Request):
 @router.post("/evidence-suggest", response_model=AIProposalView, status_code=status.HTTP_201_CREATED)
 async def suggest_evidence(body: AIRequest, request: Request):
     return await _generate(request, "suggest_evidence", body.draft_id, {"document"})
+
+
+@router.post("/term-rewrite", response_model=AIProposalView, status_code=status.HTTP_201_CREATED)
+async def rewrite_term(body: TermRewriteRequest, request: Request):
+    return await _generate(request, "rewrite_term_language", body.draft_id, {"term"},
+                           {"language": body.language, "requirements": body.requirements})
 
 
 async def _generate(

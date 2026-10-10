@@ -12,6 +12,7 @@ import { errorMessage } from "../errors";
 import { latestIntersectingHeading } from "../readerNavigation";
 import { splitMarkdownFrontmatter } from "../markdownBlocks";
 import { WorkspaceInlineEditor } from "../workspace/WorkspaceInlineEditor";
+import { TermLanguageCard } from "./TermLanguageCard";
 import { WorkspaceSelectionToolbar } from "../workspace/WorkspaceSelectionToolbar";
 import { WorkspaceSelectionAIDrawer } from "../workspace/WorkspaceSelectionAIDrawer";
 import { applyMarkdownFormatting, type MarkdownFormattingAction } from "../markdownFormatting";
@@ -434,11 +435,11 @@ export function EntityPage({
           </div>
         </div>
       </details>
-      <div className={`reader-layout ${type === "source" ? "reader-layout-source" : ""}`}>
-        <details className="reader-outline surface" open>
+      <div className={`reader-layout ${type !== "document" ? "reader-layout-source" : ""}`}>
+        {type === "document" && <details className="reader-outline surface" open>
           <summary><span className="eyebrow">目录</span></summary>
           {headings.length ? <nav>{headings.map((heading, index) => <button className={`outline-level-${heading.level} ${activeHeading === heading.slug ? "active" : ""}`} key={`${heading.slug}:${index}`} aria-current={activeHeading === heading.slug ? "location" : undefined} onClick={() => document.getElementById(heading.slug)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{heading.text}</button>)}</nav> : <p className="subtle-copy">正文暂无章节标题。</p>}
-        </details>
+        </details>}
         <article className="reader-document">
           {type === "source" ? (
             <div className="source-description surface">
@@ -450,7 +451,7 @@ export function EntityPage({
               </dl>
               <div className="attachment-note"><span className="attachment-icon">PDF</span><span><strong>{localPdf ? "本地 PDF 已关联" : "没有本地 PDF"}</strong><small>PDF 保存在本机私有存储，不进入 Git。</small></span>{localPdf && <a className="button button-secondary source-pdf-button" href={`/api/sources/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noreferrer">打开 PDF</a>}</div>
             </div>
-          ) : <div ref={readerMarkdownRef} className="reader-markdown-wrap" onMouseUp={captureReaderSelection} onKeyUp={captureReaderSelection}>
+          ) : type === "term" ? <TermLanguageCard body={documentBody} workspace={workspaceDraft} navigate={navigate} disabled={hasDraftConflict} /> : <div ref={readerMarkdownRef} className="reader-markdown-wrap" onMouseUp={captureReaderSelection} onKeyUp={captureReaderSelection}>
             <WorkspaceInlineEditor
               body={documentBody}
               annotations={annotationsMatchCanonical ? annotations : []}

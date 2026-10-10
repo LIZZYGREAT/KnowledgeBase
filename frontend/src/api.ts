@@ -849,6 +849,10 @@ export function requestCandidateTermDraftProposal(draftId: string, candidateId: 
   });
 }
 
+export function requestTermRewrite(draftId: string, language: "zh" | "en", requirements: string) {
+  return request<{ external_provider_notice: string; proposal: Proposal }>("/api/ai/term-rewrite", { method: "POST", body: JSON.stringify({ draft_id: draftId, language, requirements, confirm_deepseek_transfer: true }) });
+}
+
 export function listEntities(type: EntityType, offset = 0) {
   return request<EntitySummary[]>(`/api/${typePath(type)}?limit=100&offset=${offset}`);
 }

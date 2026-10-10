@@ -79,7 +79,20 @@ class DraftTermOutput(AIOutput):
     type: Literal["concept", "entity", "vocabulary"]
     depth: Literal["stub", "standard", "deep"]
     aliases: list[NonEmptyText] = Field(default_factory=list)
-    definition: NonEmptyText
+    definition: Optional[NonEmptyText] = None
+    definition_zh: Optional[NonEmptyText] = None
+    definition_en: Optional[NonEmptyText] = None
+
+    @model_validator(mode="after")
+    def require_definition(self):
+        if not (self.definition or self.definition_zh or self.definition_en):
+            raise ValueError("Term Draft requires an explanation")
+        return self
+
+
+class RewriteTermLanguageOutput(AIOutput):
+    explanation: NonEmptyText
+    rationale: NonEmptyText
 
 
 class SuggestRevisionOutput(AIOutput):
@@ -168,6 +181,7 @@ TASK_OUTPUTS = {
     "review_format_semantics": ReviewFormatOutput,
     "review_document": ReviewDocumentOutput,
     "draft_term": DraftTermOutput,
+    "rewrite_term_language": RewriteTermLanguageOutput,
     "suggest_revision": SuggestRevisionOutput,
     "suggest_evidence": SuggestEvidenceOutput,
     "research_candidate_analysis": ResearchCandidateAnalysisAIOutput,
