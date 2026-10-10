@@ -468,7 +468,7 @@ class TermCandidateService:
             "id": term_id,
             "title": candidate.display_name,
             "type": candidate.suggested_type,
-            "depth": "stub",
+            "depth": "standard",
             "aliases": [],
             "domains": [],
             "topics": [],

@@ -58,7 +58,10 @@ def test_mock_gateway_persists_validated_output_as_draft_bound_proposal():
 
 def test_term_generation_reuses_matching_proposal_and_rejecting_it_allows_fresh_generation():
     connection = connect_database(":memory:")
-    content = "---\nschema_version: 1\nid: replay\n---\n"
+    content = (
+        "---\nschema_version: 1\nid: replay\ntitle: Replay\ntype: concept\n"
+        "depth: stub\naliases: []\ndomains: []\ntopics: []\ntags: []\nsources: []\n---\n# Replay\n"
+    )
     drafts = DraftService(DraftRepository(connection))
     draft = drafts.create("term", "replay", content, "a" * 40, "b" * 64)
     proposals = ProposalService(ProposalRepository(connection))
@@ -246,9 +249,16 @@ def test_term_generation_prompt_scales_to_depth_and_preserves_candidate_context(
 
     prompt = client.messages[0][0]["content"]
     context = json.loads(client.messages[0][1]["content"])
-    assert "For stub, give a compact definition and state what the concept is used for." in prompt
-    assert "For standard, adapt the explanation to the concept's complexity" in prompt
-    assert "Do not force a template, fixed length, or filler." in prompt
+    assert "Every depth must explain what the Term means, where it is encountered" in prompt
+    assert "These are semantic coverage goals, not four required sections" in prompt
+    assert "stub is concise but complete and usable" in prompt
+    assert "standard retains that coverage and adds the core mechanism" in prompt
+    assert "deep systematically adds relevant reasoning" in prompt
+    assert "concepts use a minimal task or input-output scenario" in prompt
+    assert "vocabulary uses a natural technical or research sentence" in prompt
+    assert "entities use a typical research or engineering use" in prompt
+    assert "Do not force equations on ordinary Terms" in prompt
+    assert "Generate both definition_zh and definition_en" in prompt
     assert "f_theta(x) in R^d" in prompt
     assert "coordinate meanings are learned or task-dependent" in prompt
     assert "General stable technical knowledge may explain a Term" in prompt
@@ -293,7 +303,8 @@ def test_single_language_rewrite_preserves_metadata_and_the_other_explanation():
     proposed = proposal.payload["content"]
     original_frontmatter = content.split("---\n", 2)[1]
     proposed_frontmatter = proposed.split("---\n", 2)[1]
-    assert "stub needs a compact definition and purpose" in prompt
+    assert "At every depth explain what the Term means, where it is encountered" in prompt
+    assert "preserve it exactly; do not infer a different depth" in prompt
     assert "Never change metadata, identifiers, sources, or the other language" in prompt
     assert "write English as an independent explanation" in prompt
     assert context["request"] == {
@@ -342,7 +353,8 @@ def test_term_draft_must_match_existing_term_draft_target():
                         "type": "concept",
                         "depth": "stub",
                         "aliases": [],
-                        "definition": "A definition.",
+                        "definition_zh": "一个术语。",
+                        "definition_en": "A term.",
                     }
                 }
             )

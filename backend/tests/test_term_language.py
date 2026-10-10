@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from backend.app.domain.ai import DraftTermOutput
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.markdown_parser import parse_markdown
@@ -23,8 +26,12 @@ def test_language_boundaries_ignore_fenced_code_and_keep_old_content():
     assert "```markdown\n## 一、中文解释\n```" in updated
 
 
-def test_single_language_and_original_definition_remain_valid():
-    for explanation in ({"definition_en": "Only English."}, {"definition": "Original body."}):
-        output = DraftTermOutput(id="ewc", title="EWC", type="concept", depth="stub", **explanation)
-        text = AIProposalService._term_markdown(output.model_dump(exclude_none=True))
-        assert next(iter(explanation.values())) in text
+def test_bilingual_generation_requires_both_complete_languages():
+    with pytest.raises(ValidationError):
+        DraftTermOutput.model_validate({
+            "id": "ewc",
+            "title": "EWC",
+            "type": "concept",
+            "depth": "stub",
+            "definition_zh": "EWC 使用 Fisher Information。",
+        })

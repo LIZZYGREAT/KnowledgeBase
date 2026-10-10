@@ -166,7 +166,8 @@ def test_term_entity_type_is_canonical_and_available_to_term_drafts():
             "title": metadata["title"],
             "type": "entity",
             "depth": "stub",
-            "definition": "A machine learning framework.",
+            "definition_zh": "一种机器学习框架。",
+            "definition_en": "A machine learning framework.",
         }
     ).type == "entity"
     with pytest.raises(ValueError):
@@ -484,7 +485,7 @@ def test_candidate_term_draft_lifecycle_and_publish_relations(tmp_path):
         assert result["candidate"].status == "drafting"
         assert result["draft"].entity_id == "adaptive-token-pruning"
         assert "type: concept" in result["draft"].content
-        assert "depth: stub" in result["draft"].content
+        assert "depth: standard" in result["draft"].content
         with pytest.raises(TermCandidateConflict, match="discard the linked Draft"):
             service.reject_candidate(candidate.id, "global")
         with pytest.raises(TermCandidateConflict, match="discard the linked Draft"):

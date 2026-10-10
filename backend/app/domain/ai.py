@@ -79,15 +79,8 @@ class DraftTermOutput(AIOutput):
     type: Literal["concept", "entity", "vocabulary"]
     depth: Literal["stub", "standard", "deep"]
     aliases: list[NonEmptyText] = Field(default_factory=list)
-    definition: Optional[NonEmptyText] = None
-    definition_zh: Optional[NonEmptyText] = None
-    definition_en: Optional[NonEmptyText] = None
-
-    @model_validator(mode="after")
-    def require_definition(self):
-        if not (self.definition or self.definition_zh or self.definition_en):
-            raise ValueError("Term Draft requires an explanation")
-        return self
+    definition_zh: NonEmptyText
+    definition_en: NonEmptyText
 
 
 class RewriteTermLanguageOutput(AIOutput):
