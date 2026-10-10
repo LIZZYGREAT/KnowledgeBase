@@ -158,3 +158,7 @@ The Research page opens the Document Draft in Unified Workspace. Its batch revie
 ## Errors
 
 Request validation and canonical content errors return `422`; missing entities return `404`; stale revisions, stale annotations, stale Proposals, and publishing conflicts return `409`; AI configuration errors return `503`; DeepSeek transport or response errors return `502`.
+
+## Draft content identity
+
+Draft response views include a read-only `working_content_hash` computed from the exact content in that response. It identifies a proposed revision independently of `base_content_hash`, which compares the canonical target. Term card Proposal reuse reads this server value and does not require browser Web Crypto on an HTTP deployment. The backend also reuses a proposed `draft_term` result only for the same Draft and working-content hash. Explicit rejection removes that Proposal from reuse without rejecting the Term Candidate.

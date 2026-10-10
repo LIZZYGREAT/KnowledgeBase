@@ -50,3 +50,6 @@
   .learning-context-grid { gap: 7px; }
   .dashboard-primary-actions .button { flex: 1 1 auto; }
 }
+.dashboard-featured { padding: 1.5rem; }
+.dashboard-featured-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 1rem; }
+.dashboard-featured-grid article { border: 1px solid var(--line); padding: 1rem; border-radius: .75rem; }

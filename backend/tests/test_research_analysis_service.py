@@ -523,6 +523,9 @@ def test_research_analysis_input_includes_bounded_knowledge_readiness_context(tm
     assert readiness["learning_terms"] == []
     assert readiness["current_gaps"] == []
     assert len(payload["term_registry"]) == 3
+    full_context = context.model_copy(update={"budget": len(context.cards)})
+    bounded = service.build_analysis_input(work, profile, profile.lenses[0], full_context)
+    assert {item["id"] for item in bounded["readiness_context"]["established_terms"]} == {"weight-decay", "parameter-importance"}
     connection.close()
 
 

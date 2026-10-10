@@ -699,7 +699,7 @@ class ResearchService:
         stream_order = 0
         anchor = (
             research_anchor_year(self.repository_root, profile, self.screening.sources)
-            if run.trigger == "scheduled" and manual_range is None else None
+            if (run.trigger == "scheduled" or manual_incremental) and manual_range is None else None
         )
         for query in queries:
             lens = _lens_for(profile, query)
@@ -1057,11 +1057,13 @@ class ResearchService:
         after = None
         scanned = 0
         while len(backlog) < max_candidates:
-            page = self.work_repository.list_unanalyzed_discoveries(
+            page = self.work_repository.list_pending_discoveries(
                 profile.id,
                 query_keys,
                 MAX_ANALYSIS_BACKLOG_PAGE_SIZE,
                 after=after,
+                min_profile_relevance=profile.search.min_profile_relevance,
+                min_information_gain=profile.search.min_information_gain,
             )
             if not page:
                 break

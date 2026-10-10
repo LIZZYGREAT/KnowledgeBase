@@ -281,7 +281,7 @@ describe("Research workspace", () => {
 
   it("dismisses one candidate immediately without a reason prompt", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+    fireEvent.click(await screen.findByRole("button", { name: "拒绝", exact: true }));
     await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/dismiss" && init?.method === "POST")).toBe(true));
     const singleDismiss = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/dismiss" && init?.method === "POST");
     expect(JSON.parse(String(singleDismiss?.[1]?.body))).toEqual({});

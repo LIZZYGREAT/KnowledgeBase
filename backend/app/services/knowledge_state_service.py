@@ -59,9 +59,10 @@ class KnowledgeStateService:
             (cutoff,),
         ).fetchall()
         exposure = _pdf_exposure(self.connection, registry.terms)
+        scopes = {term.id: _term_excerpt(self.repository_root, term.id) for term in registry.terms}
         state_by_term: dict[str, str] = {}
         for term in registry.terms:
-            if term.review and term.review.human and term.review.human.status == "approved":
+            if term.review and term.review.human and term.review.human.status == "approved" and scopes[term.id]:
                 state = "established"
             elif exposure.get(term.id, {}).get("source_count", 0) > 0:
                 state = "exposed"
@@ -106,10 +107,10 @@ class KnowledgeStateService:
                 "recent_terms": recent_terms,
             },
             "knowledge": {
-                "established": _term_labels(registry.terms, state_by_term, "established"),
-                "learning": _term_labels(registry.terms, state_by_term, "learning"),
-                "exposed": _term_labels(registry.terms, state_by_term, "exposed"),
-                "unknown": _term_labels(registry.terms, state_by_term, "unknown"),
+                "established": _term_labels(registry.terms, state_by_term, "established", scopes),
+                "learning": _term_labels(registry.terms, state_by_term, "learning", scopes),
+                "exposed": _term_labels(registry.terms, state_by_term, "exposed", scopes),
+                "unknown": _term_labels(registry.terms, state_by_term, "unknown", scopes),
             },
             "exposure": {
                 "source_count_sampled": min(
@@ -152,7 +153,7 @@ class KnowledgeStateService:
                     "depth": term.depth,
                     "state": state_by_term[term.id],
                     "review_status": term.review.human.status if term.review and term.review.human else "unreviewed",
-                    "content_excerpt": _term_excerpt(self.repository_root, term.id),
+                    "content_excerpt": scopes[term.id],
                 }
                 for term in registry.terms[:200]
             ],
@@ -162,7 +163,7 @@ class KnowledgeStateService:
 def _term_excerpt(root, term_id):
     content = (root / "knowledge" / "terms" / (term_id + ".md")).read_text(encoding="utf-8")
     parsed = parse_markdown(content)
-    return "\n".join(line for line in content.splitlines()[parsed.frontmatter_end_line or 0:] if not line.startswith("# ")).strip()[:900]
+    return "\n".join(line for line in content.splitlines()[parsed.frontmatter_end_line or 0:] if not re.match(r"^#{1,6}\s", line)).strip()[:900]
 
 
 def _recent_documents(
@@ -251,9 +252,11 @@ def _unique_values(values) -> list[str]:
     return list(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
-def _term_labels(terms, state_by_term: dict[str, str], state: str) -> list[dict]:
+def _term_labels(terms, state_by_term: dict[str, str], state: str, scopes) -> list[dict]:
     return [
-        {"id": term.id, "title": term.title, "type": term.type, "depth": term.depth}
+        {"id": term.id, "title": term.title, "type": term.type, "depth": term.depth,
+         "review_status": term.review.human.status if term.review and term.review.human else "unreviewed",
+         "content_excerpt": scopes[term.id]}
         for term in terms
         if state_by_term.get(term.id) == state
     ][:80]

@@ -86,6 +86,53 @@ def test_history_provider_budget_keeps_incomplete_progress_retryable(tmp_path):
     connection.close()
 
 
+def test_history_resumes_next_page_through_manual_incremental_without_changing_recent_watermark(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    profile = profile.model_copy(update={"search": profile.search.model_copy(update={"history_seed_year": 2017, "max_provider_requests_per_run": 2})})
+    class CursorProvider(FakeProvider):
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.cursors.append(cursor)
+            return super().search(query, start_at, end_at, cursor, limit)
+    historical = _provider_work().model_copy(update={"year": 2015, "published_at": "2015-06-01"})
+    provider = CursorProvider([ProviderPage(works=(), next_cursor="history-page-2"), ProviderPage(works=()), ProviderPage(works=(historical,))])
+    provider.cursors = []
+    service, runs, search, client = _service(tmp_path, connection, provider, profile=profile)
+    first = service.run_profile(profile.id)
+    assert first.status == "partial"
+    query = service.query_builder.build(profile)[0]
+    checkpoint = search.history_checkpoint(profile.id, query.lens_id, "arxiv", "history:" + query.query_key)
+    assert checkpoint["cursor"] == "history-page-2"
+    recent = search.get_state(profile.id, query.lens_id, "arxiv", query.query_key)
+    second = service.run_profile(profile.id, trigger="manual", manual_incremental=True)
+    assert second.status == "success" and second.surfaced_count == 1
+    assert provider.cursors[-1] == "history-page-2"
+    assert search.get_state(profile.id, query.lens_id, "arxiv", query.query_key) == recent
+    assert search.history_checkpoint(profile.id, query.lens_id, "arxiv", "history:" + query.query_key) is None
+    connection.close()
+
+
+def test_low_value_cached_analyses_do_not_block_useful_backlog(tmp_path):
+    connection = connect_database(":memory:")
+    low_value = dict(_analysis_output(), novelty_to_library=0.01)
+    service, runs, search, client = _service(tmp_path, connection, FakeProvider([]), analysis_output=low_value)
+    profile = _profile()
+    query = service.query_builder.build(profile)[0]
+    for number in range(16):
+        provider_work = _provider_work().model_copy(update={"provider_record_id": "2401.{}".format(10000 + number), "arxiv_id": "2401.{}".format(10000 + number), "title": "Fisher Information method {}".format(number)})
+        work = service.deduplicator.record_discovery(profile.id, query.lens_id, query.query_key, query.text, provider_work, discovered_at=_NOW - timedelta(days=2) + timedelta(seconds=number)).work
+        if number < 15:
+            pack = service.context_builder.build(work, profile, profile.lenses[0], keywords=(query.text,))
+            service.analysis_service.analyze(work, profile, profile.lenses[0], pack)
+    client.calls.clear()
+    client.responses["research_candidate_analysis"] = _analysis_output()
+    run = service.run_profile(profile.id)
+    assert run.surfaced_count == 1
+    assert client.calls == ["research_candidate_analysis"]
+    assert connection.execute("SELECT COUNT(*) FROM research_works").fetchone()[0] == 16
+    connection.close()
+
+
 def test_history_anchor_requires_approved_note_with_linked_source_year(tmp_path):
     from backend.app.services.research_history import research_anchor_year
     root = tmp_path / "repo"
@@ -97,6 +144,11 @@ def test_history_anchor_requires_approved_note_with_linked_source_year(tmp_path)
     source = SourceMetadata(schema_version=1, id="ewc-2017", type="paper", title="EWC", year=2017)
     profile = _profile().model_copy(update={"context": _profile().context.model_copy(update={"documents": ["ewc-review"]})})
     assert research_anchor_year(root, profile, SourceRegistry((source,))) == 2017
+    collection_dir = root / "knowledge" / "collections"
+    collection_dir.mkdir()
+    (collection_dir / "research-core.yaml").write_text("schema_version: 1\nid: research-core\ntitle: Research Core\nstatus: active\nposition: 0\nnodes:\n  - {id: note-ref, kind: entity, entity_type: document, entity_id: ewc-review}\n", encoding="utf-8")
+    unrelated = profile.model_copy(update={"title": "Unrelated Focus", "lenses": [profile.lenses[0].model_copy(update={"queries": ["unrelated query"]})], "context": profile.context.model_copy(update={"documents": [], "collections": ["research-core"]})})
+    assert research_anchor_year(root, unrelated, SourceRegistry((source,))) == 2017
     path.write_text(text.replace("status: approved", "status: unreviewed"), encoding="utf-8")
     assert research_anchor_year(root, profile, SourceRegistry((source,))) is None
 

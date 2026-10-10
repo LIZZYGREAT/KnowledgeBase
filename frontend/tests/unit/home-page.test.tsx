@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HomePage } from "../../src/pages/HomePage";
@@ -7,6 +7,8 @@ const api = vi.hoisted(() => ({
   getTermDiscoveryState: vi.fn(),
   getUiSummary: vi.fn(),
   listResearchProfiles: vi.fn(),
+  listResearchCandidates: vi.fn(),
+  queueResearchRun: vi.fn(),
   listTermCandidates: vi.fn(),
   listRecentlyModified: vi.fn(),
   listUsage: vi.fn(),
@@ -31,8 +33,8 @@ describe("Knowledge Dashboard", () => {
       maintenance: 3,
     });
     api.listTermCandidates.mockResolvedValue([
-      { id: "candidate-one", status: "pending", display_name: "Attention Routing", discovery_assessment: { recommendation_level: "core_gap" } },
-      { id: "candidate-two", status: "pending", display_name: "Other pending", discovery_assessment: { recommendation_level: "next" } },
+      { id: "candidate-one", status: "pending", display_name: "Attention Routing", evidence: [], discovery_assessment: { recommendation_level: "core_gap" } },
+      { id: "candidate-two", status: "pending", display_name: "Other pending", evidence: [], discovery_assessment: { recommendation_level: "next" } },
     ]);
     api.listResearchProfiles.mockResolvedValue([{
       id: "profile-one",
@@ -54,7 +56,7 @@ describe("Knowledge Dashboard", () => {
         snapshot: {
           focus: { explicit: ["Vision models"], recent_topics: [], recent_domains: [] },
           knowledge: {
-            established: [{ title: "Transformers" }],
+            established: [{ title: "Transformers", review_status: "approved", content_excerpt: "Attention mechanisms." }],
             learning: [{ title: "Diffusion" }],
             exposed: [],
             unknown: [],
@@ -66,8 +68,32 @@ describe("Knowledge Dashboard", () => {
         ],
       },
     });
+    api.listResearchCandidates.mockResolvedValue({ candidates: [], count: 0, offset: 0, limit: 6 });
+    api.queueResearchRun.mockResolvedValue({ request_id: "queued", status: "pending" });
     api.listRecentlyModified.mockResolvedValue([]);
     api.listUsage.mockResolvedValue([]);
+  });
+
+  it("places up to three evidence-backed suggestions before workload and queues the next search", async () => {
+    const profiles = await api.listResearchProfiles();
+    api.listResearchProfiles.mockResolvedValue([{ ...profiles[0], enabled_lens_ids: ["focus"] }]);
+    api.listResearchCandidates.mockResolvedValue({ candidates: [1, 2, 3].map((number) => ({ candidate: { id: `paper-${number}`, review_overrides: {} }, work: { id: `work-${number}`, title: `Paper ${number}` }, analysis: { readiness: "high", why_relevant_zh: `Reason ${number}`, existing_relations: [] } })) });
+    api.listTermCandidates.mockResolvedValue([{ id: "term", display_name: "Replay", evidence: [{ origin_rejected: false, context_excerpt: "Replay retains examples.", rationale: "Connects to the reviewed Note.", origin_id: "note", origin_title: "Approved Note" }], discovery_assessment: { why_now: "Next concept" } }]);
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+    const featured = await screen.findByRole("region", { name: "下一步值得了解" });
+    await waitFor(() => expect(featured.querySelectorAll("article").length).toBe(3));
+    expect(within(featured).queryByText("Paper 3")).toBeNull();
+    const workload = screen.getByRole("region", { name: "现在有什么要处理？" });
+    expect(featured.compareDocumentPosition(workload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "寻找下一步" }));
+    await waitFor(() => expect(api.queueResearchRun).toHaveBeenCalledWith("profile-one", { lenses: ["focus"], date_range: { mode: "incremental" } }));
+  });
+
+  it("uses a normal empty state when no supported recommendation exists", async () => {
+    api.listTermCandidates.mockResolvedValue([]);
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+    expect(await screen.findByText(/暂时没有合适的精选建议/)).toBeTruthy();
+    expect(api.queueResearchRun).not.toHaveBeenCalled();
   });
 
   it("shows accurate workload, learning context, and agent activity", async () => {

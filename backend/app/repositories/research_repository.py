@@ -205,12 +205,15 @@ class ResearchRepository:
         ).fetchall()
         return [_discovery_from_row(row) for row in rows]
 
-    def list_unanalyzed_discoveries(
+    def list_pending_discoveries(
         self,
         profile_id: str,
         query_keys: tuple[str, ...],
         limit: int,
         after: Optional[tuple[str, str]] = None,
+        *,
+        min_profile_relevance: float,
+        min_information_gain: float,
     ) -> list[ResearchDiscoveryRecord]:
         if not query_keys or limit <= 0:
             return []
@@ -231,7 +234,14 @@ class ResearchRepository:
                      SELECT 1 FROM research_work_analyses AS analysis
                      WHERE analysis.work_id = discovery.work_id
                        AND analysis.profile_id = discovery.profile_id
-                       AND analysis.outcome = 'filtered'
+                       AND analysis.id = (
+                           SELECT latest.id FROM research_work_analyses latest
+                           WHERE latest.work_id = discovery.work_id AND latest.profile_id = discovery.profile_id
+                           ORDER BY latest.analyzed_at DESC, latest.rowid DESC LIMIT 1
+                       )
+                       AND (analysis.outcome = 'filtered'
+                            OR json_extract(analysis.analysis_json, '$.profile_relevance') < ?
+                            OR json_extract(analysis.analysis_json, '$.novelty_to_library') < ?)
                  )
                  AND NOT EXISTS (
                      SELECT 1 FROM research_candidates AS candidate
@@ -250,7 +260,7 @@ class ResearchRepository:
                  {}
                ORDER BY discovery.discovered_at, discovery.id
                LIMIT ?""".format(placeholders, placeholders, after_clause),
-            (profile_id, *query_keys, *query_keys, *cursor_parameters, limit),
+            (profile_id, *query_keys, min_profile_relevance, min_information_gain, *query_keys, *cursor_parameters, limit),
         ).fetchall()
         return [_discovery_from_row(row) for row in rows]
 

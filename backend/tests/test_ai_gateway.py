@@ -56,6 +56,28 @@ def test_mock_gateway_persists_validated_output_as_draft_bound_proposal():
     connection.close()
 
 
+def test_term_generation_reuses_matching_proposal_and_rejecting_it_allows_fresh_generation():
+    connection = connect_database(":memory:")
+    content = "---\nschema_version: 1\nid: replay\n---\n"
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", "replay", content, "a" * 40, "b" * 64)
+    proposals = ProposalService(ProposalRepository(connection))
+    client = MockDeepSeekClient({"draft_term": {"id": "replay", "title": "Replay", "type": "concept", "depth": "stub", "definition_zh": "Experience Replay 保留样本。", "definition_en": "Experience Replay retains examples."}})
+    service = AIProposalService(Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client))
+    first = service.generate("draft_term", draft.id)
+    second = service.generate("draft_term", draft.id)
+    assert first.id == second.id
+    assert client.calls == ["draft_term"]
+    proposals.reject(first.id, "Discard this explanation")
+    fresh = service.generate("draft_term", draft.id)
+    assert fresh.id != first.id
+    assert client.calls == ["draft_term", "draft_term"]
+    from backend.app.api.schemas import DraftView
+    from dataclasses import asdict
+    assert DraftView.model_validate(asdict(draft)).model_dump()["working_content_hash"] == first.base_content_hash
+    connection.close()
+
+
 def test_invalid_json_or_schema_does_not_create_proposal():
     connection = connect_database(":memory:")
     drafts = DraftService(DraftRepository(connection))

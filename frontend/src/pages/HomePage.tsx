@@ -1,11 +1,13 @@
 import {
   getTermDiscoveryState, getUiSummary, listRecentlyModified, listResearchProfiles,
   listTermCandidates, listUsage,
+  listResearchCandidates, queueResearchRun,
   type ResearchProfileSummary, type TermCandidate, type TermDiscoveryLane,
   type TermDiscoveryState, type UiSummary,
 } from "../api";
 import { Chip, EmptyState, EntityRow, ErrorState, LoadingState, formatDate } from "../ui";
 import { readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
+import { useState } from "react";
 
 interface HomeCriticalData {
   summary: UiSummary;
@@ -15,6 +17,8 @@ interface HomeCriticalData {
 }
 
 export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
+  const [finding, setFinding] = useState(false);
+  const [findingNotice, setFindingNotice] = useState("");
   const critical = useResource("home-critical", async (): Promise<HomeCriticalData> => {
     const [summary, termDiscovery, pendingCandidates, researchProfiles] = await Promise.all([
       getUiSummary(),
@@ -26,10 +30,21 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
   });
   const recentlyViewed = useResource("home-recent-usage", () => listUsage("recent"));
   const recentlyModified = useResource("home-recent-modified", () => listRecentlyModified());
+  const recommendations = useResource("home-featured-research", () => listResearchCandidates({ status: "new", sort: "recommended", limit: 6 }));
 
   if (critical.loading) return <LoadingState />;
   if (critical.error || !critical.data) return <ErrorState message={critical.error} retry={critical.retry} />;
   const { summary, termDiscovery, pendingCandidates, researchProfiles } = critical.data;
+  const papers = (recommendations.data?.candidates ?? []).filter((item, index, all) => all.findIndex((other) => other.work.id === item.work.id) === index).slice(0, 2);
+  const terms = pendingCandidates.filter((candidate) => candidate.evidence.some((item) => !item.origin_rejected && Boolean(item.context_excerpt?.trim())) && Boolean(candidate.discovery_assessment?.why_now || candidate.evidence.find((item) => !item.origin_rejected)?.rationale)).slice(0, Math.max(0, 3 - papers.length));
+  async function findNext() {
+    const profile = researchProfiles.find((item) => item.enabled && !(item.paused_until && Date.parse(item.paused_until) > Date.now()) && item.inbox.remaining > 0);
+    if (!profile) { setFindingNotice("请先设置或恢复一个研究方向，或处理已满的 Inbox。"); return; }
+    setFinding(true); setFindingNotice("");
+    try { await queueResearchRun(profile.id, { lenses: profile.enabled_lens_ids, date_range: { mode: "incremental" } }); setFindingNotice("寻找下一步已加入研究队列，可在 Research 查看结果。"); }
+    catch (reason) { setFindingNotice(reason instanceof Error ? reason.message : "请求失败，请重试。"); }
+    finally { setFinding(false); }
+  }
   const snapshot = asRecord(termDiscovery.last_run?.snapshot);
   const snapshotFocus = asRecord(snapshot.focus);
   const knowledge = asRecord(snapshot.knowledge);
@@ -44,7 +59,7 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
   const focusItems = hasEffectiveFocus
     ? readStringArray(snapshot.effective_focus)
     : Array.from(new Set(legacyFocus.length ? legacyFocus : readStringArray(snapshotFocus.explicit)));
-  const established = readLabelArray(knowledge.established);
+  const established = readLabelArray(Array.isArray(knowledge.established) ? knowledge.established.filter((item) => asRecord(item).review_status === "approved" && Boolean(asRecord(item).content_excerpt)) : []);
   const learning = readLabelArray(knowledge.learning);
   const coreGaps = pendingCandidates
     .filter((candidate) => candidate.discovery_assessment?.recommendation_level === "core_gap")
@@ -53,9 +68,22 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
   return (
     <div className="page-stack dashboard-page">
       <header className="dashboard-heading">
-        <div><p className="eyebrow">KNOWLEDGE DASHBOARD</p><h1>知道你正在学什么，以及下一步值得补什么。</h1><p>查看待处理工作、当前学习脉络和 Agent 最近运行情况。</p></div>
+        <div><p className="eyebrow">KNOWLEDGE DASHBOARD</p><h1>下一步值得学习什么。</h1><p>从已审核知识出发，查看有来源、有理由的论文与 Term 建议。</p></div>
         <button className="dashboard-search-link" type="button" onClick={() => navigate("/search")}>搜索知识库 <span aria-hidden="true">⌕</span></button>
       </header>
+
+      <section className="dashboard-featured surface" aria-labelledby="featured-knowledge-title">
+        <div className="section-heading"><div><h2 id="featured-knowledge-title">下一步值得了解</h2><p>少量有依据的知识建议，由你决定是否接受。</p></div><button disabled={finding} onClick={() => void findNext()}>{finding ? "正在加入队列…" : "寻找下一步"}</button></div>
+        {findingNotice && <p role="status">{findingNotice}</p>}
+        {recommendations.loading && <p>正在读取论文建议…</p>}
+        {recommendations.error && <p role="alert">论文建议读取失败。<button onClick={recommendations.retry}>重试</button></p>}
+        <div className="dashboard-featured-grid">
+          {papers.map((item) => <article key={item.candidate.id}><Chip>{item.analysis.readiness === "low" ? "拓展阅读" : "优先阅读"}</Chip><h3>{item.work.title}</h3><p>{item.candidate.review_overrides?.why_relevant_zh ?? item.analysis.why_relevant_zh ?? item.analysis.why_relevant}</p><p>{item.analysis.existing_relations.slice(0, 3).map((relation) => <button className="text-button" key={`${relation.entity_type}:${relation.entity_id}`} onClick={() => navigate(relation.entity_type === "document" ? `/documents/${encodeURIComponent(relation.entity_id)}` : relation.entity_type === "term" ? `/terms/${encodeURIComponent(relation.entity_id)}` : `/research?work_id=${encodeURIComponent(item.work.id)}`)}>{relation.entity_id}</button>)}</p><button onClick={() => navigate(`/research?work_id=${encodeURIComponent(item.work.id)}`)}>查看并审核论文</button></article>)}
+          {terms.map((candidate) => <article key={candidate.id}><Chip>Term 建议</Chip><h3>{candidate.display_name}</h3><p>{candidate.discovery_assessment?.why_now || candidate.evidence.find((item) => !item.origin_rejected)?.rationale}</p><small>{candidate.evidence.filter((item) => !item.origin_rejected).map((item) => item.origin_title || item.origin_id).slice(0, 2).join(" · ")}</small><p><button onClick={() => navigate("/terms?tab=candidates")}>查看并审核 Term</button></p></article>)}
+        </div>
+        {!recommendations.loading && !papers.length && !terms.length && <p>暂时没有合适的精选建议。继续维护已审核知识，或按需寻找下一步。</p>}
+        <button className="text-button" onClick={() => navigate("/research")}>完整论文列表</button><button className="text-button" onClick={() => navigate("/terms?tab=candidates")}>完整 Term 列表</button>
+      </section>
 
       <section className="dashboard-workload surface" aria-labelledby="dashboard-workload-title">
         <div className="section-heading"><div><h2 id="dashboard-workload-title">现在有什么要处理？</h2><p>优先显示需要你作出判断的事项。</p></div><button className="text-button" type="button" onClick={() => navigate("/new-note")}>新建笔记</button></div>
@@ -75,7 +103,7 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
           <div className="learning-context-grid">
             <ContextList title="Current Focus" items={focusItems} empty="完成一次 Discovery 后显示当前 Focus。" />
             <ContextList title="Established" items={established} empty="尚无已建立的 Term。" />
-            <ContextList title="Learning" items={learning} empty="尚无正在学习的 Term。" />
+            <ContextList title="关注线索" items={learning} empty="暂无历史关注线索。" />
             <ContextList title="Core Gaps" items={coreGaps} empty="当前没有待审阅的 Core Gap。" />
           </div>
         </section>

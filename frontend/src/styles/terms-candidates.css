@@ -114,3 +114,7 @@
   .term-discovery-settings .section-heading .button { width: 100%; }
   .term-candidate-dialog, .term-picker-dialog { max-height: 92vh; padding: 17px; }
 }
+.term-candidate-inline-review { border-top: 1px solid var(--line); padding-top: 1rem; }
+.term-candidate-inline-review textarea { width: 100%; font-family: monospace; }
+.term-candidate-inline-review button, .term-candidate-batch button, .research-card-review button, .term-language-actions button { border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink); padding: .45rem .8rem; margin: .25rem; cursor: pointer; }
+.term-candidate-batch { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }

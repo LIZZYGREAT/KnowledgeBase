@@ -16,7 +16,7 @@ from backend.app.api.schemas import (
 
 router = APIRouter(prefix="/api/ai", tags=["AI Proposals"])
 _EXTERNAL_NOTICE = (
-    "本次请求会向 DeepSeek 发送 Draft 内容及当前任务所需的注册表上下文。"
+    "生成新建议时会向 DeepSeek 发送 Draft 内容及任务所需的注册表上下文；已有有效的 Term 初稿建议会直接复用。"
 )
 
 

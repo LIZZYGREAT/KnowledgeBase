@@ -35,6 +35,9 @@ export function TermCandidatesPanel({
   const [documentFilter, setDocumentFilter] = useState(initialDocumentId);
   const [termTypeFilter, setTermTypeFilter] = useState<TermType | "">("");
   const [showRejected, setShowRejected] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [notice, setNotice] = useState("");
   const [resolutionFilter, setResolutionFilter] = useState<ResolutionFilter>("all");
   const [busyCandidateId, setBusyCandidateId] = useState("");
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
@@ -82,6 +85,17 @@ export function TermCandidatesPanel({
     return [term.id, term.title, ...readList(term.metadata, "aliases")]
       .some((value) => value.toLocaleLowerCase().includes(query));
   });
+  const duplicateGroups = Object.values(visibleCandidates.reduce<Record<string, TermCandidate[]>>((groups, candidate) => { (groups[candidate.normalized_name] ??= []).push(candidate); return groups; }, {})).filter((items) => items.length > 1);
+  const selectedOpen = visibleCandidates.filter((candidate) => candidate.status === "pending" && selected.includes(candidate.id));
+  async function rejectSelected() {
+    setBatchBusy(true);
+    try {
+      for (const candidate of selectedOpen) {
+        const succeeded = await runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }));
+        if (succeeded) setSelected((current) => current.filter((id) => id !== candidate.id));
+      }
+    } finally { setBatchBusy(false); }
+  }
 
   async function runAction(candidateId: string, action: () => Promise<unknown>): Promise<boolean> {
     setBusyCandidateId(candidateId);
@@ -167,6 +181,10 @@ export function TermCandidatesPanel({
         </div>
         <span className="count-label">{visibleCandidates.length} 个候选</span><button onClick={() => setShowRejected(!showRejected)}>{showRejected ? "返回待审" : "拒绝历史"}</button>
       </div>
+      {notice && <p role="status">{notice}</p>}
+
+      {!showRejected && <div className="term-candidate-batch"><button disabled={batchBusy || !selectedOpen.length} onClick={() => void rejectSelected()}>批量拒绝（{selectedOpen.length}）</button><small>仅处理选中的待审候选，保留来源与拒绝记录。</small></div>}
+      {duplicateGroups.length > 0 && <details><summary>查看 {duplicateGroups.length} 个重复组</summary>{duplicateGroups.map((group) => <section key={group[0].normalized_name}><strong>{group[0].display_name} · {group.length} 项</strong>{group.map((candidate) => <p key={candidate.id}>{candidate.evidence.map((item) => item.origin_title || item.origin_id).join(" · ")}</p>)}<button disabled={batchBusy} onClick={() => setSelected((current) => Array.from(new Set([...current, ...group.filter((candidate) => candidate.status === "pending").map((candidate) => candidate.id)])))}>选择此组待审项</button></section>)}</details>}
 
       {resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : visibleCandidates.length ? (
         <div className="term-candidate-list">
@@ -203,6 +221,7 @@ export function TermCandidatesPanel({
             </div>;
             return (
               <article key={candidate.id} className="term-candidate-card surface">
+                {!showRejected && candidate.status === "pending" && <label><input type="checkbox" aria-label={`选择候选 ${candidate.display_name}`} checked={selected.includes(candidate.id)} disabled={batchBusy} onChange={(event) => setSelected((current) => event.target.checked ? [...current, candidate.id] : current.filter((id) => id !== candidate.id))} />选择</label>}
                 <header className="term-candidate-heading">
                   <div>
                     <div className="term-candidate-badges"><Chip>{titleCase(candidate.suggested_type)}</Chip><Chip tone={isExisting ? "green" : "neutral"}>{isExisting ? "Existing" : "New"}</Chip>{candidate.status === "drafting" && <Chip tone="amber">Drafting</Chip>}</div>
@@ -224,7 +243,7 @@ export function TermCandidatesPanel({
                 </details> : evidenceContent}
 
                 {actionErrors[candidate.id] && <p className="error-copy" role="alert">{actionErrors[candidate.id]}</p>}
-                {reviewDrafts[candidate.id] && <TermCandidateReview candidate={candidate} seed={reviewDrafts[candidate.id]} onDone={() => { setReviewDrafts((current) => { const next = { ...current }; delete next[candidate.id]; return next; }); resource.retry(); }} />}
+                {reviewDrafts[candidate.id] && <TermCandidateReview candidate={candidate} seed={reviewDrafts[candidate.id]} onDone={(warnings = []) => { setNotice(warnings.length ? "已发布 Term。" + warnings.join("；") : "操作已完成。"); setReviewDrafts((current) => { const next = { ...current }; delete next[candidate.id]; return next; }); resource.retry(); }} />}
                 <footer className="term-candidate-actions">
                   {candidate.status === "rejected" ? <button disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => restoreTermCandidate(candidate.id))}>恢复</button> : candidate.status === "drafting" ? <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void openCandidateDraft(candidate)}>{busyCandidateId === candidate.id ? "正在打开…" : "打开 Term Draft"}</button> : <>
                     {isExisting ? <>

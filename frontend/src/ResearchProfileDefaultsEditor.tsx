@@ -339,7 +339,8 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
                 <NumberField label="Max catch-up days" value={editableProfile.search.max_catchup_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_catchup_days: value } }))} />
                 <NumberField label="Max candidates per run" value={editableProfile.search.max_candidates_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_candidates_per_run: value } }))} />
                 <NumberField label="Max analyses per run" value={editableProfile.search.max_analyses_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_analyses_per_run: value } }))} />
-                <label className="field-label">起始研究年份（可选）<input type="number" min={1000} max={9997} value={editableProfile.search.history_seed_year ?? ""} onChange={(event) => { const value = event.target.value; if (!value || (Number.isInteger(Number(value)) && Number(value) >= 1000 && Number(value) <= 9997)) updateProfile((current) => ({ ...current, search: { ...current.search, history_seed_year: value ? Number(value) : null } })); }} /></label>
+                <NumberField label="起始研究年份（可选）" optional value={editableProfile.search.history_seed_year ?? null} min={1000} max={9997} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, history_seed_year: value } }))} />
+                <p className="field-hint">没有可推断年份的已批准笔记时，可设置一次起始年份。历史窗口会自动继续；留空则保留近期发现。</p>
                 <NumberField label="每轮 Provider 请求上限" value={editableProfile.search.max_provider_requests_per_run ?? 20} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_provider_requests_per_run: value } }))} />
                 <NumberField label="每日新推荐上限" value={editableProfile.search.max_recommendations_per_day ?? 3} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_recommendations_per_day: value } }))} />
                 <NumberField label="每日拓展阅读上限" value={editableProfile.search.max_stretch_per_day ?? 1} min={0} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_stretch_per_day: value } }))} />
@@ -410,8 +411,14 @@ function TextListField({ label, value, onChange }: { label: string; value: strin
   return <label className="field-label research-default-list-field">{label}<span className="field-hint">每行一项</span><textarea rows={3} value={rawValue} onChange={(event) => setRawValue(event.target.value)} onBlur={commitValue} /></label>;
 }
 
-function NumberField({ label, value, min, onChange }: { label: string; value: number; min: number; onChange: (value: number) => void }) {
-  const committedValue = String(value);
+type NumberFieldProps = { label: string; min: number; max?: number } & (
+  { optional?: false; value: number; onChange: (value: number) => void }
+  | { optional: true; value: number | null; onChange: (value: number | null) => void }
+);
+
+function NumberField(props: NumberFieldProps) {
+  const { label, value, min, max, onChange } = props;
+  const committedValue = value === null ? "" : String(value);
   const [rawValue, setRawValue] = useState(committedValue);
   const [error, setError] = useState("");
 
@@ -421,10 +428,15 @@ function NumberField({ label, value, min, onChange }: { label: string; value: nu
   }, [committedValue]);
 
   function commitValue() {
+    if (props.optional && !rawValue.trim()) {
+      setError("");
+      props.onChange(null);
+      return;
+    }
     const nextValue = Number(rawValue);
-    if (!rawValue.trim() || !Number.isInteger(nextValue) || nextValue < min) {
+    if (!rawValue.trim() || !Number.isInteger(nextValue) || nextValue < min || (max !== undefined && nextValue > max)) {
       setRawValue(committedValue);
-      setError("Enter a whole number greater than or equal to " + min + ".");
+      setError("Enter a whole number greater than or equal to " + min + (max === undefined ? "." : " and no greater than " + max + "."));
       return;
     }
     setError("");
@@ -432,7 +444,7 @@ function NumberField({ label, value, min, onChange }: { label: string; value: nu
     if (nextValue !== value) onChange(nextValue);
   }
 
-  return <label className="field-label">{label}<input type="number" min={min} step={1} value={rawValue} aria-invalid={Boolean(error)} onChange={(event) => { setRawValue(event.target.value); setError(""); }} onBlur={commitValue} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitValue(); } }} />{error && <span className="error-copy" role="alert">{error}</span>}</label>;
+  return <label className="field-label">{label}<input type="number" min={min} max={max} step={1} value={rawValue} aria-invalid={Boolean(error)} onChange={(event) => { setRawValue(event.target.value); setError(""); }} onBlur={commitValue} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitValue(); } }} />{error && <span className="error-copy" role="alert">{error}</span>}</label>;
 }
 
 function SelectionList({ label, items, selected, onChange }: { label: string; items: Array<{ id: string; title: string }>; selected: string[]; onChange: (selected: string[]) => void }) {

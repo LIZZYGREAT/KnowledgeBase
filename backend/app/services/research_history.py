@@ -1,14 +1,27 @@
 """Bounded historical discovery using approved Note content and linked Source dates."""
 
 from datetime import datetime, timezone
+import re
 
 from backend.app.domain.document import DocumentMetadata
 from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.research_watermark import ResearchSearchPlan, ResearchSearchSlice
+from backend.app.services.collection_registry import CollectionRegistry
 
 
 def research_anchor_year(root, profile, sources):
     years = []
+    pinned_documents = set(profile.context.documents)
+    collections = CollectionRegistry.load(root / "knowledge" / "collections")
+    for collection_id in profile.context.collections:
+        collection = collections.get(collection_id)
+        nodes = list(collection.nodes) if collection else []
+        while nodes:
+            node = nodes.pop()
+            if node.kind == "section":
+                nodes.extend(node.children)
+            elif node.entity_type == "document":
+                pinned_documents.add(node.entity_id)
     phrases = [profile.title, *[q for lens in profile.lenses if lens.enabled for q in lens.queries]]
     for path in (root / "knowledge" / "documents").rglob("*.md"):
         if path.is_symlink():
@@ -19,8 +32,9 @@ def research_anchor_year(root, profile, sources):
         if not metadata.review or not metadata.review.human or metadata.review.human.status != "approved":
             continue
         body = "\n".join(content.splitlines()[parsed.frontmatter_end_line or 0:])
-        if not body.strip() or not (
-            metadata.id in profile.context.documents
+        actual_content = "\n".join(line for line in body.splitlines() if not re.match(r"^#{1,6}\s", line)).strip()
+        if not actual_content or not (
+            metadata.id in pinned_documents
             or any(phrase.casefold() in body.casefold() for phrase in phrases)
         ):
             continue

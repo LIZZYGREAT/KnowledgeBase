@@ -72,15 +72,15 @@ export function ResearchCandidateCard({
       <div className="research-readiness-insight"><span>{chinese ? "当前适合度" : "Readiness"}</span><p>{item.analysis.readiness ?? "not available"} {item.analysis.readiness === "low" && <Chip tone="amber">Stretch</Chip>}</p><small>{chinese ? "为什么现在" : "Why now"}: {item.analysis.why_now ?? "not available"}</small><small>Known prerequisites: {(item.analysis.known_prerequisites ?? []).join(", ") || "not available"}</small><small>Missing prerequisites: {(item.analysis.missing_prerequisites ?? []).join(", ") || "not available"}</small></div>
     </div>
     {(item.discovered_term_candidate_count ?? 0) > 0 && <div className="research-discovered-terms"><span>Discovered Terms: {item.discovered_term_candidate_count}</span>{onReviewTerms && <button className="text-button" onClick={onReviewTerms}>Review in Terms →</button>}</div>}
-    {onApprove && (item.candidate.status === "new" || item.candidate.status === "shortlisted") && <ResearchCardReview candidate={item.candidate} values={overrides} onChange={setOverrides} onApprove={onApprove} language={language} original={{ summary: item.analysis.summary, summary_zh: item.analysis.summary_zh ?? "", why_relevant: item.analysis.why_relevant, why_relevant_zh: item.analysis.why_relevant_zh ?? "", reading_reason: item.analysis.reading_reason, reading_reason_zh: item.analysis.reading_reason_zh ?? "" }} />}
+    {onApprove && (item.candidate.status === "new" || item.candidate.status === "shortlisted") && <ResearchCardReview candidate={item.candidate} values={overrides} onChange={setOverrides} onApprove={onApprove} onReject={onDismiss} language={language} original={{ summary: item.analysis.summary, summary_zh: item.analysis.summary_zh ?? "", why_relevant: item.analysis.why_relevant, why_relevant_zh: item.analysis.why_relevant_zh ?? "", reading_reason: item.analysis.reading_reason, reading_reason_zh: item.analysis.reading_reason_zh ?? "" }} />}
     <div className="research-candidate-footer">
       <span>收录于 {formatDate(item.candidate.created_at)}</span>
       <div className="research-card-actions">
         {externalUrl && <a className="button button-quiet" href={externalUrl} target="_blank" rel="noreferrer">Open Paper ↗</a>}
         {item.candidate.status === "new" && <button className="button button-secondary" disabled={busy} onClick={onShortlist}>Shortlist</button>}
         {item.candidate.status !== "dismissed" && item.candidate.status !== "note_created" && <button className="button button-quiet" disabled={busy} onClick={onCreateNote}>Create Note</button>}
-        {item.candidate.status === "new" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
-        {item.candidate.status === "shortlisted" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
+        {!onApprove && item.candidate.status === "new" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
+        {!onApprove && item.candidate.status === "shortlisted" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
         {item.candidate.status === "dismissed" && <button className="button button-secondary" disabled={busy} onClick={onRestore}>Restore to Inbox</button>}
       </div>
     </div>

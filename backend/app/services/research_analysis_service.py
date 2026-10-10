@@ -151,6 +151,7 @@ class ResearchAnalysisService:
         }
         focus_tokens = set(_tokens(" ".join(focus + [work.title])))
         terms_by_state = {"established": [], "learning": [], "gaps": []}
+        remaining_excerpt_slots = max(0, context_pack.budget - len(context_pack.cards))
         for term in snapshot["registry"]:
             term_tokens = set(_tokens(" ".join([term["title"], *term["aliases"]])))
             if term["id"] not in selected_ids and not (focus_tokens & term_tokens):
@@ -158,6 +159,10 @@ class ResearchAnalysisService:
             state = term["state"]
             if state in {"established", "learning"}:
                 if term["content_excerpt"]:
+                    if term["id"] not in selected_ids:
+                        if remaining_excerpt_slots <= 0:
+                            continue
+                        remaining_excerpt_slots -= 1
                     terms_by_state[state].append({"id": term["id"], "title": term["title"], "review_status": term["review_status"], "content_excerpt": term["content_excerpt"]})
             elif state in {"exposed", "unknown"}:
                 terms_by_state["gaps"].append(

@@ -1,8 +1,9 @@
 """Stable request and response contracts exposed by the Knowledge API."""
 
 from typing import Annotated, Any, Literal, Optional, Union
+from hashlib import sha256
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from backend.app.domain.common import NonEmptyText
 
@@ -191,6 +192,11 @@ class DraftView(APIModel):
     revision: int
     created_at: str
     updated_at: str
+
+    @computed_field
+    @property
+    def working_content_hash(self) -> str:
+        return sha256(self.content.encode("utf-8")).hexdigest()
 
 
 class DraftAcquireView(APIModel):

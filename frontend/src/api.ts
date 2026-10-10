@@ -335,6 +335,7 @@ export interface Draft {
   base_git_revision: string;
   base_content_hash: string;
   content: string;
+  working_content_hash?: string;
   revision: number;
   created_at: string;
   updated_at: string;

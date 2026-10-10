@@ -310,6 +310,17 @@ describe("Terms Registry controls", () => {
     await waitFor(() => expect(screen.queryByText("Loser Term")).toBeNull());
   });
 
+  it("bulk rejects only selected pending Candidates", async () => {
+    render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
+    await userEvent.click(await screen.findByRole("checkbox", { name: "选择候选 Adaptive Token Pruning" }));
+    expect(screen.queryByRole("checkbox", { name: "选择候选 Closed Candidate" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "选择候选 Research Reading Phrase" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "批量拒绝（1）" }));
+    await waitFor(() => expect(api.rejectTermCandidate).toHaveBeenCalledWith("candidate-new", { scope: "global" }));
+    expect(api.rejectTermCandidate).toHaveBeenCalledTimes(1);
+    expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
+  });
+
   it("filters Candidate review and links a selected Registry Term", async () => {
     api.acceptTermCandidate.mockResolvedValue({});
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
@@ -419,7 +430,7 @@ describe("Terms Registry controls", () => {
     await waitFor(() => expect(api.createCandidateTermDraft).toHaveBeenCalledWith("candidate-new"));
     expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
     expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "生成双语解释" }));
+    await userEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
     await waitFor(() => expect(api.requestCandidateTermDraftProposal).toHaveBeenCalledWith(draft.id, "candidate-new"));
     expect(navigate).not.toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();

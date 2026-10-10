@@ -35,6 +35,9 @@ class AIProposalService:
 
     def generate(self, task_name: str, draft_id: str, extra_context: Optional[dict] = None):
         task, draft, registries, context = self._prepare(task_name, draft_id, extra_context)
+        cached = self._cached_term_proposal(task_name, draft)
+        if cached is not None:
+            return cached
         result = self.gateway.run(task_name, context)
         return self._persist_result(task, draft, registries, result, extra_context)
 
@@ -42,8 +45,20 @@ class AIProposalService:
         self, task_name: str, draft_id: str, extra_context: Optional[dict] = None
     ):
         task, draft, registries, context = self._prepare(task_name, draft_id, extra_context)
+        cached = self._cached_term_proposal(task_name, draft)
+        if cached is not None:
+            return cached
         result = await asyncio.to_thread(self.gateway.run, task_name, context)
         return self._persist_result(task, draft, registries, result, extra_context)
+
+    def _cached_term_proposal(self, task_name, draft):
+        if task_name != "draft_term":
+            return None
+        content_hash = sha256(draft.content.encode("utf-8")).hexdigest()
+        for proposal in self.proposal_service.list(target_type="term", target_id=draft.entity_id, kind="new_term", status="proposed"):
+            if proposal.base_content_hash == content_hash and proposal.payload.get("draft_id") == draft.id and proposal.payload.get("task") == task_name:
+                return proposal
+        return None
 
     def _prepare(self, task_name: str, draft_id: str, extra_context: Optional[dict]):
         task = TASKS.get(task_name)
