@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 
 import pytest
@@ -1098,6 +1099,75 @@ def test_analysis_budget_reserves_a_slot_for_eligible_backlog(tmp_path):
     assert run.analysis_attempt_count == 3
     assert "Fisher Information Historical Study" in context_builder.work_titles
     assert len(context_builder.work_titles) == 3
+    connection.close()
+
+
+def test_daily_recommendation_budget_defers_uncached_analysis_until_next_day(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    profile = profile.model_copy(
+        update={
+            "search": profile.search.model_copy(
+                update={"max_recommendations_per_day": 1}
+            )
+        }
+    )
+    works = tuple(
+        _provider_work().model_copy(
+            update={
+                "provider_record_id": "2401.daily-budget-{}".format(index),
+                "title": "Fisher Information Study {}".format(index),
+                "doi": "10.1000/daily-budget-{}".format(index),
+                "arxiv_id": "2401.daily-budget-{}".format(index),
+            }
+        )
+        for index in range(3)
+    )
+    provider = FakeProvider([ProviderPage(works=works)])
+    service, _, search_repository, _ = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+
+    class SelectiveMockDeepSeekClient(MockDeepSeekClient):
+        def complete(self, messages, output_schema):
+            context = json.loads(messages[1]["content"])
+            title = context["work"]["title"]
+            self.calls.append(title)
+            self.messages.append(messages)
+            return json.dumps(
+                _analysis_output(relevant="Study 0" not in title),
+                ensure_ascii=False,
+            )
+
+    client = SelectiveMockDeepSeekClient()
+    service.analysis_service.gateway.client = client
+
+    first_run = service.run_profile(profile.id)
+
+    assert first_run is not None and first_run.status == "success"
+    assert first_run.error_summary is not None and first_run.error_summary.startswith("Warning: Daily recommendation")
+    assert "unanalysed Works and discoveries remain saved" in first_run.error_summary
+    assert client.calls == [works[0].title, works[1].title]
+    assert ResearchCandidateRepository(connection).count_new(profile.id) == 1
+    query = service.query_builder.build(profile)[0]
+    state = search_repository.get_state(
+        profile.id, query.lens_id, "arxiv", query.query_key
+    )
+    assert state is not None and state.completed_through is None
+
+    same_day_run = service.run_profile(profile.id, trigger="manual")
+    assert same_day_run is not None and same_day_run.status == "success"
+    assert len(client.calls) == 2
+
+    next_day = _NOW + timedelta(days=1)
+    service.clock = lambda: next_day
+    service.candidate_service.clock = service.clock
+    next_day_run = service.run_profile(profile.id, trigger="manual")
+
+    assert next_day_run is not None and next_day_run.status == "success"
+    assert len(client.calls) == 3
+    assert works[2].title in client.calls
+    assert ResearchCandidateRepository(connection).count_new(profile.id) == 2
     connection.close()
 
 

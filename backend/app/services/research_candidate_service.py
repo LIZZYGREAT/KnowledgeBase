@@ -39,6 +39,10 @@ class ResearchCandidateService:
             - self.repository.count_new(profile.id),
         )
 
+    def remaining_daily_recommendations(self, profile: ResearchProfile) -> int:
+        counts = self._daily_exposure_counts(profile, self._now())
+        return max(0, profile.search.max_recommendations_per_day - counts["total"])
+
     def generate(
         self,
         analysis: ResearchWorkAnalysisRecord,
@@ -70,17 +74,10 @@ class ResearchCandidateService:
             ).fetchall()
             if any(" ".join((row["abstract"] or "").casefold().split()) == abstract for row in previous):
                 return CandidateGenerationResult("filtered")
-        # Count exposures across all decisions so rejecting cards cannot refill today's budget.
-        counts = self.repository.connection.execute(
-            """SELECT COUNT(*) AS total,
-                      SUM(CASE WHEN json_extract(a.analysis_json, '$.readiness')='low' THEN 1 ELSE 0 END) AS stretch
-               FROM research_candidates c JOIN research_work_analyses a ON a.id=c.analysis_id
-               WHERE c.profile_id=? AND c.created_at >= ?""",
-            (profile.id, now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()),
-        ).fetchone()
+        counts = self._daily_exposure_counts(profile, now)
         if counts["total"] >= profile.search.max_recommendations_per_day:
             return CandidateGenerationResult("budget_reached")
-        if output.readiness == "low" and (counts["stretch"] or 0) >= profile.search.max_stretch_per_day:
+        if output.readiness == "low" and counts["stretch"] >= profile.search.max_stretch_per_day:
             return CandidateGenerationResult("stretch_budget_reached")
         candidate = ResearchCandidateRecord(
             id=uuid.uuid4().hex,
@@ -103,6 +100,17 @@ class ResearchCandidateService:
         return CandidateGenerationResult(
             "created" if created else "existing", persisted
         )
+
+    def _daily_exposure_counts(self, profile: ResearchProfile, now: datetime):
+        # Count exposures across all decisions so rejecting cards cannot refill today's budget.
+        counts = self.repository.connection.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN json_extract(a.analysis_json, '$.readiness')='low' THEN 1 ELSE 0 END) AS stretch
+               FROM research_candidates c JOIN research_work_analyses a ON a.id=c.analysis_id
+               WHERE c.profile_id=? AND c.created_at >= ?""",
+            (profile.id, now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()),
+        ).fetchone()
+        return {"total": counts["total"], "stretch": counts["stretch"] or 0}
 
     def shortlist(
         self, candidate_id: str, user_note: Optional[str] = None

@@ -1209,6 +1209,11 @@ class ResearchService:
             work.id, profile.id, analysis_hash
         )
         if analysis is None:
+            if self.candidate_service.remaining_daily_recommendations(profile) <= 0:
+                warnings.append(
+                    "Daily recommendation exposure budget reached; unanalysed Works and discoveries remain saved for a later Run."
+                )
+                return False, "success"
             if analysis_breaker.analysis_disabled_for_run:
                 errors.append("DeepSeek analysis circuit opened for this run")
                 return False, "partial"

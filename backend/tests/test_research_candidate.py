@@ -35,6 +35,27 @@ def test_daily_exposure_budget_keeps_analysis_for_next_day():
     connection.close()
 
 
+def test_daily_recommendation_capacity_counts_dismissed_exposures_and_resets_at_utc_midnight():
+    connection = connect_database(":memory:")
+    repository = ResearchCandidateRepository(connection)
+    service = ResearchCandidateService(repository, clock=_clock)
+    profile = _profile()
+
+    for number in range(profile.search.max_recommendations_per_day):
+        work_id = "capacity-{}".format(number)
+        analysis = _analysis(work_id)
+        _persist_work_and_analysis(connection, _work(work_id), analysis)
+        candidate = service.generate(analysis, profile, profile.lenses[0]).candidate
+        assert candidate is not None
+        if number == 0:
+            service.dismiss(candidate.id, "not_relevant")
+
+    assert service.remaining_daily_recommendations(profile) == 0
+    service.clock = lambda: datetime(2026, 10, 4, tzinfo=timezone.utc)
+    assert service.remaining_daily_recommendations(profile) == profile.search.max_recommendations_per_day
+    connection.close()
+
+
 def test_stretch_budget_is_independent_of_total_exposure_budget():
     connection = connect_database(":memory:")
     service = ResearchCandidateService(ResearchCandidateRepository(connection), clock=_clock)
