@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, parseDocument } from "yaml";
 import {
   analyzeDocumentTerms, createPresentationAnnotation, deletePresentationAnnotation,
   getCollectionNavigation, getDocumentTermAnalysis, getEntity, listPresentationAnnotations,
@@ -70,6 +70,11 @@ export function EntityPage({
     return makeDraftReaderEntity(type, id, workspaceDraft.content);
   }, [canonicalEntity, id, type, workspaceDraft.content, workspaceDraft.draft]);
   const currentEntity = canonicalEntity ?? draftOnlyEntity;
+  const hasUnpublishedDraft = Boolean(workspaceDraft.draft || workspaceDraft.isDirty);
+  const draftTitle = hasUnpublishedDraft ? readDraftTitle(workspaceDraft.content, type) : null;
+  const displayTitle = hasUnpublishedDraft && draftTitle?.valid
+    ? draftTitle.title
+    : currentEntity?.title ?? "";
   const hasDraftConflict = workspaceDraft.saveState === "runtime-conflict"
     || workspaceDraft.saveState === "canonical-conflict";
   const discardBlocked = workspaceDraft.saveState === "saving" || hasDraftConflict;
@@ -364,9 +369,9 @@ export function EntityPage({
 
   return (
     <div className="page-stack entity-page">
-      {collectionId && <CollectionReaderContext navigation={collectionNavigation.data} loading={collectionNavigation.loading} error={collectionNavigation.error} currentType={type} currentId={id} currentTitle={entity.title} navigate={navigate} />}
+      {collectionId && <CollectionReaderContext navigation={collectionNavigation.data} loading={collectionNavigation.loading} error={collectionNavigation.error} currentType={type} currentId={id} currentTitle={displayTitle} navigate={navigate} />}
       <div className="entity-title-row">
-        <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{entity.title}</h1><div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
+        <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{displayTitle}</h1>{hasUnpublishedDraft && <span className="entity-draft-preview-label" role="status">Draft 预览 · 尚未发布</span>}{hasUnpublishedDraft && draftTitle && !draftTitle.valid && <p className="entity-draft-title-error" role="alert">Draft 标题无法读取，仍显示正式标题。请先修复元数据 YAML。</p>}<div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
       </div>
       <div className="reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作">
         <div className="reader-toolbar-group" role="group" aria-label="编辑">
@@ -514,7 +519,7 @@ function makeDraftReaderEntity(type: EntityType, id: string, content: string): E
   }
   return {
     id,
-    title: typeof metadata.title === "string" && metadata.title.trim() ? metadata.title : id,
+    title: typeof metadata.title === "string" ? metadata.title : "",
     entity_type: type,
     metadata,
     content: type === "source" ? null : envelope.body,
@@ -525,4 +530,22 @@ function makeDraftReaderEntity(type: EntityType, id: string, content: string): E
     evidence: [],
     related_documents: [],
   };
+}
+
+function readDraftTitle(content: string, type: EntityType): { valid: true; title: string } | { valid: false } {
+  const envelope = splitMarkdownFrontmatter(content);
+  const yamlText = type === "source"
+    ? content
+    : envelope.frontmatter.replace(/^---\r?\n/, "").replace(/\r?\n---\r?\n?$/, "");
+  if (!yamlText.trim()) return { valid: false };
+  try {
+    const document = parseDocument(yamlText);
+    if (document.errors.length) return { valid: false };
+    const metadata: unknown = document.toJS();
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return { valid: false };
+    const title = (metadata as Record<string, unknown>).title;
+    return typeof title === "string" ? { valid: true, title } : { valid: false };
+  } catch {
+    return { valid: false };
+  }
 }

@@ -372,6 +372,52 @@ describe("Workspace React integration", () => {
     installApiBehavior();
   });
 
+  it("previews an edited Draft title immediately, keeps it after reload, and restores Canonical after discard", async () => {
+    const user = userEvent.setup();
+    const canonical = makeEntity();
+    publishedEntity = {
+      ...canonical,
+      title: "[",
+      canonical_content: canonicalContent.replace("title: Quick Start", 'title: "["'),
+    };
+    seedDraft();
+    const firstView = renderWorkspace();
+    await screen.findByRole("heading", { name: "Quick Start" });
+    await user.click(screen.getByRole("button", { name: "元数据" }));
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "决策树" } });
+
+    expect(screen.getByRole("heading", { name: "决策树" })).toBeTruthy();
+    expect(screen.getByText("Draft 预览 · 尚未发布")).toBeTruthy();
+    await waitFor(() => expect(drafts[0].content).toContain("title: 决策树"), { timeout: 2500 });
+
+    firstView.unmount();
+    renderWorkspace();
+    await screen.findByRole("heading", { name: "决策树" });
+    expect(screen.getByText("Draft 预览 · 尚未发布")).toBeTruthy();
+
+    const confirmation = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: "丢弃 Draft" }));
+    await screen.findByRole("heading", { name: "[" });
+    expect(screen.queryByText("Draft 预览 · 尚未发布")).toBeNull();
+    expect(confirmation).toHaveBeenCalledOnce();
+    confirmation.mockRestore();
+  });
+
+  it("keeps the Canonical title visible and reports malformed Draft metadata", async () => {
+    const canonical = makeEntity();
+    publishedEntity = {
+      ...canonical,
+      title: "[",
+      canonical_content: canonicalContent.replace("title: Quick Start", 'title: "["'),
+    };
+    seedDraft("---\ntitle: [broken\n---\n# Main heading\n\nDraft body.");
+    renderWorkspace();
+
+    await screen.findByRole("heading", { name: "[" });
+    expect(screen.getByText("Draft 预览 · 尚未发布")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Draft 标题无法读取");
+  });
+
   it("keeps incomplete Source year and URL text local while syncing valid values immediately", () => {
     const onFrontmatterUpdate = vi.fn();
     render(<WorkspaceMetadataDrawer
@@ -810,7 +856,8 @@ describe("Workspace React integration", () => {
       };
     });
     const { container } = renderWorkspace();
-    await screen.findByRole("heading", { name: "Quick Start" });
+    await screen.findByRole("heading", { name: "Published Title" });
+    expect(screen.getByText("Draft 预览 · 尚未发布")).toBeTruthy();
 
     await user.click(await screen.findByRole("button", { name: "发布" }));
     await screen.findByRole("heading", { name: "变更摘要" });
@@ -819,6 +866,7 @@ describe("Workspace React integration", () => {
     await user.click(publishButton);
 
     await screen.findByRole("heading", { name: "Published Title" });
+    expect(screen.queryByText("Draft 预览 · 尚未发布")).toBeNull();
     await waitFor(() => expect(api.getEntity.mock.calls.filter(([type, id]) => type === "document" && id === "quick-start").length).toBe(2));
     await user.click(screen.getByRole("button", { name: "More" }));
     expect(await screen.findByRole("button", { name: /Updated Source/ })).toBeTruthy();
