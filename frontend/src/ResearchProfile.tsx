@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   pauseResearchProfile,
   queueResearchRun,
@@ -69,13 +69,24 @@ export function ResearchProfilePanel({
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
   const [queries, setQueries] = useState("");
+  const previousProfileId = useRef(profile.id);
 
   useEffect(() => {
+    setSelectedLenses(profile.lenses.filter((lens) => lens.enabled).map((lens) => lens.id));
+    setBreadth(profile.search.breadth);
+  }, [profile.search.breadth, profile.lenses]);
+
+  useEffect(() => {
+    if (previousProfileId.current === profile.id) return;
+    previousProfileId.current = profile.id;
     setSelectedLenses(profile.lenses.filter((lens) => lens.enabled).map((lens) => lens.id));
     setBreadth(profile.search.breadth);
     setQueries("");
     setAdditionalQueryLens("");
     setDateMode("last_30_days");
+    setDateStart("");
+    setDateEnd("");
+    setSearchOpen(false);
   }, [profile.id, profile.search.breadth, profile.lenses]);
 
   useEffect(() => {

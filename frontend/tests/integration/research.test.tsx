@@ -56,6 +56,10 @@ describe("Research workspace", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   let responseProfileDetail = profileDetail;
   let responseProfileSummary = profileSummary;
+  let responseAdditionalProfileSummary: typeof profileSummary | null = null;
+  let responseAdditionalProfileDetail: typeof profileDetail | null = null;
+  let deferNextProfileRefresh = false;
+  let resolveDeferredProfileRefresh: ((response: Response) => void) | null = null;
   let responseCandidateDetail = candidateDetail;
   let responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
   let responseDocuments: Array<{ id: string; title: string }> = [];
@@ -67,6 +71,10 @@ describe("Research workspace", () => {
   beforeEach(() => {
     responseProfileDetail = profileDetail;
     responseProfileSummary = profileSummary;
+    responseAdditionalProfileSummary = null;
+    responseAdditionalProfileDetail = null;
+    deferNextProfileRefresh = false;
+    resolveDeferredProfileRefresh = null;
     responseCandidateDetail = candidateDetail;
     responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
     responseDocuments = [];
@@ -84,8 +92,13 @@ describe("Research workspace", () => {
       if (path === "/api/collections/continual-learning") return jsonResponse(responseCollection);
       if (path === "/api/drafts?entity_type=collection&entity_id=continual-learning") return jsonResponse([]);
       if (path === "/api/documents?limit=100&offset=0") return jsonResponse(responseDocuments);
-      if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary]);
+      if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary, ...(responseAdditionalProfileSummary ? [responseAdditionalProfileSummary] : [])]);
+      if (path === "/api/research/profiles/continual-learning" && deferNextProfileRefresh) {
+        deferNextProfileRefresh = false;
+        return new Promise<Response>((resolve) => { resolveDeferredProfileRefresh = resolve; });
+      }
       if (path === "/api/research/profiles/continual-learning") return jsonResponse(responseProfileDetail);
+      if (responseAdditionalProfileDetail && path === `/api/research/profiles/${responseAdditionalProfileDetail.profile.id}`) return jsonResponse(responseAdditionalProfileDetail);
       if (path === "/api/research/profiles/continual-learning/resume" && init?.method === "POST") return jsonResponse({});
       if (path.startsWith("/api/drafts?entity_type=research_profile&entity_id=")) {
         const entityId = new URLSearchParams(path.split("?")[1]).get("entity_id");
@@ -1179,6 +1192,101 @@ describe("Research workspace", () => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
     });
     expect(published).toHaveBeenCalledWith([], { start: "2010-01-01", end: "2014-12-31" });
+  });
+
+  it("keeps the published history backfill range through an asynchronous same-profile refresh", async () => {
+    const seededProfile = { ...profile, search: { ...profile.search, history_seed_year: 2017 } };
+    responseProfileDetail = {
+      ...profileDetail,
+      profile: seededProfile,
+      canonical_content: stringify(seededProfile, { lineWidth: 0 }),
+      history_anchor_year: 2017,
+    };
+    const otherProfile = {
+      ...profile,
+      id: "other-profile",
+      title: "Other Profile",
+      lenses: profile.lenses.map((lens) => ({ ...lens, id: "other-focus" })),
+    };
+    responseAdditionalProfileSummary = {
+      ...profileSummary,
+      id: otherProfile.id,
+      title: otherProfile.title,
+      enabled_lens_ids: ["other-focus"],
+    };
+    responseAdditionalProfileDetail = {
+      ...profileDetail,
+      profile: otherProfile,
+      canonical_content: stringify(otherProfile, { lineWidth: 0 }),
+      runtime_state: { ...profileDetail.runtime_state, profile_id: otherProfile.id },
+    };
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "设置研究起点" }));
+    expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
+    fireEvent.click(screen.getByText("高级设置"));
+    const historySeed = screen.getByRole("spinbutton", { name: "起始研究年份（可选）" });
+    fireEvent.change(historySeed, { target: { value: "2012" } });
+    fireEvent.blur(historySeed);
+    expect(await screen.findByText(/预填 2010-01-01 至 2014-12-31/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
+    expect(await screen.findByText("Profile Draft preflight 通过。")).toBeTruthy();
+
+    const refreshedProfile = {
+      ...seededProfile,
+      search: { ...seededProfile.search, history_seed_year: 2012 },
+      lenses: seededProfile.lenses.map((lens) => ({ ...lens })),
+    };
+    responseProfileDetail = {
+      ...profileDetail,
+      profile: refreshedProfile,
+      canonical_content: stringify(refreshedProfile, { lineWidth: 0 }),
+      history_anchor_year: 2012,
+    };
+    deferNextProfileRefresh = true;
+    fireEvent.click(screen.getByRole("button", { name: "Publish Defaults" }));
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
+      expect(resolveDeferredProfileRefresh).toBeTypeOf("function");
+    });
+    expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("custom");
+    expect((screen.getByLabelText("开始日期") as HTMLInputElement).value).toBe("2010-01-01");
+    expect((screen.getByLabelText("结束日期") as HTMLInputElement).value).toBe("2014-12-31");
+
+    resolveDeferredProfileRefresh!(jsonResponse(responseProfileDetail));
+    await waitFor(() => {
+      expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("custom");
+      expect((screen.getByLabelText("开始日期") as HTMLInputElement).value).toBe("2010-01-01");
+      expect((screen.getByLabelText("结束日期") as HTMLInputElement).value).toBe("2014-12-31");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
+    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
+    const queuedCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
+    const localBoundary = (year: number, month: number, day: number) => {
+      const boundary = new Date(0);
+      boundary.setFullYear(year, month - 1, day);
+      boundary.setHours(0, 0, 0, 0);
+      return boundary.toISOString();
+    };
+    expect(JSON.parse(String(queuedCall?.[1]?.body))).toMatchObject({
+      date_range: { mode: "custom", start: localBoundary(2010, 1, 1), end: localBoundary(2015, 1, 1) },
+    });
+
+    await waitFor(() => {
+      expect(mockFetch.mock.calls.filter(([input, init]) => String(input) === "/api/research/profiles/continual-learning" && init?.method !== "POST").length).toBeGreaterThanOrEqual(3);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search Now" }));
+    fireEvent.change(screen.getByLabelText("时间范围"), { target: { value: "last_30_days" } });
+    expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("last_30_days");
+
+    fireEvent.change(screen.getByLabelText("Research Profile"), { target: { value: "other-profile" } });
+    expect(await screen.findByRole("heading", { name: "Other Profile" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Search Now" }));
+    expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("last_30_days");
+    expect(screen.queryByLabelText("开始日期")).toBeNull();
   });
 
   it("keeps advanced defaults collapsed and rejects empty numeric edits without saving them", async () => {
