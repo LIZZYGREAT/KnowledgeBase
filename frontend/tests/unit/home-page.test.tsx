@@ -90,33 +90,78 @@ describe("Knowledge Dashboard", () => {
   });
 
   it("renders featured paper and Term rationales as Markdown", async () => {
+    const longPaperReason = `**Paper rationale** ${"The paper fits the selected knowledge and has a distinct method. ".repeat(6)}`;
+    const longTermReason = `Builds on **known Terms** ${"The source passage explains why this concept matters. ".repeat(5)}`;
     api.listResearchCandidates.mockResolvedValue({ candidates: [{
       candidate: { id: "paper-markdown", review_overrides: {} },
       work: { id: "work-markdown", title: "Markdown Paper" },
-      analysis: { readiness: "high", why_relevant_zh: "**Paper rationale**", existing_relations: [] },
+      analysis: { readiness: "high", why_relevant_zh: longPaperReason, existing_relations: [] },
     }] });
     api.listTermCandidates.mockResolvedValue([
       {
         id: "term-why-now",
         display_name: "Term with timing",
         evidence: [{ origin_rejected: false, context_excerpt: "Reviewed passage.", rationale: "Fallback **evidence rationale**", origin_id: "note-one" }],
-        discovery_assessment: { why_now: "Builds on **known Terms**" },
+        discovery_assessment: { why_now: longTermReason },
       },
       {
         id: "term-evidence",
         display_name: "Term with evidence",
         evidence: [{ origin_rejected: false, context_excerpt: "Another reviewed passage.", rationale: "Grounded in **reviewed evidence**", origin_id: "note-two" }],
-        discovery_assessment: {},
+        discovery_assessment: { why_now: `Grounded in **reviewed evidence** ${"The original passage supports this recommendation. ".repeat(5)}` },
       },
     ]);
 
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     const featured = await screen.findByRole("region", { name: "下一步值得了解" });
-    expect(within(featured).getByText("Paper rationale").tagName).toBe("STRONG");
-    expect(within(featured).getByText("known Terms").tagName).toBe("STRONG");
-    expect(within(featured).getByText("reviewed evidence").tagName).toBe("STRONG");
+    expect(featured.querySelectorAll(".home-recommendation-reason-summary")).toHaveLength(3);
+    expect([...featured.querySelectorAll(".home-recommendation-reason-summary")].every((summary) => (summary.textContent ?? "").length <= 181)).toBe(true);
+    expect(featured.querySelector(".research-explanation")).toBeNull();
+    const expandButtons = within(featured).getAllByText("展开完整理由");
+    expect(expandButtons).toHaveLength(3);
+    await userEvent.click(expandButtons[0]);
+    await userEvent.click(expandButtons[1]);
+    await userEvent.click(expandButtons[2]);
+    expect(featured.querySelectorAll(".home-recommendation-full-details[open]")).toHaveLength(3);
+    const fullReasons = featured.querySelectorAll(".home-recommendation-full");
+    expect(fullReasons[0].querySelector("strong")?.textContent).toBe("Paper rationale");
+    expect(fullReasons[1].querySelector("strong")?.textContent).toBe("known Terms");
+    expect(fullReasons[2].querySelector("strong")?.textContent).toBe("reviewed evidence");
     expect(featured.querySelector("p p")).toBeNull();
+  });
+
+  it("shows queue loading, queued feedback, errors, and working review links beside their actions", async () => {
+    const navigate = vi.fn();
+    const user = userEvent.setup();
+    api.listResearchCandidates.mockResolvedValue({ candidates: [{
+      candidate: { id: "paper-long", review_overrides: {} },
+      work: { id: "work-long", title: "A Very Long Paper Title That Must Wrap On Small Screens" },
+      analysis: { readiness: "high", why_relevant_zh: `Why it matters ${"based on the selected notes and reliable sources. ".repeat(7)}`, existing_relations: [] },
+    }] });
+    let resolveQueue!: (value: { request_id: string; status: string }) => void;
+    api.queueResearchRun.mockReturnValueOnce(new Promise((resolve) => { resolveQueue = resolve; }));
+    api.queueResearchRun.mockRejectedValueOnce(new Error("queue unavailable"));
+
+    render(<HomePage onOpen={vi.fn()} navigate={navigate} />);
+    const featured = await screen.findByRole("region", { name: "下一步值得了解" });
+    const findButton = within(featured).getByRole("button", { name: "寻找下一步" });
+    await user.click(findButton);
+    const loadingButton = await within(featured).findByRole("button", { name: "正在加入队列…" });
+    expect((loadingButton as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => resolveQueue({ request_id: "queued", status: "pending" }));
+    expect(within(featured).getByRole("status").textContent).toContain("已加入研究队列");
+
+    await user.click(within(featured).getByRole("button", { name: "寻找下一步" }));
+    expect(await within(featured).findByRole("alert")).toBeTruthy();
+    expect(within(featured).getByRole("alert").textContent).toContain("queue unavailable");
+
+    await user.click(within(featured).getByText("展开完整理由"));
+    expect(featured.querySelector(".home-recommendation-full-details[open]")).not.toBeNull();
+    await user.click(within(featured).getByRole("button", { name: "查看并审核论文" }));
+    expect(navigate).toHaveBeenCalledWith("/research?work_id=work-long");
+    await user.click(within(featured).getByRole("button", { name: "完整论文列表" }));
+    expect(navigate).toHaveBeenCalledWith("/research");
   });
 
   it("uses a normal empty state when no supported recommendation exists", async () => {

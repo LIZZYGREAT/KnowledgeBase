@@ -19,7 +19,7 @@ interface HomeCriticalData {
 
 export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate: Navigate }) {
   const [finding, setFinding] = useState(false);
-  const [findingNotice, setFindingNotice] = useState("");
+  const [findingFeedback, setFindingFeedback] = useState<{ type: "status" | "error"; message: string } | null>(null);
   const critical = useResource("home-critical", async (): Promise<HomeCriticalData> => {
     const [summary, termDiscovery, pendingCandidates, researchProfiles] = await Promise.all([
       getUiSummary(),
@@ -40,10 +40,13 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
   const terms = pendingCandidates.filter((candidate) => candidate.evidence.some((item) => !item.origin_rejected && Boolean(item.context_excerpt?.trim())) && Boolean(candidate.discovery_assessment?.why_now || candidate.evidence.find((item) => !item.origin_rejected)?.rationale)).slice(0, Math.max(0, 3 - papers.length));
   async function findNext() {
     const profile = researchProfiles.find((item) => item.enabled && !(item.paused_until && Date.parse(item.paused_until) > Date.now()) && item.inbox.remaining > 0);
-    if (!profile) { setFindingNotice("请先设置或恢复一个研究方向，或处理已满的 Inbox。"); return; }
-    setFinding(true); setFindingNotice("");
-    try { await queueResearchRun(profile.id, { lenses: profile.enabled_lens_ids, date_range: { mode: "incremental" } }); setFindingNotice("寻找下一步已加入研究队列，可在 Research 查看结果。"); }
-    catch (reason) { setFindingNotice(reason instanceof Error ? reason.message : "请求失败，请重试。"); }
+    if (!profile) { setFindingFeedback({ type: "status", message: "请先设置或恢复一个研究方向，或处理已满的 Inbox。" }); return; }
+    setFinding(true); setFindingFeedback(null);
+    try {
+      await queueResearchRun(profile.id, { lenses: profile.enabled_lens_ids, date_range: { mode: "incremental" } });
+      setFindingFeedback({ type: "status", message: "寻找下一步已加入研究队列，可在 Research 查看结果。" });
+    }
+    catch (reason) { setFindingFeedback({ type: "error", message: reason instanceof Error ? reason.message : "请求失败，请重试。" }); }
     finally { setFinding(false); }
   }
   const snapshot = asRecord(termDiscovery.last_run?.snapshot);
@@ -74,16 +77,27 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
       </header>
 
       <section className="dashboard-featured surface" aria-labelledby="featured-knowledge-title">
-        <div className="section-heading"><div><h2 id="featured-knowledge-title">下一步值得了解</h2><p>少量有依据的知识建议，由你决定是否接受。</p></div><button disabled={finding} onClick={() => void findNext()}>{finding ? "正在加入队列…" : "寻找下一步"}</button></div>
-        {findingNotice && <p role="status">{findingNotice}</p>}
+        <div className="section-heading"><div><h2 id="featured-knowledge-title">下一步值得了解</h2><p>少量有依据的知识建议，由你决定是否接受。</p></div><div className="home-featured-actions"><button type="button" className="button button-primary" disabled={finding} onClick={() => void findNext()}>{finding ? "正在加入队列…" : "寻找下一步"}</button>{findingFeedback && <p className={findingFeedback.type === "error" ? "home-finding-feedback error" : "home-finding-feedback"} role={findingFeedback.type === "error" ? "alert" : "status"}>{findingFeedback.message}</p>}</div></div>
         {recommendations.loading && <p>正在读取论文建议…</p>}
-        {recommendations.error && <p role="alert">论文建议读取失败。<button onClick={recommendations.retry}>重试</button></p>}
+        {recommendations.error && <p className="home-recommendation-error" role="alert">论文建议读取失败。<button type="button" className="button button-secondary" onClick={recommendations.retry}>重试</button></p>}
         <div className="dashboard-featured-grid">
-          {papers.map((item) => <article key={item.candidate.id}><Chip>{item.analysis.readiness === "low" ? "拓展阅读" : "优先阅读"}</Chip><h3>{item.work.title}</h3><div className="research-explanation home-recommendation-reason"><MarkdownContent content={item.candidate.review_overrides?.why_relevant_zh ?? item.analysis.why_relevant_zh ?? item.analysis.why_relevant ?? ""} /></div><p>{item.analysis.existing_relations.slice(0, 3).map((relation) => <button className="text-button" key={`${relation.entity_type}:${relation.entity_id}`} onClick={() => navigate(relation.entity_type === "document" ? `/documents/${encodeURIComponent(relation.entity_id)}` : relation.entity_type === "term" ? `/terms/${encodeURIComponent(relation.entity_id)}` : `/research?work_id=${encodeURIComponent(item.work.id)}`)}>{relation.entity_id}</button>)}</p><button onClick={() => navigate(`/research?work_id=${encodeURIComponent(item.work.id)}`)}>查看并审核论文</button></article>)}
-          {terms.map((candidate) => <article key={candidate.id}><Chip>Term 建议</Chip><h3>{candidate.display_name}</h3><div className="research-explanation home-recommendation-reason"><MarkdownContent content={candidate.discovery_assessment?.why_now || candidate.evidence.find((item) => !item.origin_rejected)?.rationale || ""} /></div><small>{candidate.evidence.filter((item) => !item.origin_rejected).map((item) => item.origin_title || item.origin_id).slice(0, 2).join(" · ")}</small><p><button onClick={() => navigate("/terms?tab=candidates")}>查看并审核 Term</button></p></article>)}
+          {papers.map((item) => <article key={item.candidate.id}>
+            <Chip>{item.analysis.readiness === "low" ? "拓展阅读" : "优先阅读"}</Chip>
+            <h3>{item.work.title}</h3>
+            <RecommendationReason content={item.candidate.review_overrides?.why_relevant_zh ?? item.analysis.why_relevant_zh ?? item.analysis.why_relevant ?? ""} />
+            {item.analysis.existing_relations.length > 0 && <div className="home-recommendation-related"><span>相关知识</span>{item.analysis.existing_relations.slice(0, 3).map((relation) => <button className="text-button" type="button" key={`${relation.entity_type}:${relation.entity_id}`} onClick={() => navigate(relation.entity_type === "document" ? `/documents/${encodeURIComponent(relation.entity_id)}` : relation.entity_type === "term" ? `/terms/${encodeURIComponent(relation.entity_id)}` : `/research?work_id=${encodeURIComponent(item.work.id)}`)}>{relation.entity_id}</button>)}</div>}
+            <div className="home-recommendation-card-actions"><button type="button" className="button button-secondary" onClick={() => navigate(`/research?work_id=${encodeURIComponent(item.work.id)}`)}>查看并审核论文</button></div>
+          </article>)}
+          {terms.map((candidate) => <article key={candidate.id}>
+            <Chip>Term 建议</Chip>
+            <h3>{candidate.display_name}</h3>
+            <RecommendationReason content={candidate.discovery_assessment?.why_now || candidate.evidence.find((item) => !item.origin_rejected)?.rationale || ""} />
+            <p className="home-recommendation-sources"><strong>来源</strong> {candidate.evidence.filter((item) => !item.origin_rejected).map((item) => item.origin_title || item.origin_id).slice(0, 2).join(" · ") || "暂无来源信息"}</p>
+            <div className="home-recommendation-card-actions"><button type="button" className="button button-secondary" onClick={() => navigate("/terms?tab=candidates")}>查看并审核 Term</button></div>
+          </article>)}
         </div>
         {!recommendations.loading && !papers.length && !terms.length && <p>暂时没有合适的精选建议。继续维护已审核知识，或按需寻找下一步。</p>}
-        <button className="text-button" onClick={() => navigate("/research")}>完整论文列表</button><button className="text-button" onClick={() => navigate("/terms?tab=candidates")}>完整 Term 列表</button>
+        <div className="dashboard-featured-footer"><button type="button" className="button button-quiet" onClick={() => navigate("/research")}>完整论文列表</button><button type="button" className="button button-quiet" onClick={() => navigate("/terms?tab=candidates")}>完整 Term 列表</button></div>
       </section>
 
       <section className="dashboard-workload surface" aria-labelledby="dashboard-workload-title">
@@ -127,6 +141,30 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
       </section>
     </div>
   );
+}
+
+function RecommendationReason({ content }: { content: string }) {
+  const plainText = content
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/[>*_~`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const characters = Array.from(plainText);
+  const limit = 180;
+  const summary = characters.length > limit ? `${characters.slice(0, limit).join("")}…` : plainText;
+
+  return <div className="home-recommendation-reason">
+    <span className="home-recommendation-reason-label">推荐理由</span>
+    <p className="home-recommendation-reason-summary">{summary || "暂未提供推荐理由。"}</p>
+    {characters.length > limit && <details className="home-recommendation-full-details">
+      <summary>展开完整理由</summary>
+      <div className="home-recommendation-full"><MarkdownContent content={content} /></div>
+    </details>}
+  </div>;
 }
 
 const TERM_LANES: Array<{ id: TermDiscoveryLane; title: string }> = [
