@@ -83,6 +83,8 @@ class ResearchSearch(CanonicalModel):
     max_catchup_days: PositiveInt
     max_candidates_per_run: PositiveInt
     max_analyses_per_run: PositiveInt
+    history_seed_year: Optional[conint(strict=True, ge=1000, le=9997)] = None
+    max_provider_requests_per_run: PositiveInt = 20
 
 
 class ResearchInbox(CanonicalModel):

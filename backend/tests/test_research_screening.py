@@ -42,7 +42,6 @@ def test_screening_applies_include_terms_and_returns_bounded_pre_rank_components
         assert decision.pre_rank is not None
         assert decision.pre_rank.query_lexical_match == 1.0
         assert decision.pre_rank.lens_priority == 1.0
-        assert 0 < decision.pre_rank.recency <= 1
         assert decision.pre_rank.metadata_completeness == 1.0
         assert 0 <= decision.pre_rank.score <= 1
     finally:
@@ -289,7 +288,7 @@ def test_screening_ignores_cached_analysis_but_filters_existing_candidate():
         connection.close()
 
 
-def test_pre_rank_rewards_recency_but_does_not_read_citation_counts():
+def test_pre_rank_is_independent_of_recency_and_citation_counts():
     connection, _, service, profile, query = _setup()
     try:
         fresh = service.screen(
@@ -318,12 +317,11 @@ def test_pre_rank_rewards_recency_but_does_not_read_citation_counts():
         )
 
         assert fresh.pre_rank is not None and older.pre_rank is not None
-        assert fresh.pre_rank.recency > older.pre_rank.recency
+        assert fresh.pre_rank.score == older.pre_rank.score
         assert set(fresh.pre_rank.__dataclass_fields__) == {
             "score",
             "query_lexical_match",
             "lens_priority",
-            "recency",
             "metadata_completeness",
         }
     finally:

@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 17
+CURRENT_SCHEMA_VERSION = 18
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -51,6 +51,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_term_discovery_runtime
         elif target_version == 17:
             migration = _migrate_to_external_term_discovery
+        elif target_version == 18:
+            migration = _migrate_to_history_checkpoint
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -986,3 +988,8 @@ def _migrate_to_external_term_discovery(connection: sqlite3.Connection) -> None:
             """ALTER TABLE term_candidate_evidence
                ADD COLUMN origin_title TEXT"""
         )
+
+
+def _migrate_to_history_checkpoint(connection: sqlite3.Connection) -> None:
+    if _table_exists(connection, "research_search_state") and not _column_exists(connection, "research_search_state", "history_checkpoint_json"):
+        connection.execute("ALTER TABLE research_search_state ADD COLUMN history_checkpoint_json TEXT")

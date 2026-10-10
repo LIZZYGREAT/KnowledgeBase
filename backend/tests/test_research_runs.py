@@ -47,6 +47,60 @@ from backend.app.services.source_registry import SourceRegistry
 _NOW = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
 
 
+def test_automatic_history_uses_independent_resumable_annual_windows(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    profile = profile.model_copy(update={"search": profile.search.model_copy(update={"history_seed_year": 2017})})
+    historical = _provider_work().model_copy(update={"year": 2015, "published_at": "2015-06-01"})
+    provider = FakeProvider([ProviderPage(works=(historical,)), ProviderPage(works=())])
+    service, runs, search, client = _service(tmp_path, connection, provider, profile=profile)
+    run = service.run_profile(profile.id)
+    assert run.status == "success" and run.surfaced_count == 1
+    query = service.query_builder.build(profile)[0]
+    assert search.get_state(profile.id, query.lens_id, "arxiv", "history:" + query.query_key).completed_through.startswith("2016-01-01")
+    recent = search.get_state(profile.id, query.lens_id, "arxiv", query.query_key).completed_through
+    assert recent == _NOW.isoformat()
+    from backend.app.services.research_history import historical_plan
+    next_plan = historical_plan(search, profile, query, "arxiv", 2017, _NOW)
+    assert next_plan.slices[0].start_at.year == 2016
+    assert next_plan.slices[0].end_at.year == 2017
+    assert client.calls == ["research_candidate_analysis"]
+    connection.close()
+
+
+def test_history_provider_budget_keeps_incomplete_progress_retryable(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    profile = profile.model_copy(update={"search": profile.search.model_copy(update={"history_seed_year": 2017, "max_provider_requests_per_run": 1})})
+    provider = FakeProvider([ProviderPage(works=(), next_cursor="page-2")])
+    service, runs, search, client = _service(tmp_path, connection, provider, profile=profile)
+    run = service.run_profile(profile.id)
+    assert run.status == "partial"
+    assert "Provider request budget reached" in run.error_summary
+    query = service.query_builder.build(profile)[0]
+    assert search.get_state(profile.id, query.lens_id, "arxiv", "history:" + query.query_key).completed_through is None
+    assert search.get_state(profile.id, query.lens_id, "arxiv", query.query_key).completed_through is None
+    assert provider.calls == 1
+    checkpoint = search.history_checkpoint(profile.id, query.lens_id, "arxiv", "history:" + query.query_key)
+    assert checkpoint["cursor"] is None
+    connection.close()
+
+
+def test_history_anchor_requires_approved_note_with_linked_source_year(tmp_path):
+    from backend.app.services.research_history import research_anchor_year
+    root = tmp_path / "repo"
+    directory = root / "knowledge" / "documents" / "papers"
+    directory.mkdir(parents=True)
+    text = Path("backend/tests/fixtures/valid_document.md").read_text(encoding="utf-8")
+    path = directory / "ewc-review.md"
+    path.write_text(text, encoding="utf-8")
+    source = SourceMetadata(schema_version=1, id="ewc-2017", type="paper", title="EWC", year=2017)
+    profile = _profile().model_copy(update={"context": _profile().context.model_copy(update={"documents": ["ewc-review"]})})
+    assert research_anchor_year(root, profile, SourceRegistry((source,))) == 2017
+    path.write_text(text.replace("status: approved", "status: unreviewed"), encoding="utf-8")
+    assert research_anchor_year(root, profile, SourceRegistry((source,))) is None
+
+
 def test_run_is_persisted_before_provider_and_completed_slice_advances_watermark(tmp_path):
     connection = connect_database(":memory:")
     provider = FakeProvider([ProviderPage(works=(_provider_work(),))])

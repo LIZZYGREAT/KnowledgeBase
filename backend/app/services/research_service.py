@@ -62,6 +62,7 @@ from backend.app.services.research_watermark import (
 from backend.app.services.research_lock import GlobalResearchLock
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.markdown_parser import parse_yaml
+from backend.app.services.research_history import research_anchor_year, historical_plan
 
 
 MAX_ANALYSIS_BACKLOG_PER_RUN = 10
@@ -696,6 +697,10 @@ class ResearchService:
     ) -> Optional[ResearchRunStatus]:
         streams = []
         stream_order = 0
+        anchor = (
+            research_anchor_year(self.repository_root, profile, self.screening.sources)
+            if run.trigger == "scheduled" and manual_range is None else None
+        )
         for query in queries:
             lens = _lens_for(profile, query)
             for provider_name in profile.providers.discovery:
@@ -720,6 +725,16 @@ class ResearchService:
                     manual_incremental=manual_incremental,
                     manual_run=run.trigger == "manual",
                 )
+                if anchor is not None:
+                    history = historical_plan(self.search_repository, profile, query, provider_name, anchor, now)
+                    if history.slices:
+                        checkpoint = self.search_repository.history_checkpoint(history.profile_id, history.lens_id, history.provider, history.query_key)
+                        streams.append(_SearchStream(
+                            order=stream_order, query=query, lens=lens,
+                            provider_name=provider_name, provider=provider, plan=history,
+                            cursor=checkpoint["cursor"] if checkpoint else None,
+                        ))
+                        stream_order += 1
                 if plan.watermark_skip_required or not plan.slices:
                     continue
                 streams.append(
@@ -806,8 +821,13 @@ class ResearchService:
                     self.watermarks.mark_attempt(
                         stream.plan, stream.search_slice, self._now()
                     )
+                    if stream.plan.query_key.startswith("history:"):
+                        self.search_repository.save_history_checkpoint(stream.plan, stream.search_slice.start_at, stream.cursor)
                     stream.attempt_marked = True
                 provider_summary = _provider_stats(stats, stream.provider_name)
+                if sum(value["requests"] for value in stats.values()) >= profile.search.max_provider_requests_per_run:
+                    warnings.append("Provider request budget reached; incomplete windows will retry without advancing progress.")
+                    return "partial"
                 provider_summary["requests"] += 1
                 try:
                     page = stream.provider.search(
@@ -999,6 +1019,8 @@ class ResearchService:
                 return "capacity_reached"
 
             for stream in streams:
+                if stream.active and not stream.identity_conflict_seen and stream.plan.query_key.startswith("history:"):
+                    self.search_repository.save_history_checkpoint(stream.plan, stream.search_slice.start_at, stream.cursor)
                 if not stream.complete_after_round:
                     continue
                 if stream.identity_conflict_seen:
@@ -1008,6 +1030,8 @@ class ResearchService:
                     self.watermarks.complete_slice(
                         stream.plan, stream.search_slice, self._now()
                     )
+                    if stream.plan.query_key.startswith("history:"):
+                        self.search_repository.save_history_checkpoint(stream.plan, None, None)
                 stream.slice_index += 1
                 stream.cursor = None
                 stream.seen_cursors.clear()
@@ -1311,6 +1335,9 @@ class ResearchService:
                 provider_failures[provider_name] = self.provider_failure_threshold
                 unavailable_providers.add(provider_name)
                 continue
+            if sum(value["requests"] for value in stats.values()) >= profile.search.max_provider_requests_per_run:
+                warnings.append("Provider request budget reached; metadata enrichment deferred.")
+                break
             summary["requests"] += 1
             try:
                 enriched = enrich(enriched_work)

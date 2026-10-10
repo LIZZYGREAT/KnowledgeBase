@@ -17,7 +17,7 @@ from backend.app.services.source_registry import SourceRegistry
 
 
 _PRIORITY_SCORE = {"low": 0.33, "medium": 0.67, "high": 1.0}
-_PRE_RANK_WEIGHTS = {"query": 0.4, "lens": 0.2, "recency": 0.2, "metadata": 0.2}
+_PRE_RANK_WEIGHTS = {"query": 0.6, "lens": 0.2, "metadata": 0.2}
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,6 @@ class PreRankScore:
     score: float
     query_lexical_match: float
     lens_priority: float
-    recency: float
     metadata_completeness: float
 
 
@@ -187,8 +186,6 @@ def _pre_rank(
         len(content_tokens & query_tokens) / len(query_tokens) if query_tokens else 0.0
     )
     lens_score = _PRIORITY_SCORE[query.priority]
-    age_days = max(0.0, (now - published_at).total_seconds() / 86_400)
-    recency_score = 1.0 / (1.0 + age_days / 365.0)
     metadata_fields = (
         bool(work.title.strip()),
         bool(work.abstract and work.abstract.strip()),
@@ -202,14 +199,12 @@ def _pre_rank(
     score = (
         _PRE_RANK_WEIGHTS["query"] * query_score
         + _PRE_RANK_WEIGHTS["lens"] * lens_score
-        + _PRE_RANK_WEIGHTS["recency"] * recency_score
         + _PRE_RANK_WEIGHTS["metadata"] * completeness
     )
     return PreRankScore(
         score=round(score, 6),
         query_lexical_match=round(query_score, 6),
         lens_priority=round(lens_score, 6),
-        recency=round(recency_score, 6),
         metadata_completeness=round(completeness, 6),
     )
 

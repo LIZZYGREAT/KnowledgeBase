@@ -14,6 +14,21 @@ class ResearchSearchRepository:
     def __init__(self, connection: sqlite3.Connection):
         self.connection = connection
 
+    def history_checkpoint(self, profile_id, lens_id, provider, query_key):
+        row = self.connection.execute(
+            "SELECT history_checkpoint_json FROM research_search_state WHERE profile_id=? AND lens_id=? AND provider=? AND query_key=?",
+            (profile_id, lens_id, provider, query_key),
+        ).fetchone()
+        return json.loads(row[0]) if row and row[0] else None
+
+    def save_history_checkpoint(self, plan, window_start, cursor):
+        with self.write_transaction():
+            self.connection.execute(
+                "UPDATE research_search_state SET history_checkpoint_json=? WHERE profile_id=? AND lens_id=? AND provider=? AND query_key=?",
+                (json.dumps({"start": window_start.isoformat(), "cursor": cursor}) if window_start else None,
+                 plan.profile_id, plan.lens_id, plan.provider, plan.query_key),
+            )
+
     def get_state(
         self, profile_id: str, lens_id: str, provider: str, query_key: str
     ) -> Optional[ResearchSearchStateRecord]:
