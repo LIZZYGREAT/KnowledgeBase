@@ -212,6 +212,102 @@ def test_research_analysis_prompt_limits_collection_suggestions_to_profile_conte
     assert "reason_zh" in prompt
 
 
+def test_term_generation_prompt_scales_to_depth_and_preserves_candidate_context():
+    content = "---\nschema_version: 1\nid: feature-vector\ntitle: Feature Vector\ntype: concept\ndepth: standard\n---\n# Feature Vector\n"
+    response = {
+        "id": "feature-vector",
+        "title": "Feature Vector",
+        "type": "concept",
+        "depth": "standard",
+        "definition_zh": "编码器将输入映射为 d 维向量；下游分类器可用该表示作出预测。",
+        "definition_en": "An encoder maps an input to a d-dimensional representation that a downstream classifier can use for prediction.",
+    }
+    candidate = {
+        "display_name": "Feature Vector",
+        "suggested_type": "concept",
+        "evidence": [{
+            "origin_type": "document",
+            "origin_id": "encoder-note",
+            "origin_title": "Encoder Note",
+            "context_excerpt": "The encoder produces a feature vector for each image.",
+            "rationale": "The passage describes a reusable representation.",
+        }],
+    }
+    connection = connect_database(":memory:")
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", "feature-vector", content, "a" * 40, "b" * 64)
+    proposals = ProposalService(ProposalRepository(connection))
+    client = MockDeepSeekClient({"draft_term": response})
+    service = AIProposalService(
+        Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client)
+    )
+
+    proposal = service.generate("draft_term", draft.id, {"term_candidate": candidate})
+
+    prompt = client.messages[0][0]["content"]
+    context = json.loads(client.messages[0][1]["content"])
+    assert "For stub, give a compact definition and state what the concept is used for." in prompt
+    assert "For standard, adapt the explanation to the concept's complexity" in prompt
+    assert "Do not force a template, fixed length, or filler." in prompt
+    assert "f_theta(x) in R^d" in prompt
+    assert "coordinate meanings are learned or task-dependent" in prompt
+    assert "General stable technical knowledge may explain a Term" in prompt
+    assert "invent results, citations, quotes, or Source IDs" in prompt
+    assert context["draft"]["content"] == content
+    assert context["request"]["term_candidate"] == candidate
+    assert "terms" in context["registries"]
+    assert "taxonomy" in context["registries"]
+    assert proposal.payload["result"]["depth"] == "standard"
+    assert len(client.calls) == 1
+    connection.close()
+
+
+def test_single_language_rewrite_preserves_metadata_and_the_other_explanation():
+    content = (
+        "---\nschema_version: 1\nid: feature-vector\ntitle: Feature Vector\n"
+        "type: concept\ndepth: standard\naliases: [embedding]\nsources: [encoder-paper]\n---\n"
+        "# Feature Vector\n\n## 一、中文解释\n\n编码器将输入转换为数值表示。\n\n"
+        "## 二、English Explanation\n\nAn encoder maps input to numeric values.\n"
+    )
+    connection = connect_database(":memory:")
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", "feature-vector", content, "a" * 40, "b" * 64)
+    proposals = ProposalService(ProposalRepository(connection))
+    client = MockDeepSeekClient({
+        "rewrite_term_language": {
+            "explanation": "An encoder maps x to f_theta(x) in R^d; a classifier can use this representation.",
+            "rationale": "Explains the vector dimension and a downstream use.",
+        }
+    })
+    service = AIProposalService(
+        Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client)
+    )
+
+    proposal = service.generate("rewrite_term_language", draft.id, {
+        "language": "en",
+        "requirements": "Explain the vector dimension and how a classifier uses it.",
+    })
+
+    prompt = client.messages[0][0]["content"]
+    context = json.loads(client.messages[0][1]["content"])
+    proposed = proposal.payload["content"]
+    original_frontmatter = content.split("---\n", 2)[1]
+    proposed_frontmatter = proposed.split("---\n", 2)[1]
+    assert "stub needs a compact definition and purpose" in prompt
+    assert "Never change metadata, identifiers, sources, or the other language" in prompt
+    assert "write English as an independent explanation" in prompt
+    assert context["request"] == {
+        "language": "en",
+        "requirements": "Explain the vector dimension and how a classifier uses it.",
+    }
+    assert proposed_frontmatter == original_frontmatter
+    assert "编码器将输入转换为数值表示。" in proposed
+    assert "An encoder maps x to f_theta(x) in R^d" in proposed
+    assert "An encoder maps input to numeric values." not in proposed
+    assert len(client.calls) == 1
+    connection.close()
+
+
 def test_research_analysis_cannot_be_persisted_as_a_proposal():
     connection = connect_database(":memory:")
     drafts = DraftService(DraftRepository(connection))
