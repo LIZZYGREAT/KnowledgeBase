@@ -749,6 +749,16 @@ class ResearchService:
                 )
                 stream_order += 1
 
+        # Oldest attempted streams run first, including streams never requested.
+        # Keep request order durable even with a fixed or coarse-grained clock.
+        attempted = {}
+        for stream in streams:
+            plan = stream.plan
+            state = self.search_repository.get_state(plan.profile_id, plan.lens_id, plan.provider, plan.query_key)
+            attempted[stream.order] = datetime.fromisoformat(state.last_attempt_at) if state and state.last_attempt_at else datetime.min.replace(tzinfo=timezone.utc)
+        streams.sort(key=lambda stream: (attempted[stream.order], stream.order))
+        last_attempt = max(attempted.values(), default=datetime.min.replace(tzinfo=timezone.utc))
+
         pending_by_work = {}
         identity_conflict_count = 0
         identity_conflict_examples: list[str] = []
@@ -805,6 +815,7 @@ class ResearchService:
         while pending_by_work or any(stream.active for stream in streams):
             round_candidates = pending_by_work
             pending_by_work = {}
+            budget_reached = False
             for stream in streams:
                 if not stream.active:
                     continue
@@ -817,17 +828,18 @@ class ResearchService:
                 ):
                     errors.append("Inbox capacity reached before the current search round completed")
                     return "capacity_reached"
-                if not stream.plan.manual and not stream.attempt_marked:
-                    self.watermarks.mark_attempt(
-                        stream.plan, stream.search_slice, self._now()
-                    )
-                    if stream.plan.query_key.startswith("history:"):
-                        self.search_repository.save_history_checkpoint(stream.plan, stream.search_slice.start_at, stream.cursor)
-                    stream.attempt_marked = True
                 provider_summary = _provider_stats(stats, stream.provider_name)
                 if sum(value["requests"] for value in stats.values()) >= profile.search.max_provider_requests_per_run:
-                    warnings.append("Provider request budget reached; incomplete windows will retry without advancing progress.")
-                    return "partial"
+                    budget_reached = True
+                    break
+                if not stream.plan.manual:
+                    last_attempt = max(self._now(), last_attempt + timedelta(microseconds=1))
+                    self.watermarks.mark_attempt(
+                        stream.plan, stream.search_slice, last_attempt
+                    )
+                    if not stream.attempt_marked and stream.plan.query_key.startswith("history:"):
+                        self.search_repository.save_history_checkpoint(stream.plan, stream.search_slice.start_at, stream.cursor)
+                    stream.attempt_marked = True
                 provider_summary["requests"] += 1
                 try:
                     page = stream.provider.search(
@@ -1019,7 +1031,7 @@ class ResearchService:
                 return "capacity_reached"
 
             for stream in streams:
-                if stream.active and not stream.identity_conflict_seen and stream.plan.query_key.startswith("history:"):
+                if stream.active and stream.attempt_marked and not stream.identity_conflict_seen and stream.plan.query_key.startswith("history:"):
                     self.search_repository.save_history_checkpoint(stream.plan, stream.search_slice.start_at, stream.cursor)
                 if not stream.complete_after_round:
                     continue
@@ -1040,6 +1052,9 @@ class ResearchService:
                 stream.identity_conflict_seen = False
                 if stream.slice_index >= len(stream.plan.slices):
                     stream.active = False
+            if budget_reached:
+                warnings.append("Provider request budget reached; fetched pages were processed and unfinished windows will resume.")
+                return "partial"
         return None
 
     def _collect_analysis_backlog(

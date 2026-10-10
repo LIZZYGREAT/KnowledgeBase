@@ -79,10 +79,49 @@ def test_history_provider_budget_keeps_incomplete_progress_retryable(tmp_path):
     assert "Provider request budget reached" in run.error_summary
     query = service.query_builder.build(profile)[0]
     assert search.get_state(profile.id, query.lens_id, "arxiv", "history:" + query.query_key).completed_through is None
-    assert search.get_state(profile.id, query.lens_id, "arxiv", query.query_key).completed_through is None
+    assert search.get_state(profile.id, query.lens_id, "arxiv", query.query_key) is None
     assert provider.calls == 1
     checkpoint = search.history_checkpoint(profile.id, query.lens_id, "arxiv", "history:" + query.query_key)
-    assert checkpoint["cursor"] is None
+    assert checkpoint["cursor"] == "page-2"
+    connection.close()
+
+
+@pytest.mark.parametrize("boundary_work", [False, True])
+def test_request_budget_finishes_fetched_pages_and_fairly_advances_all_streams(tmp_path, boundary_work):
+    connection = connect_database(":memory:")
+    profile = _profile(discovery=("arxiv", "openalex"), queries=tuple("query {}".format(i) for i in range(9)))
+    profile = profile.model_copy(update={"search": profile.search.model_copy(update={"history_seed_year": 2017, "max_provider_requests_per_run": 20})})
+
+    class RecordingProvider(FakeProvider):
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.requested.append((query, start_at.year, end_at.year))
+            # The twentieth request is a recent page; reuse its identity on retries.
+            works = (_provider_work().model_copy(update={"provider": self.name}),) if boundary_work and len(self.requested) == 10 else ()
+            self.calls += 1
+            return ProviderPage(works=works)
+
+    providers = [RecordingProvider([], name=name) for name in ("arxiv", "openalex")]
+    for provider in providers:
+        provider.requested = []
+    service, runs, search, client = _service(tmp_path, connection, providers[0], profile=profile, additional_providers={"openalex": providers[1]})
+    first = service.run_profile(profile.id)
+    assert first.status == "partial"
+    assert sum(p.calls for p in providers) == 20
+    states = connection.execute("SELECT * FROM research_search_state").fetchall()
+    assert len(states) == 20
+    assert all(state["completed_through"] for state in states)
+    assert first.surfaced_count == int(boundary_work)
+    for _ in range(3):
+        service.run_profile(profile.id)
+    for provider in providers:
+        for query in service.query_builder.build(profile):
+            history = search.get_state(profile.id, query.lens_id, provider.name, "history:" + query.query_key)
+            recent = search.get_state(profile.id, query.lens_id, provider.name, query.query_key)
+            assert history.completed_through.startswith("201")
+            assert recent.completed_through == _NOW.isoformat()
+            assert search.history_checkpoint(profile.id, query.lens_id, provider.name, "history:" + query.query_key) is None
+        assert {request[0] for request in provider.requested} == set(profile.lenses[0].queries)
+    assert len(client.calls) <= 1
     connection.close()
 
 
@@ -109,6 +148,21 @@ def test_history_resumes_next_page_through_manual_incremental_without_changing_r
     assert provider.cursors[-1] == "history-page-2"
     assert search.get_state(profile.id, query.lens_id, "arxiv", query.query_key) == recent
     assert search.history_checkpoint(profile.id, query.lens_id, "arxiv", "history:" + query.query_key) is None
+    connection.close()
+
+
+def test_budget_boundary_does_not_complete_a_failed_provider_window(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile(discovery=("arxiv", "openalex"))
+    profile = profile.model_copy(update={"search": profile.search.model_copy(update={"history_seed_year": 2017, "max_provider_requests_per_run": 2})})
+    service, runs, search, client = _service(tmp_path, connection, FakeProvider([], error=True), profile=profile, additional_providers={"openalex": FakeProvider([], name="openalex")})
+    run = service.run_profile(profile.id)
+    query = service.query_builder.build(profile)[0]
+    assert run.status == "partial"
+    assert search.get_state(profile.id, query.lens_id, "arxiv", "history:" + query.query_key).completed_through is None
+    # The second arxiv request also fails; untouched openalex has no attempt.
+    assert search.get_state(profile.id, query.lens_id, "arxiv", query.query_key).completed_through is None
+    assert search.get_state(profile.id, query.lens_id, "openalex", "history:" + query.query_key) is None
     connection.close()
 
 
