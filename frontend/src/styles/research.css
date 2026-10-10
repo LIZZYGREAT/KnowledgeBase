@@ -95,6 +95,13 @@
 .research-candidate-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .research-candidate-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .research-candidate-summary > p { max-width: 800px; margin: 0; color: #67776d; font-size: var(--text-sm); line-height: 1.7; }
+.research-explanation { min-width: 0; max-height: 14rem; overflow: auto; overflow-wrap: anywhere; }
+.research-candidate-summary > .research-explanation { flex: 1; max-width: 800px; }
+.research-explanation .markdown-content { color: #67776d; font-size: var(--text-sm); line-height: 1.7; }
+.research-explanation .markdown-content > :first-child { margin-top: 0; }
+.research-explanation .markdown-content > :last-child { margin-bottom: 0; }
+.research-explanation pre { max-width: 100%; overflow-x: auto; }
+.research-card-expanded .research-explanation { max-height: none; }
 .research-score-pills { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
 .research-candidate-insight-grid { display: grid; grid-template-columns: 1.05fr 1fr 1.05fr 1.35fr; gap: 10px; border-top: 1px solid #eff2ef; padding-top: 11px; }
 .research-candidate-insight-grid > div { min-width: 0; }

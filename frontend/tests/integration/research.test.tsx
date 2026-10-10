@@ -531,6 +531,39 @@ describe("Research workspace", () => {
     expect(screen.getByText("Stretch")).toBeTruthy();
   });
 
+  it.each(["card", "drawer"])("renders reviewed Markdown and math in the %s without injecting HTML", (surface) => {
+    const reviewed = {
+      summary_zh: "**审核重点** [论文链接](https://example.org/paper) `theta` 与 $x^2$。\n\n$$\ny = x^2\n$$\n\n<script>alert('unsafe')</script>",
+      why_relevant_zh: "**相关原因**",
+      reading_reason_zh: "**阅读价值**",
+    };
+    if (surface === "card") {
+      render(<ResearchCandidateCard item={{ ...candidateListItem, candidate: { ...candidate, review_overrides: reviewed } } as ResearchCandidateListItem} profile={profile as ResearchProfile} selected={false} selectable={false} busy={false} onSelect={vi.fn()} onDetails={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} onRestore={vi.fn()} onCreateNote={vi.fn()} />);
+    } else {
+      render(<ResearchCandidateDrawer detail={{ ...candidateDetail, candidate: { ...candidateDetail.candidate, review_overrides: reviewed } }} profile={profile as ResearchProfile} language="zh" onLanguageChange={vi.fn()} noteBusy={false} noteError="" onClose={vi.fn()} onOpenEntity={vi.fn()} onSaveSource={vi.fn()} onSaveNote={vi.fn()} />);
+    }
+    expect(screen.getByText("审核重点").tagName).toBe("STRONG");
+    expect(screen.getByText("相关原因").tagName).toBe("STRONG");
+    expect(screen.getByText("阅读价值").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "论文链接" }).getAttribute("href")).toBe("https://example.org/paper");
+    expect(screen.getByText("theta").tagName).toBe("CODE");
+    expect(document.querySelectorAll(".katex").length).toBe(2);
+    expect(document.querySelector(".katex-display")).toBeTruthy();
+    expect(document.querySelector("script")).toBeNull();
+    expect(screen.queryByText(analysis.summary_zh)).toBeNull();
+  });
+
+  it("allows long Research Markdown to expand without moving actions inside its scroll area", () => {
+    const item = { ...candidateListItem, candidate: { ...candidate, review_overrides: { summary_zh: "长段落。".repeat(160) } } } as ResearchCandidateListItem;
+    render(<ResearchCandidateCard item={item} profile={profile as ResearchProfile} selected={false} selectable={false} busy={false} onSelect={vi.fn()} onDetails={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} onRestore={vi.fn()} onCreateNote={vi.fn()} />);
+    const expand = screen.getByRole("button", { name: "展开推荐正文" });
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(expand);
+    expect(screen.getByRole("button", { name: "收起推荐正文" }).getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".research-card-expanded")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Shortlist" }).closest(".research-explanation")).toBeNull();
+  });
+
   it("falls back to English analysis for older candidates without Chinese fields", () => {
     const legacyAnalysis = Object.fromEntries(Object.entries(analysis).filter(([key]) => !key.endsWith("_zh")));
     render(<ResearchCandidateCard
