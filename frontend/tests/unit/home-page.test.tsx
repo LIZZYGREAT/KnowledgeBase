@@ -89,6 +89,36 @@ describe("Knowledge Dashboard", () => {
     await waitFor(() => expect(api.queueResearchRun).toHaveBeenCalledWith("profile-one", { lenses: ["focus"], date_range: { mode: "incremental" } }));
   });
 
+  it("renders featured paper and Term rationales as Markdown", async () => {
+    api.listResearchCandidates.mockResolvedValue({ candidates: [{
+      candidate: { id: "paper-markdown", review_overrides: {} },
+      work: { id: "work-markdown", title: "Markdown Paper" },
+      analysis: { readiness: "high", why_relevant_zh: "**Paper rationale**", existing_relations: [] },
+    }] });
+    api.listTermCandidates.mockResolvedValue([
+      {
+        id: "term-why-now",
+        display_name: "Term with timing",
+        evidence: [{ origin_rejected: false, context_excerpt: "Reviewed passage.", rationale: "Fallback **evidence rationale**", origin_id: "note-one" }],
+        discovery_assessment: { why_now: "Builds on **known Terms**" },
+      },
+      {
+        id: "term-evidence",
+        display_name: "Term with evidence",
+        evidence: [{ origin_rejected: false, context_excerpt: "Another reviewed passage.", rationale: "Grounded in **reviewed evidence**", origin_id: "note-two" }],
+        discovery_assessment: {},
+      },
+    ]);
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    const featured = await screen.findByRole("region", { name: "下一步值得了解" });
+    expect(within(featured).getByText("Paper rationale").tagName).toBe("STRONG");
+    expect(within(featured).getByText("known Terms").tagName).toBe("STRONG");
+    expect(within(featured).getByText("reviewed evidence").tagName).toBe("STRONG");
+    expect(featured.querySelector("p p")).toBeNull();
+  });
+
   it("uses a normal empty state when no supported recommendation exists", async () => {
     api.listTermCandidates.mockResolvedValue([]);
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);

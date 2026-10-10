@@ -155,7 +155,7 @@ describe("Research workspace", () => {
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
     const candidateCard = screen.getByRole("heading", { name: "A New Regularization Method" }).closest(".research-candidate-card") as HTMLElement;
     expect(within(candidateCard).getByText("当前适合度")).toBeTruthy();
-    expect(within(candidateCard).getByText(/为什么现在: It connects a known foundation/)).toBeTruthy();
+    expect(candidateCard.querySelector(".research-readiness-why-now")?.textContent).toContain("It connects a known foundation");
     expect(within(candidateCard).getByText("Discovered Terms: 2")).toBeTruthy();
     expect(within(candidateCard).getByRole("button", { name: /Review in Terms/ })).toBeTruthy();
     fireEvent.click(within(candidateCard).getByRole("button", { name: "中文" }));
@@ -530,6 +530,52 @@ describe("Research workspace", () => {
     expect(screen.getByText("将其自适应估计结果与 EWC 进行比较。")).toBeTruthy();
   });
 
+  it.each(["card", "drawer"])("renders the Research why-now rationale as Markdown on the %s", (surface) => {
+    const whyNow = "**Builds on known concepts**\n\n- It addresses a current gap\n\n<script>alert('unsafe')</script>";
+    const item = {
+      ...candidateListItem,
+      analysis: { ...analysis, why_now: whyNow },
+    } as ResearchCandidateListItem;
+    if (surface === "card") {
+      render(<ResearchCandidateCard item={item} profile={profile as ResearchProfile} selected={false} selectable={false} busy={false} onSelect={vi.fn()} onDetails={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} onRestore={vi.fn()} onCreateNote={vi.fn()} />);
+    } else {
+      const relation = {
+        entity_type: "term",
+        entity_id: "fisher-information",
+        relation: "extends",
+        reason: "Extends *Fisher information*.",
+        reason_zh: "使用 Fisher 信息估计参数重要性。",
+      };
+      render(<ResearchCandidateDrawer
+        detail={{
+          ...candidateDetail,
+          analysis: { ...candidateDetail.analysis, analysis: { ...analysis, why_now: whyNow } },
+          knowledge_relations: [relation],
+        }}
+        profile={profile as ResearchProfile}
+        language="en"
+        onLanguageChange={vi.fn()}
+        noteBusy={false}
+        noteError=""
+        onClose={vi.fn()}
+        onOpenEntity={vi.fn()}
+        onSaveSource={vi.fn()}
+        onSaveNote={vi.fn()}
+      />);
+    }
+
+    const rationale = document.querySelector(surface === "card" ? ".research-readiness-why-now" : ".research-detail-markdown");
+    expect(rationale).not.toBeNull();
+    expect(within(rationale as HTMLElement).getByText("Builds on known concepts").tagName).toBe("STRONG");
+    expect(within(rationale as HTMLElement).getByRole("list")).toBeTruthy();
+    expect(rationale?.querySelector("p p")).toBeNull();
+    expect(document.querySelector("script")).toBeNull();
+    if (surface === "drawer") {
+      const relation = document.querySelector(".research-related-row .research-explanation") as HTMLElement;
+      expect(within(relation).getByText("Fisher information").tagName).toBe("EM");
+    }
+  });
+
   it("labels low readiness as Stretch", () => {
     render(<ResearchCandidateCard
       item={{
@@ -658,7 +704,7 @@ describe("Research workspace", () => {
     expect(within(card).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
     expect(within(drawer).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
     expect(screen.queryByText("此历史候选暂无中文分析")).toBeNull();
-    const relationRows = [...container.querySelectorAll(".research-related-row small")].map((row) => row.textContent ?? "");
+    const relationRows = [...container.querySelectorAll(".research-related-row .research-explanation")].map((row) => row.textContent ?? "");
     expect(relationRows.some((text) => text.includes("This relation has an English-only explanation."))).toBe(true);
   });
 
