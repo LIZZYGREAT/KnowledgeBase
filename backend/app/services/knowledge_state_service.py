@@ -52,25 +52,17 @@ class KnowledgeStateService:
         recently_opened_ids = [
             item["id"] for item in recent_documents if item["opened_at"] is not None
         ]
-        recent_activity = {
-            term_id
-            for document_id in recently_opened_ids
-            for term_id in relations_by_document.get(document_id, [])
-        }
         recent_accepted_rows = self.connection.execute(
             """SELECT term_id, MAX(created_at) AS accepted_at
                FROM term_entity_relations WHERE created_at >= ?
                GROUP BY term_id ORDER BY accepted_at DESC, term_id""",
             (cutoff,),
         ).fetchall()
-        recent_accepted = {row["term_id"] for row in recent_accepted_rows}
         exposure = _pdf_exposure(self.connection, registry.terms)
         state_by_term: dict[str, str] = {}
         for term in registry.terms:
-            if term.depth in {"standard", "deep"}:
+            if term.review and term.review.human and term.review.human.status == "approved":
                 state = "established"
-            elif term.id in recent_activity or term.id in recent_accepted:
-                state = "learning"
             elif exposure.get(term.id, {}).get("source_count", 0) > 0:
                 state = "exposed"
             else:
@@ -159,10 +151,18 @@ class KnowledgeStateService:
                     "type": term.type,
                     "depth": term.depth,
                     "state": state_by_term[term.id],
+                    "review_status": term.review.human.status if term.review and term.review.human else "unreviewed",
+                    "content_excerpt": _term_excerpt(self.repository_root, term.id),
                 }
                 for term in registry.terms[:200]
             ],
         }
+
+
+def _term_excerpt(root, term_id):
+    content = (root / "knowledge" / "terms" / (term_id + ".md")).read_text(encoding="utf-8")
+    parsed = parse_markdown(content)
+    return "\n".join(line for line in content.splitlines()[parsed.frontmatter_end_line or 0:] if not line.startswith("# ")).strip()[:900]
 
 
 def _recent_documents(

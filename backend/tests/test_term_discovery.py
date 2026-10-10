@@ -854,12 +854,17 @@ def test_knowledge_state_keeps_activity_exposure_and_knowledge_distinct(tmp_path
         tmp_path, connection, clock=lambda: now
     ).build_snapshot(["continual learning"])
 
-    assert snapshot["term_states"]["stub-term"] == "learning"
-    assert snapshot["term_states"]["standard-term"] == "established"
-    assert snapshot["term_states"]["deep-term"] == "established"
+    assert snapshot["term_states"]["stub-term"] == "exposed"
+    assert snapshot["term_states"]["standard-term"] == "unknown"
+    assert snapshot["term_states"]["deep-term"] == "unknown"
     assert snapshot["activity"]["recently_used_terms"][0]["id"] == "stub-term"
     assert snapshot["exposure"]["terms"][0]["id"] == "stub-term"
     assert "stub-term" not in {item["id"] for item in snapshot["knowledge"]["established"]}
+    stub = terms / "stub-term.md"
+    stub.write_text(stub.read_text(encoding="utf-8").replace("---\n#", "review: {human: {status: approved}}\n---\n#") + "\nA short reviewed definition.\n", encoding="utf-8")
+    approved = KnowledgeStateService(tmp_path, connection, clock=lambda: now).build_snapshot([])
+    assert approved["term_states"]["stub-term"] == "established"
+    assert next(item for item in approved["registry"] if item["id"] == "stub-term")["content_excerpt"] == "A short reviewed definition."
     connection.close()
 
 

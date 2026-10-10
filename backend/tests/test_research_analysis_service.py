@@ -62,8 +62,8 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert first.analysis.why_relevant_zh == "这与正则化研究主题相符。"
     assert first.analysis.reading_reason_zh == "这可能有助于理解巩固方法。"
     assert first.analysis.existing_relations[0].reason_zh == "它扩展了置顶的 EWC 笔记。"
-    assert first.analysis_version == 7
-    assert first.prompt_version == "research-candidate-analysis-v7"
+    assert first.analysis_version == 8
+    assert first.prompt_version == "research-candidate-analysis-v8"
     assert [
         (relation.entity_type, relation.entity_id)
         for relation in first.analysis.existing_relations
@@ -475,7 +475,7 @@ def test_research_analysis_input_includes_bounded_knowledge_readiness_context(tm
     ):
         (term_dir / (term_id + ".md")).write_text(
             "---\nschema_version: 1\nid: {}\ntitle: {}\ntype: concept\n"
-            "depth: {}\naliases: []\n---\n\n# {}\n".format(
+            "depth: {}\naliases: []\nreview: {{human: {{status: approved}}}}\n---\n\n# {}\nDefinition scope.\n".format(
                 term_id, title, depth, title
             ),
             encoding="utf-8",
@@ -518,13 +518,10 @@ def test_research_analysis_input_includes_bounded_knowledge_readiness_context(tm
     payload = service.build_analysis_input(work, profile, profile.lenses[0], context)
 
     readiness = payload["readiness_context"]
-    assert readiness["established_terms"] == [
-        {"id": "fisher-information", "title": "Fisher Information"}
-    ]
-    assert readiness["learning_terms"] == [{"id": "weight-decay", "title": "Weight Decay"}]
-    assert readiness["current_gaps"] == [
-        {"id": "parameter-importance", "title": "Parameter Importance", "state": "unknown"}
-    ]
+    assert {item["id"] for item in readiness["established_terms"]} == {"fisher-information", "weight-decay", "parameter-importance"}
+    assert all(item["content_excerpt"] == "Definition scope." for item in readiness["established_terms"])
+    assert readiness["learning_terms"] == []
+    assert readiness["current_gaps"] == []
     assert len(payload["term_registry"]) == 3
     connection.close()
 

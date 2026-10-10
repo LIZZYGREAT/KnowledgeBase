@@ -231,6 +231,7 @@ class ResearchRepository:
                      SELECT 1 FROM research_work_analyses AS analysis
                      WHERE analysis.work_id = discovery.work_id
                        AND analysis.profile_id = discovery.profile_id
+                       AND analysis.outcome = 'filtered'
                  )
                  AND NOT EXISTS (
                      SELECT 1 FROM research_candidates AS candidate

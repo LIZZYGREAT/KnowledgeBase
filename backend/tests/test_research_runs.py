@@ -2402,6 +2402,7 @@ def _profile(
                 "max_catchup_days": 30,
                 "max_candidates_per_run": 10,
                 "max_analyses_per_run": 30,
+                "max_recommendations_per_day": 100,
             },
             "inbox": {"max_new_candidates": max_new_candidates},
             "ai_analysis": {"enabled": True, "provider": "deepseek"},

@@ -26,8 +26,8 @@ from backend.app.services.knowledge_state_service import KnowledgeStateService
 from backend.app.services.term_registry import TermRegistry
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v7"
-RESEARCH_ANALYSIS_VERSION = 7
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v8"
+RESEARCH_ANALYSIS_VERSION = 8
 logger = logging.getLogger(__name__)
 
 
@@ -157,7 +157,8 @@ class ResearchAnalysisService:
                 continue
             state = term["state"]
             if state in {"established", "learning"}:
-                terms_by_state[state].append({"id": term["id"], "title": term["title"]})
+                if term["content_excerpt"]:
+                    terms_by_state[state].append({"id": term["id"], "title": term["title"], "review_status": term["review_status"], "content_excerpt": term["content_excerpt"]})
             elif state in {"exposed", "unknown"}:
                 terms_by_state["gaps"].append(
                     {"id": term["id"], "title": term["title"], "state": state}

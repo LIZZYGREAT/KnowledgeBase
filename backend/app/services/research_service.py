@@ -1229,6 +1229,9 @@ class ResearchService:
         if generated.outcome == "inbox_full":
             errors.append("Inbox capacity reached before the candidate could be saved")
             return False, "capacity_reached"
+        if generated.outcome == "budget_reached":
+            warnings.append("Daily recommendation exposure budget reached; analyzed Works remain saved for a later Run.")
+            return False, "success"
         if generated.outcome in {"created", "existing"}:
             self._store_research_term_candidates(analysis, work, warnings)
         if generated.outcome == "created":

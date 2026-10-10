@@ -341,6 +341,8 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
                 <NumberField label="Max analyses per run" value={editableProfile.search.max_analyses_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_analyses_per_run: value } }))} />
                 <label className="field-label">起始研究年份（可选）<input type="number" min={1000} max={9997} value={editableProfile.search.history_seed_year ?? ""} onChange={(event) => { const value = event.target.value; if (!value || (Number.isInteger(Number(value)) && Number(value) >= 1000 && Number(value) <= 9997)) updateProfile((current) => ({ ...current, search: { ...current.search, history_seed_year: value ? Number(value) : null } })); }} /></label>
                 <NumberField label="每轮 Provider 请求上限" value={editableProfile.search.max_provider_requests_per_run ?? 20} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_provider_requests_per_run: value } }))} />
+                <NumberField label="每日新推荐上限" value={editableProfile.search.max_recommendations_per_day ?? 3} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_recommendations_per_day: value } }))} />
+                <NumberField label="每日拓展阅读上限" value={editableProfile.search.max_stretch_per_day ?? 1} min={0} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_stretch_per_day: value } }))} />
               </div>
             </section>
             <section className="research-defaults-section">

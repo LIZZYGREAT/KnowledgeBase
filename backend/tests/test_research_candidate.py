@@ -18,6 +18,49 @@ from backend.app.services.research_candidate_service import ResearchCandidateSer
 from backend.app.services.research_ranking import recommended_score
 
 
+def test_daily_exposure_budget_keeps_analysis_for_next_day():
+    connection = connect_database(":memory:")
+    repository = ResearchCandidateRepository(connection)
+    service = ResearchCandidateService(repository, clock=_clock)
+    profile = _profile()
+    for number in range(4):
+        work_id = "budget-{}".format(number)
+        analysis = _analysis(work_id)
+        _persist_work_and_analysis(connection, _work(work_id), analysis)
+        result = service.generate(analysis, profile, profile.lenses[0])
+        assert result.outcome == ("created" if number < 3 else "budget_reached")
+    assert connection.execute("SELECT COUNT(*) FROM research_work_analyses").fetchone()[0] == 4
+    service.clock = lambda: datetime(2026, 10, 4, tzinfo=timezone.utc)
+    assert service.generate(analysis, profile, profile.lenses[0]).outcome == "created"
+    connection.close()
+
+
+def test_stretch_budget_is_independent_of_total_exposure_budget():
+    connection = connect_database(":memory:")
+    service = ResearchCandidateService(ResearchCandidateRepository(connection), clock=_clock)
+    profile = _profile()
+    for number in range(2):
+        work_id = "stretch-{}".format(number)
+        analysis = _analysis(work_id)
+        analysis = analysis.model_copy(update={"analysis": analysis.analysis.model_copy(update={"readiness": "low"})})
+        _persist_work_and_analysis(connection, _work(work_id), analysis)
+        assert service.generate(analysis, profile, profile.lenses[0]).outcome == ("created" if number == 0 else "stretch_budget_reached")
+    connection.close()
+
+
+def test_duplicate_abstract_suppresses_exposure_but_distinct_contribution_remains():
+    connection = connect_database(":memory:")
+    service = ResearchCandidateService(ResearchCandidateRepository(connection), clock=_clock)
+    profile = _profile()
+    abstract = "Experience Replay preserves examples across tasks. " * 6
+    for work_id, text, expected in (("original", abstract, "created"), ("duplicate", abstract, "filtered"), ("different", abstract + "We change the sample selection mechanism.", "created")):
+        analysis = _analysis(work_id)
+        _persist_work_and_analysis(connection, _work(work_id).model_copy(update={"abstract": text}), analysis)
+        assert service.generate(analysis, profile, profile.lenses[0]).outcome == expected
+    assert connection.execute("SELECT COUNT(*) FROM research_works").fetchone()[0] == 3
+    connection.close()
+
+
 def test_surface_analysis_creates_one_candidate_per_work_and_profile():
     connection = connect_database(":memory:")
     work = _work("work-1")

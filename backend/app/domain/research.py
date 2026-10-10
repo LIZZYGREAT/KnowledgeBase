@@ -85,6 +85,10 @@ class ResearchSearch(CanonicalModel):
     max_analyses_per_run: PositiveInt
     history_seed_year: Optional[conint(strict=True, ge=1000, le=9997)] = None
     max_provider_requests_per_run: PositiveInt = 20
+    max_recommendations_per_day: PositiveInt = 3
+    max_stretch_per_day: NonNegativeInt = 1
+    min_profile_relevance: Weight = 0.55
+    min_information_gain: Weight = 0.05
 
 
 class ResearchInbox(CanonicalModel):

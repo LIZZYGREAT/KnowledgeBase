@@ -329,6 +329,7 @@ class TermDiscoveryService:
                 "focus": focus,
                 "knowledge": snapshot.get("knowledge", {}),
                 "activity": snapshot.get("activity", {}),
+                "reviewed_scopes": [item for item in snapshot.get("registry", []) if item.get("state") == "established" and item.get("content_excerpt")][:20],
                 "term_states": snapshot.get("term_states", {}),
             }
         )

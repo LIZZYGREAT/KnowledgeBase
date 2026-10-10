@@ -22,3 +22,5 @@ Current Documents must pass the Writing Standard at Publish. Legacy Documents ma
 Draft conflict detection compares the canonical target file's content hash. Its Git revision remains available as history and diff context. Proposals store `base_content_hash` for the Draft working content they were generated from and become stale when that Draft content changes.
 
 Provenance `origin` is either `imported` or `human-authored`. AI assistance is recorded separately and does not make AI the canonical author.
+
+Only canonical Notes and Terms with explicit human approval count as known, within the scope of their actual reviewed content. Term depth, accepted detection relations, usage, PDFs, and Source collections are attention or evidence signals. They never grant approval. Historical unreviewed content retains its status; users can explicitly mark approval through the existing Draft and Publisher workflow.

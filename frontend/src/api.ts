@@ -467,7 +467,7 @@ export interface ResearchProfile {
   providers: { discovery: string[]; enrichment: string[] };
   context: { collections: string[]; documents: string[]; dynamic_retrieval: { enabled: boolean; scope: "entire-library" | "selected-context" } };
   schedule: { mode: "daily" | "weekly" | "manual" };
-  search: { breadth: ResearchBreadth; initial_lookback_days: number; max_catchup_days: number; max_candidates_per_run: number; max_analyses_per_run: number; history_seed_year?: number | null; max_provider_requests_per_run?: number };
+  search: { breadth: ResearchBreadth; initial_lookback_days: number; max_catchup_days: number; max_candidates_per_run: number; max_analyses_per_run: number; history_seed_year?: number | null; max_provider_requests_per_run?: number; max_recommendations_per_day?: number; max_stretch_per_day?: number };
   inbox: { max_new_candidates: number };
   ai_analysis: { enabled: boolean; provider: "deepseek" };
 }

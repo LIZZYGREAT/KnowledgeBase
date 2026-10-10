@@ -39,7 +39,7 @@ export function ResearchCandidateCard({
   onCreateNote: () => void;
   onReviewTerms?: () => void;
 }) {
-  const [language, setLanguage] = useState<ResearchLanguage>("en");
+  const [language, setLanguage] = useState<ResearchLanguage>("zh");
   const chinese = language === "zh";
   const hasChineseAnalysis = hasChineseCoreAnalysis(item.analysis);
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
@@ -57,7 +57,7 @@ export function ResearchCandidateCard({
       </div>
       <div className="research-card-tools"><ResearchLanguageToggle language={language} onChange={setLanguage} /><button className="text-button" onClick={() => onDetails(language, setLanguage)}>Why this candidate <span aria-hidden="true">↗</span></button></div>
     </div>
-    <div className="research-candidate-tags">{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
+    <div className="research-candidate-tags"><Chip tone={item.analysis.readiness === "low" ? "amber" : "green"}>{item.analysis.readiness === "low" ? "拓展阅读" : "优先阅读"}</Chip>{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
     <div className="research-candidate-summary"><p>{summary}</p>{chinese && !hasChineseAnalysis && <p className="subtle-copy research-translation-note">此历史候选暂无中文分析</p>}</div>
     <div className="research-candidate-insight-grid">
       <div><span>{chinese ? "推荐理由" : "Why shown"}</span><p>{relevance}</p></div>

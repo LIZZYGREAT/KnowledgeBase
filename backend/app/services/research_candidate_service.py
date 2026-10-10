@@ -19,7 +19,7 @@ from backend.app.repositories.research_candidate_repository import (
 
 @dataclass(frozen=True)
 class CandidateGenerationResult:
-    outcome: Literal["created", "existing", "filtered", "inbox_full"]
+    outcome: Literal["created", "existing", "filtered", "inbox_full", "budget_reached", "stretch_budget_reached"]
     candidate: Optional[ResearchCandidateRecord] = None
 
 
@@ -45,6 +45,10 @@ class ResearchCandidateService:
         profile: ResearchProfile,
         matched_lens: ResearchLens,
     ) -> CandidateGenerationResult:
+        with self.repository.transactions.write_transaction():
+            return self._generate(analysis, profile, matched_lens)
+
+    def _generate(self, analysis, profile, matched_lens):
         _validate_profile_analysis(profile, matched_lens, analysis)
         if analysis.outcome == "filtered":
             return CandidateGenerationResult("filtered")
@@ -54,6 +58,30 @@ class ResearchCandidateService:
             return CandidateGenerationResult("existing", existing)
 
         now = self._now()
+        output = analysis.analysis
+        if output.profile_relevance < profile.search.min_profile_relevance or output.novelty_to_library < profile.search.min_information_gain:
+            return CandidateGenerationResult("filtered")
+        work_row = self.repository.connection.execute("SELECT abstract FROM research_works WHERE id=?", (analysis.work_id,)).fetchone()
+        abstract = " ".join((work_row["abstract"] or "").casefold().split()) if work_row else ""
+        if len(abstract) >= 200:
+            previous = self.repository.connection.execute(
+                "SELECT w.abstract FROM research_candidates c JOIN research_works w ON w.id=c.work_id WHERE c.profile_id=? AND c.status!='dismissed'",
+                (profile.id,),
+            ).fetchall()
+            if any(" ".join((row["abstract"] or "").casefold().split()) == abstract for row in previous):
+                return CandidateGenerationResult("filtered")
+        # Count exposures across all decisions so rejecting cards cannot refill today's budget.
+        counts = self.repository.connection.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN json_extract(a.analysis_json, '$.readiness')='low' THEN 1 ELSE 0 END) AS stretch
+               FROM research_candidates c JOIN research_work_analyses a ON a.id=c.analysis_id
+               WHERE c.profile_id=? AND c.created_at >= ?""",
+            (profile.id, now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()),
+        ).fetchone()
+        if counts["total"] >= profile.search.max_recommendations_per_day:
+            return CandidateGenerationResult("budget_reached")
+        if output.readiness == "low" and (counts["stretch"] or 0) >= profile.search.max_stretch_per_day:
+            return CandidateGenerationResult("stretch_budget_reached")
         candidate = ResearchCandidateRecord(
             id=uuid.uuid4().hex,
             work_id=analysis.work_id,
