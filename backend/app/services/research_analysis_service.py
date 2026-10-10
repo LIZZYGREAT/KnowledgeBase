@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from pathlib import Path
 import re
 from typing import Callable, Optional
@@ -27,6 +28,7 @@ from backend.app.services.term_registry import TermRegistry
 
 RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v7"
 RESEARCH_ANALYSIS_VERSION = 7
+logger = logging.getLogger(__name__)
 
 
 class ResearchAnalysisCircuitBreaker:
@@ -209,7 +211,9 @@ class ResearchAnalysisService:
         if not isinstance(output, ResearchCandidateAnalysisAIOutput):
             raise AIResponseError("Research analysis returned an unexpected output model")
         _validate_analysis_references(output, profile, matched_lens, context_pack)
-        _validate_term_candidate_references(output, work, self.repository_root)
+        output = output.model_copy(update={
+            "term_candidates": _validated_term_candidates(output, work, self.repository_root)
+        })
 
         analyzed_at = self.clock()
         if analyzed_at.tzinfo is None or analyzed_at.utcoffset() is None:
@@ -314,7 +318,7 @@ def _validate_analysis_references(
         )
 
 
-def _validate_term_candidate_references(output, work, repository_root):
+def _validated_term_candidates(output, work, repository_root):
     registry = (
         TermRegistry.load(repository_root / "knowledge" / "terms")
         if repository_root is not None
@@ -322,18 +326,24 @@ def _validate_term_candidate_references(output, work, repository_root):
     )
     work_text = " ".join((work.title, work.abstract or ""))
     normalized_work_text = " ".join(work_text.casefold().split())
+    valid = []
+    discarded = 0
     for candidate in output.term_candidates:
         excerpt = " ".join(candidate.context_excerpt.casefold().split())
         mention = " ".join(candidate.mention.casefold().split())
         if not excerpt or excerpt not in normalized_work_text or mention not in excerpt:
-            raise AIResponseError(
-                "Research analysis term candidate evidence must be copied from the Work title or abstract"
-            )
-        if candidate.existing_term_id:
-            if registry is None or registry.get(candidate.existing_term_id) is None:
-                raise AIResponseError(
-                    "Research analysis referenced an unknown Existing Term id"
-                )
+            reason = "evidence_not_in_work"
+        elif candidate.existing_term_id and (
+            registry is None or registry.get(candidate.existing_term_id) is None
+        ):
+            reason = "unknown_existing_term"
+        else:
+            valid.append(candidate)
+            continue
+        discarded += 1
+        logger.warning("Research term discarded work_id=%s reason=%s count=%s",
+                       work.id, reason, discarded)
+    return valid
 
 
 def _tokens(text: str) -> list[str]:

@@ -264,6 +264,36 @@ def test_many_identity_conflicts_keep_run_diagnostics_bounded(tmp_path):
     connection.close()
 
 
+@pytest.mark.parametrize("invalid_only", [False, True])
+def test_research_invalid_term_evidence_keeps_main_analysis(tmp_path, invalid_only):
+    connection = connect_database(":memory:")
+    output = _analysis_output()
+    valid = {
+        "mention": "parameter importance", "term_type": "concept",
+        "existing_term_id": None, "confidence": 0.86,
+        "rationale": "Central to the method.",
+        "context_excerpt": "Fisher information measures parameter importance.",
+        "readiness": "medium", "recommendation_level": "next",
+        "known_prerequisites": [], "missing_prerequisites": [],
+        "why_now": "Connects to the selected context.",
+    }
+    output["term_candidates"] = [dict(valid, context_excerpt="Invented evidence.")]
+    if not invalid_only:
+        output["term_candidates"].append(valid)
+    provider = FakeProvider([ProviderPage(works=(_provider_work(),))])
+    service, _runs, _search, client = _service(
+        tmp_path, connection, provider, analysis_output=output
+    )
+    run = service.run_profile("continual-learning")
+    assert run.status == "success"
+    assert run.analyzed_count == 1
+    assert len(service.candidate_repository.list_for_profile("continual-learning")) == 1
+    assert len(service.term_candidate_service.list_candidates("pending")) == (0 if invalid_only else 1)
+    service.run_profile("continual-learning", trigger="manual")
+    assert client.calls == ["research_candidate_analysis"]
+    connection.close()
+
+
 def test_research_analysis_adds_term_evidence_without_coupling_candidate_lifecycles(tmp_path):
     connection = connect_database(":memory:")
     output = _analysis_output()

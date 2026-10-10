@@ -425,7 +425,7 @@ def test_historical_analysis_json_without_readiness_remains_readable():
     assert parsed.term_candidates == []
 
 
-def test_research_analysis_rejects_unknown_existing_term_id(tmp_path):
+def test_research_analysis_discards_unknown_existing_term_id(tmp_path, caplog):
     connection = connect_database(":memory:")
     repository = ResearchRepository(connection)
     work = _work()
@@ -453,10 +453,11 @@ def test_research_analysis_rejects_unknown_existing_term_id(tmp_path):
         repository_root=tmp_path,
     )
 
-    with pytest.raises(AIResponseError, match="unknown Existing Term id"):
-        service.analyze(work, _profile(), _profile().lenses[0], _context_pack())
-
-    assert connection.execute("SELECT COUNT(*) FROM research_work_analyses").fetchone()[0] == 0
+    analysis = service.analyze(work, _profile(), _profile().lenses[0], _context_pack())
+    assert analysis.outcome == "surface"
+    assert analysis.analysis.term_candidates == []
+    assert "work_id=work-1 reason=unknown_existing_term count=1" in caplog.text
+    assert connection.execute("SELECT COUNT(*) FROM research_work_analyses").fetchone()[0] == 1
     connection.close()
 
 
