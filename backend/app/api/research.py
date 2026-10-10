@@ -34,6 +34,7 @@ from backend.app.domain.research_runtime import ResearchCandidateRecord, Researc
 from backend.app.services.research_conversion_service import ResearchConversionError
 from backend.app.services.research_ranking import recommended_score as calculate_recommended_score
 from backend.app.services.research_source_match import find_matching_source
+from backend.app.services.research_history import research_anchor_year
 from backend.app.api.research_schemas import ResearchReviewRequest, ResearchRewriteRequest
 import asyncio
 
@@ -86,6 +87,7 @@ async def get_profile(profile_id: str, request: Request):
     return {
         "profile": profile,
         "canonical_content": service.profile_registry.canonical_content(profile_id),
+        "history_anchor_year": research_anchor_year(service.repository_root, profile, service.screening.sources),
         "runtime_state": state,
         "inbox": _inbox(service, profile),
         "latest_run": _run_summary(latest[0]) if latest else None,

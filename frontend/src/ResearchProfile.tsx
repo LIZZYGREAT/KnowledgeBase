@@ -220,6 +220,9 @@ export function ResearchProfilePanel({
         </div>
         <h2>{profile.title}</h2>
         <p>{profile.description || "Research Profile 的外部发现与知识关联。"}</p>
+        <p>{(detail.history_anchor_year ?? profile.search.history_seed_year) != null
+          ? `历史研究起点：${detail.history_anchor_year ?? profile.search.history_seed_year} 年；按年度窗口逐步探索。`
+          : "缺少研究阶段锚点，当前仅进行近期发现。请设置起始年份，或在笔记元数据中人工批准有来源年份的已掌握内容。"} <button className="text-button" onClick={onEditDefaults}>设置研究起点</button></p>
         <small>{detail.latest_run ? `最近运行 ${formatDate(detail.latest_run.started_at)} · ${detail.latest_run.status}` : "尚无运行记录"}</small>
       </div>
       <div className="research-profile-actions">

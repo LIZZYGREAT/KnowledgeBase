@@ -205,6 +205,10 @@ def test_history_anchor_requires_approved_note_with_linked_source_year(tmp_path)
     assert research_anchor_year(root, unrelated, SourceRegistry((source,))) == 2017
     path.write_text(text.replace("status: approved", "status: unreviewed"), encoding="utf-8")
     assert research_anchor_year(root, profile, SourceRegistry((source,))) is None
+    path.write_text(text, encoding="utf-8")
+    assert research_anchor_year(root, profile, SourceRegistry(())) is None
+    seeded = profile.model_copy(update={"search": profile.search.model_copy(update={"history_seed_year": 2017})})
+    assert research_anchor_year(root, seeded, SourceRegistry(())) == 2017
 
 
 def test_run_is_persisted_before_provider_and_completed_slice_advances_watermark(tmp_path):

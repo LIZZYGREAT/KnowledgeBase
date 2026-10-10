@@ -71,6 +71,7 @@ schedule:
 
 search:
   breadth: balanced
+  history_seed_year: 2017
   initial_lookback_days: 30
   max_catchup_days: 30
   max_candidates_per_run: 10

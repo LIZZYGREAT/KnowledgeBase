@@ -24,6 +24,15 @@ vi.mock("../../src/Workspace", async () => {
 const runRequestId = "research-request-123";
 
 describe("Research workspace", () => {
+  it("shows the effective historical anchor and a direct settings entry", () => {
+    const edit = vi.fn();
+    const view = render(<ResearchProfilePanel summary={profileSummary} detail={{ ...profileDetail, profile: profile as ResearchProfile, history_anchor_year: 2017 }} onRefresh={() => undefined} onQueued={() => undefined} onEditDefaults={edit} />);
+    expect(screen.getByText(/历史研究起点：2017 年/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "设置研究起点" }));
+    expect(edit).toHaveBeenCalledOnce();
+    view.rerender(<ResearchProfilePanel summary={profileSummary} detail={{ ...profileDetail, profile: profile as ResearchProfile, history_anchor_year: null }} onRefresh={() => undefined} onQueued={() => undefined} onEditDefaults={edit} />);
+    expect(screen.getByText(/缺少研究阶段锚点/)).toBeTruthy();
+  });
   let mockFetch: ReturnType<typeof vi.fn>;
   let responseProfileDetail = profileDetail;
   let responseProfileSummary = profileSummary;
@@ -735,7 +744,8 @@ describe("Research workspace", () => {
     fireEvent.click(createButton);
     expect(onCreate).not.toHaveBeenCalled();
 
-    resolveCollectionDrafts?.();
+    await waitFor(() => expect(resolveCollectionDrafts).toBeDefined());
+    resolveCollectionDrafts!();
     expect(await screen.findByText(/was preselected/)).toBeTruthy();
     expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("regularization");
     expect(createButton.hasAttribute("disabled")).toBe(false);

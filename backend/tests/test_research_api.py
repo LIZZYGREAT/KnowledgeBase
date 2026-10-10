@@ -78,6 +78,7 @@ def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_pa
                 "/api/research/profiles/continual-learning"
             )
             assert profile_detail.status_code == 200
+            assert profile_detail.json()["history_anchor_year"] is None
             assert profile_detail.json()["canonical_content"] == (
                 service.profile_registry.canonical_content("continual-learning")
             )
