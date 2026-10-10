@@ -62,7 +62,7 @@ from backend.app.services.research_watermark import (
 from backend.app.services.research_lock import GlobalResearchLock
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.markdown_parser import parse_yaml
-from backend.app.services.research_history import research_anchor_year, historical_plan
+from backend.app.services.research_history import research_history_context, historical_plan
 
 
 MAX_ANALYSIS_BACKLOG_PER_RUN = 10
@@ -697,10 +697,11 @@ class ResearchService:
     ) -> Optional[ResearchRunStatus]:
         streams = []
         stream_order = 0
-        anchor = (
-            research_anchor_year(self.repository_root, profile, self.screening.sources)
+        history_context = (
+            research_history_context(self.repository_root, profile, self.screening.sources)
             if (run.trigger == "scheduled" or manual_incremental) and manual_range is None else None
         )
+        anchor = history_context.anchor_year if history_context else None
         for query in queries:
             lens = _lens_for(profile, query)
             for provider_name in profile.providers.discovery:
@@ -726,7 +727,7 @@ class ResearchService:
                     manual_run=run.trigger == "manual",
                 )
                 if anchor is not None:
-                    history = historical_plan(self.search_repository, profile, query, provider_name, anchor, now)
+                    history = historical_plan(self.search_repository, profile, query, provider_name, anchor, now, history_context.approved_ids)
                     if history.slices:
                         checkpoint = self.search_repository.history_checkpoint(history.profile_id, history.lens_id, history.provider, history.query_key)
                         streams.append(_SearchStream(

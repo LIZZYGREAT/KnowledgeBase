@@ -30,6 +30,7 @@ class ResearchSearchPlan:
     manual: bool
     previous_watermark: Optional[datetime]
     watermark_skip_required: bool = False
+    history_scope: Optional[dict] = None
 
 
 class ResearchWatermarkService:

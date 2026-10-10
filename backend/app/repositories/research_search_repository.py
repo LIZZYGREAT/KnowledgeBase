@@ -15,17 +15,28 @@ class ResearchSearchRepository:
         self.connection = connection
 
     def history_checkpoint(self, profile_id, lens_id, provider, query_key):
+        value = self._history_progress(profile_id, lens_id, provider, query_key)
+        return value if value.get("start") else None
+
+    def history_scope(self, profile_id, lens_id, provider, query_key):
+        return self._history_progress(profile_id, lens_id, provider, query_key).get("scope", {})
+
+    def _history_progress(self, profile_id, lens_id, provider, query_key):
         row = self.connection.execute(
             "SELECT history_checkpoint_json FROM research_search_state WHERE profile_id=? AND lens_id=? AND provider=? AND query_key=?",
             (profile_id, lens_id, provider, query_key),
         ).fetchone()
-        return json.loads(row[0]) if row and row[0] else None
+        return json.loads(row[0]) if row and row[0] else {}
 
     def save_history_checkpoint(self, plan, window_start, cursor):
         with self.write_transaction():
+            value = self._history_progress(plan.profile_id, plan.lens_id, plan.provider, plan.query_key)
+            value.update(start=window_start.isoformat() if window_start else None, cursor=cursor)
+            if plan.history_scope is not None:
+                value["scope"] = plan.history_scope
             self.connection.execute(
                 "UPDATE research_search_state SET history_checkpoint_json=? WHERE profile_id=? AND lens_id=? AND provider=? AND query_key=?",
-                (json.dumps({"start": window_start.isoformat(), "cursor": cursor}) if window_start else None,
+                (json.dumps(value),
                  plan.profile_id, plan.lens_id, plan.provider, plan.query_key),
             )
 
