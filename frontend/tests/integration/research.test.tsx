@@ -1153,6 +1153,46 @@ describe("Research workspace", () => {
     expect(window.location.search).toBe("?edit=1");
   });
 
+  it.each(["draft_reused", "draft_created"])("opens the preserved Source Workspace after %s fails preflight", async (action) => {
+    const normally = mockFetch.getMockImplementation();
+    const sourceDraft = { id: "source-draft-1", entity_type: "source", entity_id: "research-paper", content: "schema_version: 1\nid: research-paper\ntype: paper\ntitle: My preserved title\nauthors: [Ada]\nyear: 2017\n", revision: 3, base_git_revision: "abc", base_content_hash: "hash", created_at: "2026-10-01", updated_at: "2026-10-01" };
+    mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/candidate-1/review")) return jsonResponse({ ...candidate, review_revision: 1 });
+      if (path.endsWith("/candidate-1/save-source")) return jsonResponse({ action, draft_id: sourceDraft.id, source_id: sourceDraft.entity_id, candidate });
+      if (path === "/api/drafts/source-draft-1") return jsonResponse(sourceDraft);
+      if (path.endsWith("/source-draft-1/preflight")) return jsonResponse({ valid: false, conflict: true, errors: ["Canonical changed"], warnings: [] });
+      return normally!(input, init);
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "通过" }));
+    const dialog = await screen.findByRole("dialog", { name: "确认已有 Source Draft" });
+    expect(within(dialog).getByText("My preserved title")).toBeTruthy();
+    expect(dialog.querySelector("details")?.open).toBe(false);
+    if (action === "draft_reused") fireEvent.click(within(dialog).getByRole("button", { name: "确认通过并发布 Source" }));
+    await waitFor(() => expect(within(dialog).getByText("Canonical changed")).toBeTruthy());
+    fireEvent.click(within(dialog).getByRole("button", { name: "返回编辑" }));
+    expect(await screen.findByText("Source Metadata Editor")).toBeTruthy();
+    expect(window.location.pathname + window.location.search).toBe("/sources/research-paper?edit=1");
+    expect(mockFetch.mock.calls.some(([input]) => String(input) === "/api/publish")).toBe(false);
+    expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(false);
+    expect(mockFetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+  });
+
+  it("approves an existing canonical Source by association without creating or publishing a Draft", async () => {
+    const normally = mockFetch.getMockImplementation();
+    mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/candidate-1/review")) return jsonResponse({ ...candidate, review_revision: 1 });
+      if (String(input).endsWith("/candidate-1/save-source")) return jsonResponse({ action: "linked_existing", source_id: "published-paper", draft_id: null, candidate: { ...candidate, status: "saved_source" } });
+      return normally!(input, init);
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "通过" }));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([input]) => String(input).endsWith("/candidate-1/save-source"))).toBe(true));
+    expect(mockFetch.mock.calls.some(([input]) => String(input) === "/api/publish" || String(input) === "/api/drafts")).toBe(false);
+    expect(screen.queryByRole("dialog", { name: "确认已有 Source Draft" })).toBeNull();
+  });
+
   it("creates a structured note group and enters batch Workspace review", async () => {
     responseProfileDetail = {
       ...profileDetail,

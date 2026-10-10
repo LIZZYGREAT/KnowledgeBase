@@ -32,6 +32,7 @@ import { ResearchCandidateCard, ResearchCandidateDrawer, ResearchCreateNoteDialo
 import { ResearchProfilePanel } from "./ResearchProfile";
 import { ResearchProfileDefaultsEditor } from "./ResearchProfileDefaultsEditor";
 import { ResearchProfileCreateDialog } from "./ResearchProfileCreateDialog";
+import { ResearchSourceReview } from "./ResearchSourceReview";
 import { ResearchRunDrawer, ResearchRunList } from "./ResearchRun";
 import { ErrorState, LoadingState, PageHeader } from "./ui";
 import { errorMessage } from "./errors";
@@ -295,12 +296,19 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     if (result.draft_id) {
       const draft = await getDraft(result.draft_id);
       if (result.action === "draft_reused") {
+        setActionError("");
         setSourceReview(draft);
-        throw new Error("已有 Source Draft 已打开预览，请确认其中的修改后发布。");
+        return;
       }
-      const preflight = await preflightDraft(draft.id);
-      if (!preflight.valid || preflight.conflict) throw new Error(preflight.errors.join("；") || "Source 发布校验失败，修改已保留。");
-      await publishDraft(draft.id, draft.revision);
+      try {
+        const preflight = await preflightDraft(draft.id);
+        if (!preflight.valid || preflight.conflict) throw new Error(preflight.errors.join("；") || "Source 发布校验失败，修改已保留。");
+        await publishDraft(draft.id, draft.revision);
+      } catch (reason) {
+        setSourceReview(draft);
+        setActionError(errorMessage(reason));
+        throw reason;
+      }
     }
     refresh();
   }
@@ -455,6 +463,18 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     {shortlistTargets && <ResearchShortlistDialog count={shortlistTargets.length} busy={actionBusy} error={actionError} onClose={() => setShortlistTargets(null)} onSubmit={(note) => void shortlist(shortlistTargets, note)} />}
     {createNoteTarget && <ResearchCreateNoteDialog title={createNoteTarget.work.title} busy={actionBusy} suggestedCollectionId={createNoteTarget.analysis.suggested_collection ?? null} suggestedSection={createNoteTarget.analysis.suggested_section ?? null} allowedCollectionIds={profile?.profile.id === selectedProfileId ? profile.profile.context.collections : []} onClose={() => setCreateNoteTarget(null)} onCreate={(options) => void createNote(createNoteTarget.candidate.id, options)} />}
     {profileLayers}
-      {sourceReview && <div className="explorer-modal-backdrop"><section className="explorer-modal surface" role="dialog" aria-label="确认已有 Source Draft"><h2>已有 Source Draft</h2><p>此资料已有未发布修改，请检查后确认。</p><pre>{sourceReview.content}</pre>{actionError && <p role="alert">{actionError}</p>}<button disabled={actionBusy} onClick={() => { setActionBusy(true); setActionError(""); void preflightDraft(sourceReview.id).then(async (result) => { if (!result.valid || result.conflict) throw new Error(result.errors.join("；") || "发布校验失败"); await publishDraft(sourceReview.id, sourceReview.revision); setSourceReview(null); refresh(); }).catch((reason) => setActionError(errorMessage(reason))).finally(() => setActionBusy(false)); }}>确认通过并发布 Source</button><button disabled={actionBusy} onClick={() => setSourceReview(null)}>返回编辑</button></section></div>}
+      {sourceReview && <ResearchSourceReview draft={sourceReview} busy={actionBusy} error={actionError}
+        onConfirm={() => {
+          setActionBusy(true); setActionError("");
+          void preflightDraft(sourceReview.id).then(async (result) => {
+            if (!result.valid || result.conflict) throw new Error(result.errors.join("；") || "发布校验失败，请返回编辑处理冲突。");
+            await publishDraft(sourceReview.id, sourceReview.revision);
+            setSourceReview(null); refresh();
+          }).catch((reason) => setActionError(errorMessage(reason))).finally(() => setActionBusy(false));
+        }}
+        onEdit={() => {
+          const path = entityWorkspaceUrl("source", sourceReview.entity_id, { edit: true });
+          setSourceReview(null); setActionError(""); navigate(path);
+        }} />}
   </div>;
 }

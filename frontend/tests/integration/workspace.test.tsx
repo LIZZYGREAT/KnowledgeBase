@@ -4,6 +4,7 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspacePage } from "../../src/Workspace";
 import { WorkspaceMetadataDrawer } from "../../src/workspace/WorkspaceMetadataDrawer";
+import { ResearchSourceReview } from "../../src/ResearchSourceReview";
 import type { Draft, EntityDetail, PresentationAnnotation, Proposal } from "../../src/api";
 import { navigateWithGuards, type NavigationGuard, type RegisterBeforeNavigate } from "../../src/navigation";
 
@@ -414,6 +415,35 @@ describe("Workspace React integration", () => {
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", "http://example.org/paper");
     fireEvent.change(url, { target: { value: "" } });
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", null);
+  });
+
+  it("edits and publishes the original Research Source Draft after returning from review", async () => {
+    const user = userEvent.setup();
+    const content = "schema_version: 1\nid: research-paper\ntype: paper\ntitle: Preserved title\nauthors: [Ada]\nyear: 2017\nidentifiers: {doi: 10.1000/preserved}\nattachments: {}\n";
+    const draft = makeDraft("source", "research-paper", content);
+    draft.revision = 5;
+    drafts.push(draft);
+    publishedSource = { ...makeEntity(), id: "research-paper", title: "Canonical title", entity_type: "source", metadata: { type: "paper", authors: ["Ada"], year: 2017, identifiers: { doi: "10.1000/preserved" }, attachments: {} }, content: null, canonical_content: content };
+    function Flow() {
+      const [editing, setEditing] = useState(false);
+      return editing ? <WorkspacePage type="source" id="research-paper" navigate={vi.fn()} openMetadataOnLoad /> : <ResearchSourceReview draft={draft} busy={false} error="" onConfirm={vi.fn()} onEdit={() => setEditing(true)} />;
+    }
+    render(<Flow />);
+    await user.click(screen.getByRole("button", { name: "返回编辑" }));
+    const title = await screen.findByLabelText("标题");
+    expect((title as HTMLInputElement).value).toBe("Preserved title");
+    fireEvent.change(title, { target: { value: "Reviewed title" } });
+    await waitFor(() => expect(drafts[0].content).toContain("Reviewed title"), { timeout: 2500 });
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].content).toContain("10.1000/preserved");
+    expect(drafts[0].content).toContain("Ada");
+    await user.click(screen.getByRole("button", { name: "关闭抽屉" }));
+    await user.click(screen.getByRole("button", { name: "发布" }));
+    await user.click(await screen.findByRole("button", { name: "确认发布" }));
+    await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith(draft.id, drafts[0].revision));
+    expect(drafts[0].revision).toBeGreaterThan(5);
+    expect(api.createDraft).not.toHaveBeenCalled();
+    expect(api.discardDraft).not.toHaveBeenCalled();
   });
 
   it("shows Source autosave failures in the open metadata drawer and hands them back to the reader on close", async () => {
