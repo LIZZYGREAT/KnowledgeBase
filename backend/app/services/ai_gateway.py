@@ -67,7 +67,7 @@ TASKS = {
         (
             "Draft a Term entry without publishing it. When request.term_candidate is supplied, "
             "ground Candidate identity, relevance, and any paper-specific claim in its supplied evidence and the existing Term Registry; "
-            "use the Candidate's suggested type and preserve its name as an alias unless it is already the title. "
+            "use the Candidate's suggested type, but do not change the current Draft title or aliases. "
             "Read depth from the current Term Draft frontmatter and preserve it exactly; never infer a different depth or silently upgrade or downgrade it. "
             "New Candidate Drafts start at standard, but follow the current Draft if the user has changed that value. "
             "Every depth must explain what the Term means, where it is encountered, what role or use it serves, and give one concrete, minimal, accurate example. "

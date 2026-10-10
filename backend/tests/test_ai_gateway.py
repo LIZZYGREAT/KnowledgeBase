@@ -22,6 +22,7 @@ from backend.app.services.ai_gateway import (
 )
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.draft_service import DraftService
+from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.proposal_service import ProposalService
 
 
@@ -272,6 +273,103 @@ def test_term_generation_prompt_scales_to_depth_and_preserves_candidate_context(
     connection.close()
 
 
+def test_term_draft_rejects_identity_type_or_depth_different_from_the_current_draft():
+    content = (
+        "---\nschema_version: 1\nid: feature-vector\ntitle: Feature Vector\n"
+        "type: concept\ndepth: stub\naliases: [FV]\ndomains: []\ntopics: []\n"
+        "tags: []\nsources: []\n---\n# Feature Vector\n"
+    )
+    for field, value in (("id", "other-term"), ("type", "entity"), ("depth", "standard")):
+        connection = connect_database(":memory:")
+        drafts = DraftService(DraftRepository(connection))
+        draft = drafts.create("term", "feature-vector", content, "a" * 40, "b" * 64)
+        response = {
+            "id": "feature-vector",
+            "title": "Feature Vector",
+            "type": "concept",
+            "depth": "stub",
+            "definition_zh": "特征向量用于表示输入；例如编码器会为图像输出一个向量。",
+            "definition_en": "A feature vector represents an input; for example, an encoder can output one vector for an image.",
+        }
+        response[field] = value
+        proposals = ProposalService(ProposalRepository(connection))
+        service = AIProposalService(
+            Path(__file__).resolve().parents[2],
+            drafts,
+            proposals,
+            AIGateway(MockDeepSeekClient({"draft_term": response})),
+        )
+
+        with pytest.raises(AIResponseError, match="current Draft {}".format(field)):
+            service.generate("draft_term", draft.id)
+
+        assert connection.execute("SELECT COUNT(*) FROM proposals").fetchone()[0] == 0
+        assert drafts.get(draft.id).content == content
+        connection.close()
+
+
+def test_bilingual_term_proposal_keeps_draft_metadata_through_adoption():
+    content = (
+        "---\n"
+        "schema_version: 1\n"
+        "id: ai-metadata-test-term\n"
+        "title: Human Draft Title\n"
+        "type: concept\n"
+        "depth: standard\n"
+        "aliases: [Existing Alias]\n"
+        "domains: [artificial-intelligence]\n"
+        "topics: [representation-learning]\n"
+        "tags: [reviewed-tag]\n"
+        "sources: [known-source]\n"
+        "review:\n  human:\n    status: unreviewed\n"
+        "provenance:\n  origin: human-authored\n  ai_assisted: false\n"
+        "---\n"
+        "User note that must remain.\n"
+    )
+    response = {
+        "id": "ai-metadata-test-term",
+        "title": "AI title suggestion",
+        "type": "concept",
+        "depth": "standard",
+        "aliases": ["AI alias suggestion"],
+        "definition_zh": "一种表示输入的向量；例如编码器可以为图像输出一个特征向量。",
+        "definition_en": "A vector representation of an input; for example, an encoder can output a feature vector for an image.",
+    }
+    connection = connect_database(":memory:")
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", "ai-metadata-test-term", content, "a" * 40, "b" * 64)
+    proposals = ProposalService(ProposalRepository(connection))
+    service = AIProposalService(
+        Path(__file__).resolve().parents[2],
+        drafts,
+        proposals,
+        AIGateway(MockDeepSeekClient({"draft_term": response})),
+    )
+
+    proposal = service.generate("draft_term", draft.id)
+    proposed_content = proposal.payload["content"]
+    proposed = parse_markdown(proposed_content)
+    original = parse_markdown(content)
+
+    assert proposed.frontmatter == original.frontmatter
+    assert proposed.frontmatter_raw == original.frontmatter_raw
+    assert proposal.payload["result"]["title"] == "Human Draft Title"
+    assert proposal.payload["result"]["aliases"] == ["Existing Alias"]
+    assert "# Human Draft Title" in proposed_content
+    assert "AI title suggestion" not in proposed_content
+    assert "AI alias suggestion" not in proposed_content
+    assert "User note that must remain." in proposed_content
+    assert drafts.get(draft.id).content == content
+
+    proposals.apply_to_draft(proposal.id, draft, draft.revision)
+    adopted = drafts.get(draft.id)
+    assert parse_markdown(adopted.content).frontmatter == original.frontmatter
+    assert "User note that must remain." in adopted.content
+    assert "A vector representation of an input" in adopted.content
+    assert "an encoder can output a feature vector" in adopted.content
+    connection.close()
+
+
 def test_single_language_rewrite_preserves_metadata_and_the_other_explanation():
     content = (
         "---\nschema_version: 1\nid: feature-vector\ntitle: Feature Vector\n"
@@ -361,7 +459,7 @@ def test_term_draft_must_match_existing_term_draft_target():
         ),
     )
 
-    with pytest.raises(AIResponseError, match="target Term Draft id"):
+    with pytest.raises(AIResponseError, match="must target a Term Draft"):
         ai.generate("draft_term", draft.id)
 
     assert connection.execute("SELECT COUNT(*) FROM proposals").fetchone()[0] == 0

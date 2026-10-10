@@ -5,7 +5,6 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Optional
 
-import yaml
 from pydantic import ValidationError
 
 from backend.app.domain.document import DocumentMetadata
@@ -16,7 +15,6 @@ from backend.app.services.ai_client import AIGatewayError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway, TASKS
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.proposal_service import ProposalService
-from backend.app.services.resolution import normalize_key
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import load_writing_standard
 from backend.app.services.taxonomy_registry import TaxonomyRegistry
@@ -84,24 +82,21 @@ class AIProposalService:
         task_name = task.name
         result_data = result.model_dump(mode="json", exclude_none=True)
         term_candidate = (request_context or {}).get("term_candidate")
-        if task_name == "draft_term" and term_candidate:
-            if result_data["type"] != term_candidate["suggested_type"]:
+        if task_name == "draft_term":
+            _, term_metadata = self._term_draft_metadata(draft)
+            for field in ("id", "type", "depth"):
+                if result_data[field] != getattr(term_metadata, field):
+                    raise AIResponseError(
+                        "Term Draft output must preserve the current Draft {}".format(field)
+                    )
+            if term_candidate and result_data["type"] != term_candidate["suggested_type"]:
                 raise AIResponseError(
                     "Term Draft output must preserve the Candidate's suggested type"
                 )
-            if result_data["depth"] == "deep":
-                raise AIResponseError(
-                    "Note Candidates cannot receive an automatic deep Term Draft"
-                )
-            candidate_name = term_candidate.get("display_name", "").strip()
-            aliases = result_data.setdefault("aliases", [])
-            alias_keys = {normalize_key(alias) for alias in aliases}
-            if (
-                normalize_key(candidate_name)
-                and normalize_key(candidate_name) != normalize_key(result_data["title"])
-                and normalize_key(candidate_name) not in alias_keys
-            ):
-                aliases.append(candidate_name)
+            # The task generates explanations only. Keep suggestions to title and aliases
+            # from becoming metadata changes when the Proposal is adopted.
+            result_data["title"] = term_metadata.title
+            result_data["aliases"] = list(term_metadata.aliases)
         try:
             self._validate_result(task_name, draft, result_data, registries)
         except AIGatewayError:
@@ -114,7 +109,7 @@ class AIProposalService:
         if isinstance(proposed_content, str):
             payload["content"] = proposed_content
         if task_name == "draft_term":
-            payload["content"] = self._term_markdown(result_data)
+            payload["content"] = self._term_markdown(draft, result_data)
         if task_name == "rewrite_term_language":
             if draft.entity_type != "term":
                 raise AIResponseError("Term rewrite requires a Term Draft")
@@ -219,26 +214,42 @@ class AIProposalService:
                 TaxonomyRegistryModel.model_validate(parse_yaml(content))
 
     @staticmethod
-    def _term_markdown(result: dict) -> str:
-        metadata = {
-            "schema_version": 1,
-            "id": result["id"],
-            "title": result["title"],
-            "type": result["type"],
-            "depth": result["depth"],
-            "aliases": result.get("aliases", []),
-            "domains": [],
-            "topics": [],
-            "tags": [],
-            "sources": [],
-            "provenance": {"origin": "human-authored", "ai_assisted": True},
-        }
-        frontmatter = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).rstrip()
-        content = "---\n{}\n---\n# {}\n".format(frontmatter, result["title"])
-        if result.get("definition_zh") or result.get("definition_en"):
-            for language in ("zh", "en"):
-                if result.get("definition_" + language):
-                    content = replace_term_language(content, language, result["definition_" + language])
-        else:
-            content += "\n" + result["definition"].strip() + "\n"
+    def _term_draft_metadata(draft):
+        if draft.entity_type != "term":
+            raise AIResponseError("Term Draft output must target a Term Draft")
+        parsed = parse_markdown(draft.content)
+        if parsed.frontmatter is None or parsed.frontmatter_end_line is None:
+            raise AIResponseError("Current Term Draft must have valid YAML frontmatter")
+        try:
+            metadata = TermMetadata.model_validate(parsed.frontmatter)
+        except ValidationError as error:
+            raise AIResponseError("Current Term Draft metadata is invalid") from error
+        if metadata.id != draft.entity_id:
+            raise AIResponseError("Current Term Draft metadata id must match its target")
+        return parsed, metadata
+
+    @staticmethod
+    def _term_markdown(draft, result: dict) -> str:
+        parsed, metadata = AIProposalService._term_draft_metadata(draft)
+        for field in ("id", "type", "depth"):
+            if result.get(field) != getattr(metadata, field):
+                raise AIResponseError(
+                    "Term Draft output must preserve the current Draft {}".format(field)
+                )
+        if not result.get("definition_zh") or not result.get("definition_en"):
+            raise AIResponseError("Term Draft output must include complete Chinese and English explanations")
+
+        content = draft.content
+        if not any(heading.level == 1 for heading in parsed.headings):
+            lines = draft.content.splitlines(keepends=True)
+            prefix = "".join(lines[: parsed.frontmatter_end_line])
+            body = "".join(lines[parsed.frontmatter_end_line :]).lstrip("\r\n")
+            newline = "\r\n" if "\r\n" in draft.content else "\n"
+            separator = "" if prefix.endswith(("\n", "\r")) else newline
+            content = prefix + separator + "# " + metadata.title + newline + newline + body
+
+        for language in ("zh", "en"):
+            content = replace_term_language(
+                content, language, result["definition_" + language]
+            )
         return content
