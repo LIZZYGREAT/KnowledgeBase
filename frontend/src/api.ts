@@ -568,6 +568,8 @@ export interface ResearchCandidate {
   primary_lens_id: string | null;
   analysis_id: string;
   user_note: string | null;
+  review_overrides?: Record<string, string>;
+  review_revision?: number;
   dismiss_reason: ResearchDismissReason | null;
   created_at: string;
   updated_at: string;
@@ -853,8 +855,20 @@ export function requestTermRewrite(draftId: string, language: "zh" | "en", requi
   return request<{ external_provider_notice: string; proposal: Proposal }>("/api/ai/term-rewrite", { method: "POST", body: JSON.stringify({ draft_id: draftId, language, requirements, confirm_deepseek_transfer: true }) });
 }
 
+export function updateResearchReview(candidateId: string, overrides: Record<string, string>, expectedRevision: number) {
+  return request<ResearchCandidate>(`/api/research/candidates/${encodeURIComponent(candidateId)}/review`, { method: "PUT", body: JSON.stringify({ overrides, expected_revision: expectedRevision }), workloadChanged: true });
+}
+
+export function requestResearchRewrite(candidateId: string, field: string, currentText: string, requirements: string) {
+  return request<{ text: string; rationale: string }>(`/api/research/candidates/${encodeURIComponent(candidateId)}/rewrite`, { method: "POST", body: JSON.stringify({ field, current_text: currentText, requirements, confirm_deepseek_transfer: true }) });
+}
+
 export function listEntities(type: EntityType, offset = 0) {
   return request<EntitySummary[]>(`/api/${typePath(type)}?limit=100&offset=${offset}`);
+}
+
+export function restoreTermCandidate(candidateId: string) {
+  return request<TermCandidate>(`/api/terms/candidates/${encodeURIComponent(candidateId)}/restore`, { method: "POST", workloadChanged: true });
 }
 
 export async function listAllEntities(type: EntityType): Promise<EntitySummary[]> {

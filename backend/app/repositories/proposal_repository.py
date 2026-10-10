@@ -294,7 +294,7 @@ class ProposalRepository:
             )
         row = self.connection.execute(
             """SELECT * FROM rejected_candidates
-               WHERE candidate_type = ? AND normalized_value = ? AND scope = ?""",
+               WHERE candidate_type = ? AND normalized_value = ? AND scope = ? AND restored_at IS NULL""",
             (candidate_type, normalized_value, scope),
         ).fetchone()
         return _rejected_candidate_from_row(row)
@@ -304,7 +304,7 @@ class ProposalRepository:
     ) -> bool:
         row = self.connection.execute(
             """SELECT 1 FROM rejected_candidates
-               WHERE candidate_type = ? AND normalized_value = ? AND scope = ?""",
+               WHERE candidate_type = ? AND normalized_value = ? AND scope = ? AND restored_at IS NULL""",
             (candidate_type, normalized_value, scope),
         ).fetchone()
         return row is not None
@@ -322,7 +322,7 @@ class ProposalRepository:
                    id, candidate_type, normalized_value, reason, scope, created_at
                ) VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(candidate_type, normalized_value, scope)
-               DO UPDATE SET reason = excluded.reason""",
+               DO UPDATE SET reason = excluded.reason, restored_at = NULL""",
             (
                 uuid.uuid4().hex,
                 candidate_type,

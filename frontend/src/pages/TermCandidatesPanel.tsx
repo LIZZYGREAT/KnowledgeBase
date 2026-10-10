@@ -5,14 +5,15 @@ import {
   getDraft,
   listTermCandidates,
   rejectTermCandidate,
-  requestCandidateTermDraftProposal,
+  restoreTermCandidate,
+  type Draft,
   type EntitySummary,
   type TermCandidate,
   type TermType,
 } from "../api";
 import { errorMessage } from "../errors";
 import { Chip, EmptyState, ErrorState, LoadingState, titleCase } from "../ui";
-import { entityWorkspaceUrl } from "../workspaceRoute";
+import { TermCandidateReview } from "./TermCandidateReview";
 import { readList, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
 
 type OriginFilter = "all" | "notes" | "pdf" | "research" | "web";
@@ -33,14 +34,11 @@ export function TermCandidatesPanel({
   const [originFilter, setOriginFilter] = useState<OriginFilter>(initialDocumentId ? "notes" : "all");
   const [documentFilter, setDocumentFilter] = useState(initialDocumentId);
   const [termTypeFilter, setTermTypeFilter] = useState<TermType | "">("");
+  const [showRejected, setShowRejected] = useState(false);
   const [resolutionFilter, setResolutionFilter] = useState<ResolutionFilter>("all");
   const [busyCandidateId, setBusyCandidateId] = useState("");
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
-  const [createCandidate, setCreateCandidate] = useState<TermCandidate | null>(null);
-  const [createConsent, setCreateConsent] = useState(false);
-  const [createBusy, setCreateBusy] = useState(false);
-  const [createError, setCreateError] = useState("");
-  const [createdDraftId, setCreatedDraftId] = useState("");
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, Draft>>({});
   const [pickerCandidate, setPickerCandidate] = useState<TermCandidate | null>(null);
   const [selectedTermId, setSelectedTermId] = useState("");
   const [termQuery, setTermQuery] = useState("");
@@ -65,7 +63,7 @@ export function TermCandidatesPanel({
     );
   }, [candidates]);
   const visibleCandidates = candidates.filter((candidate) => {
-    if (candidate.status !== "pending" && candidate.status !== "drafting") return false;
+    if (showRejected ? candidate.status !== "rejected" : candidate.status !== "pending" && candidate.status !== "drafting") return false;
     const originType = originFilter === "notes" ? "document"
       : originFilter === "pdf" ? "source"
         : originFilter === "research" ? "research_work"
@@ -114,37 +112,13 @@ export function TermCandidatesPanel({
     if (succeeded) setPickerCandidate(null);
   }
 
-  async function createAndGenerateTermDraft() {
-    if (!createCandidate || !createConsent || createBusy) return;
-    setCreateBusy(true);
-    setCreateError("");
-    try {
-      const result = await createCandidateTermDraft(createCandidate.id);
-      setCreatedDraftId(result.draft.id);
-      resource.retry();
-      await requestCandidateTermDraftProposal(result.draft.id, createCandidate.id);
-      setCreateCandidate(null);
-      setCreateConsent(false);
-      navigate(entityWorkspaceUrl("term", result.draft.entity_id, {
-        openAIAssist: true,
-        proposalGenerated: true,
-        termCandidateId: createCandidate.id,
-      }));
-    } catch (reason) {
-      setCreateError(errorMessage(reason));
-      resource.retry();
-    } finally {
-      setCreateBusy(false);
-    }
-  }
-
   async function openCandidateDraft(candidate: TermCandidate) {
     if (!candidate.draft_id) return;
     setBusyCandidateId(candidate.id);
     setActionErrors((current) => ({ ...current, [candidate.id]: "" }));
     try {
       const draft = await getDraft(candidate.draft_id);
-      navigate(entityWorkspaceUrl("term", draft.entity_id, { termCandidateId: candidate.id }));
+      setReviewDrafts((current) => ({ ...current, [candidate.id]: draft }));
     } catch (reason) {
       setActionErrors((current) => ({ ...current, [candidate.id]: errorMessage(reason) }));
       resource.retry();
@@ -154,10 +128,10 @@ export function TermCandidatesPanel({
   }
 
   function startCreate(candidate: TermCandidate) {
-    setCreateCandidate(candidate);
-    setCreateConsent(false);
-    setCreateError("");
-    setCreatedDraftId("");
+    void runAction(candidate.id, async () => {
+      const result = await createCandidateTermDraft(candidate.id);
+      setReviewDrafts((current) => ({ ...current, [candidate.id]: result.draft }));
+    });
   }
 
   function selectOriginFilter(filter: OriginFilter) {
@@ -191,7 +165,7 @@ export function TermCandidatesPanel({
             <option value="all">Existing 与 New</option><option value="existing">Existing</option><option value="new">New</option>
           </select></label>
         </div>
-        <span className="count-label">{visibleCandidates.length} 个待审核</span>
+        <span className="count-label">{visibleCandidates.length} 个候选</span><button onClick={() => setShowRejected(!showRejected)}>{showRejected ? "返回待审" : "拒绝历史"}</button>
       </div>
 
       {resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : visibleCandidates.length ? (
@@ -250,16 +224,17 @@ export function TermCandidatesPanel({
                 </details> : evidenceContent}
 
                 {actionErrors[candidate.id] && <p className="error-copy" role="alert">{actionErrors[candidate.id]}</p>}
+                {reviewDrafts[candidate.id] && <TermCandidateReview candidate={candidate} seed={reviewDrafts[candidate.id]} onDone={() => { setReviewDrafts((current) => { const next = { ...current }; delete next[candidate.id]; return next; }); resource.retry(); }} />}
                 <footer className="term-candidate-actions">
-                  {candidate.status === "drafting" ? <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void openCandidateDraft(candidate)}>{busyCandidateId === candidate.id ? "正在打开…" : "打开 Term Draft"}</button> : <>
+                  {candidate.status === "rejected" ? <button disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => restoreTermCandidate(candidate.id))}>恢复</button> : candidate.status === "drafting" ? <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void openCandidateDraft(candidate)}>{busyCandidateId === candidate.id ? "正在打开…" : "打开 Term Draft"}</button> : <>
                     {isExisting ? <>
-                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => acceptTermCandidate(candidate.id, candidate.suggested_term_id!))}>Accept Relation</button>
+                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => acceptTermCandidate(candidate.id, candidate.suggested_term_id!))}>通过关联</button>
                       <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => openTermPicker(candidate)}>Choose Another Existing…</button>
                     </> : <>
-                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 Term Draft 需要至少一个未拒绝的候选来源" : undefined} onClick={() => startCreate(candidate)}>Create Term</button>
+                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 Term Draft 需要至少一个未拒绝的候选来源" : undefined} onClick={() => startCreate(candidate)}>编辑解释</button>
                       <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => openTermPicker(candidate)}>Link Existing…</button>
                     </>}
-                    <button className="button button-danger term-global-reject" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }))}>全局不再推荐</button>
+                    <button className="button button-danger term-global-reject" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }))}>拒绝</button>
                   </>}
                 </footer>
               </article>
@@ -267,21 +242,6 @@ export function TermCandidatesPanel({
           })}
         </div>
       ) : <EmptyState title="没有符合条件的候选词" description="分析 Canonical Note 后，新发现的词会出现在这里，等待人工确认。" />}
-
-      {createCandidate && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !createBusy) setCreateCandidate(null); }}>
-        <section className="explorer-modal term-candidate-dialog surface" role="dialog" aria-modal="true" aria-labelledby="create-term-candidate-title">
-          <div className="section-heading"><div><h2 id="create-term-candidate-title">创建 Term Draft</h2><p>先生成本地 Draft，再让 AI 根据候选来源的摘录和分析理由给出可审核的定义建议。</p></div><button className="text-button" type="button" disabled={createBusy} onClick={() => setCreateCandidate(null)}>关闭</button></div>
-          <div className="term-candidate-dialog-context">
-            <strong>{createCandidate.display_name} · {titleCase(createCandidate.suggested_type)}</strong>
-            {createCandidate.evidence.filter((item) => !item.origin_rejected).slice(0, 5).map((item) => <blockquote key={item.id}><span>{titleCase(item.origin_type)} · {item.origin_title || item.origin_id}</span>{item.context_excerpt && <span>{item.context_excerpt}</span>}{item.rationale && <span>{item.rationale}</span>}</blockquote>)}
-            <p>将发送 Term Registry、候选词类型，以及最多 5 条候选来源的标题或标识、摘录和分析理由。不会发送整份文档或网页。</p>
-          </div>
-          <label className="ai-consent term-candidate-consent"><input type="checkbox" checked={createConsent} onChange={(event) => setCreateConsent(event.target.checked)} /><span>我同意将上述信息发送给 DeepSeek，用于生成 Term Draft 建议。</span></label>
-          {createError && <p className="error-copy" role="alert">{createdDraftId ? `Term Draft 已创建；AI 建议未完成。${createError}` : createError}</p>}
-          {createdDraftId && <button type="button" className="text-button" disabled={createBusy} onClick={() => void openCandidateDraft({ ...createCandidate, draft_id: createdDraftId, status: "drafting" })}>打开已创建的 Term Draft</button>}
-          <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={createBusy} onClick={() => setCreateCandidate(null)}>取消</button><button className="button button-primary" type="button" disabled={!createConsent || createBusy} onClick={() => void createAndGenerateTermDraft()}>{createBusy ? "正在生成…" : createdDraftId ? "重试 AI 建议并打开" : "同意并生成建议"}</button></div>
-        </section>
-      </div>}
 
       {pickerCandidate && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyCandidateId) setPickerCandidate(null); }}>
         <section className="explorer-modal term-picker-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-candidate-picker-title">

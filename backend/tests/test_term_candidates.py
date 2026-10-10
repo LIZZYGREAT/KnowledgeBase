@@ -37,7 +37,7 @@ def test_runtime_schema_12_migrates_to_term_core_and_discovery_state_17():
 
     migrate_database(connection)
 
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
     tables = {
         row[0]
         for row in connection.execute(
@@ -67,6 +67,24 @@ def test_runtime_schema_12_migrates_to_term_core_and_discovery_state_17():
     assert connection.execute(
         "SELECT external_enabled FROM term_discovery_settings WHERE id = 1"
     ).fetchone()[0] == 0
+    connection.close()
+
+
+def test_restore_rejected_candidate_preserves_evidence_and_reject_record(tmp_path):
+    connection = connect_database(":memory:")
+    (tmp_path / "knowledge" / "terms").mkdir(parents=True)
+    repository = TermCandidateRepository(connection)
+    service = TermCandidateService(tmp_path, repository)
+    candidate = service.create_candidate("Replay", "concept", [TermCandidateEvidenceInput(origin_type="external", origin_id="https://example.org/paper", mention="Replay", context_excerpt="Replay preserves examples.")])
+    service.reject_candidate(candidate.id, "global", "Not now")
+    with pytest.raises(ValueError, match="capacity"):
+        service.restore_candidate(candidate.id, 0)
+    restored = service.restore_candidate(candidate.id, 12)
+    assert restored.status == "pending"
+    assert len(repository.get_evidence(candidate.id)) == 1
+    assert not repository.is_rejected(candidate.normalized_name)
+    record = connection.execute("SELECT reason, restored_at FROM rejected_candidates").fetchone()
+    assert record["reason"] == "Not now" and record["restored_at"]
     connection.close()
 
 

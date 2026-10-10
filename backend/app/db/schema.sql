@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS rejected_candidates (
     reason TEXT NOT NULL,
     scope TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    restored_at TEXT,
     UNIQUE (candidate_type, normalized_value, scope)
 );
 
@@ -514,6 +515,8 @@ CREATE TABLE IF NOT EXISTS research_candidates (
     primary_lens_id TEXT,
     analysis_id TEXT NOT NULL,
     user_note TEXT,
+    review_overrides_json TEXT NOT NULL DEFAULT '{}',
+    review_revision INTEGER NOT NULL DEFAULT 0,
     dismiss_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,

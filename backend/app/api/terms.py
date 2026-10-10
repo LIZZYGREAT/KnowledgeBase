@@ -105,6 +105,12 @@ async def reject_term_candidate(
     )
 
 
+@router.post("/candidates/{candidate_id}/restore", response_model=TermCandidateRecord)
+async def restore_term_candidate(candidate_id: str, request: Request):
+    capacity = request.app.state.term_discovery_service.get_state().global_capacity
+    return request.app.state.term_candidate_service.restore_candidate(candidate_id, capacity)
+
+
 @router.post(
     "/candidates/{candidate_id}/create-term-draft",
     response_model=CandidateTermDraftResultView,

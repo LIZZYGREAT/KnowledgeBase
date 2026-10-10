@@ -51,7 +51,7 @@ class TermCandidateRepository:
                       EXISTS (
                           SELECT 1 FROM rejected_candidates r
                           JOIN term_candidates c ON c.id = e.candidate_id
-                          WHERE r.candidate_type = 'term'
+                          WHERE r.candidate_type = 'term' AND r.restored_at IS NULL
                             AND r.normalized_value = c.normalized_name
                             AND r.scope IN (
                                 'global',
@@ -123,7 +123,7 @@ class TermCandidateRepository:
     def is_rejected(self, normalized_name: str, scope: str = "global") -> bool:
         row = self.connection.execute(
             """SELECT 1 FROM rejected_candidates
-               WHERE candidate_type = 'term' AND normalized_value = ? AND scope = ?""",
+               WHERE candidate_type = 'term' AND normalized_value = ? AND scope = ? AND restored_at IS NULL""",
             (normalized_name, scope),
         ).fetchone()
         return row is not None
@@ -134,7 +134,7 @@ class TermCandidateRepository:
         placeholders = ", ".join("?" for _ in scopes)
         rows = self.connection.execute(
             """SELECT DISTINCT normalized_value FROM rejected_candidates
-               WHERE candidate_type = 'term' AND scope IN ({})
+               WHERE candidate_type = 'term' AND restored_at IS NULL AND scope IN ({})
                ORDER BY normalized_value""".format(placeholders),
             scopes,
         ).fetchall()
@@ -321,7 +321,7 @@ class TermCandidateRepository:
                            id, candidate_type, normalized_value, reason, scope, created_at
                        ) VALUES (?, 'term', ?, ?, ?, ?)
                        ON CONFLICT(candidate_type, normalized_value, scope)
-                       DO UPDATE SET reason = excluded.reason""",
+                       DO UPDATE SET reason = excluded.reason, restored_at = NULL""",
                     (
                         uuid.uuid4().hex,
                         candidate.normalized_name,
@@ -341,6 +341,24 @@ class TermCandidateRepository:
                     candidate_id,
                 ),
             )
+        return self.get_candidate(candidate_id)
+
+    def restore_candidate(self, candidate_id, max_open, now):
+        with self.connection:
+            candidate = self.get_candidate(candidate_id)
+            if candidate is None or candidate.status != "rejected":
+                raise ValueError("Only rejected Term Candidates can be restored")
+            if self.find_open_candidate(candidate.normalized_name):
+                raise ValueError("An open Candidate already exists for this Term")
+            count = self.connection.execute("SELECT COUNT(*) FROM term_candidates WHERE status IN ('pending','drafting')").fetchone()[0]
+            if count >= max_open:
+                raise ValueError("Term open capacity is full")
+            scopes = ["global"] + ["origin:{}:{}".format(item.origin_type, item.origin_id) for item in self.get_evidence(candidate_id)]
+            self.connection.execute(
+                "UPDATE rejected_candidates SET restored_at=? WHERE candidate_type='term' AND normalized_value=? AND scope IN ({})".format(",".join("?" for _ in scopes)),
+                (now, candidate.normalized_name, *scopes),
+            )
+            self.connection.execute("UPDATE term_candidates SET status='pending', updated_at=?, reviewed_at=NULL WHERE id=?", (now, candidate_id))
         return self.get_candidate(candidate_id)
 
     def accept_existing(

@@ -13,6 +13,9 @@ import {
   updateResearchCandidateNote,
   createResearchNote,
   saveResearchSource,
+  getDraft,
+  preflightDraft,
+  publishDraft,
   type CreateResearchNoteInput,
   type ResearchCandidateDetail,
   type ResearchCandidateListItem,
@@ -23,6 +26,7 @@ import {
   type ResearchProfileSummary,
   type ResearchRun,
   type ResearchSort,
+  type Draft,
 } from "./api";
 import { ResearchCandidateCard, ResearchCandidateDrawer, ResearchCreateNoteDialog, ResearchDismissDialog, ResearchShortlistDialog, type ResearchNoteOptions } from "./ResearchCandidate";
 import { ResearchProfilePanel } from "./ResearchProfile";
@@ -66,6 +70,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [createNoteTarget, setCreateNoteTarget] = useState<ResearchCandidateListItem | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [sourceReview, setSourceReview] = useState<Draft | null>(null);
   const [searchQueued, setSearchQueued] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState(false);
   const [detailId, setDetailId] = useState("");
@@ -285,6 +290,21 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     }
   }
 
+  async function approveSource(candidateId: string) {
+    const result = await saveResearchSource(candidateId);
+    if (result.draft_id) {
+      const draft = await getDraft(result.draft_id);
+      if (result.action === "draft_reused") {
+        setSourceReview(draft);
+        throw new Error("已有 Source Draft 已打开预览，请确认其中的修改后发布。");
+      }
+      const preflight = await preflightDraft(draft.id);
+      if (!preflight.valid || preflight.conflict) throw new Error(preflight.errors.join("；") || "Source 发布校验失败，修改已保留。");
+      await publishDraft(draft.id, draft.revision);
+    }
+    refresh();
+  }
+
   async function createNote(candidateId: string, options: ResearchNoteOptions) {
     setActionBusy(true);
     setActionError("");
@@ -420,7 +440,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
         {tab !== "history" && (tab === "new" || tab === "shortlisted") && items.length > 0 && <div className="research-batch-toolbar"><label><input type="checkbox" checked={items.length > 0 && items.every((item) => selectedCandidates.includes(item.candidate.id))} onChange={(event) => setSelectedCandidates(event.target.checked ? items.map((item) => item.candidate.id) : [])} /> Select visible</label><span>{selectedCandidates.length} selected</span><div>{selectedCandidates.length > 0 && <>{tab === "new" && <button className="button button-secondary" disabled={actionBusy} onClick={() => setShortlistTargets(selectedCandidates)}>Shortlist selected</button>}<button className="button button-quiet" disabled={actionBusy} onClick={() => setDismissTargets(selectedCandidates)}>Dismiss selected</button></>}</div></div>}
         {actionError && <p className="error-copy research-inline-error" role="alert">{actionError}</p>}
         {candidateError && <ErrorState message={candidateError} retry={refresh} />}
-        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={(language, onLanguageChange) => { setActionError(""); setDetailLanguage(language); detailLanguageUpdater.current = onLanguageChange; setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => void dismiss([item.candidate.id])} onRestore={() => void restoreCandidate(item.candidate.id)} onCreateNote={() => void beginCreateNote(item)} onReviewTerms={() => navigate("/terms?tab=candidates")} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
+        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={(language, onLanguageChange) => { setActionError(""); setDetailLanguage(language); detailLanguageUpdater.current = onLanguageChange; setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => void dismiss([item.candidate.id])} onRestore={() => void restoreCandidate(item.candidate.id)} onCreateNote={() => void beginCreateNote(item)} onReviewTerms={() => navigate("/terms?tab=candidates")} onApprove={() => approveSource(item.candidate.id)} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
         {items.length > 0 && items.length < candidateCount && <div className="research-load-more"><button className="button button-secondary" disabled={candidateLoading} onClick={() => setOffset(items.length)}>{candidateLoading ? "Loading…" : "Load more"}</button></div>}
       </>}
       {tab === "runs" && <>
@@ -435,5 +455,6 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     {shortlistTargets && <ResearchShortlistDialog count={shortlistTargets.length} busy={actionBusy} error={actionError} onClose={() => setShortlistTargets(null)} onSubmit={(note) => void shortlist(shortlistTargets, note)} />}
     {createNoteTarget && <ResearchCreateNoteDialog title={createNoteTarget.work.title} busy={actionBusy} suggestedCollectionId={createNoteTarget.analysis.suggested_collection ?? null} suggestedSection={createNoteTarget.analysis.suggested_section ?? null} allowedCollectionIds={profile?.profile.id === selectedProfileId ? profile.profile.context.collections : []} onClose={() => setCreateNoteTarget(null)} onCreate={(options) => void createNote(createNoteTarget.candidate.id, options)} />}
     {profileLayers}
+      {sourceReview && <div className="explorer-modal-backdrop"><section className="explorer-modal surface" role="dialog" aria-label="确认已有 Source Draft"><h2>已有 Source Draft</h2><p>此资料已有未发布修改，请检查后确认。</p><pre>{sourceReview.content}</pre>{actionError && <p role="alert">{actionError}</p>}<button disabled={actionBusy} onClick={() => { setActionBusy(true); setActionError(""); void preflightDraft(sourceReview.id).then(async (result) => { if (!result.valid || result.conflict) throw new Error(result.errors.join("；") || "发布校验失败"); await publishDraft(sourceReview.id, sourceReview.revision); setSourceReview(null); refresh(); }).catch((reason) => setActionError(errorMessage(reason))).finally(() => setActionBusy(false)); }}>确认通过并发布 Source</button><button disabled={actionBusy} onClick={() => setSourceReview(null)}>返回编辑</button></section></div>}
   </div>;
 }

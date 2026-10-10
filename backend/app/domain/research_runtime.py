@@ -88,6 +88,8 @@ class ResearchCandidateRecord(CanonicalModel):
     primary_lens_id: Optional[Slug] = None
     analysis_id: NonEmptyText
     user_note: Optional[NonEmptyText] = None
+    review_overrides: dict[Literal["summary", "summary_zh", "why_relevant", "why_relevant_zh", "reading_reason", "reading_reason_zh"], NonEmptyText] = Field(default_factory=dict)
+    review_revision: int = Field(default=0, ge=0)
     dismiss_reason: Optional[ResearchDismissReason] = None
     created_at: NonEmptyText
     updated_at: NonEmptyText

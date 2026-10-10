@@ -27,6 +27,28 @@ from backend.tests.test_research_runs import (
 )
 
 
+def test_candidate_review_api_preserves_original_analysis_and_requires_ai_consent(tmp_path):
+    connection = _connection()
+    from backend.tests.test_research_runs import _provider_work
+    from backend.app.services.research_providers.base import ProviderPage
+    service, _, _, ai_client = _service(tmp_path, connection, FakeProvider([ProviderPage(works=(_provider_work(),))]))
+    service.run_profile("continual-learning")
+    candidate = service.candidate_repository.list_for_profile("continual-learning")[0]
+    original = service.work_repository.get_analysis_by_id(candidate.analysis_id)
+    async def exercise():
+        async with AsyncClient(transport=ASGITransport(app=_app(service)), base_url="http://test") as client:
+            result = await client.put("/api/research/candidates/{}/review".format(candidate.id), json={"overrides": {"summary_zh": "用户审核稿"}, "expected_revision": 0})
+            assert result.status_code == 200 and result.json()["review_revision"] == 1
+            malformed = await client.put("/api/research/candidates/{}/review".format(candidate.id), json={"overrides": {"abstract": "Cannot overwrite source fact"}, "expected_revision": 1})
+            assert malformed.status_code == 422
+            denied = await client.post("/api/research/candidates/{}/rewrite".format(candidate.id), json={"field": "summary_zh", "current_text": "用户审核稿", "requirements": "简短"})
+            assert denied.status_code == 422
+    asyncio.run(exercise())
+    assert service.work_repository.get_analysis_by_id(candidate.analysis_id) == original
+    assert ai_client.calls == ["research_candidate_analysis"]
+    connection.close()
+
+
 def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_path):
     connection = _connection()
     profile = _profile()

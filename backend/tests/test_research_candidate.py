@@ -61,6 +61,24 @@ def test_duplicate_abstract_suppresses_exposure_but_distinct_contribution_remain
     connection.close()
 
 
+def test_review_overrides_are_revision_checked_and_leave_ai_analysis_immutable():
+    connection = connect_database(":memory:")
+    analysis = _analysis("review")
+    _persist_work_and_analysis(connection, _work("review"), analysis)
+    repository = ResearchCandidateRepository(connection)
+    service = ResearchCandidateService(repository, clock=_clock)
+    profile = _profile()
+    candidate = service.generate(analysis, profile, profile.lenses[0]).candidate
+    revised = repository.update_review(candidate.id, {"summary_zh": "用户编辑的简介"}, 0, _clock())
+    assert revised.review_revision == 1
+    assert revised.review_overrides == {"summary_zh": "用户编辑的简介"}
+    assert ResearchRepository(connection).get_analysis_by_id(analysis.id).analysis == analysis.analysis
+    with pytest.raises(ValueError, match="Review changed"):
+        repository.update_review(candidate.id, {"summary": "Stale edit"}, 0, _clock())
+    assert repository.get(candidate.id).review_overrides == revised.review_overrides
+    connection.close()
+
+
 def test_surface_analysis_creates_one_candidate_per_work_and_profile():
     connection = connect_database(":memory:")
     work = _work("work-1")

@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({
   listAllEntities: vi.fn(),
   getEntity: vi.fn(),
   getDraft: vi.fn(),
+  listDrafts: vi.fn(),
+  listProposals: vi.fn(),
   listTaxonomy: vi.fn(),
   listTermCandidates: vi.fn(),
   getTermDiscoveryState: vi.fn(),
@@ -24,6 +26,11 @@ const api = vi.hoisted(() => ({
 vi.mock("../../src/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/api")>()),
   ...api,
+}));
+
+vi.mock("../../src/reader/readerModel", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/reader/readerModel")>()),
+  hashText: vi.fn().mockResolvedValue("hash"),
 }));
 
 const terms: EntitySummary[] = [
@@ -147,6 +154,8 @@ describe("Terms Registry controls", () => {
       last_run: null,
     });
     api.listTermDiscoveryRuns.mockResolvedValue([]);
+    api.listDrafts.mockResolvedValue([]);
+    api.listProposals.mockResolvedValue([]);
     api.acceptTermCandidate.mockResolvedValue({});
     api.rejectTermCandidate.mockResolvedValue({});
     api.requestCandidateTermDraftProposal.mockResolvedValue({});
@@ -338,6 +347,7 @@ describe("Terms Registry controls", () => {
       updated_at: "2026-01-01T00:00:00Z",
     };
     api.getDraft.mockResolvedValue(draft);
+    api.listDrafts.mockResolvedValue([draft]);
     const navigate = vi.fn();
     const onOpen = vi.fn();
     render(<TermsPage onOpen={onOpen} navigate={navigate} initialTab="candidates" />);
@@ -345,9 +355,8 @@ describe("Terms Registry controls", () => {
     await userEvent.click(await screen.findByRole("button", { name: "打开 Term Draft" }));
 
     await waitFor(() => expect(api.getDraft).toHaveBeenCalledWith("draft-research"));
-    expect(navigate).toHaveBeenCalledWith(entityWorkspaceUrl("term", draft.entity_id, {
-      termCandidateId: "candidate-research",
-    }));
+    expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
+    expect(navigate).not.toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
   });
 
@@ -384,7 +393,7 @@ describe("Terms Registry controls", () => {
     expect(screen.getByText("Context 0")).not.toBeNull();
   });
 
-  it("requires explicit consent before creating a Candidate Term Draft and AI Proposal", async () => {
+  it("creates an inline review Draft and requires an explicit action for AI generation", async () => {
     const draft: Draft = {
       id: "draft-adaptive",
       entity_type: "term",
@@ -396,6 +405,7 @@ describe("Terms Registry controls", () => {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };
+    api.listDrafts.mockResolvedValue([draft]);
     api.createCandidateTermDraft.mockResolvedValue({
       candidate: candidate({ status: "drafting", draft_id: draft.id }),
       draft,
@@ -405,21 +415,13 @@ describe("Terms Registry controls", () => {
     const navigate = vi.fn();
     render(<TermsPage onOpen={onOpen} navigate={navigate} initialTab="candidates" />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Create Term" }));
-    const generate = screen.getByRole("button", { name: "同意并生成建议" });
-    expect((generate as HTMLButtonElement).disabled).toBe(true);
-    expect(api.createCandidateTermDraft).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("checkbox", { name: /我同意将上述信息发送给 DeepSeek/ }));
-    await userEvent.click(generate);
-
+    await userEvent.click((await screen.findAllByRole("button", { name: "编辑解释" }))[0]);
     await waitFor(() => expect(api.createCandidateTermDraft).toHaveBeenCalledWith("candidate-new"));
+    expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
+    expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "生成双语解释" }));
     await waitFor(() => expect(api.requestCandidateTermDraftProposal).toHaveBeenCalledWith(draft.id, "candidate-new"));
-    expect(api.createCandidateTermDraft.mock.invocationCallOrder[0]).toBeLessThan(api.requestCandidateTermDraftProposal.mock.invocationCallOrder[0]);
-    expect(navigate).toHaveBeenCalledWith(entityWorkspaceUrl("term", "adaptive-token-pruning", {
-      openAIAssist: true,
-      proposalGenerated: true,
-      termCandidateId: "candidate-new",
-    }));
+    expect(navigate).not.toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
   });
 
@@ -446,11 +448,8 @@ describe("Terms Registry controls", () => {
     ]);
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
 
-    const createButton = await screen.findByRole("button", { name: "Create Term" });
+    const createButton = await screen.findByRole("button", { name: "编辑解释" });
     expect((createButton as HTMLButtonElement).disabled).toBe(false);
-    await userEvent.click(createButton);
-    expect(screen.getByText(/候选来源的摘录和分析理由/)).not.toBeNull();
-    expect(screen.getByText("External · Paper record")).not.toBeNull();
     expect(screen.getAllByText("A bounded external excerpt.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Useful context from the external source.").length).toBeGreaterThan(0);
   });

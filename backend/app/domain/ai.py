@@ -95,6 +95,11 @@ class RewriteTermLanguageOutput(AIOutput):
     rationale: NonEmptyText
 
 
+class RewriteResearchCardOutput(AIOutput):
+    text: NonEmptyText
+    rationale: NonEmptyText
+
+
 class SuggestRevisionOutput(AIOutput):
     proposed_content: NonEmptyText
     rationale: NonEmptyText
@@ -182,6 +187,7 @@ TASK_OUTPUTS = {
     "review_document": ReviewDocumentOutput,
     "draft_term": DraftTermOutput,
     "rewrite_term_language": RewriteTermLanguageOutput,
+    "rewrite_research_card": RewriteResearchCardOutput,
     "suggest_revision": SuggestRevisionOutput,
     "suggest_evidence": SuggestEvidenceOutput,
     "research_candidate_analysis": ResearchCandidateAnalysisAIOutput,

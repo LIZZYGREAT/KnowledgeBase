@@ -3,6 +3,7 @@ import { getCollection, getEntity, listCollections, listDrafts, type Collection,
 import { Chip, formatDate } from "./ui";
 import { parseCollectionDraft } from "./collectionDraftModel";
 import { ResearchLanguageToggle, type ResearchLanguage } from "./ResearchLanguage";
+import { ResearchCardReview } from "./ResearchCardReview";
 
 function hasChineseCoreAnalysis(analysis: {
   summary_zh?: string | null;
@@ -25,6 +26,7 @@ export function ResearchCandidateCard({
   onRestore,
   onCreateNote,
   onReviewTerms,
+  onApprove,
 }: {
   item: ResearchCandidateListItem;
   profile: ResearchProfile;
@@ -38,15 +40,17 @@ export function ResearchCandidateCard({
   onRestore: () => void;
   onCreateNote: () => void;
   onReviewTerms?: () => void;
+  onApprove?: () => Promise<void>;
 }) {
   const [language, setLanguage] = useState<ResearchLanguage>("zh");
   const chinese = language === "zh";
+  const [overrides, setOverrides] = useState<Record<string, string>>(item.candidate.review_overrides ?? {});
   const hasChineseAnalysis = hasChineseCoreAnalysis(item.analysis);
   const lens = profile.lenses.find((lens) => lens.id === (item.candidate.primary_lens_id ?? item.analysis.matched_lenses[0]));
   const externalUrl = safeExternalUrl(item.work.url);
-  const summary = chinese ? item.analysis.summary_zh || item.analysis.summary : item.analysis.summary;
-  const relevance = chinese ? item.analysis.why_relevant_zh || item.analysis.why_relevant : item.analysis.why_relevant;
-  const readingReason = chinese ? item.analysis.reading_reason_zh || item.analysis.reading_reason : item.analysis.reading_reason;
+  const summary = chinese ? overrides.summary_zh ?? item.analysis.summary_zh ?? item.analysis.summary : overrides.summary ?? item.analysis.summary;
+  const relevance = chinese ? overrides.why_relevant_zh ?? item.analysis.why_relevant_zh ?? item.analysis.why_relevant : overrides.why_relevant ?? item.analysis.why_relevant;
+  const readingReason = chinese ? overrides.reading_reason_zh ?? item.analysis.reading_reason_zh ?? item.analysis.reading_reason : overrides.reading_reason ?? item.analysis.reading_reason;
 
   return <article className="research-candidate-card">
     <div className="research-card-topline">
@@ -68,12 +72,13 @@ export function ResearchCandidateCard({
       <div className="research-readiness-insight"><span>{chinese ? "当前适合度" : "Readiness"}</span><p>{item.analysis.readiness ?? "not available"} {item.analysis.readiness === "low" && <Chip tone="amber">Stretch</Chip>}</p><small>{chinese ? "为什么现在" : "Why now"}: {item.analysis.why_now ?? "not available"}</small><small>Known prerequisites: {(item.analysis.known_prerequisites ?? []).join(", ") || "not available"}</small><small>Missing prerequisites: {(item.analysis.missing_prerequisites ?? []).join(", ") || "not available"}</small></div>
     </div>
     {(item.discovered_term_candidate_count ?? 0) > 0 && <div className="research-discovered-terms"><span>Discovered Terms: {item.discovered_term_candidate_count}</span>{onReviewTerms && <button className="text-button" onClick={onReviewTerms}>Review in Terms →</button>}</div>}
+    {onApprove && (item.candidate.status === "new" || item.candidate.status === "shortlisted") && <ResearchCardReview candidate={item.candidate} values={overrides} onChange={setOverrides} onApprove={onApprove} language={language} original={{ summary: item.analysis.summary, summary_zh: item.analysis.summary_zh ?? "", why_relevant: item.analysis.why_relevant, why_relevant_zh: item.analysis.why_relevant_zh ?? "", reading_reason: item.analysis.reading_reason, reading_reason_zh: item.analysis.reading_reason_zh ?? "" }} />}
     <div className="research-candidate-footer">
       <span>收录于 {formatDate(item.candidate.created_at)}</span>
       <div className="research-card-actions">
         {externalUrl && <a className="button button-quiet" href={externalUrl} target="_blank" rel="noreferrer">Open Paper ↗</a>}
         {item.candidate.status === "new" && <button className="button button-secondary" disabled={busy} onClick={onShortlist}>Shortlist</button>}
-        {item.candidate.status !== "dismissed" && item.candidate.status !== "note_created" && <button className="button button-primary" disabled={busy} onClick={onCreateNote}>Create Note</button>}
+        {item.candidate.status !== "dismissed" && item.candidate.status !== "note_created" && <button className="button button-quiet" disabled={busy} onClick={onCreateNote}>Create Note</button>}
         {item.candidate.status === "new" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
         {item.candidate.status === "shortlisted" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
         {item.candidate.status === "dismissed" && <button className="button button-secondary" disabled={busy} onClick={onRestore}>Restore to Inbox</button>}

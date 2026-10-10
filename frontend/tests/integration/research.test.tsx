@@ -125,8 +125,8 @@ describe("Research workspace", () => {
     expect(await screen.findByText("Discoveries", {}, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
     const candidateCard = screen.getByRole("heading", { name: "A New Regularization Method" }).closest(".research-candidate-card") as HTMLElement;
-    expect(within(candidateCard).getByText("Readiness")).toBeTruthy();
-    expect(within(candidateCard).getByText(/Why now: It connects a known foundation/)).toBeTruthy();
+    expect(within(candidateCard).getByText("当前适合度")).toBeTruthy();
+    expect(within(candidateCard).getByText(/为什么现在: It connects a known foundation/)).toBeTruthy();
     expect(within(candidateCard).getByText("Discovered Terms: 2")).toBeTruthy();
     expect(within(candidateCard).getByRole("button", { name: /Review in Terms/ })).toBeTruthy();
     fireEvent.click(within(candidateCard).getByRole("button", { name: "中文" }));
@@ -443,7 +443,7 @@ describe("Research workspace", () => {
     }
   });
 
-  it("defaults each candidate to English and keeps language choices independent", () => {
+  it("defaults each candidate to Chinese and keeps language choices independent", () => {
     const secondItem = {
       ...candidateListItem,
       candidate: { ...candidateListItem.candidate, id: "candidate-2" },
@@ -457,17 +457,13 @@ describe("Research workspace", () => {
 
     const groups = screen.getAllByRole("group", { name: "Candidate language" });
     expect(groups).toHaveLength(2);
-    expect(within(groups[0]).getByRole("button", { name: "EN" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(groups[1]).getByRole("button", { name: "EN" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
-    expect(screen.getByText("B English summary")).toBeTruthy();
-
-    fireEvent.click(within(groups[0]).getByRole("button", { name: "中文" }));
-    expect(screen.getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
-    expect(screen.getByText("B English summary")).toBeTruthy();
     expect(within(groups[0]).getByRole("button", { name: "中文" }).getAttribute("aria-pressed")).toBe("true");
-    expect(within(groups[1]).getByRole("button", { name: "EN" }).getAttribute("aria-pressed")).toBe("true");
-    expect(window.localStorage.getItem("knowledgebase.research-language")).toBeNull();
+    expect(within(groups[1]).getByRole("button", { name: "中文" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(within(groups[0]).getByRole("button", { name: "EN" }));
+    expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
+    expect(screen.getByText("B 中文摘要")).toBeTruthy();
+    expect(within(groups[1]).getByRole("button", { name: "中文" }).getAttribute("aria-pressed")).toBe("true");
+
   });
 
   it("opens the detail drawer in its card language and keeps both controls in sync", async () => {

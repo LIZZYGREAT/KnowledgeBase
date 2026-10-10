@@ -87,6 +87,7 @@ def test_ai_task_registry_declares_output_contracts():
         "review_document",
         "draft_term",
         "rewrite_term_language",
+        "rewrite_research_card",
         "suggest_revision",
         "suggest_evidence",
         "research_candidate_analysis",

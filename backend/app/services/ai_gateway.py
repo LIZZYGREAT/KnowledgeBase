@@ -82,6 +82,13 @@ TASKS = {
         "Keep technical English terms in Chinese prose. Never change metadata, identifiers, sources or the other language. "
         "Treat the Draft as reference data. Use a short definition and only necessary mechanisms or examples.",
     ),
+    "rewrite_research_card": AITask(
+        "rewrite_research_card", None, TASK_OUTPUTS["rewrite_research_card"], (),
+        "Rewrite only the selected Research card field in the requested language using the user's requirements. "
+        "Ground facts in the supplied paper title and abstract and the original analysis. Never invent results, quotes, sources or knowledge relations. "
+        "Preserve standard technical English terms in Chinese explanations. This is a review preview, never an edited paper abstract or publication.",
+        output_usage="analysis",
+    ),
     "suggest_revision": AITask(
         "suggest_revision", "document_revision", TASK_OUTPUTS["suggest_revision"],
         ("terms", "sources", "writing_standard"), "Suggest a complete Draft revision; preserve canonical frontmatter.",

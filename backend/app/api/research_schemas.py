@@ -19,6 +19,18 @@ from backend.app.domain.research_runtime import (
 )
 
 
+class ResearchReviewRequest(APIModel):
+    overrides: dict[Literal["summary", "summary_zh", "why_relevant", "why_relevant_zh", "reading_reason", "reading_reason_zh"], NonEmptyText]
+    expected_revision: int = Field(ge=0, strict=True)
+
+
+class ResearchRewriteRequest(APIModel):
+    field: Literal["summary", "summary_zh", "why_relevant", "why_relevant_zh", "reading_reason", "reading_reason_zh"]
+    requirements: NonEmptyText = Field(max_length=2000)
+    current_text: NonEmptyText = Field(max_length=20000)
+    confirm_deepseek_transfer: Literal[True]
+
+
 class ResearchInboxUsageView(APIModel):
     new_count: int = Field(ge=0)
     capacity: int = Field(ge=0)

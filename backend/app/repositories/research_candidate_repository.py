@@ -1,6 +1,7 @@
 """Runtime persistence and capacity-safe transitions for Research Candidates."""
 
 from datetime import datetime
+import json
 import sqlite3
 from typing import Optional
 
@@ -296,6 +297,21 @@ class ResearchCandidateRepository:
             raise RuntimeError("Research Candidate disappeared while updating its note")
         return updated
 
+    def update_review(self, candidate_id, overrides, expected_revision, now):
+        with self.transactions.write_transaction():
+            candidate = self.get(candidate_id)
+            if candidate is None:
+                raise LookupError("Research Candidate does not exist")
+            validated = ResearchCandidateRecord.model_validate({**candidate.model_dump(), "review_overrides": overrides})
+            updated = self.connection.execute(
+                """UPDATE research_candidates SET review_overrides_json=?, review_revision=review_revision+1, updated_at=?
+                   WHERE id=? AND review_revision=? AND status IN ('new','shortlisted')""",
+                (json.dumps(validated.review_overrides, ensure_ascii=False), now.isoformat(), candidate_id, expected_revision),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("Review changed or was already decided; reload before saving")
+            return self.get(candidate_id)
+
     def mark_viewed(self, candidate_id: str, now: datetime) -> ResearchCandidateRecord:
         timestamp = now.isoformat()
         with self.transactions.write_transaction():
@@ -341,6 +357,8 @@ def _candidate_from_row(row: sqlite3.Row) -> ResearchCandidateRecord:
         primary_lens_id=row["primary_lens_id"],
         analysis_id=row["analysis_id"],
         user_note=row["user_note"],
+        review_overrides=json.loads(row["review_overrides_json"]),
+        review_revision=row["review_revision"],
         dismiss_reason=row["dismiss_reason"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],

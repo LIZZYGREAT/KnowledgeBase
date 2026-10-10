@@ -34,9 +34,34 @@ from backend.app.domain.research_runtime import ResearchCandidateRecord, Researc
 from backend.app.services.research_conversion_service import ResearchConversionError
 from backend.app.services.research_ranking import recommended_score as calculate_recommended_score
 from backend.app.services.research_source_match import find_matching_source
+from backend.app.api.research_schemas import ResearchReviewRequest, ResearchRewriteRequest
+import asyncio
 
 
 router = APIRouter(prefix="/api/research", tags=["Research"])
+
+
+@router.put("/candidates/{candidate_id}/review", response_model=ResearchCandidateRecord)
+async def save_candidate_review(candidate_id: str, body: ResearchReviewRequest, request: Request):
+    service = request.app.state.research_service
+    return service.candidate_repository.update_review(candidate_id, body.overrides, body.expected_revision, service._now())
+
+
+@router.post("/candidates/{candidate_id}/rewrite")
+async def rewrite_candidate_card(candidate_id: str, body: ResearchRewriteRequest, request: Request):
+    service = request.app.state.research_service
+    candidate = service.candidate_repository.get(candidate_id)
+    if candidate is None:
+        raise LookupError("Research Candidate does not exist")
+    if candidate.status not in {"new", "shortlisted"}:
+        raise ValueError("Only open Research cards can be rewritten")
+    work = service.work_repository.get_work(candidate.work_id)
+    analysis = service.work_repository.get_analysis_by_id(candidate.analysis_id)
+    return await asyncio.to_thread(service.analysis_service.gateway.run, "rewrite_research_card", {
+        "work": {"title": work.title, "abstract": work.abstract}, "original_analysis": analysis.analysis.model_dump(),
+        "field": body.field, "language": "zh" if body.field.endswith("_zh") else "en",
+        "current_text": body.current_text, "requirements": body.requirements,
+    })
 
 
 @router.get("/profiles", response_model=list[ResearchProfileSummaryView])

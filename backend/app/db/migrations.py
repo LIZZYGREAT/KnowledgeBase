@@ -3,7 +3,7 @@
 import sqlite3
 
 
-CURRENT_SCHEMA_VERSION = 18
+CURRENT_SCHEMA_VERSION = 19
 
 
 def migrate_database(connection: sqlite3.Connection) -> None:
@@ -53,6 +53,8 @@ def migrate_database(connection: sqlite3.Connection) -> None:
             migration = _migrate_to_external_term_discovery
         elif target_version == 18:
             migration = _migrate_to_history_checkpoint
+        elif target_version == 19:
+            migration = _migrate_to_candidate_review_overrides
         else:
             raise RuntimeError("No Runtime migration is defined for version {}".format(target_version))
 
@@ -993,3 +995,13 @@ def _migrate_to_external_term_discovery(connection: sqlite3.Connection) -> None:
 def _migrate_to_history_checkpoint(connection: sqlite3.Connection) -> None:
     if _table_exists(connection, "research_search_state") and not _column_exists(connection, "research_search_state", "history_checkpoint_json"):
         connection.execute("ALTER TABLE research_search_state ADD COLUMN history_checkpoint_json TEXT")
+
+
+def _migrate_to_candidate_review_overrides(connection: sqlite3.Connection) -> None:
+    if _table_exists(connection, "rejected_candidates") and not _column_exists(connection, "rejected_candidates", "restored_at"):
+        connection.execute("ALTER TABLE rejected_candidates ADD COLUMN restored_at TEXT")
+    if _table_exists(connection, "research_candidates"):
+        if not _column_exists(connection, "research_candidates", "review_overrides_json"):
+            connection.execute("ALTER TABLE research_candidates ADD COLUMN review_overrides_json TEXT NOT NULL DEFAULT '{}'")
+        if not _column_exists(connection, "research_candidates", "review_revision"):
+            connection.execute("ALTER TABLE research_candidates ADD COLUMN review_revision INTEGER NOT NULL DEFAULT 0")

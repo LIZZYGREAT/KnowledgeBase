@@ -70,6 +70,9 @@ class TermCandidateService:
     ) -> list[TermCandidateDetail]:
         return [self.get_candidate(item.id) for item in self.list_candidates(status)]
 
+    def restore_candidate(self, candidate_id, max_open):
+        return self.repository.restore_candidate(candidate_id, max_open, _utc_now())
+
     def create_candidate(
         self,
         display_name: str,
