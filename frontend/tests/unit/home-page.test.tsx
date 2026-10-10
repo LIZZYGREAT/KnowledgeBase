@@ -131,6 +131,32 @@ describe("Knowledge Dashboard", () => {
     expect(featured.querySelector("p p")).toBeNull();
   });
 
+  it("preserves code and math in short reasons and offers the full Markdown view", async () => {
+    const reason = "Use `feature_vector` and $f_\\theta(x)$ as an **important** learned representation.\n\n~~~python\nvector = feature_vector\n~~~";
+    api.listResearchCandidates.mockResolvedValue({ candidates: [{
+      candidate: { id: "paper-rich-short", review_overrides: {} },
+      work: { id: "work-rich-short", title: "A Short Mathematical Rationale" },
+      analysis: { readiness: "high", why_relevant_zh: reason, existing_relations: [] },
+    }] });
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    const featured = await screen.findByRole("region", { name: "下一步值得了解" });
+    const card = within(featured).getByRole("heading", { name: "A Short Mathematical Rationale" }).closest("article");
+    expect(card).not.toBeNull();
+    const summary = card?.querySelector(".home-recommendation-reason-summary");
+    expect((summary?.textContent ?? "")).toContain("feature_vector");
+    expect(summary?.textContent).toContain("$f_\\theta(x)$");
+    expect(summary?.textContent).toContain("**important**");
+
+    await userEvent.click(within(card as HTMLElement).getByText("展开完整理由"));
+    const full = card?.querySelector(".home-recommendation-full");
+    expect(full?.querySelector("code")?.textContent).toBe("feature_vector");
+    expect(full?.querySelector("pre code")?.textContent?.trim()).toBe("vector = feature_vector");
+    expect(full?.querySelector(".katex")).not.toBeNull();
+    expect(full?.querySelector("strong")?.textContent).toBe("important");
+  });
+
   it("shows queue loading, queued feedback, errors, and working review links beside their actions", async () => {
     const navigate = vi.fn();
     const user = userEvent.setup();

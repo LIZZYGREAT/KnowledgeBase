@@ -73,6 +73,7 @@
 .home-recommendation-full { min-width: 0; overflow-wrap: anywhere; color: #617166; line-height: 1.65; }
 .home-recommendation-full .markdown-content { overflow-wrap: anywhere; }
 .home-recommendation-full .markdown-content h1, .home-recommendation-full .markdown-content h2, .home-recommendation-full .markdown-content h3 { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+.home-recommendation-full pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 .home-recommendation-related { display: flex; min-width: 0; align-items: baseline; flex-wrap: wrap; gap: 5px 9px; }
 .home-recommendation-related .text-button { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 .home-recommendation-sources { margin: 0; color: #77877c; font-size: var(--text-xs); line-height: 1.55; overflow-wrap: anywhere; }
