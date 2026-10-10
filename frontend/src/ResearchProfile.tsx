@@ -37,12 +37,16 @@ export function ResearchProfilePanel({
   onRefresh,
   onQueued,
   onEditDefaults,
+  initialManualHistoryRange,
+  onManualHistoryRangeOpened,
 }: {
   summary: ResearchProfileSummary;
   detail: ResearchProfileDetail;
   onRefresh: () => void;
   onQueued: () => void;
   onEditDefaults: () => void;
+  initialManualHistoryRange?: { start: string; end: string } | null;
+  onManualHistoryRangeOpened?: () => void;
 }) {
   const profile = detail.profile;
   const hasActiveDefaultLens = profile.lenses.some((lens) => lens.enabled);
@@ -73,6 +77,15 @@ export function ResearchProfilePanel({
     setAdditionalQueryLens("");
     setDateMode("last_30_days");
   }, [profile.id, profile.search.breadth, profile.lenses]);
+
+  useEffect(() => {
+    if (!initialManualHistoryRange) return;
+    setDateMode("custom");
+    setDateStart(initialManualHistoryRange.start);
+    setDateEnd(initialManualHistoryRange.end);
+    setSearchOpen(true);
+    onManualHistoryRangeOpened?.();
+  }, [initialManualHistoryRange, onManualHistoryRangeOpened]);
 
   useEffect(() => {
     if (additionalQueryLens && !selectedLenses.includes(additionalQueryLens)) {

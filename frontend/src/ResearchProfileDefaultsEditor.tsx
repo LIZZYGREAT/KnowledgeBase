@@ -31,7 +31,16 @@ interface ResearchProfileDefaultsEditorProps {
   canonicalContent: string;
   draftCreatedInThisFlow: boolean;
   onClose: () => void;
-  onPublished: (warnings: string[]) => void;
+  previousHistoryAnchorYear?: number | null;
+  onPublished: (warnings: string[], manualHistoryRange?: { start: string; end: string }) => void;
+}
+
+export function historySeedBackfillRange(previousAnchorYear: number | null | undefined, nextSeedYear: number | null | undefined) {
+  if (previousAnchorYear == null || nextSeedYear == null || nextSeedYear >= previousAnchorYear) return null;
+  const startYear = Math.max(1000, nextSeedYear - 2);
+  const endYear = previousAnchorYear - 3;
+  if (startYear > endYear) return null;
+  return { start: `${startYear}-01-01`, end: `${endYear}-12-31` };
 }
 
 interface ProfileReview {
@@ -39,7 +48,7 @@ interface ProfileReview {
   preflight: DraftPreflight;
 }
 
-export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draftCreatedInThisFlow, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
+export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draftCreatedInThisFlow, previousHistoryAnchorYear, onClose, onPublished }: ResearchProfileDefaultsEditorProps) {
   const isNewProfile = canonicalContent.length === 0;
   const initialContent = useMemo(() => canonicalContent, [canonicalContent]);
   const session = useRuntimeDraftSession({
@@ -232,7 +241,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
         session.draft.id,
         session.draft.revision,
       );
-      onPublished(published.warnings);
+      onPublished(published.warnings, backfillRange ?? undefined);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -245,6 +254,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
       : session.state === "unsaved" || session.isDirty ? "有未保存修改"
         : session.draft ? "Draft 已保存"
           : "与已发布 Defaults 一致";
+  const backfillRange = historySeedBackfillRange(previousHistoryAnchorYear, editableProfile?.search.history_seed_year);
   const canReview = Boolean(editableProfile)
     && session.state !== "loading"
     && session.state !== "saving"
@@ -340,7 +350,8 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
                 <NumberField label="Max candidates per run" value={editableProfile.search.max_candidates_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_candidates_per_run: value } }))} />
                 <NumberField label="Max analyses per run" value={editableProfile.search.max_analyses_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_analyses_per_run: value } }))} />
                 <NumberField label="起始研究年份（可选）" optional value={editableProfile.search.history_seed_year ?? null} min={1000} max={9997} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, history_seed_year: value } }))} />
-                <p className="field-hint">指定当前学习阶段的年份，优先于来源发表年份。先探索此前两年到同期后两年；新增已批准的相关笔记或术语后，每批逐步扩展一年。留空时从已批准笔记的最早来源年份保守推断，无法推断则仅发现近期论文。修改年份不重置已探索窗口，更早范围可使用自定义日期搜索。</p>
+                <p className="field-hint">指定当前学习阶段的年份，优先于来源发表年份。先探索此前两年到同期后两年；新增已批准的相关笔记或术语后，每批逐步扩展一年。留空时从已批准笔记的最早来源年份保守推断，无法推断则仅发现近期论文。起点变更不会清除或自动重跑已完成窗口。</p>
+                {backfillRange && <p className="field-hint" role="status">此调整会留下已完成的历史进度。发布后将打开 Search Now，并预填 {backfillRange.start} 至 {backfillRange.end} 的自定义补查范围；确认加入队列后才会补查，且不会改写近期定时搜索进度。</p>}
                 <NumberField label="每轮 Provider 请求上限" value={editableProfile.search.max_provider_requests_per_run ?? 20} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_provider_requests_per_run: value } }))} />
                 <NumberField label="每日新推荐上限" value={editableProfile.search.max_recommendations_per_day ?? 3} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_recommendations_per_day: value } }))} />
                 <NumberField label="每日拓展阅读上限" value={editableProfile.search.max_stretch_per_day ?? 1} min={0} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_stretch_per_day: value } }))} />

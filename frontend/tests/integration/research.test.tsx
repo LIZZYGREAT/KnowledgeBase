@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse, stringify } from "yaml";
 import App from "../../src/App";
 import { ResearchProfilePanel } from "../../src/ResearchProfile";
-import { ResearchProfileDefaultsEditor } from "../../src/ResearchProfileDefaultsEditor";
+import { historySeedBackfillRange, ResearchProfileDefaultsEditor } from "../../src/ResearchProfileDefaultsEditor";
 import { ResearchProfileCreateDialog } from "../../src/ResearchProfileCreateDialog";
 import { ResearchCandidateCard, ResearchCandidateDrawer, ResearchCreateNoteDialog } from "../../src/ResearchCandidate";
 import { ResearchRunDrawer, ResearchRunList } from "../../src/ResearchRun";
@@ -32,6 +32,26 @@ describe("Research workspace", () => {
     expect(edit).toHaveBeenCalledOnce();
     view.rerender(<ResearchProfilePanel summary={profileSummary} detail={{ ...profileDetail, profile: profile as ResearchProfile, history_anchor_year: null }} onRefresh={() => undefined} onQueued={() => undefined} onEditDefaults={edit} />);
     expect(screen.getByText(/缺少研究阶段锚点/)).toBeTruthy();
+  });
+  it("prefills Search Now with the uncovered years after lowering the history seed", () => {
+    expect(historySeedBackfillRange(2017, 2012)).toEqual({ start: "2010-01-01", end: "2014-12-31" });
+    expect(historySeedBackfillRange(2017, 2017)).toBeNull();
+
+    const opened = vi.fn();
+    render(<ResearchProfilePanel
+      summary={profileSummary}
+      detail={{ ...profileDetail, profile: profile as ResearchProfile, history_anchor_year: 2017 }}
+      initialManualHistoryRange={{ start: "2010-01-01", end: "2014-12-31" }}
+      onManualHistoryRangeOpened={opened}
+      onRefresh={() => undefined}
+      onQueued={() => undefined}
+      onEditDefaults={() => undefined}
+    />);
+
+    expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("custom");
+    expect((screen.getByLabelText("开始日期") as HTMLInputElement).value).toBe("2010-01-01");
+    expect((screen.getByLabelText("结束日期") as HTMLInputElement).value).toBe("2014-12-31");
+    expect(opened).toHaveBeenCalledOnce();
   });
   let mockFetch: ReturnType<typeof vi.fn>;
   let responseProfileDetail = profileDetail;
@@ -1036,10 +1056,12 @@ describe("Research workspace", () => {
   it("edits Profile Defaults through autosaved Draft review and publish", async () => {
     const published = vi.fn();
     const user = userEvent.setup();
+    const seededProfile = { ...profile, search: { ...profile.search, history_seed_year: 2017 } };
     render(<ResearchProfileDefaultsEditor
-      profile={profile as unknown as ResearchProfile}
-      canonicalContent={`# Keep this profile note.\n${stringify(profile, { lineWidth: 0 })}# Keep this trailing note.\n`}
+      profile={seededProfile as unknown as ResearchProfile}
+      canonicalContent={`# Keep this profile note.\n${stringify(seededProfile, { lineWidth: 0 })}# Keep this trailing note.\n`}
       draftCreatedInThisFlow={false}
+      previousHistoryAnchorYear={2017}
       onClose={() => undefined}
       onPublished={published}
     />);
@@ -1050,6 +1072,10 @@ describe("Research workspace", () => {
     expect(screen.getByText(/论文标题、作者、摘要和所选或检索到的相关知识片段会发送给 DeepSeek/)).toBeTruthy();
     expect(screen.getByText(/筛选规则和搜索默认值的修改只影响后续 Research Run/)).toBeTruthy();
     fireEvent.click(screen.getByText("高级设置"));
+    const historySeed = screen.getByRole("spinbutton", { name: "起始研究年份（可选）" });
+    fireEvent.change(historySeed, { target: { value: "2012" } });
+    fireEvent.blur(historySeed);
+    expect(await screen.findByText(/预填 2010-01-01 至 2014-12-31/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
     fireEvent.click(screen.getByLabelText("Discovery Provider arxiv"));
     const lastDiscoveryProvider = screen.getByLabelText("Discovery Provider openalex") as HTMLInputElement;
@@ -1089,6 +1115,7 @@ describe("Research workspace", () => {
     expect(parse(draftContent).lenses.map((lens: { id: string }) => lens.id)).toEqual(["regularization-2"]);
     expect(parse(draftContent)).toMatchObject({ lenses: [{ queries: ["query one", "query two"] }] });
     expect(draftContent).toContain("scope: selected-context");
+    expect(draftContent).toContain("history_seed_year: 2012");
     expect(draftContent).toContain("max_analyses_per_run: 30");
     expect(parse(draftContent)).toMatchObject({
       providers: { discovery: ["openalex"], enrichment: ["openalex", "crossref"] },
@@ -1105,7 +1132,7 @@ describe("Research workspace", () => {
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
     });
-    expect(published).toHaveBeenCalledWith([]);
+    expect(published).toHaveBeenCalledWith([], { start: "2010-01-01", end: "2014-12-31" });
   });
 
   it("keeps advanced defaults collapsed and rejects empty numeric edits without saving them", async () => {

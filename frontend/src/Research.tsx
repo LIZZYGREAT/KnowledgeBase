@@ -86,6 +86,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [profileEditor, setProfileEditor] = useState<{ profile: ResearchProfile; canonicalContent: string; draftCreatedInThisFlow: boolean } | null>(null);
   const [createProfileSource, setCreateProfileSource] = useState<ResearchProfile | null | undefined>(undefined);
   const [profilePublishWarnings, setProfilePublishWarnings] = useState<string[]>([]);
+  const [manualHistoryRange, setManualHistoryRange] = useState<{ start: string; end: string } | null>(null);
 
   const currentSummary = useMemo(() => profiles.find((item) => item.id === selectedProfileId) ?? null, [profiles, selectedProfileId]);
 
@@ -413,12 +414,14 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
       profile={profileEditor.profile}
       canonicalContent={profileEditor.canonicalContent}
       draftCreatedInThisFlow={profileEditor.draftCreatedInThisFlow}
+      previousHistoryAnchorYear={profile?.profile.id === profileEditor.profile.id ? profile.history_anchor_year : null}
       onClose={() => setProfileEditor(null)}
-      onPublished={(warnings) => {
+      onPublished={(warnings, backfillRange) => {
         const publishedProfileId = profileEditor.profile.id;
         setProfileEditor(null);
         if (!profileEditor.canonicalContent) setSelectedProfileId(publishedProfileId);
         setProfilePublishWarnings(warnings);
+        setManualHistoryRange(backfillRange ?? null);
         refresh();
       }}
     />}
@@ -431,7 +434,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   return <div className="page-stack research-page">
     <PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<div className="research-profile-header-actions"><label className="research-profile-select"><span>Profile</span><select aria-label="Research Profile" value={selectedProfileId} onChange={(event) => { setProfileEditor(null); setSelectedProfileId(event.target.value); setTab("new"); setRestoreNotice(false); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>Select a Profile</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button className="button button-secondary" onClick={() => setCreateProfileSource(null)}>New Profile</button><button className="button button-quiet" disabled={!profile || profile.profile.id !== selectedProfileId} onClick={() => setCreateProfileSource(profile?.profile ?? null)}>Duplicate Profile</button></div>} />
     {profileError && <ErrorState message={profileError} retry={refresh} />}
-    {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} onRefresh={refresh} onQueued={() => { setSearchQueued(true); setTab("new"); refresh(); }} onEditDefaults={() => setProfileEditor({ profile: profile.profile, canonicalContent: profile.canonical_content, draftCreatedInThisFlow: false })} />}
+    {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} initialManualHistoryRange={manualHistoryRange} onManualHistoryRangeOpened={() => setManualHistoryRange(null)} onRefresh={refresh} onQueued={() => { setSearchQueued(true); setTab("new"); refresh(); }} onEditDefaults={() => setProfileEditor({ profile: profile.profile, canonicalContent: profile.canonical_content, draftCreatedInThisFlow: false })} />}
     {profilePublishWarnings.length > 0 && <div className="notice research-queued-notice" role="status"><strong>Profile published with warnings</strong><ul>{profilePublishWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="text-button" onClick={() => setProfilePublishWarnings([])}>Dismiss</button></div>}
     {searchQueued && <div className="notice research-queued-notice" role="status"><strong>搜索已加入队列。</strong><span>完成后，新候选会出现在 Inbox，运行情况可在 Runs 中查看。</span><button className="text-button" onClick={() => setSearchQueued(false)}>Dismiss</button></div>}
     {restoreNotice && <div className="notice research-queued-notice" role="status"><strong>已恢复到 Inbox。</strong><button className="button button-secondary" onClick={() => changeTab("new")}>View Inbox</button></div>}
