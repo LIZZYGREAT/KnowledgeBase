@@ -15,7 +15,7 @@
 
 候选卡片使用服务器返回的 Draft 内容哈希，不依赖 HTTP 页面上的浏览器 Web Crypto。相同 Draft 的有效 Term 初稿 Proposal 在后端也会复用；放弃建议会持久化为 rejected，随后可以显式重新生成。
 
-最终所有 Canonical 发布仍通过 Draft、Proposal（适用时）、Preflight 和 Publisher。未修改现有知识正文、私有规格或已配置 Profile；未部署生产、未推送远端、未调用真实 DeepSeek。
+最终所有 Canonical 发布仍通过 Draft、Proposal（适用时）、Preflight 和 Publisher。初次六个提交未修改现有知识正文、私有规格或已配置 Profile；后续补丁对指定的持续学习 Profile 设置了显式年份种子。未部署生产、未推送远端、未调用真实 DeepSeek。
 
 ## 关键位置
 
@@ -36,7 +36,7 @@ Runtime SQLite 从 17 前向迁移至 19：18 新增历史分页检查点；19 �
 
 Profile Search 新增可选 `history_seed_year`、`max_provider_requests_per_run`、`max_recommendations_per_day`、`max_stretch_per_day`、`min_profile_relevance` 和 `min_information_gain`。旧配置无需改写即可读取默认值。每日推荐额度按 UTC 日统计，已拒绝或已收藏的卡片仍占当天曝光额度。
 
-有可用日期锚点时，历史发现从锚点前两年开始，一次处理一个年度窗口，当前上界为锚点后两年。新的已批准笔记关联年份可以继续扩展上界。没有可推断年份时，需要一次设置种子年份；没有日期的 Term 只提供概念基础，不被赋予虚构年代。
+历史发现从研究阶段前两年开始，一次处理一个年度窗口，初始上界为阶段后两年。显式种子优先，否则从批准笔记的最早关联 Source 年份保守推断；新增批准的相关笔记或术语每批最多扩展一年。已探索状态不因某个 Source 的年份变化直接跳到当前。没有种子或可推断年份时，界面显示缺少起点并提供设置入口；没有日期的 Term 不被赋予虚构发表年代。
 
 ## 验证记录
 
@@ -81,8 +81,35 @@ Profile Search 新增可选 `history_seed_year`、`max_provider_requests_per_run
 
 以上真实浏览器和个人资料验收尚待人工执行。
 
+## 后续补丁修订记录
+
+本轮基于 `b2e07e1` 继续修订，按完成部分分别提交：
+
+| 提交 | 修复行为 | 主要文件 |
+| --- | --- | --- |
+| `142a745` | 请求预算处先处理已取回页面，再保存安全进度；按最近尝试时间轮换，未请求流不记尝试。 | `research_service.py`、`test_research_runs.py` |
+| `9cec31e` | 持续学习 Profile 显式设置 2017 年起点；API 与界面显示有效起点、缺失说明及设置入口。 | `continual-learning.yaml`、Research API、`ResearchProfile.tsx` |
+| `2a51ea6` | 学习阶段、文献年份与检索进度分离；批准的新笔记或术语每批最多扩展一年，重复批准不会扩张。 | `research_history.py`、搜索状态仓库、`test_research_history.py` |
+| `fb364cc` | Source 审核结构化展示；返回编辑打开原 Draft；校验失败保留修改及编辑入口。 | `Research.tsx`、`ResearchSourceReview.tsx`、Workspace 集成测试 |
+| `469566e` | 卡片与详情渲染审核后的 Markdown、公式和链接；长正文可展开，操作按钮保持独立。 | `ResearchCandidate.tsx`、Research 样式和集成测试 |
+
+数据库结构仍为 19。历史探索范围和已见批准知识使用现有检查点 JSON，保留原分页信息；升级不清空任何 Runtime 数据。原有正式笔记和术语未自动批准，私有需求文档未进入提交。
+
+新增回归涵盖 9 个查询 × 2 个 Provider × 历史/近期流的有限预算推进、空页、预算边界有效论文、失败窗口、缓存去重、旧检查点恢复、2017 方法与 2024 综述并存、新批准知识扩展和 Profile 隔离。前端涵盖 Source 冲突返回编辑、原 Draft 修改发布、已有正式 Source 仅关联，以及审核覆盖值的 Markdown、行内/行间公式和 HTML 安全渲染。
+
+本轮完整后端测试 551 项通过、6 项平台条件跳过；完整前端单元测试 128 项通过、集成测试 132 项通过。类型检查、构建、正式知识检查（7 个文件，无错误和警告）、独立临时索引重建、Research 配置、Compose 配置、两个生产脚本语法检查及 `git diff --check` 均通过。后端沿用上文记录的本机已有 Python 与本地测试支持目录，未查询新提交的远端 CI。构建仍有已有的 Mermaid/ELK 大分块提示。
+
+补充人工验收项目（未以组件测试替代浏览器验收）：
+
+- 用真实已批准的相关知识检查 20 篇经典、同期与后继论文的推荐表述、引用及调用费用。
+- 在浏览器检查长推荐正文的展开、窄屏布局、公式，以及 Source 草稿冲突后的编辑、保存、发布和刷新恢复。
+- 回归双语 Term 的长文、代码围栏、缺失语言、单语重写、Proposal 生命周期及多步冲突恢复。
+- 在生产主机先备份 SQLite、Canonical Git 和 storage，保留未推送 Publisher 提交，再验证迁移 18/19、有限额真实 Provider/DeepSeek 和定时器。
+
+本轮未执行真实外部检索、生产部署或远端推送；学习阶段判断仍是保守的人工批准信号，不是完整算法依赖图。若需要查找比起点前两年更早的资料，使用已有自定义日期搜索，或主动修改研究起点。
+
 ## 上线前与已知限制
 
 按现有生产更新手册备份 Canonical Git、SQLite 与 Storage 后，再由运维执行升级。服务器上的未推送 Publisher 提交必须保留。定时 timer、真实 Provider/DeepSeek、费用、异常重试及备份恢复需在部署主机另行检查，本次未执行。
 
-历史锚点是批准笔记的关联年份，不是完整引文图谱；主题去重以模型的增量判断和长摘要完全相同的保守规则为主，不删除原 Work/Discovery。历史 unreviewed 内容没有批量改成 approved。没有真实生产资料，因此不能宣称个人推荐质量、接受率或成本已经达标。
+历史起点来自明确的学习阶段种子或保守日期推断，批准知识驱动的逐年扩展也不代表完整引文图谱；主题去重以模型的增量判断和长摘要完全相同的保守规则为主，不删除原 Work/Discovery。历史 unreviewed 内容没有批量改成 approved。没有真实生产资料，因此不能宣称个人推荐质量、接受率或成本已经达标。
