@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { TermCandidateReview } from "../../src/pages/TermCandidateReview";
 import { applyProposalToDraft, discardDraft, listProposals, preflightDraft, publishDraft, rejectProposal, rejectTermCandidate, requestCandidateTermDraftProposal, requestTermRewrite, type Draft, type Proposal, type TermCandidate } from "../../src/api";
 
-const state = vi.hoisted(() => ({ content: "---\nschema_version: 1\nid: replay\ntitle: Replay\ntype: concept\ndepth: stub\n---\n# Replay\n\n## 一、中文解释\n\nExperience Replay retains examples.\n" }));
+const state = vi.hoisted(() => ({ content: "---\nschema_version: 1\nid: replay\ntitle: Replay\ntype: concept\ndepth: stub\naliases: [Experience Replay]\nsources: [replay-paper]\n---\n# Replay\n\nUser-written context remains untouched.\n\n## 一、中文解释\n\nExperience Replay retains examples.\n" }));
 const api = vi.hoisted(() => ({
   applyProposalToDraft: vi.fn(),
   discardDraft: vi.fn(),
@@ -31,7 +31,7 @@ vi.mock("../../src/draft/useRuntimeDraftSession", () => ({
   }),
 }));
 
-const initialContent = "---\nschema_version: 1\nid: replay\ntitle: Replay\ntype: concept\ndepth: stub\n---\n# Replay\n\n## 一、中文解释\n\nExperience Replay retains examples.\n";
+const initialContent = "---\nschema_version: 1\nid: replay\ntitle: Replay\ntype: concept\ndepth: stub\naliases: [Experience Replay]\nsources: [replay-paper]\n---\n# Replay\n\nUser-written context remains untouched.\n\n## 一、中文解释\n\nExperience Replay retains examples.\n";
 
 function makeSeed(content = state.content): Draft {
   return { id: "d", entity_type: "term", entity_id: "replay", content, working_content_hash: "hash", revision: 2, base_git_revision: "base", base_content_hash: "canonical-hash", created_at: "2026-10-10T00:00:00Z", updated_at: "2026-10-10T00:00:00Z" };
@@ -58,6 +58,66 @@ beforeEach(() => {
   api.requestCandidateTermDraftProposal.mockResolvedValue({ proposal: makeProposal(), external_provider_notice: "sent" });
 });
 
+test("shows the saved standard depth and explains its added detail", async () => {
+  const standardContent = initialContent.replace("depth: stub", "depth: standard");
+  state.content = standardContent;
+  renderReview(vi.fn(), makeSeed(standardContent));
+
+  const depth = await screen.findByRole("combobox", { name: "解释深度" });
+  await waitFor(() => expect((depth as HTMLSelectElement).disabled).toBe(false));
+  expect((depth as HTMLSelectElement).value).toBe("standard");
+  expect(screen.getByRole("option", { name: "标准理解（默认）" })).toBeTruthy();
+  expect(screen.getByText("在完整基础上解释关键机制、流程、关系或输入输出。")).toBeTruthy();
+});
+
+test("saves a selected depth before generation without changing other Draft content", async () => {
+  renderReview();
+  const depth = await screen.findByRole("combobox", { name: "解释深度" });
+  await waitFor(() => expect((depth as HTMLSelectElement).disabled).toBe(false));
+
+  fireEvent.change(depth, { target: { value: "deep" } });
+
+  expect(await screen.findByText("深度已保存为「系统深入」；后续生成会读取当前 Draft。")).toBeTruthy();
+  expect(state.content).toBe(initialContent.replace("depth: stub", "depth: deep"));
+  api.requestCandidateTermDraftProposal.mockImplementation(async (draftId: string, candidateId: string) => {
+    expect(draftId).toBe("d");
+    expect(candidateId).toBe("candidate-1");
+    expect(state.content).toContain("depth: deep");
+    expect(state.content).toContain("User-written context remains untouched.");
+    expect(state.content).toContain("aliases: [Experience Replay]");
+    return { proposal: makeProposal(), external_provider_notice: "sent" };
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
+  await waitFor(() => expect(requestCandidateTermDraftProposal).toHaveBeenCalledWith("d", "candidate-1"));
+});
+
+test("reopening the review reads the selected depth from the saved Draft", async () => {
+  state.content = initialContent.replace("depth: stub", "depth: deep");
+  const first = renderReview();
+  const firstSelector = await screen.findByRole("combobox", { name: "解释深度" });
+  await waitFor(() => expect((firstSelector as HTMLSelectElement).disabled).toBe(false));
+  expect((firstSelector as HTMLSelectElement).value).toBe("deep");
+
+  first.unmount();
+  renderReview();
+  const reopenedSelector = await screen.findByRole("combobox", { name: "解释深度" });
+  await waitFor(() => expect((reopenedSelector as HTMLSelectElement).disabled).toBe(false));
+  expect((reopenedSelector as HTMLSelectElement).value).toBe("deep");
+});
+
+test("an unhandled Proposal blocks depth changes until it is adopted or discarded", async () => {
+  const proposal = makeProposal();
+  api.listProposals.mockResolvedValue([proposal]);
+  renderReview();
+  const depth = await screen.findByRole("combobox", { name: "解释深度" });
+
+  expect(await screen.findByText("请先采用或放弃当前建议，再更改深度。")).toBeTruthy();
+  expect((depth as HTMLSelectElement).disabled).toBe(true);
+  fireEvent.change(depth, { target: { value: "deep" } });
+  expect(state.content).toBe(initialContent);
+});
+
 test("one approval marks human review, preflights and publishes the reviewed revision", async () => {
   const done = vi.fn();
   renderReview(done);
@@ -80,6 +140,7 @@ test("a publish conflict keeps the reviewed Draft and never reports approval", a
 
 test("shows why rewrite is disabled, then reports loading and keeps input after an error", async () => {
   renderReview();
+  await waitFor(() => expect((screen.getByRole("combobox", { name: "解释深度" }) as HTMLSelectElement).disabled).toBe(false));
   const rewrite = screen.getByRole("button", { name: "AI 重写", exact: true });
   expect((rewrite as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByText("请输入重写要求。")).toBeTruthy();

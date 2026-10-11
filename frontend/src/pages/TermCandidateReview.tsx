@@ -7,7 +7,32 @@ import { splitMarkdownFrontmatter } from "../markdownBlocks";
 import { termLanguageSections, type TermLanguage } from "../termLanguage";
 import { errorMessage } from "../errors";
 
-type ReviewAction = "generate" | "rewrite" | "adopt" | "discard" | "approve" | "reject";
+type ReviewAction = "depth" | "generate" | "rewrite" | "adopt" | "discard" | "approve" | "reject";
+type TermDepth = "stub" | "standard" | "deep";
+
+const termDepthLabels: Record<TermDepth, string> = {
+  stub: "基础速览",
+  standard: "标准理解（默认）",
+  deep: "系统深入",
+};
+
+const termDepthDescriptions: Record<TermDepth, string> = {
+  stub: "完整说明含义、常见语境、用途和一个准确示例。",
+  standard: "在完整基础上解释关键机制、流程、关系或输入输出。",
+  deep: "在完整基础上按需补充原理、实现、假设、权衡、边界或反例。",
+};
+
+function readTermDepth(frontmatter: string): TermDepth {
+  const yaml = frontmatter.replace(/^---\r?\n/, "").replace(/\r?\n---\r?\n?$/, "");
+  const value = parseDocument(yaml).get("depth");
+  return value === "stub" || value === "standard" || value === "deep" ? value : "standard";
+}
+
+function replaceTermDepth(frontmatter: string, depth: TermDepth): string {
+  const depthLine = /^([ \t]*depth[ \t]*:[ \t]*)(["']?)(?:stub|standard|deep)\2([ \t]*(?:#.*)?)(\r?)$/m;
+  if (!depthLine.test(frontmatter)) throw new Error("Term Draft frontmatter 中缺少有效的 depth。请在完整编辑器中检查。");
+  return frontmatter.replace(depthLine, (_line, prefix: string, _quote: string, suffix: string, carriageReturn: string) => `${prefix}${depth}${suffix}${carriageReturn}`);
+}
 
 export function TermCandidateReview({ candidate, seed, onDone }: { candidate: TermCandidate; seed: Draft; onDone: (warnings?: string[]) => void }) {
   const session = useRuntimeDraftSession({ entityType: "term", entityId: seed.entity_id, enabled: true, initialContent: seed.content, initialContentReady: true });
@@ -18,21 +43,38 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
   const [requirements, setRequirements] = useState("");
   const [language, setLanguage] = useState<TermLanguage>("zh");
   const [editing, setEditing] = useState(false);
+  const [proposalsLoading, setProposalsLoading] = useState(true);
+  const [proposalLookupFailed, setProposalLookupFailed] = useState(false);
   const envelope = splitMarkdownFrontmatter(session.content);
+  const depth = readTermDepth(envelope.frontmatter);
   const proposedBody = proposal && typeof proposal.payload.content === "string" ? splitMarkdownFrontmatter(proposal.payload.content).body : "";
   const sections = termLanguageSections(envelope.body);
   const hasLanguageExplanation = Boolean(sections.zh || sections.en);
   const rewriteBlockedReason = proposal
     ? "请先将当前建议采用到 Draft，或放弃建议，再重写。"
-    : !hasLanguageExplanation
-      ? "请先填写或生成至少一种语言的解释。"
-      : !requirements.trim()
-        ? "请输入重写要求。"
+    : proposalsLoading
+      ? "正在检查当前 Draft 是否有未处理建议。"
+      : proposalLookupFailed
+        ? "暂时无法确认当前建议状态，请重新打开审核后再操作。"
+        : !hasLanguageExplanation
+          ? "请先填写或生成至少一种语言的解释。"
+          : !requirements.trim()
+            ? "请输入重写要求。"
+            : "";
+  const depthBlockedReason = proposal
+    ? "请先采用或放弃当前建议，再更改深度。"
+    : proposalsLoading
+      ? "正在检查当前 Draft 是否有未处理建议。"
+      : proposalLookupFailed
+        ? "暂时无法确认当前建议状态，请重新打开审核后再调整深度。"
         : "";
   const locked = Boolean(busyAction) || session.loading || session.state === "runtime-conflict";
 
   useEffect(() => {
     let active = true;
+    setProposalsLoading(true);
+    setProposalLookupFailed(false);
+    setProposal(null);
     void listProposals("proposed", "term", seed.entity_id).then((items) => {
       if (!active || !seed.working_content_hash) return;
       const matching = items.find((item) => item.payload.draft_id === seed.id && item.base_content_hash === seed.working_content_hash) ?? null;
@@ -40,9 +82,33 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
         setProposal(matching);
         setActionFeedback("已载入与当前 Draft 匹配的建议；建议仍未写入 Draft。可采用、放弃或稍后继续审核。");
       }
-    }).catch((reason) => { if (active) setError(errorMessage(reason)); });
+    }).catch((reason) => {
+      if (active) {
+        setProposalLookupFailed(true);
+        setError(errorMessage(reason));
+      }
+    }).finally(() => { if (active) setProposalsLoading(false); });
     return () => { active = false; };
   }, [seed.id, seed.content, seed.entity_id, seed.working_content_hash]);
+
+  async function changeDepth(nextDepth: TermDepth) {
+    if (busyAction || depthBlockedReason) return;
+    setBusyAction("depth");
+    setError("");
+    setActionFeedback("正在保存解释深度到当前 Term Draft…");
+    try {
+      const updatedContent = replaceTermDepth(envelope.frontmatter, nextDepth) + envelope.body;
+      session.updateContent(updatedContent);
+      const saved = await session.saveNow();
+      if (!saved || saved.content !== updatedContent) throw new Error("无法确认所选深度已保存，请检查 Draft 状态后重试。");
+      setActionFeedback(`深度已保存为「${termDepthLabels[nextDepth]}」；后续生成会读取当前 Draft。`);
+    } catch (reason) {
+      setError(errorMessage(reason));
+      setActionFeedback("深度保存失败；选择仍保留在当前编辑中，生成请求尚未发送。");
+    } finally {
+      setBusyAction(null);
+    }
+  }
 
   async function generate(rewrite: boolean) {
     if (busyAction) return;
@@ -54,7 +120,8 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
     setError("");
     setActionFeedback(rewrite ? "正在请求当前语言的重写建议…" : "正在生成双语解释建议…");
     try {
-      const draft = await session.saveNow() ?? seed;
+      const draft = await session.saveNow();
+      if (!draft || draft.content !== session.getCurrentContent()) throw new Error("无法确认当前 Term Draft 已保存，未发送 AI 请求。");
       if (rewrite) {
         const result = await requestTermRewrite(draft.id, language, requirements.trim());
         setProposal(result.proposal);
@@ -157,11 +224,18 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
 
   return <section className="term-candidate-inline-review" aria-label="候选解释审核">
     <div className="term-candidate-edit-actions" role="group" aria-label="编辑或生成解释">
-      <button type="button" className="button button-secondary" disabled={locked} onClick={() => setEditing(!editing)}>{editing ? "完成编辑" : "编辑"}</button>
-      <button type="button" className="button button-primary" disabled={locked} onClick={() => void generate(false)}>{busyAction === "generate" ? "正在生成…" : "AI 生成双语解释"}</button>
+      <button type="button" className="button button-secondary" disabled={locked || Boolean(proposal) || proposalsLoading || proposalLookupFailed} onClick={() => setEditing(!editing)}>{editing ? "完成编辑" : "编辑"}</button>
+      <button type="button" className="button button-primary" disabled={locked || proposalsLoading || proposalLookupFailed} onClick={() => void generate(false)}>{busyAction === "generate" ? "正在生成…" : "AI 生成双语解释"}</button>
+      <label className="field-label">解释深度<select value={depth} disabled={locked || Boolean(depthBlockedReason)} onChange={(event) => void changeDepth(event.target.value as TermDepth)}>
+        <option value="stub">{termDepthLabels.stub}</option>
+        <option value="standard">{termDepthLabels.standard}</option>
+        <option value="deep">{termDepthLabels.deep}</option>
+      </select></label>
     </div>
+    <p className="subtle-copy">{termDepthDescriptions[depth]}</p>
+    {depthBlockedReason && <p className="term-candidate-disabled-reason" role="status">{depthBlockedReason}</p>}
     <p className="subtle-copy">显式生成会将当前 Term Draft、候选摘录和必要注册表发送给 DeepSeek；已有匹配建议会复用，AI 结果不会自动采用或发布。</p>
-    {editing && <label className="field-label">Markdown 源码<textarea disabled={locked} value={envelope.body} rows={10} onChange={(event) => { const body = event.target.value; session.updateContent(envelope.frontmatter + (/^# /m.test(body) ? body : `# ${candidate.display_name}\n\n${body}`)); setProposal(null); setActionFeedback("编辑内容只保存在 Draft；正式知识尚未改变。"); }} /></label>}
+    {editing && <label className="field-label">Markdown 源码<textarea disabled={locked || Boolean(proposal)} value={envelope.body} rows={10} onChange={(event) => { const body = event.target.value; session.updateContent(envelope.frontmatter + (/^# /m.test(body) ? body : `# ${candidate.display_name}\n\n${body}`)); setActionFeedback("编辑内容只保存在 Draft；正式知识尚未改变。"); }} /></label>}
     <div className="term-candidate-current-preview"><strong>当前 Term Draft</strong><MarkdownContent content={envelope.body} /></div>
     <div className="term-candidate-rewrite-controls">
       <label className="field-label">AI 重写要求<textarea disabled={locked} rows={2} value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder="例如：解释向量维度、来源和分类器的使用方式，并给一个简单例子" /></label>
