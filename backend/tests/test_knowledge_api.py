@@ -471,7 +471,7 @@ def test_candidate_term_draft_ai_uses_generic_evidence_and_requires_consent(api_
         json={"draft_id": draft["id"], "expected_draft_revision": 1},
     )
     assert applied.status_code == 200, applied.json()
-    assert "An index designed to retain stable facts." in applied.json()["draft"]["content"]
+    assert "It retains canonical facts for reliable lookup" in applied.json()["draft"]["content"]
     assert mock_client.calls == ["draft_term"]
 
 
