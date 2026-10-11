@@ -7,7 +7,7 @@ import { splitMarkdownFrontmatter } from "../markdownBlocks";
 import { termLanguageSections } from "../termLanguage";
 import { errorMessage } from "../errors";
 
-type ReviewAction = "depth" | "generate" | "rewrite" | "adopt" | "discard" | "approve" | "reject";
+type ReviewAction = "close" | "depth" | "generate" | "rewrite" | "adopt" | "discard" | "approve" | "reject";
 type TermDepth = "stub" | "standard" | "deep";
 
 const termDepthLabels: Record<TermDepth, string> = {
@@ -34,7 +34,7 @@ function replaceTermDepth(frontmatter: string, depth: TermDepth): string {
   return frontmatter.replace(depthLine, (_line, prefix: string, _quote: string, suffix: string, carriageReturn: string) => `${prefix}${depth}${suffix}${carriageReturn}`);
 }
 
-export function TermCandidateReview({ candidate, seed, onDone }: { candidate: TermCandidate; seed: Draft; onDone: (warnings?: string[]) => void }) {
+export function TermCandidateReview({ candidate, seed, onClose, onDone }: { candidate: TermCandidate; seed: Draft; onClose: () => void; onDone: (warnings?: string[]) => void }) {
   const session = useRuntimeDraftSession({ entityType: "term", entityId: seed.entity_id, enabled: true, initialContent: seed.content, initialContentReady: true });
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [busyAction, setBusyAction] = useState<ReviewAction | null>(null);
@@ -48,6 +48,7 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
   const depth = readTermDepth(envelope.frontmatter);
   const proposedBody = proposal && typeof proposal.payload.content === "string" ? splitMarkdownFrontmatter(proposal.payload.content).body : "";
   const sections = termLanguageSections(envelope.body);
+  const hasCurrentBody = Boolean(withoutLeadingTitle(envelope.body).trim());
   const hasLanguageExplanation = Boolean(sections.zh || sections.en);
   const rewriteBlockedReason = proposal
     ? "请先将当前建议采用到 Draft，或放弃建议，再重写。"
@@ -170,6 +171,23 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
     }
   }
 
+  async function closeReview() {
+    if (busyAction) return;
+    setBusyAction("close");
+    setError("");
+    setActionFeedback("正在保存当前 Draft…");
+    try {
+      const saved = await session.saveNow();
+      if (!saved || saved.content !== session.getCurrentContent()) throw new Error("无法确认当前编辑已保存；请检查 Draft 状态后重试。");
+      onClose();
+    } catch (reason) {
+      setError(errorMessage(reason));
+      setActionFeedback("Draft 未关闭；当前编辑仍保留，可检查错误后重试。");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function approve() {
     if (busyAction) return;
     setBusyAction("approve");
@@ -220,31 +238,41 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
   }
 
   return <section className="term-candidate-inline-review" aria-label="候选解释审核">
+    <header className="term-candidate-review-heading">
+      <div><h3>{candidate.display_name}</h3><p>当前任务：编辑 Term 解释。改动保存在 Draft，正式知识只会由 Publisher 发布。</p></div>
+      <div className="term-candidate-review-heading-actions">
+        <label className="field-label">解释深度<select aria-label="解释深度" value={depth} disabled={locked || Boolean(depthBlockedReason)} onChange={(event) => void changeDepth(event.target.value as TermDepth)}>
+          <option value="stub">{termDepthLabels.stub}</option>
+          <option value="standard">{termDepthLabels.standard}</option>
+          <option value="deep">{termDepthLabels.deep}</option>
+        </select></label>
+        <button type="button" className="button button-quiet" disabled={locked} onClick={() => void closeReview()}>{busyAction === "close" ? "正在保存…" : "关闭编辑"}</button>
+      </div>
+    </header>
     <div className="term-candidate-edit-actions" role="group" aria-label="编辑或生成解释">
-      <button type="button" className="button button-secondary" disabled={locked || Boolean(proposal) || proposalsLoading || proposalLookupFailed} onClick={() => setEditing(!editing)}>{editing ? "完成编辑" : "编辑"}</button>
-      <button type="button" className="button button-primary" disabled={locked || proposalsLoading || proposalLookupFailed} onClick={() => void generate(false)}>{busyAction === "generate" ? "正在生成…" : "AI 生成双语解释"}</button>
-      <label className="field-label">解释深度<select value={depth} disabled={locked || Boolean(depthBlockedReason)} onChange={(event) => void changeDepth(event.target.value as TermDepth)}>
-        <option value="stub">{termDepthLabels.stub}</option>
-        <option value="standard">{termDepthLabels.standard}</option>
-        <option value="deep">{termDepthLabels.deep}</option>
-      </select></label>
+      <button type="button" className="button button-secondary" disabled={locked || Boolean(proposal) || proposalsLoading || proposalLookupFailed} onClick={() => setEditing(!editing)}>{editing ? "完成编辑" : "编辑 Markdown"}</button>
+      {hasCurrentBody && <button type="button" className="button button-secondary" disabled={locked || proposalsLoading || proposalLookupFailed} onClick={() => void generate(false)}>{busyAction === "generate" ? "正在生成…" : "重新生成双语解释"}</button>}
     </div>
     <p className="subtle-copy">{termDepthDescriptions[depth]}</p>
     {depthBlockedReason && <p className="term-candidate-disabled-reason" role="status">{depthBlockedReason}</p>}
     <p className="subtle-copy">显式生成会将当前 Term Draft、候选摘录和必要注册表发送给 DeepSeek；已有匹配建议会复用，AI 结果不会自动采用或发布。</p>
     {editing && <label className="field-label">Markdown 源码<textarea disabled={locked || Boolean(proposal)} value={envelope.body} rows={10} onChange={(event) => { const body = event.target.value; session.updateContent(envelope.frontmatter + (/^# /m.test(body) ? body : `# ${candidate.display_name}\n\n${body}`)); setActionFeedback("编辑内容只保存在 Draft；正式知识尚未改变。"); }} /></label>}
-    <div className="term-candidate-current-preview"><strong>当前 Term Draft</strong><MarkdownContent content={envelope.body} /></div>
-    <div className="term-candidate-rewrite-controls">
-      <label className="field-label">AI 重写要求<textarea disabled={locked} rows={2} value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder="例如：解释向量维度、来源和分类器的使用方式，并给一个简单例子" /></label>
+    {hasCurrentBody
+      ? <div className="term-candidate-current-preview"><strong>当前 Term Draft</strong><MarkdownContent content={envelope.body} /></div>
+      : <div className="term-candidate-empty-draft"><p>当前 Draft 尚无解释内容。</p>{!proposal && <button type="button" className="button button-primary" disabled={locked || proposalsLoading || proposalLookupFailed} onClick={() => void generate(false)}>{busyAction === "generate" ? "正在生成…" : "AI 生成双语解释"}</button>}</div>}
+    {hasLanguageExplanation && <div className="term-candidate-rewrite-controls">
+      <label className="field-label">AI 重写要求（可选）<textarea disabled={locked} rows={2} value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder="可留空；例如说明向量维度及分类器如何使用它" /></label>
       <button type="button" className="button button-secondary" disabled={locked || Boolean(rewriteBlockedReason)} onClick={() => void generate(true)}>{busyAction === "rewrite" ? "正在重写…" : "AI 双语重写"}</button>
       {rewriteBlockedReason && !busyAction && <p className="term-candidate-disabled-reason" role="status">{rewriteBlockedReason}</p>}
-    </div>
+    </div>}
     {proposal && <details className="term-candidate-proposal-comparison" open>
-      <summary>原文与双语重写建议对比</summary>
-      <div className="term-candidate-comparison-grid">
-        <section aria-label="当前 Term Draft 原文"><h4>当前 Term Draft</h4><div className="term-candidate-comparison-body"><MarkdownContent content={withoutLeadingTitle(envelope.body)} /></div></section>
-        <section aria-label="尚未采用的双语重写建议"><h4>双语 AI 建议 · 尚未采用</h4><div className="term-candidate-comparison-body"><MarkdownContent content={withoutLeadingTitle(proposedBody)} /></div></section>
-      </div>
+      <summary>当前稿与双语建议对比</summary>
+      {hasCurrentBody
+        ? <div className="term-candidate-comparison-grid">
+          <section aria-label="当前 Term Draft 原文"><h4>当前 Term Draft</h4><div className="term-candidate-comparison-body"><MarkdownContent content={withoutLeadingTitle(envelope.body)} /></div></section>
+          <section aria-label="尚未采用的双语重写建议"><h4>双语 AI 建议 · 尚未采用</h4><div className="term-candidate-comparison-body"><MarkdownContent content={withoutLeadingTitle(proposedBody)} /></div></section>
+        </div>
+        : <section className="term-candidate-first-proposal" aria-label="尚未采用的双语重写建议"><p>初次生成：当前 Draft 没有原文。</p><div className="term-candidate-comparison-body"><MarkdownContent content={withoutLeadingTitle(proposedBody)} /></div></section>}
       <div className="term-candidate-suggestion-actions" role="group" aria-label="建议操作">
         <button type="button" className="button button-primary" disabled={locked} onClick={() => { setBusyAction("adopt"); setError(""); setActionFeedback("正在将建议写入 Draft…"); void adopt().catch((reason) => { setError(errorMessage(reason)); setActionFeedback("采用失败；建议仍保留，可检查错误后重试。"); }).finally(() => setBusyAction(null)); }}>{busyAction === "adopt" ? "正在采用…" : "采用到 Draft"}</button>
         <button type="button" className="button button-danger" disabled={locked} onClick={() => void discardSuggestion()}>{busyAction === "discard" ? "正在放弃…" : "放弃建议"}</button>

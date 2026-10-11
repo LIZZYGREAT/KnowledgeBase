@@ -827,6 +827,13 @@ export function rejectTermCandidate(
   );
 }
 
+export function deleteTermCandidate(candidateId: string) {
+  return request<{ deleted: boolean }>(
+    `/api/terms/candidates/${encodeURIComponent(candidateId)}`,
+    { method: "DELETE", workloadChanged: true },
+  );
+}
+
 export function acceptTermCandidate(candidateId: string, termId: string) {
   return request<TermCandidate>(
     `/api/terms/candidates/${encodeURIComponent(candidateId)}/accept-existing`,

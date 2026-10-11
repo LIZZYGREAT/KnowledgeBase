@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Draft, EntityDetail, EntitySummary, TermCandidate, TermMergePreview } from "../../src/api";
 import { TermsPage } from "../../src/pages/BrowsePages";
 import { entityWorkspaceUrl } from "../../src/workspaceRoute";
@@ -19,9 +19,18 @@ const api = vi.hoisted(() => ({
   mergeTerms: vi.fn(),
   acceptTermCandidate: vi.fn(),
   createCandidateTermDraft: vi.fn(),
+  deleteTermCandidate: vi.fn(),
   rejectTermCandidate: vi.fn(),
   requestCandidateTermDraftProposal: vi.fn(),
 }));
+
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+const scrollIntoViewSpy = vi.fn();
+
+afterEach(() => {
+  if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: originalScrollIntoView });
+  else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+});
 
 vi.mock("../../src/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/api")>()),
@@ -137,6 +146,7 @@ describe("Terms Registry controls", () => {
       ? [{ id: "ai", title: "Artificial Intelligence", kind: "domain" }, { id: "biology", title: "Biology", kind: "domain" }]
       : [{ id: "agents", title: "Agents", kind: "topic" }, { id: "methods", title: "Methods", kind: "topic" }]);
     api.listTermCandidates.mockResolvedValue(candidates);
+    api.deleteTermCandidate.mockResolvedValue({ deleted: true });
     api.getTermDiscoveryState.mockResolvedValue({
       settings: {
         enabled_lanes: ["concept", "entity", "vocabulary"],
@@ -315,10 +325,44 @@ describe("Terms Registry controls", () => {
     await userEvent.click(await screen.findByRole("checkbox", { name: "选择候选 Adaptive Token Pruning" }));
     expect(screen.queryByRole("checkbox", { name: "选择候选 Closed Candidate" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "选择候选 Research Reading Phrase" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "批量拒绝（1）" }));
+    expect(screen.getByRole("button", { name: "批量删除" })).toBeTruthy();
+    await userEvent.click(screen.getByText("更多操作"));
+    await userEvent.click(screen.getByRole("button", { name: "批量拒绝" }));
     await waitFor(() => expect(api.rejectTermCandidate).toHaveBeenCalledWith("candidate-new", { scope: "global" }));
     expect(api.rejectTermCandidate).toHaveBeenCalledTimes(1);
     expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
+  });
+
+  it("deletes a pending Candidate without recording a rejection", async () => {
+    render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
+    await screen.findByText("Adaptive Token Pruning");
+    await userEvent.click(screen.getAllByRole("button", { name: "删除", exact: true })[0]);
+
+    expect(await screen.findByRole("dialog", { name: "确认删除候选" })).toBeTruthy();
+    expect(screen.getByText(/不加入拒绝历史；以后仍可能再次被推荐/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "删除候选" }));
+
+    await waitFor(() => expect(api.deleteTermCandidate).toHaveBeenCalledWith("candidate-new"));
+    expect(api.rejectTermCandidate).not.toHaveBeenCalled();
+    expect((await screen.findByRole("status")).textContent).toContain("已删除“Adaptive Token Pruning”");
+  });
+
+  it("reports partial batch deletion failures and keeps the failed Candidate selected", async () => {
+    api.deleteTermCandidate.mockImplementation(async (candidateId: string) => {
+      if (candidateId === "candidate-existing") throw new Error("Candidate changed before deletion");
+      return { deleted: true };
+    });
+    render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
+    await userEvent.click(await screen.findByRole("checkbox", { name: "选择候选 Adaptive Token Pruning" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "选择候选 Calibrated Optimizer" }));
+    await userEvent.click(screen.getByRole("button", { name: "批量删除" }));
+    await userEvent.click(screen.getByRole("button", { name: "删除 2 项" }));
+
+    expect((await screen.findByRole("status")).textContent).toContain("成功 1 项，失败 1 项");
+    expect(screen.getByRole("status").textContent).toContain("Calibrated Optimizer：Candidate changed before deletion");
+    expect((screen.getByRole("checkbox", { name: "选择候选 Calibrated Optimizer" }) as HTMLInputElement).checked).toBe(true);
+    expect(api.deleteTermCandidate).toHaveBeenCalledTimes(2);
+    expect(api.rejectTermCandidate).not.toHaveBeenCalled();
   });
 
   it("filters Candidate review and links a selected Registry Term", async () => {
@@ -337,12 +381,15 @@ describe("Terms Registry controls", () => {
     expect(screen.getByText("Calibrated Optimizer")).not.toBeNull();
     await userEvent.selectOptions(screen.getByLabelText("类别"), "");
 
-    await userEvent.click(screen.getByRole("button", { name: "Choose Another Existing…" }));
+    const pickerTrigger = screen.getByRole("button", { name: "选择其他 Term" });
+    await userEvent.click(pickerTrigger);
+    expect(document.activeElement).toBe(screen.getByLabelText("搜索 Term"));
     await userEvent.type(screen.getByLabelText("搜索 Term"), "Loser Term");
     await userEvent.click(screen.getByRole("option", { name: /Loser Term/ }));
     await userEvent.click(screen.getByRole("button", { name: "链接到所选 Term" }));
 
     await waitFor(() => expect(api.acceptTermCandidate).toHaveBeenCalledWith("candidate-existing", "loser-term"));
+    await waitFor(() => expect(document.activeElement).toBe(pickerTrigger));
   });
 
   it("reopens a Drafting Candidate's Term Draft with its explicit Candidate context", async () => {
@@ -363,12 +410,19 @@ describe("Terms Registry controls", () => {
     const onOpen = vi.fn();
     render(<TermsPage onOpen={onOpen} navigate={navigate} initialTab="candidates" />);
 
-    await userEvent.click(await screen.findByRole("button", { name: "打开 Term Draft" }));
+    const openDraftButton = await screen.findByRole("button", { name: "打开 Term Draft" });
+    await userEvent.click(openDraftButton);
 
     await waitFor(() => expect(api.getDraft).toHaveBeenCalledWith("draft-research"));
     expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByLabelText("Research Reading Phrase 的 Term Draft 编辑区"));
+    const draftingTitle = screen.getByRole("heading", { level: 2, name: "Research Reading Phrase" });
+    const draftingCard = draftingTitle.closest("article");
+    expect(within(draftingCard as HTMLElement).queryByRole("button", { name: "删除", exact: true })).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "关闭编辑" }));
+    await waitFor(() => expect(document.activeElement).toBe(openDraftButton));
   });
 
   it("filters Candidates by Notes, PDF, Research, and Web Discovery and collapses long evidence", async () => {
@@ -396,7 +450,9 @@ describe("Terms Registry controls", () => {
     expect(screen.queryByText("Research Candidate")).toBeNull();
     await user.click(screen.getByRole("button", { name: "All" }));
 
-    const evidenceSummary = await screen.findByText("4 条来源证据");
+    await screen.findByText("Many Evidence Candidate");
+    const evidenceCard = screen.getByText("Many Evidence Candidate").closest("article");
+    const evidenceSummary = within(evidenceCard as HTMLElement).getByText("来源与证据");
     const evidenceDetails = evidenceSummary.closest("details") as HTMLDetailsElement;
     expect(evidenceDetails.open).toBe(false);
     await user.click(evidenceSummary);
@@ -405,6 +461,8 @@ describe("Terms Registry controls", () => {
   });
 
   it("creates an inline review Draft and requires an explicit action for AI generation", async () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoViewSpy });
+    scrollIntoViewSpy.mockClear();
     const draft: Draft = {
       id: "draft-adaptive",
       entity_type: "term",
@@ -430,6 +488,8 @@ describe("Terms Registry controls", () => {
     await waitFor(() => expect(api.createCandidateTermDraft).toHaveBeenCalledWith("candidate-new"));
     expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
     expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Adaptive Token Pruning 的 Term Draft 编辑区")));
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
     await userEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
     await waitFor(() => expect(api.requestCandidateTermDraftProposal).toHaveBeenCalledWith(draft.id, "candidate-new"));
     expect(navigate).not.toHaveBeenCalled();
@@ -461,6 +521,7 @@ describe("Terms Registry controls", () => {
 
     const createButton = await screen.findByRole("button", { name: "编辑解释" });
     expect((createButton as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(screen.getByText("来源与证据"));
     expect(screen.getAllByText("A bounded external excerpt.").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Useful context from the external source.").length).toBeGreaterThan(0);
   });

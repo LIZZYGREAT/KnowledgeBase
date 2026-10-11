@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   acceptTermCandidate,
   createCandidateTermDraft,
+  deleteTermCandidate,
   getDraft,
   listTermCandidates,
   rejectTermCandidate,
@@ -38,6 +39,7 @@ export function TermCandidatesPanel({
   const [selected, setSelected] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState<TermCandidate[] | null>(null);
   const [resolutionFilter, setResolutionFilter] = useState<ResolutionFilter>("all");
   const [busyCandidateId, setBusyCandidateId] = useState("");
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
@@ -45,6 +47,52 @@ export function TermCandidatesPanel({
   const [pickerCandidate, setPickerCandidate] = useState<TermCandidate | null>(null);
   const [selectedTermId, setSelectedTermId] = useState("");
   const [termQuery, setTermQuery] = useState("");
+  const [activeReviewId, setActiveReviewId] = useState("");
+  const activeReviewIdRef = useRef(activeReviewId);
+  activeReviewIdRef.current = activeReviewId;
+  const panelRef = useRef<HTMLElement | null>(null);
+  const reviewRefs = useRef(new Map<string, HTMLDivElement>());
+  const reviewRefCallbacks = useRef(new Map<string, (node: HTMLDivElement | null) => void>());
+  const reviewReturnFocusRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pickerReturnFocusRef = useRef<HTMLElement | null>(null);
+  const pickerSearchRef = useRef<HTMLInputElement | null>(null);
+
+  function reviewRefFor(candidateId: string) {
+    let callback = reviewRefCallbacks.current.get(candidateId);
+    if (!callback) {
+      callback = (node) => {
+        if (!node) {
+          reviewRefs.current.delete(candidateId);
+          reviewRefCallbacks.current.delete(candidateId);
+          return;
+        }
+        reviewRefs.current.set(candidateId, node);
+        if (activeReviewIdRef.current === candidateId) {
+          node.scrollIntoView?.({ block: "start", behavior: "smooth" });
+          node.focus({ preventScroll: true });
+        }
+      };
+      reviewRefCallbacks.current.set(candidateId, callback);
+    }
+    return callback;
+  }
+
+  useLayoutEffect(() => {
+    const review = activeReviewId ? reviewRefs.current.get(activeReviewId) : null;
+    if (!review) return;
+    review.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    review.focus({ preventScroll: true });
+  }, [activeReviewId]);
+
+  useEffect(() => {
+    if (pickerCandidate) {
+      pickerSearchRef.current?.focus();
+      return;
+    }
+    const returnFocus = pickerReturnFocusRef.current;
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    else panelRef.current?.focus({ preventScroll: true });
+  }, [pickerCandidate]);
 
   useEffect(() => {
     setOriginFilter(initialDocumentId ? "notes" : "all");
@@ -86,7 +134,10 @@ export function TermCandidatesPanel({
       .some((value) => value.toLocaleLowerCase().includes(query));
   });
   const duplicateGroups = Object.values(visibleCandidates.reduce<Record<string, TermCandidate[]>>((groups, candidate) => { (groups[candidate.normalized_name] ??= []).push(candidate); return groups; }, {})).filter((items) => items.length > 1);
-  const selectedOpen = visibleCandidates.filter((candidate) => candidate.status === "pending" && selected.includes(candidate.id));
+  const selectedOpen = candidates.filter((candidate) => candidate.status === "pending" && selected.includes(candidate.id));
+  const openCandidateCount = candidates.filter((candidate) => candidate.status === "pending" || candidate.status === "drafting").length;
+  const displayedCandidateCount = visibleCandidates.length;
+
   async function rejectSelected() {
     setBatchBusy(true);
     try {
@@ -95,6 +146,47 @@ export function TermCandidatesPanel({
         if (succeeded) setSelected((current) => current.filter((id) => id !== candidate.id));
       }
     } finally { setBatchBusy(false); }
+  }
+
+  function askToDelete(items: TermCandidate[]) {
+    if (items.length) setDeleteConfirmation(items);
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirmation?.length) return;
+    setBatchBusy(true);
+    const targets = deleteConfirmation;
+    const outcomes = await Promise.all(targets.map(async (candidate) => {
+      try {
+        await deleteTermCandidate(candidate.id);
+        return { candidate, error: "" };
+      } catch (reason) {
+        return { candidate, error: errorMessage(reason) };
+      }
+    }));
+    const succeededIds = new Set(outcomes.filter((item) => !item.error).map((item) => item.candidate.id));
+    const failed = outcomes.filter((item) => item.error);
+    setSelected((current) => current.filter((id) => !succeededIds.has(id)));
+    setActionErrors((current) => {
+      const next = { ...current };
+      for (const item of outcomes) {
+        if (item.error) next[item.candidate.id] = item.error;
+        else delete next[item.candidate.id];
+      }
+      return next;
+    });
+    if (targets.length === 1) {
+      const item = outcomes[0];
+      setNotice(item.error
+        ? `无法删除“${item.candidate.display_name}”：${item.error}`
+        : `已删除“${item.candidate.display_name}”；未加入拒绝历史。`);
+    } else {
+      const failureDetails = failed.map((item) => `${item.candidate.display_name}：${item.error}`).join("；");
+      setNotice(`批量删除完成：成功 ${outcomes.length - failed.length} 项，失败 ${failed.length} 项。${failureDetails ? `失败详情：${failureDetails}` : ""}`);
+    }
+    setDeleteConfirmation(null);
+    setBatchBusy(false);
+    if (succeededIds.size) resource.retry();
   }
 
   async function runAction(candidateId: string, action: () => Promise<unknown>): Promise<boolean> {
@@ -112,7 +204,8 @@ export function TermCandidatesPanel({
     }
   }
 
-  function openTermPicker(candidate: TermCandidate) {
+  function openTermPicker(candidate: TermCandidate, trigger: HTMLButtonElement) {
+    pickerReturnFocusRef.current = trigger;
     setPickerCandidate(candidate);
     setSelectedTermId(candidate.suggested_term_id ?? "");
     setTermQuery("");
@@ -126,13 +219,15 @@ export function TermCandidatesPanel({
     if (succeeded) setPickerCandidate(null);
   }
 
-  async function openCandidateDraft(candidate: TermCandidate) {
+  async function openCandidateDraft(candidate: TermCandidate, trigger: HTMLButtonElement) {
     if (!candidate.draft_id) return;
+    reviewReturnFocusRefs.current.set(candidate.id, trigger);
     setBusyCandidateId(candidate.id);
     setActionErrors((current) => ({ ...current, [candidate.id]: "" }));
     try {
       const draft = await getDraft(candidate.draft_id);
       setReviewDrafts((current) => ({ ...current, [candidate.id]: draft }));
+      setActiveReviewId(candidate.id);
     } catch (reason) {
       setActionErrors((current) => ({ ...current, [candidate.id]: errorMessage(reason) }));
       resource.retry();
@@ -141,11 +236,22 @@ export function TermCandidatesPanel({
     }
   }
 
-  function startCreate(candidate: TermCandidate) {
+  function startCreate(candidate: TermCandidate, trigger: HTMLButtonElement) {
+    reviewReturnFocusRefs.current.set(candidate.id, trigger);
     void runAction(candidate.id, async () => {
       const result = await createCandidateTermDraft(candidate.id);
       setReviewDrafts((current) => ({ ...current, [candidate.id]: result.draft }));
+      setActiveReviewId(candidate.id);
     });
+  }
+
+  function returnFromReview(candidateId: string) {
+    const trigger = reviewReturnFocusRefs.current.get(candidateId);
+    if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+    else panelRef.current?.focus({ preventScroll: true });
+    reviewReturnFocusRefs.current.delete(candidateId);
+    setActiveReviewId((current) => current === candidateId ? "" : current);
+    setReviewDrafts((current) => { const next = { ...current }; delete next[candidateId]; return next; });
   }
 
   function selectOriginFilter(filter: OriginFilter) {
@@ -154,8 +260,15 @@ export function TermCandidatesPanel({
   }
 
   return (
-    <section className="term-candidates-panel" aria-label="Term Candidates">
-      <div className="term-candidate-toolbar surface">
+    <section ref={panelRef} tabIndex={-1} className="term-candidates-panel" aria-label="Term Candidates">
+      <header className="term-candidate-page-heading">
+        <div><h2>Term Candidates</h2><p>{showRejected ? "查看已拒绝的候选及其拒绝历史。" : "判断候选术语，编辑解释或关联已有 Term。"}</p></div>
+        <div className="term-candidate-page-summary">
+          <span className="count-label">{showRejected ? `${displayedCandidateCount} 条拒绝记录` : `显示 ${displayedCandidateCount} / 待审 ${openCandidateCount}`}</span>
+          <button className="button button-quiet" type="button" onClick={() => { setShowRejected(!showRejected); setSelected([]); }}>{showRejected ? "返回待审" : "拒绝历史"}</button>
+        </div>
+      </header>
+      <div className="term-candidate-toolbar surface" aria-label="候选筛选">
         <div className="term-candidate-origin-filter">
           <div className="segmented-control" role="group" aria-label="候选来源">
             <button type="button" aria-pressed={originFilter === "all"} className={originFilter === "all" ? "active" : ""} onClick={() => selectOriginFilter("all")}>All</button>
@@ -179,12 +292,19 @@ export function TermCandidatesPanel({
             <option value="all">Existing 与 New</option><option value="existing">Existing</option><option value="new">New</option>
           </select></label>
         </div>
-        <span className="count-label">{visibleCandidates.length} 个候选</span><button onClick={() => setShowRejected(!showRejected)}>{showRejected ? "返回待审" : "拒绝历史"}</button>
       </div>
       {notice && <p role="status">{notice}</p>}
 
-      {!showRejected && <div className="term-candidate-batch"><button disabled={batchBusy || !selectedOpen.length} onClick={() => void rejectSelected()}>批量拒绝（{selectedOpen.length}）</button><small>仅处理选中的待审候选，保留来源与拒绝记录。</small></div>}
-      {duplicateGroups.length > 0 && <details><summary>查看 {duplicateGroups.length} 个重复组</summary>{duplicateGroups.map((group) => <section key={group[0].normalized_name}><strong>{group[0].display_name} · {group.length} 项</strong>{group.map((candidate) => <p key={candidate.id}>{candidate.evidence.map((item) => item.origin_title || item.origin_id).join(" · ")}</p>)}<button disabled={batchBusy} onClick={() => setSelected((current) => Array.from(new Set([...current, ...group.filter((candidate) => candidate.status === "pending").map((candidate) => candidate.id)])))}>选择此组待审项</button></section>)}</details>}
+      {!showRejected && <div className="term-candidate-batch surface">
+        <span>已选 {selectedOpen.length} 项</span>
+        <button className="button button-danger" type="button" disabled={batchBusy || !selectedOpen.length} onClick={() => askToDelete(selectedOpen)}>批量删除</button>
+        <details className="term-candidate-more-actions">
+          <summary className="button button-secondary">更多操作</summary>
+          <div><button className="button button-quiet" type="button" disabled={batchBusy || !selectedOpen.length} onClick={() => void rejectSelected()}>批量拒绝</button><small>拒绝会写入拒绝历史，并影响后续推荐。</small></div>
+        </details>
+        <small>删除只清理所选候选及证据，不加入拒绝历史；已消耗的调用额度不会退回。</small>
+      </div>}
+      {duplicateGroups.length > 0 && <details className="term-candidate-duplicate-groups"><summary>查看 {duplicateGroups.length} 个重复组</summary>{duplicateGroups.map((group) => <section key={group[0].normalized_name}><strong>{group[0].display_name} · {group.length} 项</strong>{group.map((candidate) => <p key={candidate.id}>{candidate.evidence.map((item) => item.origin_title || item.origin_id).join(" · ")}</p>)}<button className="button button-secondary" type="button" disabled={batchBusy} onClick={() => setSelected((current) => Array.from(new Set([...current, ...group.filter((candidate) => candidate.status === "pending").map((candidate) => candidate.id)])))}>选择此组待审项</button></section>)}</details>}
 
       {resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading ? <LoadingState /> : visibleCandidates.length ? (
         <div className="term-candidate-list">
@@ -192,6 +312,9 @@ export function TermCandidatesPanel({
             const suggestedTerm = terms.find((term) => term.id === candidate.suggested_term_id);
             const isExisting = Boolean(candidate.suggested_term_id);
             const canCreateTerm = candidate.evidence.some((item) => !item.origin_rejected);
+            const candidateIntent = candidate.discovery_assessment?.why_now.trim()
+              || candidate.evidence.find((item) => item.rationale?.trim())?.rationale
+              || "等待人工审核的 Term 候选。";
             const evidenceContent = <div className="term-candidate-evidence-list">
               {candidate.evidence.map((item) => (
                 <section className={`term-candidate-evidence ${item.origin_rejected ? "rejected" : ""}`} key={item.id}>
@@ -221,41 +344,43 @@ export function TermCandidatesPanel({
             </div>;
             return (
               <article key={candidate.id} className="term-candidate-card surface">
-                {!showRejected && candidate.status === "pending" && <label><input type="checkbox" aria-label={`选择候选 ${candidate.display_name}`} checked={selected.includes(candidate.id)} disabled={batchBusy} onChange={(event) => setSelected((current) => event.target.checked ? [...current, candidate.id] : current.filter((id) => id !== candidate.id))} />选择</label>}
+                <div className="term-candidate-card-topline">
+                  {!showRejected && candidate.status === "pending" && <label className="term-candidate-select"><input type="checkbox" aria-label={`选择候选 ${candidate.display_name}`} checked={selected.includes(candidate.id)} disabled={batchBusy} onChange={(event) => setSelected((current) => event.target.checked ? [...current, candidate.id] : current.filter((id) => id !== candidate.id))} />选择</label>}
+                  <div className="term-candidate-badges"><Chip>{titleCase(candidate.suggested_type)}</Chip><Chip tone={isExisting ? "green" : "neutral"}>{isExisting ? "Existing" : "New"}</Chip>{candidate.status === "drafting" && <Chip tone="amber">Drafting</Chip>}</div>
+                </div>
                 <header className="term-candidate-heading">
                   <div>
-                    <div className="term-candidate-badges"><Chip>{titleCase(candidate.suggested_type)}</Chip><Chip tone={isExisting ? "green" : "neutral"}>{isExisting ? "Existing" : "New"}</Chip>{candidate.status === "drafting" && <Chip tone="amber">Drafting</Chip>}</div>
                     <h2>{candidate.display_name}</h2>
                     {isExisting && <p className="term-candidate-match">匹配到：{suggestedTerm?.title ?? candidate.suggested_term_id}</p>}
                   </div>
-                  <span className="term-candidate-id">{candidate.normalized_name}</span>
                 </header>
-
-                {candidate.discovery_assessment && <section className="term-candidate-readiness" aria-label="Readiness explanation">
-                  <div><Chip tone={candidate.discovery_assessment.recommendation_level === "core_gap" ? "amber" : "neutral"}>{candidate.discovery_assessment.recommendation_level.replaceAll("_", " ")}</Chip><Chip>{candidate.discovery_assessment.readiness} readiness</Chip></div>
-                  <p>{candidate.discovery_assessment.why_now}</p>
-                  {(candidate.discovery_assessment.known_prerequisites.length > 0 || candidate.discovery_assessment.missing_prerequisites.length > 0) && <small>已有：{candidate.discovery_assessment.known_prerequisites.join("、") || "—"} · 缺少：{candidate.discovery_assessment.missing_prerequisites.join("、") || "—"}</small>}
-                </section>}
-
-                {candidate.evidence.length > 3 ? <details className="term-candidate-evidence-disclosure">
-                  <summary><strong>{candidate.evidence.length} 条来源证据</strong><span>展开摘录与分析理由</span></summary>
-                  {evidenceContent}
-                </details> : evidenceContent}
-
+                <p className="term-candidate-intent">{candidateIntent}</p>
                 {actionErrors[candidate.id] && <p className="error-copy" role="alert">{actionErrors[candidate.id]}</p>}
-                {reviewDrafts[candidate.id] && <TermCandidateReview candidate={candidate} seed={reviewDrafts[candidate.id]} onDone={(warnings = []) => { setNotice(warnings.length ? "已发布 Term。" + warnings.join("；") : "操作已完成。"); setReviewDrafts((current) => { const next = { ...current }; delete next[candidate.id]; return next; }); resource.retry(); }} />}
                 <footer className="term-candidate-actions">
-                  {candidate.status === "rejected" ? <button disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => restoreTermCandidate(candidate.id))}>恢复</button> : candidate.status === "drafting" ? <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void openCandidateDraft(candidate)}>{busyCandidateId === candidate.id ? "正在打开…" : "打开 Term Draft"}</button> : <>
+                  {candidate.status === "rejected" ? <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => restoreTermCandidate(candidate.id))}>恢复</button> : candidate.status === "drafting" ? <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => void openCandidateDraft(candidate, event.currentTarget)}>{busyCandidateId === candidate.id ? "正在打开…" : "打开 Term Draft"}</button> : <>
                     {isExisting ? <>
-                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => acceptTermCandidate(candidate.id, candidate.suggested_term_id!))}>通过关联</button>
-                      <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => openTermPicker(candidate)}>Choose Another Existing…</button>
+                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => acceptTermCandidate(candidate.id, candidate.suggested_term_id!))}>关联已有 Term</button>
+                      <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => openTermPicker(candidate, event.currentTarget)}>选择其他 Term</button>
                     </> : <>
-                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 Term Draft 需要至少一个未拒绝的候选来源" : undefined} onClick={() => startCreate(candidate)}>编辑解释</button>
-                      <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => openTermPicker(candidate)}>Link Existing…</button>
+                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 Term Draft 需要至少一个未拒绝的候选来源" : undefined} onClick={(event) => startCreate(candidate, event.currentTarget)}>编辑解释</button>
+                      <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => openTermPicker(candidate, event.currentTarget)}>关联已有 Term</button>
                     </>}
-                    <button className="button button-danger term-global-reject" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }))}>拒绝</button>
+                    <button className="button button-danger" type="button" disabled={busyCandidateId === candidate.id || batchBusy} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }))}>拒绝</button>
+                    <button className="button button-quiet term-candidate-delete" type="button" disabled={busyCandidateId === candidate.id || batchBusy} onClick={() => askToDelete([candidate])}>删除</button>
                   </>}
                 </footer>
+                {reviewDrafts[candidate.id] && <div className="term-candidate-review-anchor" ref={reviewRefFor(candidate.id)} tabIndex={-1} aria-label={`${candidate.display_name} 的 Term Draft 编辑区`}>
+                  <TermCandidateReview candidate={candidate} seed={reviewDrafts[candidate.id]} onClose={() => returnFromReview(candidate.id)} onDone={(warnings = []) => { setNotice(warnings.length ? "已发布 Term。" + warnings.join("；") : "操作已完成。"); returnFromReview(candidate.id); resource.retry(); }} />
+                </div>}
+                {candidate.discovery_assessment && <details className="term-candidate-readiness">
+                  <summary><Chip tone={candidate.discovery_assessment.recommendation_level === "core_gap" ? "amber" : "neutral"}>{candidate.discovery_assessment.recommendation_level.replaceAll("_", " ")}</Chip> 学习准备情况</summary>
+                  <p>{candidate.discovery_assessment.why_now}</p>
+                  {(candidate.discovery_assessment.known_prerequisites.length > 0 || candidate.discovery_assessment.missing_prerequisites.length > 0) && <small>已有：{candidate.discovery_assessment.known_prerequisites.join("、") || "—"} · 缺少：{candidate.discovery_assessment.missing_prerequisites.join("、") || "—"}</small>}
+                </details>}
+                <details className="term-candidate-evidence-disclosure">
+                  <summary><strong>来源与证据</strong><span>{candidate.evidence.length} 条 · 展开摘录与分析理由</span></summary>
+                  {evidenceContent}
+                </details>
               </article>
             );
           })}
@@ -264,14 +389,27 @@ export function TermCandidatesPanel({
 
       {pickerCandidate && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyCandidateId) setPickerCandidate(null); }}>
         <section className="explorer-modal term-picker-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-candidate-picker-title">
-          <div className="section-heading"><div><h2 id="term-candidate-picker-title">选择已有 Term</h2><p>搜索 Registry 后选中一个 Term，建立候选词关系。</p></div><button className="text-button" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>关闭</button></div>
-          <label className="field-label">搜索 Term<input value={termQuery} onChange={(event) => setTermQuery(event.target.value)} placeholder="标题、ID 或别名" autoFocus /></label>
+          <div className="section-heading"><div><h2 id="term-candidate-picker-title">为“{pickerCandidate.display_name}”选择已有 Term</h2><p>搜索 Registry 后选中一个 Term，建立候选词关系。</p></div><button className="button button-quiet" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>关闭</button></div>
+          <label className="field-label">搜索 Term<input ref={pickerSearchRef} value={termQuery} onChange={(event) => setTermQuery(event.target.value)} placeholder="标题、ID 或别名" /></label>
           <div className="term-picker-list" role="listbox" aria-label="Term Registry 搜索结果">
             {pickerTerms.map((term) => <button type="button" role="option" aria-selected={selectedTermId === term.id} className={selectedTermId === term.id ? "selected" : ""} key={term.id} onClick={() => setSelectedTermId(term.id)}><strong>{term.title}</strong><small>{titleCase(readString(term.metadata.type) || "concept")} · {term.id}</small></button>)}
             {!pickerTerms.length && <p className="subtle-copy">没有找到匹配的 Term。</p>}
           </div>
           {actionErrors[pickerCandidate.id] && <p className="error-copy" role="alert">{actionErrors[pickerCandidate.id]}</p>}
           <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>取消</button><button className="button button-primary" type="button" disabled={!selectedTermId || Boolean(busyCandidateId)} onClick={() => void linkCandidateToSelectedTerm()}>{busyCandidateId === pickerCandidate.id ? "正在保存…" : "链接到所选 Term"}</button></div>
+        </section>
+      </div>}
+
+      {deleteConfirmation && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !batchBusy) setDeleteConfirmation(null); }}>
+        <section className="explorer-modal term-candidate-delete-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-candidate-delete-title">
+          <div className="section-heading"><div><h2 id="term-candidate-delete-title">确认删除候选</h2><p>仅删除当前候选及其证据，不加入拒绝历史；以后仍可能再次被推荐。已消耗的 API / Discovery 调用额度不会退回。</p></div></div>
+          {deleteConfirmation.length === 1
+            ? <strong>{deleteConfirmation[0].display_name}</strong>
+            : <div className="term-candidate-delete-list"><strong>将删除 {deleteConfirmation.length} 个已选待审候选：</strong><ul>{deleteConfirmation.map((candidate) => <li key={candidate.id}>{candidate.display_name}</li>)}</ul></div>}
+          <div className="term-candidate-dialog-actions">
+            <button className="button button-secondary" type="button" disabled={batchBusy} onClick={() => setDeleteConfirmation(null)}>取消</button>
+            <button className="button button-danger" type="button" disabled={batchBusy} onClick={() => void confirmDelete()}>{batchBusy ? "正在删除…" : deleteConfirmation.length > 1 ? `删除 ${deleteConfirmation.length} 项` : "删除候选"}</button>
+          </div>
         </section>
       </div>}
     </section>

@@ -41,8 +41,8 @@ function makeProposal(content = "---\nschema_version: 1\nid: replay\ntitle: Repl
   return { id: "proposal-1", target_type: "term", target_id: "replay", kind: "term-draft", status: "proposed", base_content_hash: "hash", payload: { task: "draft_term", draft_id: "d", content, result: { definition_zh: "Suggested Chinese explanation.", definition_en: "Suggested English explanation.", rationale: "Both languages cover the same core idea." } }, diff_text: null, created_by: "ai", provider: "mock", model: "test", created_at: "2026-10-10T00:00:00Z", reviewed_at: null, review_note: null };
 }
 
-function renderReview(onDone = vi.fn(), seed = makeSeed()) {
-  return render(<TermCandidateReview candidate={{ id: "candidate-1", display_name: "Replay" } as TermCandidate} seed={seed} onDone={onDone} />);
+function renderReview(onDone = vi.fn(), seed = makeSeed(), onClose = vi.fn()) {
+  return render(<TermCandidateReview candidate={{ id: "candidate-1", display_name: "Replay" } as TermCandidate} seed={seed} onClose={onClose} onDone={onDone} />);
 }
 
 beforeEach(() => {
@@ -70,6 +70,15 @@ test("shows the saved standard depth and explains its added detail", async () =>
   expect(screen.getByText("在完整基础上解释关键机制、流程、关系或输入输出。")).toBeTruthy();
 });
 
+test("closes the inline review only after saving the current Draft", async () => {
+  const onClose = vi.fn();
+  renderReview(vi.fn(), makeSeed(), onClose);
+
+  fireEvent.click(screen.getByRole("button", { name: "关闭编辑" }));
+
+  await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+});
+
 test("saves a selected depth before generation without changing other Draft content", async () => {
   renderReview();
   const depth = await screen.findByRole("combobox", { name: "解释深度" });
@@ -88,7 +97,7 @@ test("saves a selected depth before generation without changing other Draft cont
     return { proposal: makeProposal(), external_provider_notice: "sent" };
   });
 
-  fireEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
+  fireEvent.click(screen.getByRole("button", { name: "重新生成双语解释" }));
   await waitFor(() => expect(requestCandidateTermDraftProposal).toHaveBeenCalledWith("d", "candidate-1"));
 });
 
@@ -144,7 +153,7 @@ test("keeps the rewrite requirement after a request error", async () => {
   const rewrite = screen.getByRole("button", { name: "AI 双语重写", exact: true });
   expect((rewrite as HTMLButtonElement).disabled).toBe(false);
 
-  const requirements = screen.getByLabelText("AI 重写要求");
+  const requirements = screen.getByLabelText("AI 重写要求（可选）");
   fireEvent.change(requirements, { target: { value: "解释向量维度和用途" } });
   api.requestTermRewrite.mockImplementationOnce(() => new Promise((_resolve, reject) => setTimeout(() => reject(new Error("AI service unavailable")), 30)));
   fireEvent.click(rewrite);
@@ -180,10 +189,22 @@ test("reuses a matching cached proposal and compares the old body with the unado
   expect(oldBody.querySelector("h1")).toBeNull();
   expect(newBody.querySelector("h1")).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
+  fireEvent.click(screen.getByRole("button", { name: "重新生成双语解释" }));
   await waitFor(() => expect(screen.getByText(/已复用与当前 Draft 内容匹配的双语建议/)).toBeTruthy());
   expect(requestCandidateTermDraftProposal).not.toHaveBeenCalled();
   expect(requestTermRewrite).not.toHaveBeenCalled();
+});
+
+test("shows an initial bilingual proposal without an empty comparison column", async () => {
+  const blankContent = initialContent.replace(/\nUser-written context remains untouched\.[\s\S]*$/, "\n");
+  state.content = blankContent;
+  api.listProposals.mockResolvedValue([makeProposal()]);
+  renderReview(vi.fn(), makeSeed(blankContent));
+
+  expect(await screen.findByText("初次生成：当前 Draft 没有原文。")).toBeTruthy();
+  expect(screen.getByRole("region", { name: "尚未采用的双语重写建议" }).textContent).toContain("Suggested Chinese explanation.");
+  expect(screen.getByRole("region", { name: "尚未采用的双语重写建议" }).textContent).toContain("Suggested English explanation.");
+  expect(screen.queryByRole("region", { name: "当前 Term Draft 原文" })).toBeNull();
 });
 
 test("does not offer an older single-language rewrite as a bilingual Proposal", async () => {
@@ -192,9 +213,9 @@ test("does not offer an older single-language rewrite as a bilingual Proposal", 
   api.listProposals.mockResolvedValue([singleLanguageProposal]);
   renderReview();
 
-  await waitFor(() => expect((screen.getByRole("button", { name: "AI 生成双语解释" }) as HTMLButtonElement).disabled).toBe(false));
+  await waitFor(() => expect((screen.getByRole("button", { name: "重新生成双语解释" }) as HTMLButtonElement).disabled).toBe(false));
   expect(screen.queryByRole("region", { name: "尚未采用的双语重写建议" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
+  fireEvent.click(screen.getByRole("button", { name: "重新生成双语解释" }));
 
   await waitFor(() => expect(requestCandidateTermDraftProposal).toHaveBeenCalledWith("d", "candidate-1"));
 });
