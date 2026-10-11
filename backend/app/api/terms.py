@@ -94,6 +94,12 @@ async def get_term_candidate(candidate_id: str, request: Request):
     return request.app.state.term_candidate_service.get_candidate(candidate_id)
 
 
+@router.delete("/candidates/{candidate_id}")
+async def delete_term_candidate(candidate_id: str, request: Request):
+    request.app.state.term_candidate_service.delete_candidate(candidate_id)
+    return {"deleted": True}
+
+
 @router.post("/candidates/{candidate_id}/reject", response_model=TermCandidateRecord)
 async def reject_term_candidate(
     candidate_id: str,

@@ -73,6 +73,28 @@ class TermCandidateService:
     def restore_candidate(self, candidate_id, max_open):
         return self.repository.restore_candidate(candidate_id, max_open, _utc_now())
 
+    def delete_candidate(self, candidate_id: str) -> None:
+        result = self.repository.delete_candidate(candidate_id)
+        if result == "missing":
+            raise LookupError("Term Candidate '{}' does not exist".format(candidate_id))
+        if result == "deleted":
+            return
+        if result == "drafting":
+            raise TermCandidateConflict(
+                "Discard the linked Term Draft before deleting this Candidate"
+            )
+        if result == "accepted":
+            raise TermCandidateConflict(
+                "An accepted Candidate cannot be deleted; maintain its Term relation instead"
+            )
+        if result == "rejected":
+            raise TermCandidateConflict(
+                "A rejected Candidate cannot be deleted; this does not remove its Reject Memory"
+            )
+        raise TermCandidateConflict(
+            "The Candidate changed while deletion was in progress; reload and try again"
+        )
+
     def create_candidate(
         self,
         display_name: str,

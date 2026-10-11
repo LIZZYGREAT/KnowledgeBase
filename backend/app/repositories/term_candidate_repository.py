@@ -343,6 +343,32 @@ class TermCandidateRepository:
             )
         return self.get_candidate(candidate_id)
 
+    def delete_candidate(self, candidate_id: str) -> str:
+        """Delete a pending Candidate and retain its Discovery run history."""
+        with self.connection:
+            row = self.connection.execute(
+                "SELECT status, draft_id FROM term_candidates WHERE id = ?",
+                (candidate_id,),
+            ).fetchone()
+            if row is None:
+                return "missing"
+            if row["status"] != "pending" or row["draft_id"] is not None:
+                return row["status"]
+
+            cursor = self.connection.execute(
+                "DELETE FROM term_candidates "
+                "WHERE id = ? AND status = 'pending' AND draft_id IS NULL",
+                (candidate_id,),
+            )
+            if cursor.rowcount != 1:
+                return "changed"
+            self.connection.execute(
+                "UPDATE term_discovery_run_items SET candidate_id = NULL "
+                "WHERE candidate_id = ?",
+                (candidate_id,),
+            )
+        return "deleted"
+
     def restore_candidate(self, candidate_id, max_open, now):
         with self.connection:
             candidate = self.get_candidate(candidate_id)

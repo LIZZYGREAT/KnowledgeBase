@@ -196,8 +196,149 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/annotations/{annotation_id}",
     ):
         assert path in schema["paths"]
+    assert "delete" in schema["paths"]["/api/terms/candidates/{candidate_id}"]
     context_schema = schema["components"]["schemas"]["ContextExportRequest"]
     assert "provisional traceability filter" in context_schema["properties"]["trust"]["description"]
+
+
+def test_delete_term_candidate_does_not_create_reject_memory_or_erase_run_history(api_client):
+    candidate = _seed_term_candidate(
+        api_client,
+        "Temporary Term",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="external",
+                origin_id="https://example.org/temporary-term",
+                mention="Temporary Term",
+                context_excerpt="Temporary evidence stays in the run record.",
+            )
+        ],
+    )
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        connection.execute(
+            """INSERT INTO term_discovery_runs (
+                   id, trigger, status, snapshot_json, lane_budgets_json,
+                   raw_counts_json, filtered_counts_json, candidate_count,
+                   started_at, finished_at
+               ) VALUES ('run-delete-test', 'manual', 'success', '{}', '{}',
+                         '{}', '{}', 1, 'now', 'now')"""
+        )
+        connection.execute(
+            """INSERT INTO term_discovery_run_items (
+                   id, run_id, lane, source_id, mention, outcome, candidate_id,
+                   assessment_json, rationale, context_excerpt, created_at
+               ) VALUES ('item-delete-test', 'run-delete-test', 'concept',
+                         'source-one', 'Temporary Term', 'created', ?,
+                         '{}', 'matched', 'context', 'now')""",
+            (candidate.id,),
+        )
+        before_rejected = TermCandidateRepository(connection).rejected_names(
+            ["global"]
+        )
+    finally:
+        connection.close()
+
+    deleted = api_client.delete(
+        "/api/terms/candidates/{}".format(candidate.id)
+    )
+
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"deleted": True}
+    assert api_client.get(
+        "/api/terms/candidates/{}".format(candidate.id)
+    ).status_code == 404
+    assert all(
+        item["id"] != candidate.id
+        for item in api_client.get("/api/terms/candidates").json()
+    )
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        repository = TermCandidateRepository(connection)
+        assert repository.get_evidence(candidate.id) == []
+        assert repository.rejected_names(["global"]) == before_rejected
+        run_item = connection.execute(
+            "SELECT candidate_id FROM term_discovery_run_items WHERE id = 'item-delete-test'"
+        ).fetchone()
+        assert run_item["candidate_id"] is None
+        assert connection.execute(
+            "SELECT candidate_count FROM term_discovery_runs WHERE id = 'run-delete-test'"
+        ).fetchone()["candidate_count"] == 1
+    finally:
+        connection.close()
+
+    recreated = _seed_term_candidate(
+        api_client,
+        "Temporary Term",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="external",
+                origin_id="https://example.org/temporary-term",
+                mention="Temporary Term",
+            )
+        ],
+    )
+    assert recreated.id != candidate.id
+
+
+def test_delete_drafting_term_candidate_conflicts_without_orphaning_draft_or_proposal(api_client):
+    candidate = _seed_term_candidate(
+        api_client,
+        "Drafted Temporary Term",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="external",
+                origin_id="https://example.org/drafted-term",
+                mention="Drafted Temporary Term",
+            )
+        ],
+    )
+    connection = connect_database(api_client.app.state.database_path)
+    try:
+        connection.execute(
+            """INSERT INTO drafts (
+                   id, entity_type, entity_id, base_git_revision, base_content_hash,
+                   content, revision, created_at, updated_at
+               ) VALUES ('term-draft-delete-test', 'term', 'drafted-temporary-term',
+                         'head', 'hash', 'draft content', 1, 'now', 'now')"""
+        )
+        connection.execute(
+            """INSERT INTO proposals (
+                   id, target_type, target_id, kind, status, base_content_hash,
+                   payload_json, created_by, created_at
+               ) VALUES ('proposal-delete-test', 'term', 'drafted-temporary-term',
+                         'term_revision', 'proposed', 'hash',
+                         '{"draft_id":"term-draft-delete-test"}', 'ai', 'now')"""
+        )
+        connection.execute(
+            """UPDATE term_candidates
+               SET status = 'drafting', draft_id = 'term-draft-delete-test'
+               WHERE id = ?""",
+            (candidate.id,),
+        )
+    finally:
+        connection.close()
+
+    deleted = api_client.delete(
+        "/api/terms/candidates/{}".format(candidate.id)
+    )
+
+    assert deleted.status_code == 409, deleted.text
+    assert "Discard the linked Term Draft" in deleted.json()["detail"]
+    assert api_client.get(
+        "/api/terms/candidates/{}".format(candidate.id)
+    ).json()["status"] == "drafting"
+    assert _runtime_rows(
+        api_client,
+        "SELECT id FROM drafts WHERE id = 'term-draft-delete-test'",
+    ) == [("term-draft-delete-test",)]
+    assert _runtime_rows(
+        api_client,
+        "SELECT id FROM proposals WHERE id = 'proposal-delete-test'",
+    ) == [("proposal-delete-test",)]
 
 
 def test_library_state_endpoints_batch_runtime_status_and_omit_pdf_text(api_client):
