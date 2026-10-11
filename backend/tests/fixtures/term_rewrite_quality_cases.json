@@ -1,0 +1,92 @@
+[
+  {
+    "id": "feature-vector-stub",
+    "title": "Feature Vector",
+    "term_type": "concept",
+    "depth": "stub",
+    "definition_zh": "### 含义与使用场景\n\nFeature Vector 是把图像等输入转换成有限维数值表示；在图像分类中，编码器输出向量供分类器读取。例如，猫的照片会先编码成向量，再由分类头预测类别。",
+    "definition_en": "### Meaning and use\n\nA feature vector is a finite-dimensional numeric representation of an input such as an image. In image classification, an encoder outputs the vector for a classifier. For example, a cat photo is encoded before the classification head predicts its class.",
+    "example_zh": "猫的照片",
+    "example_en": "cat photo"
+  },
+  {
+    "id": "feature-vector-standard",
+    "title": "Feature Vector",
+    "term_type": "concept",
+    "depth": "standard",
+    "definition_zh": "### 含义与使用场景\n\nFeature Vector 是输入经特征提取后得到的有限维数值表示。图像分类中，编码器把猫的照片变成向量，分类器据此计算各类别分数。\n\n### 工作机制\n\n向量由特征提取器输出，后续模型按任务读取其坐标；坐标不是固定的人造标签。",
+    "definition_en": "### Meaning and use\n\nA feature vector is a finite-dimensional numeric representation produced by feature extraction. In image classification, an encoder maps a cat photo to a vector, and a classifier uses it to score the classes.\n\n### Mechanism\n\nA feature extractor produces the vector for downstream task-specific use; its coordinates are not fixed human-defined labels.",
+    "example_zh": "猫的照片",
+    "example_en": "cat photo"
+  },
+  {
+    "id": "feature-vector-deep",
+    "title": "Feature Vector",
+    "term_type": "concept",
+    "depth": "deep",
+    "definition_zh": "### 含义与机制\n\nFeature Vector 是模型把输入映射到有限维空间后的表示。可写为 $z = f_\\theta(x) \\in \\mathbb{R}^d$；例如，编码器先把猫的照片映射为 $z$，分类头再根据 $z$ 输出类别分数。\n\n### 解释边界\n\n维度 $d$ 由模型设计决定，单个坐标通常不对应一个固定的人类语义标签。",
+    "definition_en": "### Meaning and mechanism\n\nA feature vector is a model's finite-dimensional representation of an input, often written as $z = f_\\theta(x) \\in \\mathbb{R}^d$. For example, an encoder maps a cat photo to $z$, then a classification head uses $z$ to score classes.\n\n### Interpretation limit\n\nThe model design determines $d$; an individual coordinate usually does not correspond to a fixed human-readable label.",
+    "example_zh": "猫的照片",
+    "example_en": "cat photo"
+  },
+  {
+    "id": "resnet-stub",
+    "title": "ResNet",
+    "term_type": "entity",
+    "depth": "stub",
+    "definition_zh": "### 含义与用途\n\nResNet 是一种带有残差连接的卷积神经网络架构，常用于图像识别。例如，图像分类器可以用 ResNet 处理一张猫的照片并预测类别。",
+    "definition_en": "### Meaning and use\n\nResNet is a convolutional neural network architecture with residual connections, commonly used for image recognition. For example, a ResNet classifier can process a cat photo and predict its class.",
+    "example_zh": "猫的照片",
+    "example_en": "cat photo"
+  },
+  {
+    "id": "resnet-standard",
+    "title": "ResNet",
+    "term_type": "entity",
+    "depth": "standard",
+    "definition_zh": "### 含义与用途\n\nResNet 是图像识别中使用的卷积网络架构。它的残差块通过跳连保留输入信息，并学习对输入的修正。\n\n### 工作机制\n\n在维度相同时，残差块可把输入 $x$ 与变换 $F(x)$ 相加；例如，ResNet 可从猫的照片中提取特征并预测类别。",
+    "definition_en": "### Meaning and use\n\nResNet is a convolutional architecture used for image recognition. Its residual blocks preserve input information through skip connections while learning a change to that input.\n\n### Mechanism\n\nWhen dimensions match, a residual block can add input $x$ to a transformation $F(x)$; for example, ResNet can extract features from a cat photo and predict its class.",
+    "example_zh": "猫的照片",
+    "example_en": "cat photo"
+  },
+  {
+    "id": "resnet-deep",
+    "title": "ResNet",
+    "term_type": "entity",
+    "depth": "deep",
+    "definition_zh": "### 含义与用途\n\nResNet 是用于视觉任务的卷积网络架构；残差连接让网络学习相对输入的变换，而非只学习从头到尾的直接映射。例如，ResNet 可处理猫的照片并输出类别分数。\n\n### 结构与边界\n\n当输入与输出维度一致时，残差分支可写为 $y = F(x) + x$；维度不同时需要投影或其他匹配方式。跳连有助于优化深层网络，但不保证每个数据集上都优于其他架构。",
+    "definition_en": "### Meaning and use\n\nResNet is a convolutional architecture for vision tasks. Residual connections let a block learn a change relative to its input instead of only a direct end-to-end mapping. For example, ResNet can process a cat photo and produce class scores.\n\n### Structure and limits\n\nWhen dimensions match, a residual branch can be written as $y = F(x) + x$; mismatched dimensions require a projection or another alignment. Skip connections aid optimization in deep networks but do not guarantee better results on every dataset.",
+    "example_zh": "猫的照片",
+    "example_en": "cat photo"
+  },
+  {
+    "id": "ablation-study-stub",
+    "title": "Ablation Study",
+    "term_type": "vocabulary",
+    "depth": "stub",
+    "definition_zh": "### 含义与论文语境\n\nAblation Study 指通过移除或改变系统的一部分来观察其作用的实验分析。例如，论文可以移除数据增强，再比较图像分类器的测试准确率。",
+    "definition_en": "### Meaning and paper context\n\nAn ablation study examines a system by removing or changing one part to see its effect. For example, a paper may remove data augmentation and compare an image classifier's test accuracy.",
+    "example_zh": "移除数据增强",
+    "example_en": "remove data augmentation"
+  },
+  {
+    "id": "ablation-study-standard",
+    "title": "Ablation Study",
+    "term_type": "vocabulary",
+    "depth": "standard",
+    "definition_zh": "### 含义与论文语境\n\nAblation Study 是研究组件贡献的对照实验，常见做法是逐项移除或替换组件并观察指标变化。论文可写：移除数据增强后，图像分类器的测试准确率下降。\n\n### 阅读时的判断\n\n解读结果时要同时检查训练数据、指标和其余设置是否保持一致。",
+    "definition_en": "### Meaning and paper context\n\nAn ablation study is a controlled experiment for examining component contributions, often by removing or replacing one component and observing a metric. A paper might report that removing data augmentation lowers an image classifier's test accuracy.\n\n### Reading the result\n\nCheck whether the training data, metric, and other settings stayed consistent before interpreting the change.",
+    "example_zh": "移除数据增强",
+    "example_en": "removing data augmentation"
+  },
+  {
+    "id": "ablation-study-deep",
+    "title": "Ablation Study",
+    "term_type": "vocabulary",
+    "depth": "deep",
+    "definition_zh": "### 含义与论文语境\n\nAblation Study 通过受控地移除、替换或改变模型组件，评估它与结果之间的关系。例如，研究者移除数据增强、重新训练图像分类器并比较测试准确率。\n\n### 解读边界\n\n这类比较能提供组件作用的证据，但若同时改变多个设置，或没有控制随机种子与训练预算，就难以把差异归因于单一组件；它本身也不等同于形式化因果证明。",
+    "definition_en": "### Meaning and paper context\n\nAn ablation study evaluates how a component relates to results by controlled removal, replacement, or modification. For example, a researcher can remove data augmentation, retrain an image classifier, and compare test accuracy.\n\n### Interpretation limits\n\nThe comparison can provide evidence about a component's role, but changing several settings at once or failing to control random seeds and training budgets makes attribution difficult; an ablation is not by itself a formal causal proof.",
+    "example_zh": "移除数据增强",
+    "example_en": "remove data augmentation"
+  }
+]

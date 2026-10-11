@@ -84,8 +84,13 @@ async def suggest_evidence(body: AIRequest, request: Request):
 
 @router.post("/term-rewrite", response_model=AIProposalView, status_code=status.HTTP_201_CREATED)
 async def rewrite_term(body: TermRewriteRequest, request: Request):
-    return await _generate(request, "rewrite_term_language", body.draft_id, {"term"},
-                           {"language": body.language, "requirements": body.requirements})
+    return await _generate(
+        request,
+        "rewrite_term_bilingual",
+        body.draft_id,
+        {"term"},
+        {"requirements": body.requirements},
+    )
 
 
 async def _generate(

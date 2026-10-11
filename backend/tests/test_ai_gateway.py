@@ -4,8 +4,10 @@ from pathlib import Path
 from urllib.error import URLError
 
 import pytest
+from pydantic import ValidationError
 
 from backend.app.db.connection import connect_database
+from backend.app.api.schemas import TermRewriteRequest
 from backend.app.repositories.draft_repository import DraftRepository
 from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.services.ai_client import (
@@ -113,7 +115,7 @@ def test_ai_task_registry_declares_output_contracts():
         "review_format_semantics",
         "review_document",
         "draft_term",
-        "rewrite_term_language",
+        "rewrite_term_bilingual",
         "rewrite_research_card",
         "suggest_revision",
         "suggest_evidence",
@@ -270,12 +272,29 @@ def test_term_generation_prompt_scales_to_depth_and_preserves_candidate_context(
     connection.close()
 
 
-def test_term_generation_and_language_rewrite_share_depth_guidance():
+def test_term_generation_and_bilingual_rewrite_share_depth_guidance():
     assert TERM_DEPTH_GUIDANCE in TASKS["draft_term"].instruction
-    assert TERM_DEPTH_GUIDANCE in TASKS["rewrite_term_language"].instruction
+    assert TERM_DEPTH_GUIDANCE in TASKS["rewrite_term_bilingual"].instruction
     assert "definition_zh and definition_en" in TASKS["draft_term"].instruction
-    assert "only the requested Term explanation language" in TASKS["rewrite_term_language"].instruction
-    assert "the other language" in TASKS["rewrite_term_language"].instruction
+    assert "Rewrite both complete Term explanations in one response" in TASKS["rewrite_term_bilingual"].instruction
+    assert "definition_zh, definition_en, and rationale only" in TASKS["rewrite_term_bilingual"].instruction
+    assert "same important facts, mechanisms, and concrete example" in TASKS["rewrite_term_bilingual"].instruction
+    assert "never introduce an H1 or H2 heading" in TASKS["rewrite_term_bilingual"].instruction
+
+
+def test_term_rewrite_request_allows_empty_requirements_and_rejects_language_selector():
+    request = TermRewriteRequest.model_validate({
+        "draft_id": "term-draft",
+        "confirm_deepseek_transfer": True,
+    })
+    assert request.requirements == ""
+
+    with pytest.raises(ValidationError):
+        TermRewriteRequest.model_validate({
+            "draft_id": "term-draft",
+            "confirm_deepseek_transfer": True,
+            "language": "en",
+        })
 
 
 @pytest.mark.parametrize("depth", ["stub", "standard", "deep"])
@@ -411,11 +430,12 @@ def test_bilingual_term_proposal_keeps_draft_metadata_through_adoption():
     connection.close()
 
 
-def test_single_language_rewrite_preserves_metadata_and_the_other_explanation():
+def test_bilingual_rewrite_replaces_both_sections_and_preserves_nonlanguage_content():
     content = (
         "---\nschema_version: 1\nid: feature-vector\ntitle: Feature Vector\n"
         "type: concept\ndepth: standard\naliases: [embedding]\nsources: [encoder-paper]\n---\n"
         "# Feature Vector\n\nUser-written context stays outside both language sections.\n\n"
+        "## Editorial Note\n\nPreserve this independent Markdown section.\n\n"
         "## 一、中文解释\n\n编码器将输入转换为数值表示。\n\n"
         "## 二、English Explanation\n\nAn encoder maps input to numeric values.\n"
     )
@@ -424,17 +444,17 @@ def test_single_language_rewrite_preserves_metadata_and_the_other_explanation():
     draft = drafts.create("term", "feature-vector", content, "a" * 40, "b" * 64)
     proposals = ProposalService(ProposalRepository(connection))
     client = MockDeepSeekClient({
-        "rewrite_term_language": {
-            "explanation": "An encoder maps x to f_theta(x) in R^d; a classifier can use this representation.",
-            "rationale": "Explains the vector dimension and a downstream use.",
+        "rewrite_term_bilingual": {
+            "definition_zh": "### 含义与机制\n\n编码器将输入映射为有限维特征向量，例如可供分类器读取。",
+            "definition_en": "### Meaning and mechanism\n\nAn encoder maps an input to a finite-dimensional feature vector that a classifier can consume.",
+            "rationale": "Aligns the definition, mechanism, and downstream example in both languages.",
         }
     })
     service = AIProposalService(
         Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client)
     )
 
-    proposal = service.generate("rewrite_term_language", draft.id, {
-        "language": "en",
+    proposal = service.generate("rewrite_term_bilingual", draft.id, {
         "requirements": "Explain the vector dimension and how a classifier uses it.",
     })
 
@@ -444,19 +464,119 @@ def test_single_language_rewrite_preserves_metadata_and_the_other_explanation():
     original_frontmatter = content.split("---\n", 2)[1]
     proposed_frontmatter = proposed.split("---\n", 2)[1]
     assert TERM_DEPTH_GUIDANCE in prompt
-    assert "preserve both exactly" in prompt
-    assert "Never change frontmatter, identifiers, sources, the other language" in prompt
-    assert "write English as an independent explanation" in prompt
+    assert "rewrite both complete term explanations" in prompt.lower()
+    assert "both languages must cover the same important facts" in prompt.lower()
+    assert "Do not invent citations, quotes, sources, or Source IDs" in prompt
     assert context["request"] == {
-        "language": "en",
         "requirements": "Explain the vector dimension and how a classifier uses it.",
     }
     assert proposed_frontmatter == original_frontmatter
     assert "User-written context stays outside both language sections." in proposed
-    assert "编码器将输入转换为数值表示。" in proposed
-    assert "An encoder maps x to f_theta(x) in R^d" in proposed
-    assert "An encoder maps input to numeric values." not in proposed
+    assert "## Editorial Note\n\nPreserve this independent Markdown section." in proposed
+    assert "编码器将输入映射为有限维特征向量" in proposed
+    assert "An encoder maps an input to a finite-dimensional feature vector" in proposed
+    assert "编码器将输入转换为数值表示。" not in proposed
+    assert proposal.payload["result"] == {
+        "definition_zh": "### 含义与机制\n\n编码器将输入映射为有限维特征向量，例如可供分类器读取。",
+        "definition_en": "### Meaning and mechanism\n\nAn encoder maps an input to a finite-dimensional feature vector that a classifier can consume.",
+        "rationale": "Aligns the definition, mechanism, and downstream example in both languages.",
+    }
+    assert drafts.get(draft.id).content == content
+    _, adopted = proposals.apply_to_draft(
+        proposal.id, drafts.get(draft.id), draft.revision
+    )
+    assert "编码器将输入映射为有限维特征向量" in adopted.content
+    assert "An encoder maps an input to a finite-dimensional feature vector" in adopted.content
+    assert "## Editorial Note\n\nPreserve this independent Markdown section." in adopted.content
+    assert parse_markdown(adopted.content).frontmatter == parse_markdown(content).frontmatter
     assert len(client.calls) == 1
+    connection.close()
+
+
+TERM_REWRITE_QUALITY_CASES = json.loads(
+    (Path(__file__).parent / "fixtures" / "term_rewrite_quality_cases.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+@pytest.mark.parametrize(
+    "quality_case",
+    TERM_REWRITE_QUALITY_CASES,
+    ids=[case["id"] for case in TERM_REWRITE_QUALITY_CASES],
+)
+def test_bilingual_rewrite_quality_examples_cover_all_term_types_and_depths(quality_case):
+    term_id = quality_case["id"]
+    content = (
+        "---\n"
+        f"schema_version: 1\nid: {term_id}\ntitle: {quality_case['title']}\n"
+        f"type: {quality_case['term_type']}\ndepth: {quality_case['depth']}\n"
+        "aliases: [quality sample]\nsources: [human-authored-example]\n---\n"
+        f"# {quality_case['title']}\n\n"
+        "## 一、中文解释\n\n现有中文正文。\n\n"
+        "## 二、English Explanation\n\nExisting English body.\n"
+    )
+    connection = connect_database(":memory:")
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", term_id, content, "a" * 40, "b" * 64)
+    proposals = ProposalService(ProposalRepository(connection))
+    client = MockDeepSeekClient({
+        "rewrite_term_bilingual": {
+            "definition_zh": quality_case["definition_zh"],
+            "definition_en": quality_case["definition_en"],
+            "rationale": "The paired example and the explanation use the same scenario.",
+        }
+    })
+    service = AIProposalService(
+        Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client)
+    )
+
+    proposal = service.generate("rewrite_term_bilingual", draft.id, {"requirements": ""})
+    proposed = proposal.payload["content"]
+    parsed = parse_markdown(proposed)
+
+    assert parsed.frontmatter["type"] == quality_case["term_type"]
+    assert parsed.frontmatter["depth"] == quality_case["depth"]
+    assert parsed.frontmatter["aliases"] == ["quality sample"]
+    assert parsed.frontmatter["sources"] == ["human-authored-example"]
+    assert quality_case["example_zh"] in quality_case["definition_zh"]
+    assert quality_case["example_en"] in quality_case["definition_en"]
+    assert quality_case["definition_zh"] in proposed
+    assert quality_case["definition_en"] in proposed
+    assert "\n## " not in quality_case["definition_zh"]
+    assert "\n## " not in quality_case["definition_en"]
+    assert len(client.calls) == 1
+    assert drafts.get(draft.id).content == content
+    connection.close()
+
+
+def test_bilingual_rewrite_rejects_section_boundary_output_before_storing_proposal():
+    content = (
+        "---\nschema_version: 1\nid: feature-vector\ntitle: Feature Vector\n"
+        "type: concept\ndepth: standard\n---\n# Feature Vector\n\n"
+        "## 一、中文解释\n\n旧中文解释。\n\n"
+        "## 二、English Explanation\n\nOld English explanation.\n"
+    )
+    connection = connect_database(":memory:")
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", "feature-vector", content, "a" * 40, "b" * 64)
+    proposals = ProposalService(ProposalRepository(connection))
+    client = MockDeepSeekClient({
+        "rewrite_term_bilingual": {
+            "definition_zh": "### 含义\n\n有效的中文解释。",
+            "definition_en": "## Invalid top-level boundary\n\nThis would replace following content.",
+            "rationale": "The English output changes the Markdown section boundary.",
+        }
+    })
+    service = AIProposalService(
+        Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client)
+    )
+
+    with pytest.raises(AIResponseError, match="preserve Markdown section boundaries"):
+        service.generate("rewrite_term_bilingual", draft.id)
+
+    assert connection.execute("SELECT COUNT(*) FROM proposals").fetchone()[0] == 0
+    assert drafts.get(draft.id).content == content
     connection.close()
 
 

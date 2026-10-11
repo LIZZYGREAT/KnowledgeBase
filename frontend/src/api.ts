@@ -853,8 +853,8 @@ export function requestCandidateTermDraftProposal(draftId: string, candidateId: 
   });
 }
 
-export function requestTermRewrite(draftId: string, language: "zh" | "en", requirements: string) {
-  return request<{ external_provider_notice: string; proposal: Proposal }>("/api/ai/term-rewrite", { method: "POST", body: JSON.stringify({ draft_id: draftId, language, requirements, confirm_deepseek_transfer: true }) });
+export function requestTermRewrite(draftId: string, requirements: string) {
+  return request<{ external_provider_notice: string; proposal: Proposal }>("/api/ai/term-rewrite", { method: "POST", body: JSON.stringify({ draft_id: draftId, requirements, confirm_deepseek_transfer: true }) });
 }
 
 export function updateResearchReview(candidateId: string, overrides: Record<string, string>, expectedRevision: number) {

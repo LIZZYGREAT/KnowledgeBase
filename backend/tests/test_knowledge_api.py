@@ -186,6 +186,7 @@ def test_read_api_search_openapi_and_missing_entities(api_client):
         "/api/context/export",
         "/api/ai/document-review",
         "/api/ai/metadata-suggest",
+        "/api/ai/term-rewrite",
         "/api/drafts",
         "/api/drafts/{draft_id}/compare",
         "/api/drafts/{draft_id}/rebase",

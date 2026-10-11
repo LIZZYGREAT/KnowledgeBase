@@ -15,7 +15,6 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
   const [requirements, setRequirements] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [comparisonOriginal, setComparisonOriginal] = useState("");
-  const [comparisonLanguage, setComparisonLanguage] = useState<TermLanguage>("zh");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionFeedback, setActionFeedback] = useState("");
@@ -26,11 +25,9 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     ? "请先采用或放弃当前建议，再请求新的重写。"
     : !structured
       ? "原始正文尚未明确归入语言区块；请先整理为中文或 English 解释。"
-      : !requirements.trim()
-        ? "请输入重写要求。"
-        : "";
-  const proposedExplanation = proposal
-    ? String((proposal.payload.result as Record<string, unknown> | undefined)?.explanation ?? "")
+      : "";
+  const proposedBody = proposal && typeof proposal.payload.content === "string"
+    ? splitMarkdownFrontmatter(proposal.payload.content).body
     : "";
 
   function changeExplanation(value: string) {
@@ -46,15 +43,13 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     }
     setBusy(true);
     setError("");
-    setActionFeedback("正在请求当前语言的重写建议…");
+    setActionFeedback("正在请求中英文双语重写建议…");
     try {
-      const original = explanation;
       const draft = await workspace.saveNow() ?? await workspace.ensureDraft();
-      const result = await requestTermRewrite(draft.id, language, requirements.trim());
-      setComparisonOriginal(original);
-      setComparisonLanguage(language);
+      const result = await requestTermRewrite(draft.id, requirements.trim());
+      setComparisonOriginal(splitMarkdownFrontmatter(workspace.getCurrentContent()).body);
       setProposal(result.proposal);
-      setActionFeedback("重写建议已返回，仅供对比；当前 Draft 和正式知识尚未改变。");
+      setActionFeedback("中英文双语重写建议已返回，仅供对比；当前 Draft 和正式知识尚未改变。");
     } catch (reason) {
       setError(errorMessage(reason));
       setActionFeedback("重写失败；输入仍保留，可检查错误后重试。");
@@ -105,7 +100,7 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
         <button type="button" className={`button ${language === "en" ? "button-primary" : "button-secondary"}`} disabled={busy || Boolean(proposal)} aria-pressed={language === "en"} onClick={() => { setLanguage("en"); setActionFeedback(""); }}>English</button>
       </div>
       <button type="button" className="button button-secondary" disabled={disabled || busy} onClick={() => setEditing(!editing)}>{editing ? "完成编辑" : "编辑"}</button>
-      <button type="button" className="button button-secondary" disabled={disabled || busy} onClick={() => setRewriting(!rewriting)}>{rewriting ? "关闭重写" : "AI 重写"}</button>
+      <button type="button" className="button button-secondary" disabled={disabled || busy} onClick={() => setRewriting(!rewriting)}>{rewriting ? "关闭重写" : "AI 双语重写"}</button>
     </div>
     {!structured && <p className="subtle-copy">原有解释 · 保留原文，不推断语言 <button type="button" className="button button-secondary" disabled={busy || disabled} onClick={() => { setNewLanguage(true); setEditing(true); }}>新增独立的{language === "zh" ? "中文" : "English"}解释</button></p>}
     {editing && <label className="field-label">Markdown 源码<textarea value={explanation} onChange={(event) => changeExplanation(event.target.value)} disabled={disabled || busy} rows={8} /></label>}
@@ -114,14 +109,14 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     {rewriting && <div className="term-language-rewrite">
       <label className="field-label">重写要求<textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} disabled={disabled || busy} placeholder="例如：解释向量维度、来源和分类器如何使用，并给出简单例子" rows={2} /></label>
       <p className="subtle-copy">显式请求会将当前 Term Draft 发送给 DeepSeek；结果先供对比，不会自动采用或发布。</p>
-      <button type="button" className="button button-primary" disabled={disabled || busy || Boolean(rewriteBlockedReason)} onClick={() => void rewrite()}>{busy && !proposal ? "正在生成…" : "生成当前语言建议"}</button>
+      <button type="button" className="button button-primary" disabled={disabled || busy || Boolean(rewriteBlockedReason)} onClick={() => void rewrite()}>{busy && !proposal ? "正在重写…" : "AI 双语重写"}</button>
       {rewriteBlockedReason && !busy && <p className="term-language-disabled-reason" role="status">{rewriteBlockedReason}</p>}
     </div>}
     {proposal && <details className="term-language-comparison" open>
-      <summary>原文与建议对比 · {comparisonLanguage === "zh" ? "中文" : "English"}</summary>
+      <summary>原文与双语重写建议对比</summary>
       <div className="term-language-comparison-grid">
-        <section aria-label="重写前解释"><h4>当前 Draft 原文</h4><div className="term-language-comparison-body"><Markdown content={comparisonOriginal} onNavigate={navigate} /></div></section>
-        <section aria-label="尚未采用的重写建议"><h4>AI 建议 · 尚未采用</h4><div className="term-language-comparison-body"><Markdown content={proposedExplanation} onNavigate={navigate} /></div></section>
+        <section aria-label="重写前双语解释"><h4>当前 Draft 原文</h4><div className="term-language-comparison-body"><Markdown content={comparisonOriginal} onNavigate={navigate} /></div></section>
+        <section aria-label="尚未采用的双语重写建议"><h4>AI 建议 · 尚未采用</h4><div className="term-language-comparison-body"><Markdown content={proposedBody} onNavigate={navigate} /></div></section>
       </div>
       <div className="term-language-proposal-actions" role="group" aria-label="重写建议操作">
         <button type="button" className="button button-primary" disabled={disabled || busy} onClick={() => void adopt()}>{busy ? "正在采用…" : "采用到 Draft"}</button>

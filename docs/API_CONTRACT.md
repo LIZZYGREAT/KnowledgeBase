@@ -85,10 +85,11 @@ POST /api/ai/document-review
 POST /api/ai/metadata-suggest
 POST /api/ai/selection-review
 POST /api/ai/term-draft
+POST /api/ai/term-rewrite
 POST /api/ai/evidence-suggest
 ```
 
-Every request must include `confirm_deepseek_transfer: true`, after the caller has shown that the Draft and task-required registry context will be sent to DeepSeek. Selection review also requires `selection`. Term Draft generation may include `candidate_id`; when supplied, the server verifies that the Candidate is linked to the same active Draft and adds its active Canonical Note evidence to the AI context. Each response repeats this notice and returns the stored Proposal. A missing server API key returns `503`; provider failures return `502`. AI output is validated and stored as a Proposal; these endpoints never write canonical knowledge.
+Every request must include `confirm_deepseek_transfer: true`, after the caller has shown that the Draft and task-required registry context will be sent to DeepSeek. Selection review also requires `selection`. Term Draft generation may include `candidate_id`; when supplied, the server verifies that the Candidate is linked to the same active Draft and adds its active Canonical Note evidence to the AI context. Term rewrite accepts an optional `requirements` string and returns complete `definition_zh` and `definition_en` content in one Proposal; both language sections are validated and assembled before the Proposal is stored. Each response repeats this notice and returns the stored Proposal. A missing server API key returns `503`; provider failures return `502`. AI output is validated and stored as a Proposal; these endpoints never write canonical knowledge.
 
 ## Usage
 

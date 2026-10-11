@@ -441,8 +441,7 @@ class TermDraftRequest(AIRequest):
 
 
 class TermRewriteRequest(AIRequest):
-    language: Literal["zh", "en"]
-    requirements: NonEmptyText = Field(max_length=2000)
+    requirements: constr(strict=True, strip_whitespace=True, max_length=2000) = ""
 
 
 class AIProposalView(APIModel):

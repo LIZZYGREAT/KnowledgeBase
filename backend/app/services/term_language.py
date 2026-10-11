@@ -22,3 +22,9 @@ def replace_term_language(content, language, explanation):
     if len(headings) >= len(numerals):
         raise ValueError("Use the Markdown editor to add another section")
     return content.rstrip() + "\n\n## " + numerals[len(headings)] + "、" + aliases[language] + "\n\n" + explanation.strip() + "\n"
+
+
+def replace_term_languages(content, definition_zh, definition_en):
+    """Build one complete bilingual revision before it can be stored as a Proposal."""
+    updated = replace_term_language(content, "zh", definition_zh)
+    return replace_term_language(updated, "en", definition_en)

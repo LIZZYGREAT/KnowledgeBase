@@ -83,8 +83,9 @@ class DraftTermOutput(AIOutput):
     definition_en: NonEmptyText
 
 
-class RewriteTermLanguageOutput(AIOutput):
-    explanation: NonEmptyText
+class RewriteTermBilingualOutput(AIOutput):
+    definition_zh: NonEmptyText
+    definition_en: NonEmptyText
     rationale: NonEmptyText
 
 
@@ -179,7 +180,7 @@ TASK_OUTPUTS = {
     "review_format_semantics": ReviewFormatOutput,
     "review_document": ReviewDocumentOutput,
     "draft_term": DraftTermOutput,
-    "rewrite_term_language": RewriteTermLanguageOutput,
+    "rewrite_term_bilingual": RewriteTermBilingualOutput,
     "rewrite_research_card": RewriteResearchCardOutput,
     "suggest_revision": SuggestRevisionOutput,
     "suggest_evidence": SuggestEvidenceOutput,

@@ -4,7 +4,7 @@ import { applyProposalToDraft, discardDraft, listProposals, preflightDraft, publ
 import { useRuntimeDraftSession } from "../draft/useRuntimeDraftSession";
 import { MarkdownContent } from "../Markdown";
 import { splitMarkdownFrontmatter } from "../markdownBlocks";
-import { termLanguageSections, type TermLanguage } from "../termLanguage";
+import { termLanguageSections } from "../termLanguage";
 import { errorMessage } from "../errors";
 
 type ReviewAction = "depth" | "generate" | "rewrite" | "adopt" | "discard" | "approve" | "reject";
@@ -41,7 +41,6 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
   const [error, setError] = useState("");
   const [actionFeedback, setActionFeedback] = useState("");
   const [requirements, setRequirements] = useState("");
-  const [language, setLanguage] = useState<TermLanguage>("zh");
   const [editing, setEditing] = useState(false);
   const [proposalsLoading, setProposalsLoading] = useState(true);
   const [proposalLookupFailed, setProposalLookupFailed] = useState(false);
@@ -58,9 +57,7 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
         ? "暂时无法确认当前建议状态，请重新打开审核后再操作。"
         : !hasLanguageExplanation
           ? "请先填写或生成至少一种语言的解释。"
-          : !requirements.trim()
-            ? "请输入重写要求。"
-            : "";
+        : "";
   const depthBlockedReason = proposal
     ? "请先采用或放弃当前建议，再更改深度。"
     : proposalsLoading
@@ -77,7 +74,7 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
     setProposal(null);
     void listProposals("proposed", "term", seed.entity_id).then((items) => {
       if (!active || !seed.working_content_hash) return;
-      const matching = items.find((item) => item.payload.draft_id === seed.id && item.base_content_hash === seed.working_content_hash) ?? null;
+      const matching = items.find((item) => isCandidateProposalReusable(item) && item.payload.draft_id === seed.id && item.base_content_hash === seed.working_content_hash) ?? null;
       if (matching) {
         setProposal(matching);
         setActionFeedback("已载入与当前 Draft 匹配的建议；建议仍未写入 Draft。可采用、放弃或稍后继续审核。");
@@ -118,17 +115,17 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
     }
     setBusyAction(rewrite ? "rewrite" : "generate");
     setError("");
-    setActionFeedback(rewrite ? "正在请求当前语言的重写建议…" : "正在生成双语解释建议…");
+    setActionFeedback(rewrite ? "正在请求中英文双语重写建议…" : "正在生成双语解释建议…");
     try {
       const draft = await session.saveNow();
       if (!draft || draft.content !== session.getCurrentContent()) throw new Error("无法确认当前 Term Draft 已保存，未发送 AI 请求。");
       if (rewrite) {
-        const result = await requestTermRewrite(draft.id, language, requirements.trim());
+        const result = await requestTermRewrite(draft.id, requirements.trim());
         setProposal(result.proposal);
-        setActionFeedback("重写建议已生成，仅供对比；当前 Draft 和正式知识尚未改变。");
+        setActionFeedback("中英文双语重写建议已生成，仅供对比；当前 Draft 和正式知识尚未改变。");
       } else {
         const existing = draft.working_content_hash
-          ? (await listProposals("proposed", "term", draft.entity_id)).find((item) => item.payload.draft_id === draft.id && item.base_content_hash === draft.working_content_hash)
+          ? (await listProposals("proposed", "term", draft.entity_id)).find((item) => isCandidateProposalReusable(item) && item.payload.draft_id === draft.id && item.base_content_hash === draft.working_content_hash)
           : undefined;
         if (existing) {
           setProposal(existing);
@@ -239,15 +236,14 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
     <div className="term-candidate-current-preview"><strong>当前 Term Draft</strong><MarkdownContent content={envelope.body} /></div>
     <div className="term-candidate-rewrite-controls">
       <label className="field-label">AI 重写要求<textarea disabled={locked} rows={2} value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder="例如：解释向量维度、来源和分类器的使用方式，并给一个简单例子" /></label>
-      <label className="field-label">重写语言<select disabled={locked} value={language} onChange={(event) => setLanguage(event.target.value as TermLanguage)}><option value="zh">中文</option><option value="en">English</option></select></label>
-      <button type="button" className="button button-secondary" disabled={locked || Boolean(rewriteBlockedReason)} onClick={() => void generate(true)}>{busyAction === "rewrite" ? "正在重写…" : "AI 重写"}</button>
+      <button type="button" className="button button-secondary" disabled={locked || Boolean(rewriteBlockedReason)} onClick={() => void generate(true)}>{busyAction === "rewrite" ? "正在重写…" : "AI 双语重写"}</button>
       {rewriteBlockedReason && !busyAction && <p className="term-candidate-disabled-reason" role="status">{rewriteBlockedReason}</p>}
     </div>
     {proposal && <details className="term-candidate-proposal-comparison" open>
-      <summary>原文与 AI 建议对比</summary>
+      <summary>原文与双语重写建议对比</summary>
       <div className="term-candidate-comparison-grid">
         <section aria-label="当前 Term Draft 原文"><h4>当前 Term Draft</h4><div className="term-candidate-comparison-body"><MarkdownContent content={withoutLeadingTitle(envelope.body)} /></div></section>
-        <section aria-label="尚未采用的 AI 建议"><h4>AI 建议 · 尚未采用</h4><div className="term-candidate-comparison-body"><MarkdownContent content={withoutLeadingTitle(proposedBody)} /></div></section>
+        <section aria-label="尚未采用的双语重写建议"><h4>双语 AI 建议 · 尚未采用</h4><div className="term-candidate-comparison-body"><MarkdownContent content={withoutLeadingTitle(proposedBody)} /></div></section>
       </div>
       <div className="term-candidate-suggestion-actions" role="group" aria-label="建议操作">
         <button type="button" className="button button-primary" disabled={locked} onClick={() => { setBusyAction("adopt"); setError(""); setActionFeedback("正在将建议写入 Draft…"); void adopt().catch((reason) => { setError(errorMessage(reason)); setActionFeedback("采用失败；建议仍保留，可检查错误后重试。"); }).finally(() => setBusyAction(null)); }}>{busyAction === "adopt" ? "正在采用…" : "采用到 Draft"}</button>
@@ -265,4 +261,9 @@ export function TermCandidateReview({ candidate, seed, onDone }: { candidate: Te
 
 function withoutLeadingTitle(body: string): string {
   return body.replace(/^# [^\r\n]*(?:\r?\n)+/, "");
+}
+
+function isCandidateProposalReusable(proposal: Proposal): boolean {
+  return proposal.payload.task === "draft_term"
+    || proposal.payload.task === "rewrite_term_bilingual";
 }

@@ -19,7 +19,7 @@ from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import load_writing_standard
 from backend.app.services.taxonomy_registry import TaxonomyRegistry
 from backend.app.services.term_registry import TermRegistry
-from backend.app.services.term_language import replace_term_language
+from backend.app.services.term_language import replace_term_languages
 
 
 class AIProposalService:
@@ -110,10 +110,19 @@ class AIProposalService:
             payload["content"] = proposed_content
         if task_name == "draft_term":
             payload["content"] = self._term_markdown(draft, result_data)
-        if task_name == "rewrite_term_language":
+        if task_name == "rewrite_term_bilingual":
             if draft.entity_type != "term":
                 raise AIResponseError("Term rewrite requires a Term Draft")
-            payload["content"] = replace_term_language(draft.content, (request_context or {}).get("language"), result_data["explanation"])
+            try:
+                payload["content"] = replace_term_languages(
+                    draft.content,
+                    result_data["definition_zh"],
+                    result_data["definition_en"],
+                )
+            except ValueError as error:
+                raise AIResponseError(
+                    "Bilingual Term rewrite must preserve Markdown section boundaries"
+                ) from error
 
         base_hash = sha256(draft.content.encode("utf-8")).hexdigest()
         return self.proposal_service.create(

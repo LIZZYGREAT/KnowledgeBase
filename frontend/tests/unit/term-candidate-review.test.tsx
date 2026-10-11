@@ -37,8 +37,8 @@ function makeSeed(content = state.content): Draft {
   return { id: "d", entity_type: "term", entity_id: "replay", content, working_content_hash: "hash", revision: 2, base_git_revision: "base", base_content_hash: "canonical-hash", created_at: "2026-10-10T00:00:00Z", updated_at: "2026-10-10T00:00:00Z" };
 }
 
-function makeProposal(content = "---\nschema_version: 1\nid: replay\ntitle: Replay\ntype: concept\ndepth: stub\n---\n# Replay\n\n## 一、中文解释\n\nSuggested explanation.\n"): Proposal {
-  return { id: "proposal-1", target_type: "term", target_id: "replay", kind: "term-draft", status: "proposed", base_content_hash: "hash", payload: { draft_id: "d", content }, diff_text: null, created_by: "ai", provider: "mock", model: "test", created_at: "2026-10-10T00:00:00Z", reviewed_at: null, review_note: null };
+function makeProposal(content = "---\nschema_version: 1\nid: replay\ntitle: Replay\ntype: concept\ndepth: stub\n---\n# Replay\n\n## 一、中文解释\n\nSuggested Chinese explanation.\n\n## 二、English Explanation\n\nSuggested English explanation.\n"): Proposal {
+  return { id: "proposal-1", target_type: "term", target_id: "replay", kind: "term-draft", status: "proposed", base_content_hash: "hash", payload: { task: "draft_term", draft_id: "d", content, result: { definition_zh: "Suggested Chinese explanation.", definition_en: "Suggested English explanation.", rationale: "Both languages cover the same core idea." } }, diff_text: null, created_by: "ai", provider: "mock", model: "test", created_at: "2026-10-10T00:00:00Z", reviewed_at: null, review_note: null };
 }
 
 function renderReview(onDone = vi.fn(), seed = makeSeed()) {
@@ -138,12 +138,11 @@ test("a publish conflict keeps the reviewed Draft and never reports approval", a
   expect(state.content).toContain("Experience Replay retains examples.");
 });
 
-test("shows why rewrite is disabled, then reports loading and keeps input after an error", async () => {
+test("keeps the rewrite requirement after a request error", async () => {
   renderReview();
   await waitFor(() => expect((screen.getByRole("combobox", { name: "解释深度" }) as HTMLSelectElement).disabled).toBe(false));
-  const rewrite = screen.getByRole("button", { name: "AI 重写", exact: true });
-  expect((rewrite as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByText("请输入重写要求。")).toBeTruthy();
+  const rewrite = screen.getByRole("button", { name: "AI 双语重写", exact: true });
+  expect((rewrite as HTMLButtonElement).disabled).toBe(false);
 
   const requirements = screen.getByLabelText("AI 重写要求");
   fireEvent.change(requirements, { target: { value: "解释向量维度和用途" } });
@@ -152,8 +151,19 @@ test("shows why rewrite is disabled, then reports loading and keeps input after 
   expect(await screen.findByRole("button", { name: "正在重写…" })).toBeTruthy();
   expect((rewrite as HTMLButtonElement).disabled).toBe(true);
   await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("AI service unavailable"));
+  expect(requestTermRewrite).toHaveBeenCalledWith("d", "解释向量维度和用途");
   expect((requirements as HTMLTextAreaElement).value).toBe("解释向量维度和用途");
   expect(screen.getByText("操作失败。已保留当前编辑和建议内容，可检查错误后重试。")).toBeTruthy();
+});
+
+test("sends a bilingual rewrite when the optional requirement is empty", async () => {
+  api.requestTermRewrite.mockResolvedValue({ proposal: makeProposal(), external_provider_notice: "sent" });
+  renderReview();
+  await waitFor(() => expect((screen.getByRole("combobox", { name: "解释深度" }) as HTMLSelectElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "AI 双语重写", exact: true }));
+
+  expect(await screen.findByRole("region", { name: "尚未采用的双语重写建议" })).toBeTruthy();
+  expect(requestTermRewrite).toHaveBeenCalledWith("d", "");
 });
 
 test("reuses a matching cached proposal and compares the old body with the unadopted suggestion", async () => {
@@ -163,9 +173,10 @@ test("reuses a matching cached proposal and compares the old body with the unado
 
   expect(await screen.findByText(/已载入与当前 Draft 匹配的建议/)).toBeTruthy();
   const oldBody = screen.getByRole("region", { name: "当前 Term Draft 原文" });
-  const newBody = screen.getByRole("region", { name: "尚未采用的 AI 建议" });
+  const newBody = screen.getByRole("region", { name: "尚未采用的双语重写建议" });
   expect(oldBody.textContent).toContain("Experience Replay retains examples.");
-  expect(newBody.textContent).toContain("Suggested explanation.");
+  expect(newBody.textContent).toContain("Suggested Chinese explanation.");
+  expect(newBody.textContent).toContain("Suggested English explanation.");
   expect(oldBody.querySelector("h1")).toBeNull();
   expect(newBody.querySelector("h1")).toBeNull();
 
@@ -175,11 +186,24 @@ test("reuses a matching cached proposal and compares the old body with the unado
   expect(requestTermRewrite).not.toHaveBeenCalled();
 });
 
+test("does not offer an older single-language rewrite as a bilingual Proposal", async () => {
+  const singleLanguageProposal = makeProposal();
+  singleLanguageProposal.payload.task = "rewrite_term_language";
+  api.listProposals.mockResolvedValue([singleLanguageProposal]);
+  renderReview();
+
+  await waitFor(() => expect((screen.getByRole("button", { name: "AI 生成双语解释" }) as HTMLButtonElement).disabled).toBe(false));
+  expect(screen.queryByRole("region", { name: "尚未采用的双语重写建议" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
+
+  await waitFor(() => expect(requestCandidateTermDraftProposal).toHaveBeenCalledWith("d", "candidate-1"));
+});
+
 test("adoption only updates the Draft and keeps Publish as a separate human action", async () => {
   const proposal = makeProposal();
   api.listProposals.mockResolvedValue([proposal]);
   renderReview();
-  await screen.findByRole("region", { name: "尚未采用的 AI 建议" });
+  await screen.findByRole("region", { name: "尚未采用的双语重写建议" });
   fireEvent.click(screen.getByRole("button", { name: "采用到 Draft" }));
 
   expect(await screen.findByText("建议已采用到 Term Draft；仍需检查并单独发布。")).toBeTruthy();
