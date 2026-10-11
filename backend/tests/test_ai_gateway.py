@@ -18,6 +18,7 @@ from backend.app.services.ai_client import (
 )
 from backend.app.services.ai_gateway import (
     AIGateway,
+    TERM_DEPTH_GUIDANCE,
     TASKS,
 )
 from backend.app.services.ai_proposal_service import AIProposalService
@@ -250,19 +251,15 @@ def test_term_generation_prompt_scales_to_depth_and_preserves_candidate_context(
 
     prompt = client.messages[0][0]["content"]
     context = json.loads(client.messages[0][1]["content"])
-    assert "Every depth must explain what the Term means, where it is encountered" in prompt
-    assert "These are semantic coverage goals, not four required sections" in prompt
-    assert "stub is concise but complete and usable" in prompt
-    assert "standard retains that coverage and adds the core mechanism" in prompt
-    assert "deep systematically adds relevant reasoning" in prompt
-    assert "concepts use a minimal task or input-output scenario" in prompt
-    assert "vocabulary uses a natural technical or research sentence" in prompt
-    assert "entities use a typical research or engineering use" in prompt
+    assert TERM_DEPTH_GUIDANCE in prompt
+    assert "stub is the shortest complete explanation" in prompt
+    assert "standard includes that same complete coverage" in prompt
+    assert "deep includes that coverage and selectively explains" in prompt
+    assert "concept examples show a task, operation, or input-to-output flow" in prompt
+    assert "vocabulary examples use a natural technical or research sentence" in prompt
+    assert "entity examples identify the concrete object" in prompt
     assert "Do not force equations on ordinary Terms" in prompt
     assert "Generate both definition_zh and definition_en" in prompt
-    assert "f_theta(x) in R^d" in prompt
-    assert "coordinate meanings are learned or task-dependent" in prompt
-    assert "General stable technical knowledge may explain a Term" in prompt
     assert "invent results, citations, quotes, or Source IDs" in prompt
     assert context["draft"]["content"] == content
     assert context["request"]["term_candidate"] == candidate
@@ -270,6 +267,50 @@ def test_term_generation_prompt_scales_to_depth_and_preserves_candidate_context(
     assert "taxonomy" in context["registries"]
     assert proposal.payload["result"]["depth"] == "standard"
     assert len(client.calls) == 1
+    connection.close()
+
+
+def test_term_generation_and_language_rewrite_share_depth_guidance():
+    assert TERM_DEPTH_GUIDANCE in TASKS["draft_term"].instruction
+    assert TERM_DEPTH_GUIDANCE in TASKS["rewrite_term_language"].instruction
+    assert "definition_zh and definition_en" in TASKS["draft_term"].instruction
+    assert "only the requested Term explanation language" in TASKS["rewrite_term_language"].instruction
+    assert "the other language" in TASKS["rewrite_term_language"].instruction
+
+
+@pytest.mark.parametrize("depth", ["stub", "standard", "deep"])
+def test_term_draft_preserves_any_selected_depth_and_requires_bilingual_content(depth):
+    content = (
+        "---\nschema_version: 1\nid: selected-depth\ntitle: Selected Depth\n"
+        "type: vocabulary\ndepth: {}\naliases: [selected alias]\nsources: [source-one]\n---\n"
+        "# Selected Depth\n\nUser-written note.\n"
+    ).format(depth)
+    response = {
+        "id": "selected-depth",
+        "title": "Selected Depth",
+        "type": "vocabulary",
+        "depth": depth,
+        "definition_zh": "在研究句子中出现的术语；例如：The result is state of the art，即表示当前结果具有先进水平。",
+        "definition_en": "In a research sentence, state of the art means the best current result; for example, a paper may compare its score with the state of the art.",
+    }
+    connection = connect_database(":memory:")
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", "selected-depth", content, "a" * 40, "b" * 64)
+    service = AIProposalService(
+        Path(__file__).resolve().parents[2],
+        drafts,
+        ProposalService(ProposalRepository(connection)),
+        AIGateway(MockDeepSeekClient({"draft_term": response})),
+    )
+
+    proposal = service.generate("draft_term", draft.id)
+
+    assert proposal.payload["result"]["depth"] == depth
+    assert "depth: {}".format(depth) in proposal.payload["content"]
+    assert "definition_zh" in proposal.payload["result"]
+    assert "definition_en" in proposal.payload["result"]
+    assert "User-written note." in proposal.payload["content"]
+    assert drafts.get(draft.id).content == content
     connection.close()
 
 
@@ -374,7 +415,8 @@ def test_single_language_rewrite_preserves_metadata_and_the_other_explanation():
     content = (
         "---\nschema_version: 1\nid: feature-vector\ntitle: Feature Vector\n"
         "type: concept\ndepth: standard\naliases: [embedding]\nsources: [encoder-paper]\n---\n"
-        "# Feature Vector\n\n## 一、中文解释\n\n编码器将输入转换为数值表示。\n\n"
+        "# Feature Vector\n\nUser-written context stays outside both language sections.\n\n"
+        "## 一、中文解释\n\n编码器将输入转换为数值表示。\n\n"
         "## 二、English Explanation\n\nAn encoder maps input to numeric values.\n"
     )
     connection = connect_database(":memory:")
@@ -401,15 +443,16 @@ def test_single_language_rewrite_preserves_metadata_and_the_other_explanation():
     proposed = proposal.payload["content"]
     original_frontmatter = content.split("---\n", 2)[1]
     proposed_frontmatter = proposed.split("---\n", 2)[1]
-    assert "At every depth explain what the Term means, where it is encountered" in prompt
-    assert "preserve it exactly; do not infer a different depth" in prompt
-    assert "Never change metadata, identifiers, sources, or the other language" in prompt
+    assert TERM_DEPTH_GUIDANCE in prompt
+    assert "preserve both exactly" in prompt
+    assert "Never change frontmatter, identifiers, sources, the other language" in prompt
     assert "write English as an independent explanation" in prompt
     assert context["request"] == {
         "language": "en",
         "requirements": "Explain the vector dimension and how a classifier uses it.",
     }
     assert proposed_frontmatter == original_frontmatter
+    assert "User-written context stays outside both language sections." in proposed
     assert "编码器将输入转换为数值表示。" in proposed
     assert "An encoder maps x to f_theta(x) in R^d" in proposed
     assert "An encoder maps input to numeric values." not in proposed

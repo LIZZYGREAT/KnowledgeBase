@@ -13,7 +13,8 @@ def test_bilingual_generation_and_single_language_rewrite_preserve_other_section
                             definition_zh="EWC 使用 Fisher Information。", definition_en="EWC uses Fisher Information.")
     content = (
         "---\nschema_version: 1\nid: ewc\ntitle: EWC\ntype: concept\n"
-        "depth: stub\naliases: []\ndomains: []\ntopics: []\ntags: []\nsources: []\n---\n# EWC\n"
+        "depth: stub\naliases: []\ndomains: []\ntopics: []\ntags: []\nsources: []\n---\n"
+        "# EWC\n\nUser-authored context outside the language sections.\n"
     )
     draft = Draft("draft-ewc", "term", "ewc", "a" * 40, "b" * 64, content, 1, "now", "now")
     text = AIProposalService._term_markdown(draft, output.model_dump(exclude_none=True))
@@ -21,6 +22,7 @@ def test_bilingual_generation_and_single_language_rewrite_preserve_other_section
     assert "## 一、中文解释" in updated and "## 二、English Explanation" in updated
     assert "EWC uses Fisher Information." in updated
     assert "EWC 使用 Fisher Information。" not in updated
+    assert "User-authored context outside the language sections." in updated
     assert parse_markdown(text).frontmatter == parse_markdown(updated).frontmatter
 
 
