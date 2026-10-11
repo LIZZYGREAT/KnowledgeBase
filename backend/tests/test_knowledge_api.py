@@ -1054,7 +1054,7 @@ def test_ai_endpoints_disclose_provider_and_store_only_valid_proposals(api_clien
                         "id": "api-term",
                         "title": "API Term",
                         "type": "concept",
-                        "depth": "standard",
+                        "depth": "stub",
                         "aliases": [],
                         "definition_zh": "一个通过 API 创建的 Term。",
                         "definition_en": "A Term created through the API.",
