@@ -83,13 +83,15 @@ describe("Knowledge Dashboard", () => {
     const featured = await screen.findByRole("region", { name: "下一步值得了解" });
     await waitFor(() => expect(featured.querySelectorAll("article").length).toBe(3));
     expect(within(featured).queryByText("Paper 3")).toBeNull();
+    expect(featured.querySelectorAll(".home-recommendation-reason-summary .markdown-content")).toHaveLength(3);
+    expect(within(featured).queryByRole("button", { name: "展开完整理由" })).toBeNull();
     const workload = screen.getByRole("region", { name: "现在有什么要处理？" });
     expect(featured.compareDocumentPosition(workload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "寻找下一步" }));
     await waitFor(() => expect(api.queueResearchRun).toHaveBeenCalledWith("profile-one", { lenses: ["focus"], date_range: { mode: "incremental" } }));
   });
 
-  it("renders featured paper and Term rationales as Markdown", async () => {
+  it("expands and collapses long Markdown rationales in one rendered view", async () => {
     const longPaperReason = `**Paper rationale** ${"The paper fits the selected knowledge and has a distinct method. ".repeat(6)}`;
     const longTermReason = `Builds on **known Terms** ${"The source passage explains why this concept matters. ".repeat(5)}`;
     api.listResearchCandidates.mockResolvedValue({ candidates: [{
@@ -122,22 +124,28 @@ describe("Knowledge Dashboard", () => {
     expect(summaries[0].textContent).toContain("has a distinct method.");
     expect(summaries[0].textContent).not.toContain("**");
     expect(featured.querySelector(".research-explanation")).toBeNull();
-    const expandButtons = within(featured).getAllByText("展开完整理由");
+    expect(featured.querySelectorAll(".home-recommendation-reason-summary .markdown-content")).toHaveLength(3);
+    const expandButtons = within(featured).getAllByRole("button", { name: "展开完整理由" });
     expect(expandButtons).toHaveLength(3);
+    expect(expandButtons[0].getAttribute("aria-expanded")).toBe("false");
+    const firstCard = summaries[0].closest("article");
+    const originalText = summaries[0].textContent;
     await userEvent.click(expandButtons[0]);
-    await userEvent.click(expandButtons[1]);
-    await userEvent.click(expandButtons[2]);
-    expect(featured.querySelectorAll(".home-recommendation-full-details[open]")).toHaveLength(3);
-    const fullReasons = featured.querySelectorAll(".home-recommendation-full");
-    expect(fullReasons[0].querySelector("strong")?.textContent).toBe("Paper rationale");
-    expect(fullReasons[1].querySelector("strong")?.textContent).toBe("known Terms");
-    expect(fullReasons[2].querySelector("strong")?.textContent).toBe("reviewed evidence");
+    expect(summaries[0].classList.contains("is-clipped")).toBe(false);
+    expect(within(firstCard as HTMLElement).getByRole("button", { name: "收起" }).getAttribute("aria-expanded")).toBe("true");
+    expect(summaries[0].querySelector("strong")?.textContent).toBe("Paper rationale");
+    expect(summaries[0].textContent).toBe(originalText);
+    expect(summaries[0].querySelectorAll(".markdown-content")).toHaveLength(1);
+    expect(featured.querySelectorAll(".home-recommendation-reason-summary .markdown-content")).toHaveLength(3);
+    await userEvent.click(within(firstCard as HTMLElement).getByRole("button", { name: "收起" }));
+    expect(summaries[0].classList.contains("is-clipped")).toBe(true);
+    expect(within(firstCard as HTMLElement).getByRole("button", { name: "展开完整理由" }).getAttribute("aria-expanded")).toBe("false");
     expect(featured.querySelector("p p")).toBeNull();
     expect(featured.querySelector(".home-recommendation-reason-summary p p")).toBeNull();
   });
 
-  it("renders Markdown in short reasons and offers the full view for rich content", async () => {
-    const reason = "Use [the source](https://example.com/source), `feature_vector`, and $f_\\theta(x)$ as an **important** learned representation.\n\n~~~python\nvector = feature_vector\n~~~";
+  it("renders rich short reasons without an expansion control", async () => {
+    const reason = "Use [the source](https://example.com/source), `feature_vector`, and $f_\\theta(x)$ as an **important** learned representation.";
     api.listResearchCandidates.mockResolvedValue({ candidates: [{
       candidate: { id: "paper-rich-short", review_overrides: {} },
       work: { id: "work-rich-short", title: "A Short Mathematical Rationale" },
@@ -158,13 +166,28 @@ describe("Knowledge Dashboard", () => {
     expect(summary?.textContent).not.toContain("[the source](");
     expect(summary?.textContent).not.toContain("`feature_vector`");
     expect(summary?.querySelector("p p")).toBeNull();
+    expect(summary?.querySelectorAll(".markdown-content")).toHaveLength(1);
+    expect(within(card as HTMLElement).queryByRole("button", { name: "展开完整理由" })).toBeNull();
+  });
 
-    await userEvent.click(within(card as HTMLElement).getByText("展开完整理由"));
-    const full = card?.querySelector(".home-recommendation-full");
-    expect(full?.querySelector("code")?.textContent).toBe("feature_vector");
-    expect(full?.querySelector("pre code")?.textContent?.trim()).toBe("vector = feature_vector");
-    expect(full?.querySelector(".katex")).not.toBeNull();
-    expect(full?.querySelector("strong")?.textContent).toBe("important");
+  it("keeps long reasons with code and block math fully visible", async () => {
+    const reason = `${"This recommendation connects the reviewed source to a useful method. ".repeat(5)}\n\n~~~python\nvector = feature_vector\n~~~\n\n$$\n\\sum_{i=1}^{n} x_i = y\n$$`;
+    api.listResearchCandidates.mockResolvedValue({ candidates: [{
+      candidate: { id: "paper-rich-long", review_overrides: {} },
+      work: { id: "work-rich-long", title: "A Long Mathematical Rationale" },
+      analysis: { readiness: "high", why_relevant_zh: reason, existing_relations: [] },
+    }] });
+
+    render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    const featured = await screen.findByRole("region", { name: "下一步值得了解" });
+    const card = within(featured).getByRole("heading", { name: "A Long Mathematical Rationale" }).closest("article");
+    const summary = card?.querySelector(".home-recommendation-reason-summary");
+    expect(summary?.classList.contains("is-clipped")).toBe(false);
+    expect(summary?.querySelector("pre code")?.textContent?.trim()).toBe("vector = feature_vector");
+    expect(summary?.querySelector(".katex")).not.toBeNull();
+    expect(summary?.querySelectorAll(".markdown-content")).toHaveLength(1);
+    expect(within(card as HTMLElement).queryByRole("button", { name: "展开完整理由" })).toBeNull();
   });
 
   it("shows queue loading, queued feedback, errors, and working review links beside their actions", async () => {
@@ -192,8 +215,8 @@ describe("Knowledge Dashboard", () => {
     expect(await within(featured).findByRole("alert")).toBeTruthy();
     expect(within(featured).getByRole("alert").textContent).toContain("queue unavailable");
 
-    await user.click(within(featured).getByText("展开完整理由"));
-    expect(featured.querySelector(".home-recommendation-full-details[open]")).not.toBeNull();
+    await user.click(within(featured).getByRole("button", { name: "展开完整理由" }));
+    expect(within(featured).getByRole("button", { name: "收起" }).getAttribute("aria-expanded")).toBe("true");
     await user.click(within(featured).getByRole("button", { name: "查看并审核论文" }));
     expect(navigate).toHaveBeenCalledWith("/research?work_id=work-long");
     await user.click(within(featured).getByRole("button", { name: "完整论文列表" }));

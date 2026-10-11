@@ -153,17 +153,20 @@ function RecommendationReason({ content }: { content: string }) {
     || /\$[^$\n]+\$/.test(content)
     || /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/.test(content);
   const isLong = plainTextLength > limit;
-  const clipSummary = isLong && !includesCodeOrMath;
+  const canCollapse = isLong && !includesCodeOrMath;
+  const [expanded, setExpanded] = useState(false);
 
   return <div className="home-recommendation-reason">
     <span className="home-recommendation-reason-label">推荐理由</span>
-    <div className={`home-recommendation-reason-summary${clipSummary ? " is-clipped" : ""}`}>
+    <div className={`home-recommendation-reason-summary${canCollapse && !expanded ? " is-clipped" : ""}`}>
       <MarkdownContent content={displayContent} />
     </div>
-    {(isLong || includesCodeOrMath) && <details className="home-recommendation-full-details">
-      <summary>展开完整理由</summary>
-      <div className="home-recommendation-full"><MarkdownContent content={displayContent} /></div>
-    </details>}
+    {canCollapse && <button
+      type="button"
+      className="button button-quiet home-recommendation-expand"
+      aria-expanded={expanded}
+      onClick={() => setExpanded((value) => !value)}
+    >{expanded ? "收起" : "展开完整理由"}</button>}
   </div>;
 }
 
