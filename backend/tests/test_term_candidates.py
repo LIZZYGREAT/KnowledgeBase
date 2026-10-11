@@ -495,8 +495,20 @@ def test_candidate_term_draft_lifecycle_and_publish_relations(tmp_path):
         assert reused["created"] is False
         assert reused["draft"].id == result["draft"].id
 
-        drafts.discard(result["draft"].id, result["draft"].revision)
-        service.discard_term_draft(result["draft"].id)
+        current = reused["draft"]
+        for previous_depth, depth in (("standard", "stub"), ("stub", "deep")):
+            updated_content = current.content.replace(
+                "depth: {}".format(previous_depth), "depth: {}".format(depth)
+            )
+            current = drafts.save(current.id, updated_content, current.revision)
+            reopened = service.create_term_draft(candidate.id)
+            assert reopened["created"] is False
+            assert reopened["draft"].content == current.content
+            assert "depth: {}".format(depth) in reopened["draft"].content
+            current = reopened["draft"]
+
+        drafts.discard(current.id, current.revision)
+        service.discard_term_draft(current.id)
         reset = repository.get_candidate(candidate.id)
         assert reset.status == "pending"
         assert reset.draft_id is None
