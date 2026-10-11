@@ -144,28 +144,25 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
 }
 
 function RecommendationReason({ content }: { content: string }) {
-  const plainText = content
-    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-    .replace(/^\s*[-*+]\s+/gm, "")
-    .replace(/^\s*>\s?/gm, "")
-    .replace(/^ {0,3}(?:`{3,}|~{3,})[^\r\n]*\r?\n?/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const characters = Array.from(plainText);
+  const displayContent = content.trim() ? content : "暂未提供推荐理由。";
+  const plainTextLength = Array.from(content.replace(/\s+/g, " ").trim()).length;
   const limit = 180;
-  const summary = characters.length > limit ? `${characters.slice(0, limit).join("")}…` : plainText;
   const includesCodeOrMath = /^ {0,3}(?:`{3,}|~{3,})/m.test(content)
     || /`[^`\n]+`/.test(content)
     || content.includes("$$")
     || /\$[^$\n]+\$/.test(content)
     || /\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/.test(content);
+  const isLong = plainTextLength > limit;
+  const clipSummary = isLong && !includesCodeOrMath;
 
   return <div className="home-recommendation-reason">
     <span className="home-recommendation-reason-label">推荐理由</span>
-    <p className="home-recommendation-reason-summary">{summary || "暂未提供推荐理由。"}</p>
-    {(characters.length > limit || includesCodeOrMath) && <details className="home-recommendation-full-details">
+    <div className={`home-recommendation-reason-summary${clipSummary ? " is-clipped" : ""}`}>
+      <MarkdownContent content={displayContent} />
+    </div>
+    {(isLong || includesCodeOrMath) && <details className="home-recommendation-full-details">
       <summary>展开完整理由</summary>
-      <div className="home-recommendation-full"><MarkdownContent content={content} /></div>
+      <div className="home-recommendation-full"><MarkdownContent content={displayContent} /></div>
     </details>}
   </div>;
 }

@@ -116,7 +116,11 @@ describe("Knowledge Dashboard", () => {
 
     const featured = await screen.findByRole("region", { name: "下一步值得了解" });
     expect(featured.querySelectorAll(".home-recommendation-reason-summary")).toHaveLength(3);
-    expect([...featured.querySelectorAll(".home-recommendation-reason-summary")].every((summary) => (summary.textContent ?? "").length <= 181)).toBe(true);
+    const summaries = [...featured.querySelectorAll(".home-recommendation-reason-summary")];
+    expect(summaries[0].classList.contains("is-clipped")).toBe(true);
+    expect(summaries[0].querySelector("strong")?.textContent).toBe("Paper rationale");
+    expect(summaries[0].textContent).toContain("has a distinct method.");
+    expect(summaries[0].textContent).not.toContain("**");
     expect(featured.querySelector(".research-explanation")).toBeNull();
     const expandButtons = within(featured).getAllByText("展开完整理由");
     expect(expandButtons).toHaveLength(3);
@@ -129,10 +133,11 @@ describe("Knowledge Dashboard", () => {
     expect(fullReasons[1].querySelector("strong")?.textContent).toBe("known Terms");
     expect(fullReasons[2].querySelector("strong")?.textContent).toBe("reviewed evidence");
     expect(featured.querySelector("p p")).toBeNull();
+    expect(featured.querySelector(".home-recommendation-reason-summary p p")).toBeNull();
   });
 
-  it("preserves code and math in short reasons and offers the full Markdown view", async () => {
-    const reason = "Use `feature_vector` and $f_\\theta(x)$ as an **important** learned representation.\n\n~~~python\nvector = feature_vector\n~~~";
+  it("renders Markdown in short reasons and offers the full view for rich content", async () => {
+    const reason = "Use [the source](https://example.com/source), `feature_vector`, and $f_\\theta(x)$ as an **important** learned representation.\n\n~~~python\nvector = feature_vector\n~~~";
     api.listResearchCandidates.mockResolvedValue({ candidates: [{
       candidate: { id: "paper-rich-short", review_overrides: {} },
       work: { id: "work-rich-short", title: "A Short Mathematical Rationale" },
@@ -145,9 +150,14 @@ describe("Knowledge Dashboard", () => {
     const card = within(featured).getByRole("heading", { name: "A Short Mathematical Rationale" }).closest("article");
     expect(card).not.toBeNull();
     const summary = card?.querySelector(".home-recommendation-reason-summary");
-    expect((summary?.textContent ?? "")).toContain("feature_vector");
-    expect(summary?.textContent).toContain("$f_\\theta(x)$");
-    expect(summary?.textContent).toContain("**important**");
+    expect(summary?.querySelector("a")?.getAttribute("href")).toBe("https://example.com/source");
+    expect(summary?.querySelector("code")?.textContent).toBe("feature_vector");
+    expect(summary?.querySelector(".katex")).not.toBeNull();
+    expect(summary?.querySelector("strong")?.textContent).toBe("important");
+    expect(summary?.textContent).not.toContain("**important**");
+    expect(summary?.textContent).not.toContain("[the source](");
+    expect(summary?.textContent).not.toContain("`feature_vector`");
+    expect(summary?.querySelector("p p")).toBeNull();
 
     await userEvent.click(within(card as HTMLElement).getByText("展开完整理由"));
     const full = card?.querySelector(".home-recommendation-full");
