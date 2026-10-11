@@ -113,3 +113,5 @@ Profile Search 新增可选 `history_seed_year`、`max_provider_requests_per_run
 按现有生产更新手册备份 Canonical Git、SQLite 与 Storage 后，再由运维执行升级。服务器上的未推送 Publisher 提交必须保留。定时 timer、真实 Provider/DeepSeek、费用、异常重试及备份恢复需在部署主机另行检查，本次未执行。
 
 历史起点来自明确的学习阶段种子或保守日期推断，批准知识驱动的逐年扩展也不代表完整引文图谱；主题去重以模型的增量判断和长摘要完全相同的保守规则为主，不删除原 Work/Discovery。历史 unreviewed 内容没有批量改成 approved。没有真实生产资料，因此不能宣称个人推荐质量、接受率或成本已经达标。
+
+生产测试 Term 清理脚本 `scripts/kb_term_test_reset.sh` 已准备，要求 schema 19、干净 Git worktree、无已发布 Term、Research Timer/Service 停止并持有 Research 与 Term Discovery 锁；脚本先创建并验证新备份，再事务性清理 Term Runtime 数据、从 Canonical 重建索引，并校验 Research、Imports、PDF、Document 与 Source 数据指纹。脚本只供运维人员手动执行，Codex 未在本次修订中运行它。
