@@ -17,7 +17,10 @@ from backend.app.repositories.term_candidate_repository import TermCandidateRepo
 from backend.app.repositories.term_discovery_repository import TermDiscoveryRepository
 from backend.app.services.knowledge_state_service import KnowledgeStateService
 from backend.app.services.pdf_corpus_service import PdfCorpusService
-from backend.app.services.term_candidate_service import TermCandidateService
+from backend.app.services.term_candidate_service import (
+    TermCandidateConflict,
+    TermCandidateService,
+)
 from backend.app.services.term_discovery_service import (
     DiscoveryCorpus,
     TermDiscoveryService,
@@ -731,6 +734,86 @@ def test_changed_note_is_discovered_incrementally_without_a_local_pdf(tmp_path):
     assert evidence[0].origin_id == "note-one"
     assert second is not None and second.candidate_count == 0
     assert len(gateway.calls_by_task("discover_terms")) == 1
+    connection.close()
+
+
+def test_deleted_candidate_reopens_same_note_discovery_cache_without_resetting_quota(
+    tmp_path,
+):
+    output = {
+        "candidates": [
+            _suggestion(
+                "performance on previously learned classes",
+                "concept",
+                "Performance on previously learned classes drops sharply.",
+                "core_gap",
+                "This note connects retention to the current continual learning focus.",
+            )
+        ]
+    }
+    connection, service, candidate_service, _pdf_service, gateway = _service(
+        tmp_path, output
+    )
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"],
+            daily_max_new=2,
+            focus_override="continual learning",
+        )
+    )
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        "Performance on previously learned classes drops sharply. This pattern "
+        "signals that a model has lost prior capability after learning a new task. "
+        "Continual learning systems measure retention across sequential tasks.",
+        domains=["machine-learning"],
+        topics=["continual-learning"],
+    )
+    service.repository.save_analysis_state(
+        "document:note-one", "entity-text", "entity-focus", "entity", 1, "now"
+    )
+    service.repository.save_analysis_state(
+        "document:note-three", "other-text", "other-focus", "concept", 1, "now"
+    )
+
+    first = service.run()
+    candidate = candidate_service.list_candidates("pending")[0]
+    cached_note = service.repository.get_analysis_state("document:note-one", "concept")
+    assert first.candidate_count == 1
+    assert cached_note is not None
+    assert candidate_service.discovery_lock is service._lock
+    assert service.get_state().daily_remaining == 1
+
+    assert service._lock.try_acquire()
+    try:
+        with pytest.raises(TermCandidateConflict, match="Term Discovery is running"):
+            candidate_service.delete_candidate(candidate.id)
+        assert service.repository.get_analysis_state("document:note-one", "concept") == cached_note
+    finally:
+        service._lock.release()
+
+    cached_run = service.run()
+    assert cached_run.candidate_count == 0
+    assert len(gateway.calls_by_task("discover_terms")) == 1
+    assert candidate_service.list_candidates("pending")[0].id == candidate.id
+
+    candidate_service.delete_candidate(candidate.id)
+    assert service.repository.get_analysis_state("document:note-one", "concept") is None
+    assert service.repository.get_analysis_state("document:note-one", "entity") is not None
+    assert service.repository.get_analysis_state("document:note-three", "concept") is not None
+    assert service.get_state().daily_remaining == 1
+
+    rediscovered = service.run()
+    candidates = candidate_service.list_candidates("pending")
+    assert rediscovered.candidate_count == 1
+    assert len(candidates) == 1
+    assert candidates[0].id != candidate.id
+    assert candidates[0].display_name == candidate.display_name
+    assert len(gateway.calls_by_task("discover_terms")) == 2
+    assert service.get_state().daily_remaining == 0
     connection.close()
 
 

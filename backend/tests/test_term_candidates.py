@@ -229,6 +229,44 @@ def test_delete_candidate_returns_conflict_while_discovery_lock_is_held(tmp_path
     connection.close()
 
 
+@pytest.mark.parametrize("status", ["drafting", "accepted", "rejected"])
+def test_delete_non_pending_candidate_keeps_discovery_cache_unchanged(tmp_path, status):
+    connection = connect_database(":memory:")
+    repository = TermCandidateRepository(connection)
+    service = TermCandidateService(tmp_path, repository)
+    candidate = service.create_candidate(
+        "Feature Extractor",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="document", origin_id="note-one", mention="Feature Extractor"
+            )
+        ],
+    )
+    with connection:
+        connection.execute(
+            """INSERT INTO corpus_analysis_state (
+                   source_id, text_hash, focus_hash, analysis_lane,
+                   analysis_version, analyzed_at
+               ) VALUES ('document:note-one', 'text', 'focus', 'concept', 1, 'now')"""
+        )
+        connection.execute(
+            "UPDATE term_candidates SET status = ? WHERE id = ?",
+            (status, candidate.id),
+        )
+
+    with pytest.raises(TermCandidateConflict):
+        service.delete_candidate(candidate.id)
+
+    assert repository.get_candidate(candidate.id).status == status
+    assert len(repository.get_evidence(candidate.id)) == 1
+    assert connection.execute(
+        "SELECT COUNT(*) FROM corpus_analysis_state "
+        "WHERE source_id = 'document:note-one' AND analysis_lane = 'concept'"
+    ).fetchone()[0] == 1
+    connection.close()
+
+
 def test_candidate_evidence_uses_canonical_origin_title_fallbacks(tmp_path):
     connection = connect_database(":memory:")
     try:

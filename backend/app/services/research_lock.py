@@ -1,4 +1,4 @@
-"""Cross-platform non-blocking process lock for Research Runs."""
+"""Cross-platform non-blocking process lock shared by Research and Term Discovery."""
 
 import os
 from pathlib import Path

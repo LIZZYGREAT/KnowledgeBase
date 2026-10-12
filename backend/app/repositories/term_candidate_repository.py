@@ -1,7 +1,7 @@
 """SQLite persistence for Term Candidates, Evidence, relations, and Reject Memory."""
 
-import sqlite3
 import json
+import sqlite3
 import uuid
 from hashlib import sha256
 from typing import Optional

@@ -153,6 +153,33 @@ async def test_repeated_analysis_reuses_candidate_and_evidence(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_manual_analysis_can_recreate_candidate_after_deletion(tmp_path):
+    connection, repository, candidate_service, _, ai_client, service = _service(tmp_path)
+    try:
+        first = await service.analyze_document("note-one")
+        first_candidate = repository.list_candidates("pending")[0]
+        analysis_state = service.get_document_analysis_state("note-one")
+        assert analysis_state["status"] == "up_to_date"
+
+        candidate_service.delete_candidate(first_candidate.id)
+
+        assert service.get_document_analysis_state("note-one") == analysis_state
+        assert repository.rejected_names(["global", "origin:document:note-one"]) == []
+        second = await service.analyze_document("note-one")
+
+        candidates = repository.list_candidates("pending")
+        assert first["statistics"]["created_candidates"] == 1
+        assert second["statistics"]["created_candidates"] == 1
+        assert len(candidates) == 1
+        assert candidates[0].id != first_candidate.id
+        assert candidates[0].display_name == "latent space"
+        assert service.get_document_analysis_state("note-one")["status"] == "up_to_date"
+        assert ai_client.calls == ["detect_terms", "detect_terms"]
+    finally:
+        connection.close()
+
+
+@pytest.mark.asyncio
 async def test_reanalysis_refreshes_evidence_context_for_the_same_mention(tmp_path):
     connection, repository, _, _, ai_client, service = _service(tmp_path)
     try:
