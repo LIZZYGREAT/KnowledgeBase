@@ -137,6 +137,51 @@ test("one approval marks human review, preflights and publishes the reviewed rev
   expect(publishDraft).toHaveBeenCalledWith("d", 2);
 });
 
+test("repairs only current Draft H3 numbering without AI and then allows Publisher flow", async () => {
+  const done = vi.fn();
+  const draftContent = initialContent.replace(
+    "Experience Replay retains examples.",
+    "### 9. Meaning\n\nChinese body stays exact.\n\n### Example\n\nExample body stays exact.\n\n```markdown\n### Example in code\n```\n\n## 二、English Explanation\n\n### 8. Meaning\n\nEnglish body stays exact.\n",
+  );
+  state.content = draftContent;
+  renderReview(done, makeSeed(draftContent));
+
+  await waitFor(() => expect((screen.getByRole("button", { name: /修正 H3 编号/ }) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "修正 H3 编号（3 处）" }));
+
+  expect(await screen.findByText("已只修正 3 个 H3 标题编号；解释正文保持不变，Draft 已保存，可检查后发布。")).toBeTruthy();
+  expect(state.content).toContain("### 1. Meaning\n\nChinese body stays exact.");
+  expect(state.content).toContain("### 2. Example\n\nExample body stays exact.");
+  expect(state.content).toContain("## 二、English Explanation\n\n### 1. Meaning\n\nEnglish body stays exact.");
+  expect(state.content).toContain("```markdown\n### Example in code\n```");
+  expect(state.content).toContain("aliases: [Experience Replay]");
+  expect(requestCandidateTermDraftProposal).not.toHaveBeenCalled();
+  expect(requestTermRewrite).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "通过", exact: true }));
+  await waitFor(() => expect(done).toHaveBeenCalledOnce());
+  expect(preflightDraft).toHaveBeenCalledWith("d");
+  expect(publishDraft).toHaveBeenCalledWith("d", 2);
+});
+
+test("summarizes repeated H3 preflight errors and keeps their details expandable", async () => {
+  const repeatedIssue = "heading.h3_numbering: H3 headings must use Arabic numbering followed by '. '.";
+  api.preflightDraft.mockResolvedValue({
+    draft_id: "d", valid: false, conflict: false,
+    errors: [`Markdown validation failed: ${Array.from({ length: 8 }, () => repeatedIssue).join("; ")}`],
+    warnings: [],
+  });
+  renderReview();
+  fireEvent.click(screen.getByRole("button", { name: "通过", exact: true }));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toBe("标题格式：8 个 H3 缺少“1. ”编号（可修正后重试）");
+  const details = screen.getByText("查看 Preflight 详情").closest("details");
+  expect(details?.open).toBe(false);
+  expect(details?.textContent?.match(/heading\.h3_numbering:/g)).toHaveLength(8);
+  expect(publishDraft).not.toHaveBeenCalled();
+});
+
 test("a publish conflict keeps the reviewed Draft and never reports approval", async () => {
   const done = vi.fn();
   api.publishDraft.mockRejectedValue(new Error("正式版已变化"));

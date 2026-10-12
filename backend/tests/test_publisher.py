@@ -13,6 +13,9 @@ from backend.app.domain.term_runtime import (
     TermCandidateEvidenceInput,
     TermCandidateRecord,
 )
+from backend.app.services.ai_client import MockDeepSeekClient
+from backend.app.services.ai_gateway import AIGateway
+from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.draft_service import DraftService
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.git_manager import GitManager, GitOperationError
@@ -74,6 +77,54 @@ def test_publish_writes_one_canonical_file_and_commit_only_includes_target(
     changed_paths = _git(repository, "show", "--pretty=format:", "--name-only", result.commit_revision)
     assert changed_paths.splitlines() == [target]
     assert "README.md" in git.status()
+
+
+def test_generated_term_proposal_can_be_adopted_preflighted_and_published(publish_context):
+    repository, _, drafts, proposals, publisher = publish_context
+    git = GitManager(repository)
+    entity_id = "generated-term"
+    target = "knowledge/terms/{}.md".format(entity_id)
+    content = _term(entity_id, "Generated Term").replace(
+        "sources: []\n---",
+        "sources: []\nreview:\n  human:\n    status: unreviewed\n---",
+    )
+    draft = _create_draft(drafts, git, "term", entity_id, content, target)
+    proposals_ai = AIProposalService(
+        repository,
+        drafts,
+        proposals,
+        AIGateway(MockDeepSeekClient({
+            "draft_term": {
+                "id": entity_id,
+                "title": "Generated Term",
+                "type": "concept",
+                "depth": "standard",
+                "aliases": [],
+                "definition_zh": "### 含义\n\n正式解释包含机制和用途。\n\n### 示例\n\n给出准确示例。",
+                "definition_en": "### Meaning\n\nA complete explanation covers the mechanism and use.\n\n### Example\n\nInclude an accurate example.",
+            }
+        })),
+    )
+
+    proposal = proposals_ai.generate("draft_term", draft.id)
+    _, adopted = proposals.apply_to_draft(proposal.id, drafts.get(draft.id), draft.revision)
+    assert "### 1. 含义" in adopted.content
+    assert "### 2. 示例" in adopted.content
+    assert "### 1. Meaning" in adopted.content
+    assert "### 2. Example" in adopted.content
+    approved_content = adopted.content.replace("status: unreviewed", "status: approved", 1)
+    approved = drafts.save(adopted.id, approved_content, adopted.revision)
+
+    preflight = publisher.preflight(approved.id)
+    assert preflight.valid is True
+    published = publisher.publish(approved.id, expected_revision=approved.revision)
+
+    canonical = repository / target
+    assert canonical.read_text(encoding="utf-8") == approved_content
+    assert published.path == target
+    # Human approval edits the adopted Draft after application, so the Proposal
+    # is correctly closed as stale even though the approved content was published.
+    assert proposals.get(proposal.id).status == "stale"
 
 
 def test_term_merge_moves_aliases_relations_and_resolves_old_ids(publish_context):

@@ -4,10 +4,10 @@ import { applyProposalToDraft, discardDraft, listProposals, preflightDraft, publ
 import { useRuntimeDraftSession } from "../draft/useRuntimeDraftSession";
 import { MarkdownContent } from "../Markdown";
 import { splitMarkdownFrontmatter } from "../markdownBlocks";
-import { termLanguageSections } from "../termLanguage";
+import { renumberTermH3Headings, termLanguageSections } from "../termLanguage";
 import { errorMessage } from "../errors";
 
-type ReviewAction = "close" | "depth" | "generate" | "rewrite" | "adopt" | "discard" | "approve" | "reject";
+type ReviewAction = "close" | "depth" | "generate" | "rewrite" | "adopt" | "discard" | "repair" | "approve" | "reject";
 type TermDepth = "stub" | "standard" | "deep";
 
 const termDepthLabels: Record<TermDepth, string> = {
@@ -44,12 +44,14 @@ export function TermCandidateReview({ candidate, seed, onClose, onDone }: { cand
   const [editing, setEditing] = useState(false);
   const [proposalsLoading, setProposalsLoading] = useState(true);
   const [proposalLookupFailed, setProposalLookupFailed] = useState(false);
+  const [preflightDetails, setPreflightDetails] = useState<string[]>([]);
   const envelope = splitMarkdownFrontmatter(session.content);
   const depth = readTermDepth(envelope.frontmatter);
   const proposedBody = proposal && typeof proposal.payload.content === "string" ? splitMarkdownFrontmatter(proposal.payload.content).body : "";
   const sections = termLanguageSections(envelope.body);
   const hasCurrentBody = Boolean(withoutLeadingTitle(envelope.body).trim());
   const hasLanguageExplanation = Boolean(sections.zh || sections.en);
+  const headingRepair = renumberTermH3Headings(envelope.body);
   const rewriteBlockedReason = proposal
     ? "请先将当前建议采用到 Draft，或放弃建议，再重写。"
     : proposalsLoading
@@ -171,6 +173,26 @@ export function TermCandidateReview({ candidate, seed, onClose, onDone }: { cand
     }
   }
 
+  async function repairH3Numbering() {
+    if (busyAction || proposal || headingRepair.correctedCount === 0) return;
+    setBusyAction("repair");
+    setError("");
+    setPreflightDetails([]);
+    setActionFeedback("正在只修正 H3 标题编号并保存 Draft…");
+    try {
+      const content = envelope.frontmatter + headingRepair.content;
+      session.updateContent(content);
+      const saved = await session.saveNow();
+      if (!saved || saved.content !== content) throw new Error("无法确认编号修正已保存，请检查 Draft 状态后重试。");
+      setActionFeedback(`已只修正 ${headingRepair.correctedCount} 个 H3 标题编号；解释正文保持不变，Draft 已保存，可检查后发布。`);
+    } catch (reason) {
+      setError(errorMessage(reason));
+      setActionFeedback("H3 编号修正未保存；当前内容仍保留在编辑中，可检查错误后重试。");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function closeReview() {
     if (busyAction) return;
     setBusyAction("close");
@@ -192,6 +214,7 @@ export function TermCandidateReview({ candidate, seed, onClose, onDone }: { cand
     if (busyAction) return;
     setBusyAction("approve");
     setError("");
+    setPreflightDetails([]);
     setActionFeedback("正在检查 Draft 并准备发布…");
     try {
       const adopted = proposal ? await adopt() : null;
@@ -205,7 +228,11 @@ export function TermCandidateReview({ candidate, seed, onClose, onDone }: { cand
       if (!draft) throw new Error("Draft 保存失败，请重试。");
       setActionFeedback("Draft 已保存，正在运行 Preflight…");
       const preflight = await preflightDraft(draft.id);
-      if (!preflight.valid || preflight.conflict) throw new Error([...preflight.errors, ...preflight.warnings].join("；") || "发布冲突，请打开完整编辑器处理。");
+      if (!preflight.valid || preflight.conflict) {
+        const issues = [...preflight.errors, ...preflight.warnings];
+        setPreflightDetails(issues);
+        throw new Error(summarizePreflightIssues(issues) || "发布冲突，请打开完整编辑器处理。");
+      }
       setActionFeedback("Preflight 通过，正在由 Publisher 发布…");
       const published = await publishDraft(draft.id, draft.revision);
       setActionFeedback("Term 已正式发布。");
@@ -251,6 +278,7 @@ export function TermCandidateReview({ candidate, seed, onClose, onDone }: { cand
     </header>
     <div className="term-candidate-edit-actions" role="group" aria-label="编辑或生成解释">
       <button type="button" className="button button-secondary" disabled={locked || Boolean(proposal) || proposalsLoading || proposalLookupFailed} onClick={() => setEditing(!editing)}>{editing ? "完成编辑" : "编辑 Markdown"}</button>
+      {headingRepair.correctedCount > 0 && <button type="button" className="button button-secondary" disabled={locked || Boolean(proposal)} onClick={() => void repairH3Numbering()}>{busyAction === "repair" ? "正在修正…" : `修正 H3 编号（${headingRepair.correctedCount} 处）`}</button>}
       {hasCurrentBody && <button type="button" className="button button-secondary" disabled={locked || proposalsLoading || proposalLookupFailed} onClick={() => void generate(false)}>{busyAction === "generate" ? "正在生成…" : "重新生成双语解释"}</button>}
     </div>
     <p className="subtle-copy">{termDepthDescriptions[depth]}</p>
@@ -283,6 +311,7 @@ export function TermCandidateReview({ candidate, seed, onClose, onDone }: { cand
       <button type="button" className="button button-danger" disabled={locked} onClick={() => void reject()}>{busyAction === "reject" ? "正在拒绝…" : "拒绝"}</button>
     </div>
     {actionFeedback && <p className="term-candidate-action-feedback" role="status">{actionFeedback}</p>}
+    {preflightDetails.length > 0 && <details className="term-candidate-preflight-details"><summary>查看 Preflight 详情</summary><ul>{preflightDetails.map((detail, index) => <li key={`${index}:${detail}`}>{detail}</li>)}</ul></details>}
     {(error || session.error) && <p role="alert" className="error-copy">{error || session.error}</p>}
   </section>;
 }
@@ -294,4 +323,14 @@ function withoutLeadingTitle(body: string): string {
 function isCandidateProposalReusable(proposal: Proposal): boolean {
   return proposal.payload.task === "draft_term"
     || proposal.payload.task === "rewrite_term_bilingual";
+}
+
+function summarizePreflightIssues(issues: string[]): string {
+  const items = issues.flatMap((issue) => issue.split("; "));
+  const numberingCount = items.filter((issue) => issue.includes("heading.h3_numbering:")).length;
+  const remaining = items.filter((issue) => !issue.includes("heading.h3_numbering:"));
+  const summary = [];
+  if (numberingCount) summary.push(`标题格式：${numberingCount} 个 H3 缺少“1. ”编号（可修正后重试）`);
+  summary.push(...remaining);
+  return summary.join("；");
 }

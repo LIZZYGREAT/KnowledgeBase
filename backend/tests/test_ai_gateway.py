@@ -28,6 +28,7 @@ from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.draft_service import DraftService
 from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.proposal_service import ProposalService
+from backend.app.services.term_language import normalize_term_h3_numbering
 
 
 def test_mock_gateway_persists_validated_output_as_draft_bound_proposal():
@@ -83,6 +84,38 @@ def test_term_generation_reuses_matching_proposal_and_rejecting_it_allows_fresh_
     from backend.app.api.schemas import DraftView
     from dataclasses import asdict
     assert DraftView.model_validate(asdict(draft)).model_dump()["working_content_hash"] == first.base_content_hash
+    connection.close()
+
+
+def test_term_generation_rejects_section_boundary_output_before_storing_proposal():
+    connection = connect_database(":memory:")
+    content = (
+        "---\nschema_version: 1\nid: boundary-term\ntitle: Boundary Term\n"
+        "type: concept\ndepth: stub\naliases: []\ndomains: []\n"
+        "topics: []\ntags: []\nsources: []\n---\n# Boundary Term\n"
+    )
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", "boundary-term", content, "a" * 40, "b" * 64)
+    proposals = ProposalService(ProposalRepository(connection))
+    client = MockDeepSeekClient({
+        "draft_term": {
+            "id": "boundary-term",
+            "title": "Boundary Term",
+            "type": "concept",
+            "depth": "stub",
+            "definition_zh": "## Invalid section\n\nThis would change the Term outline.",
+            "definition_en": "A complete English explanation.",
+        }
+    })
+    service = AIProposalService(
+        Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client)
+    )
+
+    with pytest.raises(AIResponseError, match="preserve Markdown section boundaries"):
+        service.generate("draft_term", draft.id)
+
+    assert connection.execute("SELECT COUNT(*) FROM proposals").fetchone()[0] == 0
+    assert drafts.get(draft.id).content == content
     connection.close()
 
 
@@ -283,6 +316,8 @@ def test_term_generation_and_bilingual_rewrite_share_depth_guidance():
     assert "definition_zh, definition_en, and rationale only" in TASKS["rewrite_term_bilingual"].instruction
     assert "same important facts, mechanisms, and concrete example" in TASKS["rewrite_term_bilingual"].instruction
     assert "never introduce an H1 or H2 heading" in TASKS["rewrite_term_bilingual"].instruction
+    assert "number them sequentially within each language explanation" in TERM_MARKDOWN_GUIDANCE
+    assert "never use unnumbered headings such as `### Example`" in TERM_MARKDOWN_GUIDANCE
 
 
 def test_term_rewrite_request_allows_empty_requirements_and_rejects_language_selector():
@@ -439,7 +474,7 @@ def test_bilingual_rewrite_replaces_both_sections_and_preserves_nonlanguage_cont
         "---\nschema_version: 1\nid: feature-vector\ntitle: Feature Vector\n"
         "type: concept\ndepth: standard\naliases: [embedding]\nsources: [encoder-paper]\n---\n"
         "# Feature Vector\n\nUser-written context stays outside both language sections.\n\n"
-        "## Editorial Note\n\nPreserve this independent Markdown section.\n\n"
+        "## 三、Editorial Note\n\nPreserve this independent Markdown section.\n\n"
         "## 一、中文解释\n\n编码器将输入转换为数值表示。\n\n"
         "## 二、English Explanation\n\nAn encoder maps input to numeric values.\n"
     )
@@ -476,13 +511,13 @@ def test_bilingual_rewrite_replaces_both_sections_and_preserves_nonlanguage_cont
     }
     assert proposed_frontmatter == original_frontmatter
     assert "User-written context stays outside both language sections." in proposed
-    assert "## Editorial Note\n\nPreserve this independent Markdown section." in proposed
+    assert "## 三、Editorial Note\n\nPreserve this independent Markdown section." in proposed
     assert "编码器将输入映射为有限维特征向量" in proposed
     assert "An encoder maps an input to a finite-dimensional feature vector" in proposed
     assert "编码器将输入转换为数值表示。" not in proposed
     assert proposal.payload["result"] == {
-        "definition_zh": "### 含义与机制\n\n编码器将输入映射为有限维特征向量，例如可供分类器读取。",
-        "definition_en": "### Meaning and mechanism\n\nAn encoder maps an input to a finite-dimensional feature vector that a classifier can consume.",
+        "definition_zh": "### 1. 含义与机制\n\n编码器将输入映射为有限维特征向量，例如可供分类器读取。",
+        "definition_en": "### 1. Meaning and mechanism\n\nAn encoder maps an input to a finite-dimensional feature vector that a classifier can consume.",
         "rationale": "Aligns the definition, mechanism, and downstream example in both languages.",
     }
     assert proposal.status == "proposed"
@@ -492,9 +527,46 @@ def test_bilingual_rewrite_replaces_both_sections_and_preserves_nonlanguage_cont
     )
     assert "编码器将输入映射为有限维特征向量" in adopted.content
     assert "An encoder maps an input to a finite-dimensional feature vector" in adopted.content
-    assert "## Editorial Note\n\nPreserve this independent Markdown section." in adopted.content
+    assert "## 三、Editorial Note\n\nPreserve this independent Markdown section." in adopted.content
     assert parse_markdown(adopted.content).frontmatter == parse_markdown(content).frontmatter
     assert len(client.calls) == 1
+    connection.close()
+
+
+def test_first_term_generation_normalizes_h3_before_proposal_creation():
+    content = (
+        "---\nschema_version: 1\nid: generated-term\ntitle: Generated Term\n"
+        "type: concept\ndepth: standard\naliases: []\ndomains: []\n"
+        "topics: []\ntags: []\nsources: []\n---\n# Generated Term\n"
+    )
+    response = {
+        "id": "generated-term",
+        "title": "Generated Term",
+        "type": "concept",
+        "depth": "standard",
+        "aliases": [],
+        "definition_zh": "### 含义\n\n保留完整解释正文。\n\n### 示例\n\n给出具体例子。\n\n```markdown\n### Example in a code fence\n```",
+        "definition_en": "### Meaning\n\nKeep the full explanation.\n\n### Example\n\nGive a concrete example.",
+    }
+    connection = connect_database(":memory:")
+    drafts = DraftService(DraftRepository(connection))
+    draft = drafts.create("term", "generated-term", content, "a" * 40, "b" * 64)
+    proposals = ProposalService(ProposalRepository(connection))
+    client = MockDeepSeekClient({"draft_term": response})
+    service = AIProposalService(
+        Path(__file__).resolve().parents[2], drafts, proposals, AIGateway(client)
+    )
+
+    proposal = service.generate("draft_term", draft.id)
+
+    assert proposal.payload["result"]["definition_zh"].startswith("### 1. 含义")
+    assert "### 2. 示例" in proposal.payload["result"]["definition_zh"]
+    assert "```markdown\n### Example in a code fence\n```" in proposal.payload["content"]
+    assert "### 1. Meaning" in proposal.payload["result"]["definition_en"]
+    assert "### 2. Example" in proposal.payload["result"]["definition_en"]
+    assert "保留完整解释正文。" in proposal.payload["content"]
+    assert parse_markdown(proposal.payload["content"]).frontmatter == parse_markdown(content).frontmatter
+    assert drafts.get(draft.id).content == content
     connection.close()
 
 
@@ -546,8 +618,8 @@ def test_bilingual_rewrite_quality_examples_cover_all_term_types_and_depths(qual
     assert parsed.frontmatter["sources"] == ["human-authored-example"]
     assert quality_case["example_zh"] in quality_case["definition_zh"]
     assert quality_case["example_en"] in quality_case["definition_en"]
-    assert quality_case["definition_zh"] in proposed
-    assert quality_case["definition_en"] in proposed
+    assert normalize_term_h3_numbering(quality_case["definition_zh"]) in proposed
+    assert normalize_term_h3_numbering(quality_case["definition_en"]) in proposed
     assert "\n## " not in quality_case["definition_zh"]
     assert "\n## " not in quality_case["definition_en"]
     assert len(client.calls) == 1

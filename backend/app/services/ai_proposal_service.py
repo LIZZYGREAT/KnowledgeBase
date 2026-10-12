@@ -16,10 +16,14 @@ from backend.app.services.ai_gateway import AIGateway, TASKS
 from backend.app.services.markdown_parser import parse_markdown, parse_yaml
 from backend.app.services.proposal_service import ProposalService
 from backend.app.services.source_registry import SourceRegistry
-from backend.app.services.style_linter import load_writing_standard
+from backend.app.services.style_linter import lint_markdown, load_writing_standard
 from backend.app.services.taxonomy_registry import TaxonomyRegistry
 from backend.app.services.term_registry import TermRegistry
-from backend.app.services.term_language import replace_term_language, replace_term_languages
+from backend.app.services.term_language import (
+    normalize_term_h3_numbering,
+    replace_term_language,
+    replace_term_languages,
+)
 
 
 class AIProposalService:
@@ -97,6 +101,11 @@ class AIProposalService:
             # from becoming metadata changes when the Proposal is adopted.
             result_data["title"] = term_metadata.title
             result_data["aliases"] = list(term_metadata.aliases)
+        if task_name in {"draft_term", "rewrite_term_bilingual"}:
+            for language in ("zh", "en"):
+                result_data["definition_" + language] = normalize_term_h3_numbering(
+                    result_data["definition_" + language]
+                )
         try:
             self._validate_result(task_name, draft, result_data, registries)
         except AIGatewayError:
@@ -109,7 +118,13 @@ class AIProposalService:
         if isinstance(proposed_content, str):
             payload["content"] = proposed_content
         if task_name == "draft_term":
-            payload["content"] = self._term_markdown(draft, result_data)
+            try:
+                payload["content"] = self._term_markdown(draft, result_data)
+            except ValueError as error:
+                raise AIResponseError(
+                    "Generated Term explanations must preserve Markdown section boundaries"
+                ) from error
+            self._validate_term_proposal_markdown(draft, payload["content"])
         if task_name == "rewrite_term_bilingual":
             if draft.entity_type != "term":
                 raise AIResponseError("Term rewrite requires a Term Draft")
@@ -123,6 +138,7 @@ class AIProposalService:
                 raise AIResponseError(
                     "Bilingual Term rewrite must preserve Markdown section boundaries"
                 ) from error
+            self._validate_term_proposal_markdown(draft, payload["content"])
 
         base_hash = sha256(draft.content.encode("utf-8")).hexdigest()
         return self.proposal_service.create(
@@ -262,3 +278,62 @@ class AIProposalService:
                 content, language, result["definition_" + language]
             )
         return content
+
+    def _validate_term_proposal_markdown(self, draft, content: str) -> None:
+        """Reject generated content that would fail core Publisher Markdown checks."""
+        parsed = parse_markdown(content)
+        if parsed.frontmatter is None:
+            raise AIResponseError("Generated Term Markdown must have valid YAML frontmatter")
+        try:
+            metadata = TermMetadata.model_validate(parsed.frontmatter)
+        except ValidationError as error:
+            raise AIResponseError(
+                "Generated Term Markdown has invalid canonical frontmatter"
+            ) from error
+        if metadata.id != draft.entity_id:
+            raise AIResponseError("Generated Term Markdown id must match the Draft")
+
+        language_counts = {"中文解释": 0, "English Explanation": 0}
+        for heading in parsed.headings:
+            if heading.level != 2:
+                continue
+            label = heading.text
+            for numeral in "一二三四五六七八九十":
+                prefix = numeral + "、"
+                if label.startswith(prefix):
+                    label = label[len(prefix):]
+                    break
+            if label in language_counts:
+                language_counts[label] += 1
+        if any(count != 1 for count in language_counts.values()):
+            raise AIResponseError(
+                "Generated Term Markdown must contain exactly one Chinese and one English explanation section"
+            )
+
+        standard_path = self.repository_root / "config" / "writing-standard.yaml"
+        issues = lint_markdown(
+            content,
+            entity_type="term",
+            standard=load_writing_standard(standard_path),
+            maintenance_status=(metadata.maintenance.status if metadata.maintenance else None),
+        )
+        errors = [issue for issue in issues if issue.severity == "ERROR"]
+        numbering = [issue for issue in errors if issue.code == "heading.h3_numbering"]
+        if numbering:
+            lines = ", ".join(str(issue.line) for issue in numbering[:12])
+            suffix = "" if len(numbering) <= 12 else " 等"
+            raise AIResponseError(
+                "标题格式：{} 个 H3 缺少“1. ”编号（可修正后重试）；行 {}{}。".format(
+                    len(numbering), lines, suffix
+                )
+            )
+        if errors:
+            details = "; ".join(
+                "{}（第 {} 行）".format(issue.code, issue.line)
+                for issue in errors[:8]
+            )
+            raise AIResponseError(
+                "Generated Term Markdown failed Publisher structure checks: {}".format(
+                    details
+                )
+            )

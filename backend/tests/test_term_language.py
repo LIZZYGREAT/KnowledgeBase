@@ -5,7 +5,7 @@ from backend.app.domain.ai import DraftTermOutput
 from backend.app.domain.runtime import Draft
 from backend.app.services.ai_proposal_service import AIProposalService
 from backend.app.services.markdown_parser import parse_markdown
-from backend.app.services.term_language import replace_term_language
+from backend.app.services.term_language import normalize_term_h3_numbering, replace_term_language
 
 
 def test_bilingual_generation_and_single_language_rewrite_preserve_other_section():
@@ -79,6 +79,23 @@ def test_language_boundaries_ignore_fenced_code_and_keep_old_content():
     assert original.strip() in updated
     assert "## 一、English Explanation" in updated
     assert "```markdown\n## 一、中文解释\n```" in updated
+
+
+def test_h3_number_normalization_uses_real_headings_and_preserves_body():
+    original = (
+        "### Definition\n\nBody stays exact.\n\n"
+        "```markdown\n### Example in code\n```\n\n"
+        "### 8. Example\n\nSecond body.\n"
+    )
+
+    normalized = normalize_term_h3_numbering(original)
+
+    assert normalized == (
+        "### 1. Definition\n\nBody stays exact.\n\n"
+        "```markdown\n### Example in code\n```\n\n"
+        "### 2. Example\n\nSecond body.\n"
+    )
+    assert normalize_term_h3_numbering(normalized) == normalized
 
 
 def test_bilingual_generation_requires_both_complete_languages():

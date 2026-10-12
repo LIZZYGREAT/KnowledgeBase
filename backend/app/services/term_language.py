@@ -4,6 +4,33 @@ import re
 from backend.app.services.markdown_parser import parse_markdown
 
 
+def normalize_term_h3_numbering(explanation):
+    """Number real H3 headings in one generated language explanation only."""
+    parsed = parse_markdown(explanation)
+    lines = explanation.splitlines(keepends=True)
+    changed = False
+    number = 0
+    for heading in parsed.headings:
+        if heading.level != 3:
+            continue
+        number += 1
+        line_index = heading.line - 1
+        line = lines[line_index]
+        prefix_match = re.match(r"^( {0,3}###\s+)", line)
+        if prefix_match is None:
+            continue
+        title = re.sub(r"^\d+\.\s*", "", heading.text).strip()
+        newline_match = re.search(r"(\r\n|\r|\n)$", line)
+        newline = newline_match.group(1) if newline_match else ""
+        normalized = "{}{}. {}{}".format(
+            prefix_match.group(1), number, title, newline
+        )
+        if normalized != line:
+            lines[line_index] = normalized
+            changed = True
+    return "".join(lines) if changed else explanation
+
+
 def replace_term_language(content, language, explanation):
     if language not in {"zh", "en"}:
         raise ValueError("Unsupported Term language")

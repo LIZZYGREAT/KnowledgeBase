@@ -29,8 +29,9 @@ TERM_DEPTH_GUIDANCE = (
 )
 
 TERM_MARKDOWN_GUIDANCE = (
-    "Use concise Markdown organization with ### headings or lists when useful, organizing around meaning, mechanism, use, or examples as appropriate; "
-    "do not force a fixed template and never introduce an H1 or H2 heading inside either explanation."
+    "Use concise Markdown organization with paragraphs, lists, or ### headings when useful, organizing around meaning, mechanism, use, or examples as appropriate. "
+    "If you use H3 headings, number them sequentially within each language explanation, for example `### 1. 含义` and `### 2. 示例`; never use unnumbered headings such as `### Example`. "
+    "Do not force a fixed template and never introduce an H1 or H2 heading inside either explanation; the backend owns the outer language H2 sections."
 )
 
 
