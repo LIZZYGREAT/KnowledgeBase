@@ -54,6 +54,7 @@ class DocumentTermAnalysisStatistics(TermRequest):
     existing: int
     new: int
     skipped: int
+    invalid_candidates: int
 
 
 class DocumentTermAnalysisStateView(TermRequest):
@@ -74,6 +75,9 @@ class DocumentTermAnalysisResultView(DocumentTermAnalysisStateView):
     model: str
     analyzed_at: str
     statistics: DocumentTermAnalysisStatistics
+    warnings: list[constr(strict=True, max_length=240)] = Field(
+        default_factory=list, max_length=10
+    )
 
 
 class TermMergePreviewRequest(TermRequest):

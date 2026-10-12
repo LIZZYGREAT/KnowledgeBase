@@ -21,10 +21,15 @@ from backend.app.services.term_resolver import TermResolver
 
 
 PROMPT_VERSION = "term-detection-v3"
+MAX_ANALYSIS_WARNINGS = 10
 
 
 class TermAnalysisConflict(RuntimeError):
     """Raised when a canonical Document cannot be safely analyzed or reviewed."""
+
+
+class _InvalidDetectionCandidate(ValueError):
+    """A single model item failed a deterministic candidate-level check."""
 
 
 class TermAnalysisService:
@@ -110,33 +115,53 @@ class TermAnalysisService:
             "existing": 0,
             "new": 0,
             "skipped": 0,
+            "invalid_candidates": 0,
         }
         validated_items = []
-        for item in result.candidates:
-            normalized_name = normalize_key(item.mention)
-            if not normalized_name:
-                raise AIResponseError("Term detection mention must contain searchable text")
-            if item.mention not in body or item.context_excerpt not in body:
-                raise AIResponseError(
-                    "Term detection mention and context_excerpt must come from the canonical Document body"
+        invalid_warnings = []
+        for index, item in enumerate(result.candidates, start=1):
+            try:
+                normalized_name = normalize_key(item.mention)
+                if not normalized_name:
+                    raise _InvalidDetectionCandidate("mention 不包含可检索文本")
+                if item.mention not in body or item.context_excerpt not in body:
+                    raise _InvalidDetectionCandidate(
+                        "mention 或 context_excerpt 不在 Canonical 正文中"
+                    )
+                if item.mention not in item.context_excerpt:
+                    raise _InvalidDetectionCandidate(
+                        "context_excerpt 不包含完整 mention"
+                    )
+                if item.action == "link_existing" and item.term_id not in terms_by_id:
+                    raise _InvalidDetectionCandidate("引用了未知 Term ID")
+                registry_match = resolver.resolve(item.mention)
+                if item.action == "link_existing" and (
+                    registry_match.status == "resolved"
+                    and registry_match.entity_id != item.term_id
+                ):
+                    raise _InvalidDetectionCandidate(
+                        "Existing 关联与服务端 Term 解析结果冲突"
+                    )
+                validated_items.append((item, registry_match, normalized_name))
+            except _InvalidDetectionCandidate as error:
+                counts["invalid_candidates"] += 1
+                invalid_warnings.append(
+                    "候选 {} 已舍弃：{}。".format(index, error)
                 )
-            if item.mention not in item.context_excerpt:
-                raise AIResponseError(
-                    "Term detection context_excerpt must include its exact mention"
+
+        if result.candidates and not validated_items:
+            first_diagnostic = invalid_warnings[0] if invalid_warnings else "候选结构无效。"
+            raise AIResponseError(
+                "All Term detection candidates were discarded as invalid ({}): {}".format(
+                    counts["invalid_candidates"], first_diagnostic
                 )
-            if item.action == "link_existing" and item.term_id not in terms_by_id:
-                raise AIResponseError(
-                    "Term detection contains an unknown Term id: {}".format(item.term_id)
-                )
-            registry_match = resolver.resolve(item.mention)
-            if item.action == "link_existing" and (
-                registry_match.status == "resolved"
-                and registry_match.entity_id != item.term_id
-            ):
-                raise AIResponseError(
-                    "Term detection Existing match does not agree with server-side Term resolution"
-                )
-            validated_items.append((item, registry_match, normalized_name))
+            )
+
+        warnings = invalid_warnings[:MAX_ANALYSIS_WARNINGS]
+        if len(invalid_warnings) > MAX_ANALYSIS_WARNINGS:
+            warnings[-1] = "另有 {} 条无效候选未逐条列出。".format(
+                len(invalid_warnings) - MAX_ANALYSIS_WARNINGS + 1
+            )
 
         for item, registry_match, normalized_name in validated_items:
             resolved_term = terms_by_id.get(registry_match.entity_id or "")
@@ -222,6 +247,7 @@ class TermAnalysisService:
             **state,
             "status": "up_to_date",
             "statistics": counts,
+            "warnings": warnings,
         }
 
     def get_document_analysis_state(self, document_id: str) -> dict:

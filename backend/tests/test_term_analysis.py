@@ -116,6 +116,7 @@ async def test_canonical_document_analysis_creates_candidate_and_tracks_hash(tmp
             "existing": 0,
             "new": 1,
             "skipped": 0,
+            "invalid_candidates": 0,
         }
         candidates = repository.list_candidates("pending")
         assert len(candidates) == 1
@@ -251,7 +252,7 @@ async def test_link_existing_must_match_server_side_resolution(tmp_path):
         encoding="utf-8",
     )
     try:
-        with pytest.raises(AIResponseError, match="server-side Term resolution"):
+        with pytest.raises(AIResponseError, match="All Term detection candidates.*解析结果冲突"):
             await service.analyze_document("note-one")
         assert repository.list_candidates() == []
         assert repository.get_document_analysis_state("note-one") is None
@@ -438,10 +439,124 @@ async def test_invalid_unverifiable_ai_context_does_not_create_candidates(tmp_pa
     response = _response(context_excerpt="invented context with latent space")
     connection, repository, _, _, _, service = _service(tmp_path, response)
     try:
-        with pytest.raises(AIResponseError, match="canonical Document body"):
+        with pytest.raises(AIResponseError, match="All Term detection candidates.*Canonical 正文"):
             await service.analyze_document("note-one")
         assert repository.list_candidates() == []
         assert repository.get_document_analysis_state("note-one") is None
+    finally:
+        connection.close()
+
+
+@pytest.mark.asyncio
+async def test_analysis_discards_invalid_items_and_keeps_valid_candidates(tmp_path):
+    response = {
+        "candidates": [
+            {
+                "mention": "latent space", "action": "propose_new", "term_id": None,
+                "suggested_type": "concept", "confidence": 0.9,
+                "rationale": "Stable concept.",
+                "context_excerpt": "invented excerpt with latent space",
+            },
+            {
+                "mention": "and neural indexing", "action": "link_existing", "term_id": "unknown-term",
+                "suggested_type": None, "confidence": 0.8,
+                "rationale": "Unknown registry reference.",
+                "context_excerpt": "and neural indexing",
+            },
+            {
+                "mention": "neural indexing", "action": "link_existing", "term_id": "other-term",
+                "suggested_type": None, "confidence": 0.8,
+                "rationale": "Conflicts with the server-side match.",
+                "context_excerpt": "and neural indexing",
+            },
+            {
+                "mention": "latent space", "action": "propose_new", "term_id": None,
+                "suggested_type": "concept", "confidence": 0.91,
+                "rationale": "A stable technical concept.",
+                "context_excerpt": "covers latent space",
+            },
+            {
+                "mention": "neural indexing", "action": "link_existing", "term_id": "neural-indexing",
+                "suggested_type": None, "confidence": 0.88,
+                "rationale": "An exact existing Term.",
+                "context_excerpt": "and neural indexing",
+            },
+        ]
+    }
+    connection, repository, _, _, _, service = _service(tmp_path, response)
+    (tmp_path / "knowledge" / "terms" / "other-term.md").write_text(
+        "---\nschema_version: 1\nid: other-term\ntitle: Other Term\n"
+        "type: concept\ndepth: stub\naliases: []\n---\nA different Term.\n",
+        encoding="utf-8",
+    )
+    try:
+        result = await service.analyze_document("note-one")
+
+        assert result["statistics"] == {
+            "created_candidates": 2,
+            "reused_candidates": 0,
+            "existing": 1,
+            "new": 1,
+            "skipped": 0,
+            "invalid_candidates": 3,
+        }
+        assert len(result["warnings"]) == 3
+        assert "正文" in result["warnings"][0]
+        assert "未知 Term ID" in result["warnings"][1]
+        assert "解析结果冲突" in result["warnings"][2]
+        assert {item.display_name for item in repository.list_candidates("pending")} == {
+            "latent space", "neural indexing"
+        }
+        assert service.get_document_analysis_state("note-one")["status"] == "up_to_date"
+    finally:
+        connection.close()
+
+
+@pytest.mark.asyncio
+async def test_empty_detection_result_is_successful_and_records_analysis_state(tmp_path):
+    connection, repository, _, _, _, service = _service(tmp_path, {"candidates": []})
+    try:
+        result = await service.analyze_document("note-one")
+
+        assert result["status"] == "up_to_date"
+        assert result["statistics"] == {
+            "created_candidates": 0,
+            "reused_candidates": 0,
+            "existing": 0,
+            "new": 0,
+            "skipped": 0,
+            "invalid_candidates": 0,
+        }
+        assert result["warnings"] == []
+        assert repository.list_candidates() == []
+        assert repository.get_document_analysis_state("note-one") is not None
+    finally:
+        connection.close()
+
+
+@pytest.mark.asyncio
+async def test_analysis_warning_diagnostics_are_bounded(tmp_path):
+    invalid = {
+        "mention": "latent space", "action": "propose_new", "term_id": None,
+        "suggested_type": "concept", "confidence": 0.7,
+        "rationale": "Stable concept.",
+        "context_excerpt": "invented excerpt with latent space",
+    }
+    valid = {
+        "mention": "latent space", "action": "propose_new", "term_id": None,
+        "suggested_type": "concept", "confidence": 0.9,
+        "rationale": "Stable concept.",
+        "context_excerpt": "covers latent space",
+    }
+    connection, _, _, _, _, service = _service(
+        tmp_path, {"candidates": [invalid for _ in range(11)] + [valid]}
+    )
+    try:
+        result = await service.analyze_document("note-one")
+
+        assert result["statistics"]["invalid_candidates"] == 11
+        assert len(result["warnings"]) == 10
+        assert result["warnings"][-1] == "另有 2 条无效候选未逐条列出。"
     finally:
         connection.close()
 
