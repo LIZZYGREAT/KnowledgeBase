@@ -36,4 +36,4 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 compose stop frontend backend
-compose run --rm --no-deps --entrypoint python backend /workspace/scripts/backup.py
+compose run --rm --no-deps -T --entrypoint python backend /workspace/scripts/backup.py
