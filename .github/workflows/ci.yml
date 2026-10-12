@@ -20,6 +20,7 @@ jobs:
         run: |
           sh -n backend/entrypoint.sh
           sh -n scripts/production-backup.sh
+          bash -n scripts/kb_term_test_reset.sh
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
