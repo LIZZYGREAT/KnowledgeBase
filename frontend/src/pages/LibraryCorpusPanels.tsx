@@ -1,39 +1,123 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  analyzeDocumentTerms, type LibraryDocumentState, type LibrarySourceState,
+  analyzeDocumentTerms, getDocumentTermAnalysis, listTermCandidates,
+  type DocumentTermAnalysisState, type LibraryDocumentState, type LibrarySourceState,
 } from "../api";
 import { Chip, EmptyState } from "../ui";
-import { readList, readString, type SelectEntity } from "./PageShared";
+import { readList, readString, type Navigate, type SelectEntity } from "./PageShared";
 
-export function LibraryDocumentsPanel({ documents, onOpen, onAnalysisComplete }: { documents: LibraryDocumentState[]; onOpen: SelectEntity; onAnalysisComplete: () => void }) {
+type UncertainAnalysis = {
+  documentId: string;
+  documentTitle: string;
+  baselineKnown: boolean;
+  baselineAnalyzedAt: string | null;
+};
+
+type AnalysisVerification = {
+  status: DocumentTermAnalysisState["status"];
+  analyzedAt: string | null;
+  linkedCandidateCount: number;
+  completedAfterBaseline: boolean;
+};
+
+export function LibraryDocumentsPanel({ documents, onOpen, navigate, onAnalysisComplete }: { documents: LibraryDocumentState[]; onOpen: SelectEntity; navigate: Navigate; onAnalysisComplete: () => void }) {
   const [analysisTarget, setAnalysisTarget] = useState<LibraryDocumentState | null>(null);
   const [transferConsent, setTransferConsent] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [analysisStage, setAnalysisStage] = useState<"baseline" | "request">("baseline");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [analysisError, setAnalysisError] = useState("");
-  const [analysisNotice, setAnalysisNotice] = useState("");
+  const [analysisNotice, setAnalysisNotice] = useState<{ documentId: string; text: string } | null>(null);
+  const [uncertainAnalysis, setUncertainAnalysis] = useState<UncertainAnalysis | null>(null);
+  const [analysisVerification, setAnalysisVerification] = useState<AnalysisVerification | null>(null);
+  const [verificationBusy, setVerificationBusy] = useState(false);
+
+  useEffect(() => {
+    if (!analysisBusy) return;
+    const startedAt = Date.now();
+    setElapsedSeconds(0);
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [analysisBusy]);
+
+  async function verifyUncertainAnalysis(target: UncertainAnalysis) {
+    setVerificationBusy(true);
+    setAnalysisVerification(null);
+    try {
+      const [state, candidates] = await Promise.all([
+        getDocumentTermAnalysis(target.documentId),
+        listTermCandidates(),
+      ]);
+      const linkedCandidateCount = candidates.filter((candidate) =>
+        candidate.evidence.some((evidence) => evidence.origin_type === "document" && evidence.origin_id === target.documentId),
+      ).length;
+      setAnalysisVerification({
+        status: state.status,
+        analyzedAt: state.analyzed_at,
+        linkedCandidateCount,
+        completedAfterBaseline: Boolean(target.baselineKnown && state.analyzed_at && state.analyzed_at !== target.baselineAnalyzedAt),
+      });
+    } catch {
+      setAnalysisError("只读核查暂时失败；尚不能确认结果。请稍后重新核查，或查看 Candidates。分析请求不会自动重发。");
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
 
   async function runAnalysis() {
     if (!analysisTarget || !transferConsent || analysisBusy) return;
+    const target = analysisTarget;
     setAnalysisBusy(true);
+    setAnalysisStage("baseline");
     setAnalysisError("");
-    setAnalysisNotice("");
+    setAnalysisNotice(null);
+    setUncertainAnalysis(null);
+    setAnalysisVerification(null);
+    let uncertainty: UncertainAnalysis | null = null;
+    let baseline: DocumentTermAnalysisState | null = null;
     try {
-      const result = await analyzeDocumentTerms(analysisTarget.id);
-      setAnalysisNotice(`${analysisTarget.title}：新增 ${result.statistics.created_candidates}，复用 ${result.statistics.reused_candidates}，Existing ${result.statistics.existing}，New ${result.statistics.new}，跳过 ${result.statistics.skipped}。`);
+      baseline = await getDocumentTermAnalysis(target.id).catch(() => null);
+      setAnalysisStage("request");
+      const result = await analyzeDocumentTerms(target.id);
+      const discarded = result.statistics.invalid_candidates;
+      const warning = discarded ? `，无效证据舍弃 ${discarded}` : "";
+      const diagnostics = result.warnings.length ? ` ${result.warnings.join("；")}` : "";
+      setAnalysisNotice({
+        documentId: target.id,
+        text: `${target.title}：新增 ${result.statistics.created_candidates}，复用 ${result.statistics.reused_candidates}，Existing ${result.statistics.existing}，New ${result.statistics.new}，跳过 ${result.statistics.skipped}${warning}。${diagnostics}`,
+      });
       setAnalysisTarget(null);
       setTransferConsent(false);
       onAnalysisComplete();
     } catch (reason) {
-      setAnalysisError(reason instanceof Error ? reason.message : "Term Analysis 失败。");
+      if (isUncertainAnalysisError(reason)) {
+        uncertainty = {
+          documentId: target.id,
+          documentTitle: target.title,
+          baselineKnown: baseline !== null,
+          baselineAnalyzedAt: baseline?.analyzed_at ?? null,
+        };
+        setUncertainAnalysis(uncertainty);
+        setAnalysisError("请求连接中断，结果尚待确认。不会自动重发模型请求。");
+      } else {
+        setAnalysisError(reason instanceof Error ? reason.message : "Term Analysis 失败。");
+      }
     } finally {
       setAnalysisBusy(false);
     }
+    if (uncertainty) await verifyUncertainAnalysis(uncertainty);
+  }
+
+  function openCandidates(documentId: string) {
+    navigate(`/terms?tab=candidates&document_id=${encodeURIComponent(documentId)}`);
   }
 
   if (!documents.length) return <EmptyState title="Library 还是空的" description="发布一篇笔记后，它就会出现在这里。" />;
 
   return <div className="library-corpus-list">
-    {analysisNotice && <p className="editor-notice success-notice" role="status">{analysisNotice}</p>}
+    {analysisNotice && <div className="editor-notice success-notice" role="status"><span>{analysisNotice.text}</span><button type="button" className="text-button" onClick={() => openCandidates(analysisNotice.documentId)}>查看 Candidates</button></div>}
     {documents.map((document) => {
       const status = document.term_analysis_status;
       const statusLabel = status === "up_to_date" ? "Up to date"
@@ -48,7 +132,7 @@ export function LibraryDocumentsPanel({ documents, onOpen, onAnalysisComplete }:
         </button>
         <div className="library-record-actions">
           <button type="button" className="button button-secondary" onClick={() => onOpen("document", document.id)}>Open Workspace</button>
-          <button type="button" className="button button-primary" disabled={analysisBusy} onClick={() => { setAnalysisError(""); setTransferConsent(false); setAnalysisTarget(document); }}>Analyze Terms</button>
+          <button type="button" className="button button-primary" disabled={analysisBusy} onClick={() => { setAnalysisError(""); setTransferConsent(false); setUncertainAnalysis(null); setAnalysisVerification(null); setAnalysisTarget(document); }}>Analyze Terms</button>
         </div>
       </article>;
     })}
@@ -58,10 +142,37 @@ export function LibraryDocumentsPanel({ documents, onOpen, onAnalysisComplete }:
         <div className="term-analysis-transfer-copy"><p>本次会向 DeepSeek 发送这篇 Note 的正文和必要元数据、当前 Term Registry，以及该 Note 适用的拒绝记录，用于识别可复用概念、命名实体和阅读词汇。</p><p>不会发送其他 Notes 的全文，也不会自动把发现写入 Markdown；结果会进入 Candidates 等待审核。</p></div>
         <label className="ai-consent"><input type="checkbox" checked={transferConsent} disabled={analysisBusy} onChange={(event) => setTransferConsent(event.target.checked)} /><span>我同意将以上 Canonical Note 内容和所需 Registry 上下文发送给 DeepSeek。</span></label>
         {analysisError && <p className="error-copy" role="alert">{analysisError}</p>}
+        {analysisBusy && <div className="term-analysis-running" role="status"><strong>{analysisStage === "baseline" ? "正在准备唯一一次分析请求…" : "正在请求 DeepSeek 分析这篇 Note…"}</strong><span>已等待 {elapsedSeconds} 秒。分析可能需要一段时间，请勿重复提交。</span></div>}
+        {uncertainAnalysis && <div className="term-analysis-verification surface" role="status">
+          {verificationBusy ? <p>正在读取分析状态和这篇 Note 关联的 Candidates…</p> : analysisVerification ? <p>{analysisVerification.completedAfterBaseline && analysisVerification.status === "up_to_date"
+            ? `分析状态已更新为 Up to date（${formatAnalysisTime(analysisVerification.analyzedAt)}）；当前有 ${analysisVerification.linkedCandidateCount} 条 Candidate 关联这篇 Note。`
+            : `状态：${analysisStatusLabel(analysisVerification.status)}；当前有 ${analysisVerification.linkedCandidateCount} 条 Candidate 关联这篇 Note，尚不能确认中断的请求已完成。`}</p> : <p>等待只读状态核查。</p>}
+          <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={verificationBusy} onClick={() => void verifyUncertainAnalysis(uncertainAnalysis)}>重新核查只读状态</button><button className="button button-quiet" type="button" onClick={() => openCandidates(uncertainAnalysis.documentId)}>查看 Candidates</button></div>
+        </div>}
         <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={analysisBusy} onClick={() => setAnalysisTarget(null)}>取消</button><button className="button button-primary" type="button" disabled={analysisBusy || !transferConsent} onClick={() => void runAnalysis()}>{analysisBusy ? "Analyzing…" : "同意并分析"}</button></div>
       </section>
     </div>}
   </div>;
+}
+
+function isUncertainAnalysisError(reason: unknown): boolean {
+  if (reason instanceof TypeError) return true;
+  const status = typeof reason === "object" && reason !== null && "status" in reason
+    ? (reason as { status?: unknown }).status
+    : undefined;
+  return typeof status === "number" && (status === 408 || status >= 500);
+}
+
+function analysisStatusLabel(status: DocumentTermAnalysisState["status"]): string {
+  if (status === "up_to_date") return "Up to date";
+  if (status === "outdated") return "Outdated";
+  return "Never analyzed";
+}
+
+function formatAnalysisTime(value: string | null): string {
+  if (!value) return "时间未知";
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? value : timestamp.toLocaleString();
 }
 
 export function LibrarySourcesPanel({ sources, onOpen }: { sources: LibrarySourceState[]; onOpen: SelectEntity }) {

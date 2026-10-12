@@ -131,7 +131,9 @@ export interface DocumentTermAnalysisResult extends DocumentTermAnalysisState {
     existing: number;
     new: number;
     skipped: number;
+    invalid_candidates: number;
   };
+  warnings: string[];
 }
 
 export interface PresentationAnnotation {

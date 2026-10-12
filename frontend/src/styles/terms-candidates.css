@@ -6,7 +6,14 @@
 .term-analysis-copy > small { color: var(--text-subtle); font-size: var(--text-xs); }
 .term-analysis-copy > .term-analysis-error { color: #a84f45; }
 .term-analysis-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
-.term-analysis-dialog { width: min(620px, 100%); grid-template-rows: auto minmax(0, 1fr) auto auto; }
+.term-analysis-dialog { width: min(620px, 100%); }
+.term-analysis-dialog .ai-consent { align-items: flex-start; min-width: 0; }
+.term-analysis-dialog .ai-consent input { flex: 0 0 16px; width: 16px; height: 16px; margin: calc((1.6em - 16px) / 2) 0 0; }
+.term-analysis-dialog .ai-consent span { min-width: 0; overflow-wrap: anywhere; }
+.term-analysis-running, .term-analysis-verification { display: grid; gap: 6px; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.55; }
+.term-analysis-running strong { color: #4d7059; }
+.term-analysis-running span, .term-analysis-verification p { margin: 0; }
+.term-analysis-verification { border: 1px solid #e7ece7; border-radius: 8px; padding: 10px 12px; background: #fbfcfb; }
 .term-analysis-transfer-copy { display: grid; gap: 8px; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.6; }
 .term-analysis-transfer-copy p { margin: 0; }
 .term-candidates-panel { display: grid; gap: 14px; min-width: 0; }

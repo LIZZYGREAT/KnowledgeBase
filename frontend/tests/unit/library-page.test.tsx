@@ -10,6 +10,10 @@ describe("Library tabs and Import", () => {
     window.history.replaceState({}, "", "/library");
     vi.spyOn(api, "listLibraryDocumentStates").mockResolvedValue([]);
     vi.spyOn(api, "listLibrarySourceStates").mockResolvedValue([]);
+    vi.spyOn(api, "listTermCandidates").mockResolvedValue([]);
+    vi.spyOn(api, "getDocumentTermAnalysis").mockResolvedValue({
+      document_id: "note-one", status: "never_analyzed", analyzed_content_hash: null, prompt_version: null, provider: null, model: null, analyzed_at: null,
+    });
     vi.spyOn(api, "listImports").mockResolvedValue([]);
     vi.spyOn(api, "uploadImportFiles").mockResolvedValue({ id: "import-one", profile: "legacy", created_at: "now", items: [] });
   });
@@ -42,13 +46,16 @@ describe("Library tabs and Import", () => {
     const documentsRequest = vi.mocked(api.listLibraryDocumentStates)
       .mockResolvedValueOnce([document])
       .mockResolvedValueOnce([{ ...document, term_analysis_status: "up_to_date" }]);
-    const analysisRequest = vi.spyOn(api, "getDocumentTermAnalysis");
+    const analysisRequest = vi.spyOn(api, "getDocumentTermAnalysis").mockResolvedValue({
+      document_id: document.id, status: "never_analyzed", analyzed_content_hash: null, prompt_version: null, provider: null, model: null, analyzed_at: null,
+    });
+    const navigate = vi.fn();
     vi.spyOn(api, "analyzeDocumentTerms").mockResolvedValue({
       document_id: document.id, status: "up_to_date", analyzed_content_hash: "hash", prompt_version: "v1", provider: "deepseek", model: "model", analyzed_at: "now",
-      statistics: { created_candidates: 1, reused_candidates: 0, existing: 0, new: 1, skipped: 0 },
+      statistics: { created_candidates: 1, reused_candidates: 0, existing: 0, new: 1, skipped: 0, invalid_candidates: 0 }, warnings: [],
     });
     const user = userEvent.setup();
-    render(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} />);
+    render(<LibraryPage onOpen={vi.fn()} navigate={navigate} />);
 
     expect(await screen.findByText("Never analyzed")).toBeTruthy();
     expect(within(screen.getByRole("tab", { name: /Documents/ })).getByText("1")).toBeTruthy();
@@ -59,8 +66,72 @@ describe("Library tabs and Import", () => {
     await user.click(screen.getByRole("button", { name: "同意并分析" }));
     await waitFor(() => expect(api.analyzeDocumentTerms).toHaveBeenCalledWith(document.id));
     expect(await screen.findByText("Up to date")).toBeTruthy();
+    expect(await screen.findByText(/新增 1，复用 0/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "查看 Candidates" }));
+    expect(navigate).toHaveBeenCalledWith("/terms?tab=candidates&document_id=note-one");
     expect(documentsRequest).toHaveBeenCalledTimes(2);
-    expect(analysisRequest).not.toHaveBeenCalled();
+    expect(analysisRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the Note context after a 504, checks read-only state, and never resends analysis", async () => {
+    const document: LibraryDocumentState = { id: "note-one", title: "Note One", entity_type: "document", metadata: { type: "learning-note" }, term_analysis_status: "outdated" };
+    vi.mocked(api.listLibraryDocumentStates).mockResolvedValue([document]);
+    vi.mocked(api.getDocumentTermAnalysis)
+      .mockResolvedValueOnce({ document_id: document.id, status: "outdated", analyzed_content_hash: "old", prompt_version: "v1", provider: "deepseek", model: "model", analyzed_at: "before" })
+      .mockResolvedValue({ document_id: document.id, status: "up_to_date", analyzed_content_hash: "new", prompt_version: "v1", provider: "deepseek", model: "model", analyzed_at: "after" });
+    const candidate = {
+      id: "candidate-one", evidence: [{ origin_type: "document", origin_id: document.id }],
+    } as api.TermCandidate;
+    vi.mocked(api.listTermCandidates).mockResolvedValue([candidate]);
+    const analyze = vi.spyOn(api, "analyzeDocumentTerms").mockRejectedValue(Object.assign(new Error("Gateway Timeout"), { status: 504 }));
+    const navigate = vi.fn();
+    const user = userEvent.setup();
+    render(<LibraryPage onOpen={vi.fn()} navigate={navigate} />);
+
+    await user.click(await screen.findByRole("button", { name: "Analyze Terms" }));
+    await user.click(screen.getByLabelText("我同意将以上 Canonical Note 内容和所需 Registry 上下文发送给 DeepSeek。"));
+    await user.click(screen.getByRole("button", { name: "同意并分析" }));
+
+    expect(await screen.findByRole("dialog", { name: "分析 Canonical Note" })).toBeTruthy();
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "请求连接中断，结果尚待确认。不会自动重发模型请求。");
+    expect(await screen.findByText(/分析状态已更新为 Up to date/)).toBeTruthy();
+    expect(screen.getByText(/当前有 1 条 Candidate 关联这篇 Note/)).toBeTruthy();
+    expect(analyze).toHaveBeenCalledTimes(1);
+    expect(api.getDocumentTermAnalysis).toHaveBeenCalledTimes(2);
+    expect(api.listTermCandidates).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "重新核查只读状态" }));
+    await waitFor(() => expect(api.getDocumentTermAnalysis).toHaveBeenCalledTimes(3));
+    await user.click(screen.getByRole("button", { name: "查看 Candidates" }));
+    expect(navigate).toHaveBeenCalledWith("/terms?tab=candidates&document_id=note-one");
+    expect(analyze).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a persistent running state and prevents duplicate submission", async () => {
+    const document: LibraryDocumentState = { id: "note-one", title: "Note One", entity_type: "document", metadata: { type: "learning-note" }, term_analysis_status: "never_analyzed" };
+    vi.mocked(api.listLibraryDocumentStates).mockResolvedValue([document]);
+    vi.mocked(api.getDocumentTermAnalysis).mockResolvedValue({
+      document_id: document.id, status: "never_analyzed", analyzed_content_hash: null, prompt_version: null, provider: null, model: null, analyzed_at: null,
+    });
+    let finishAnalysis!: (value: api.DocumentTermAnalysisResult) => void;
+    const analysis = vi.spyOn(api, "analyzeDocumentTerms").mockImplementation(() => new Promise((resolve) => { finishAnalysis = resolve; }));
+    const user = userEvent.setup();
+    render(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "Analyze Terms" }));
+    await user.click(screen.getByLabelText("我同意将以上 Canonical Note 内容和所需 Registry 上下文发送给 DeepSeek。"));
+    await user.click(screen.getByRole("button", { name: "同意并分析" }));
+    expect(await screen.findByText(/正在请求 DeepSeek 分析这篇 Note/)).toBeTruthy();
+    expect(screen.getByText(/已等待 0 秒。分析可能需要一段时间，请勿重复提交。/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Analyzing…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "取消" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(analysis).toHaveBeenCalledTimes(1);
+    finishAnalysis({
+      document_id: document.id, status: "up_to_date", analyzed_content_hash: "hash", prompt_version: "v1", provider: "deepseek", model: "model", analyzed_at: "now",
+      statistics: { created_candidates: 0, reused_candidates: 0, existing: 0, new: 0, skipped: 0, invalid_candidates: 0 }, warnings: [],
+    });
+    await screen.findByText(/新增 0，复用 0/);
+    expect(analysis).toHaveBeenCalledTimes(1);
   });
 
   it("shows Source PDF extraction and discovery usability with linked Terms", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   listAllEntities,
   listLibraryDocumentStates,
@@ -24,21 +24,20 @@ type LibraryTab = "documents" | "sources" | "import";
 function useDeferredResource<T>(key: string, enabled: boolean, load: () => Promise<T>) {
   const [state, setState] = useState<{ data: T | null; error: string; loading: boolean }>({ data: null, error: "", loading: false });
   const [version, setVersion] = useState(0);
+  const completedKey = useRef("");
   useEffect(() => {
-    if (!enabled || state.data !== null) return;
+    const requestKey = `${key}:${version}`;
+    if (!enabled || completedKey.current === requestKey) return;
     let active = true;
-    setState((current) => ({ ...current, error: "", loading: true }));
+    setState((current) => ({ ...current, error: "", loading: current.data === null }));
     load()
-      .then((data) => { if (active) setState({ data, error: "", loading: false }); })
-      .catch((reason: unknown) => { if (active) setState({ data: null, error: errorMessage(reason), loading: false }); });
+      .then((data) => { if (active) { completedKey.current = requestKey; setState({ data, error: "", loading: false }); } })
+      .catch((reason: unknown) => { if (active) { completedKey.current = requestKey; setState({ data: null, error: errorMessage(reason), loading: false }); } });
     return () => { active = false; };
-  }, [enabled, key, state.data, version, load]);
+  }, [enabled, key, version, load]);
   return {
     ...state,
-    retry: () => {
-      setState((current) => ({ ...current, data: null, error: "", loading: false }));
-      setVersion((current) => current + 1);
-    },
+    retry: () => setVersion((current) => current + 1),
   };
 }
 
@@ -74,7 +73,7 @@ export function LibraryPage({ onOpen, navigate, activeTab }: { onOpen: SelectEnt
         </div>
         {selectedTab === "documents" && <label className="field-label compact-field">Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">Paper notes</option><option value="learning-note">Learning notes</option><option value="course-note">Course notes</option></select></label>}
       </div>
-      {selectedTab === "import" ? <ImportReviewPanel navigate={navigate} /> : selectedTab === "documents" ? documentResource.error ? <ErrorState message={documentResource.error} retry={documentResource.retry} /> : documentResource.loading ? <LoadingState /> : <LibraryDocumentsPanel documents={visible} onOpen={onOpen} onAnalysisComplete={documentResource.retry} /> : sourceResource.error ? <ErrorState message={sourceResource.error} retry={sourceResource.retry} /> : sourceResource.loading ? <LoadingState /> : <LibrarySourcesPanel sources={sources} onOpen={onOpen} />}
+      {selectedTab === "import" ? <ImportReviewPanel navigate={navigate} /> : selectedTab === "documents" ? documentResource.error ? <ErrorState message={documentResource.error} retry={documentResource.retry} /> : documentResource.loading ? <LoadingState /> : <LibraryDocumentsPanel documents={visible} onOpen={onOpen} navigate={navigate} onAnalysisComplete={documentResource.retry} /> : sourceResource.error ? <ErrorState message={sourceResource.error} retry={sourceResource.retry} /> : sourceResource.loading ? <LoadingState /> : <LibrarySourcesPanel sources={sources} onOpen={onOpen} />}
     </div>
   );
 }
