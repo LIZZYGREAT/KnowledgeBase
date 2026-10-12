@@ -26,7 +26,7 @@ def test_production_backup_waits_for_research_and_restarts_services(
     fake_docker.write_text(
         "#!/bin/sh\n"
         "printf '%s\\n' \"$*\" >> \"$DOCKER_CALL_LOG\"\n"
-        "if [ \"$*\" = \"compose --env-file .env -f docker-compose.production.yml run --rm --no-deps --entrypoint python backend /workspace/scripts/backup.py\" ]; then\n"
+        "if [ \"$*\" = \"compose --env-file .env -f docker-compose.production.yml run --rm --no-deps -T --entrypoint python backend /workspace/scripts/backup.py\" ]; then\n"
         "  exit \"${FAKE_DOCKER_BACKUP_EXIT:-0}\"\n"
         "fi\n",
         encoding="utf-8",
@@ -66,6 +66,6 @@ def test_production_backup_waits_for_research_and_restarts_services(
         assert call_log.read_text(encoding="utf-8").splitlines() == [
             "flock -w 2700 9",
             "compose --env-file .env -f docker-compose.production.yml stop frontend backend",
-            "compose --env-file .env -f docker-compose.production.yml run --rm --no-deps --entrypoint python backend /workspace/scripts/backup.py",
+            "compose --env-file .env -f docker-compose.production.yml run --rm --no-deps -T --entrypoint python backend /workspace/scripts/backup.py",
             "compose --env-file .env -f docker-compose.production.yml up -d backend frontend",
         ]
