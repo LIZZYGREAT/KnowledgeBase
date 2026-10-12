@@ -134,7 +134,7 @@ export function TermCandidatesPanel({
       .some((value) => value.toLocaleLowerCase().includes(query));
   });
   const duplicateGroups = Object.values(visibleCandidates.reduce<Record<string, TermCandidate[]>>((groups, candidate) => { (groups[candidate.normalized_name] ??= []).push(candidate); return groups; }, {})).filter((items) => items.length > 1);
-  const selectedOpen = candidates.filter((candidate) => candidate.status === "pending" && selected.includes(candidate.id));
+  const selectedOpen = visibleCandidates.filter((candidate) => candidate.status === "pending" && selected.includes(candidate.id));
   const openCandidateCount = candidates.filter((candidate) => candidate.status === "pending" || candidate.status === "drafting").length;
   const displayedCandidateCount = visibleCandidates.length;
 
@@ -296,7 +296,7 @@ export function TermCandidatesPanel({
       {notice && <p role="status">{notice}</p>}
 
       {!showRejected && <div className="term-candidate-batch surface">
-        <span>已选 {selectedOpen.length} 项</span>
+        <span>当前筛选已选 {selectedOpen.length} 项</span>
         <button className="button button-danger" type="button" disabled={batchBusy || !selectedOpen.length} onClick={() => askToDelete(selectedOpen)}>批量删除</button>
         <details className="term-candidate-more-actions">
           <summary className="button button-secondary">更多操作</summary>

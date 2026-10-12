@@ -333,6 +333,44 @@ describe("Terms Registry controls", () => {
     expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
   });
 
+  it("limits batch deletion to selected Candidates visible under the current filters", async () => {
+    const pdfCandidate = candidate({
+      id: "candidate-pdf",
+      normalized_name: "pdf reading phrase",
+      display_name: "PDF Reading Phrase",
+      evidence: [{
+        id: "evidence-pdf",
+        candidate_id: "candidate-pdf",
+        origin_type: "source",
+        origin_id: "source-one",
+        origin_title: "Source One",
+        origin_rejected: false,
+        mention: "PDF reading phrase",
+        context_excerpt: "A reusable phrase from the source.",
+        confidence: 0.8,
+        rationale: "A useful research term.",
+        discovered_at: "2026-01-04T00:00:00Z",
+      }],
+    });
+    api.listTermCandidates.mockResolvedValue([...candidates, pdfCandidate]);
+    render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
+
+    await screen.findByText("PDF Reading Phrase");
+    await userEvent.click(screen.getByRole("checkbox", { name: "选择候选 Adaptive Token Pruning" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "选择候选 PDF Reading Phrase" }));
+    await userEvent.click(screen.getByRole("button", { name: "Notes" }));
+
+    expect(screen.getByText("当前筛选已选 1 项")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "批量删除" }));
+    const confirmation = screen.getByRole("dialog", { name: "确认删除候选" });
+    expect(confirmation.textContent).toContain("Adaptive Token Pruning");
+    expect(confirmation.textContent).not.toContain("PDF Reading Phrase");
+    await userEvent.click(screen.getByRole("button", { name: "删除候选" }));
+
+    await waitFor(() => expect(api.deleteTermCandidate).toHaveBeenCalledTimes(1));
+    expect(api.deleteTermCandidate).toHaveBeenCalledWith("candidate-new");
+  });
+
   it("deletes a pending Candidate without recording a rejection", async () => {
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
     await screen.findByText("Adaptive Token Pruning");

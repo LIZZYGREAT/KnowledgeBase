@@ -167,10 +167,9 @@
 .term-candidate-empty-draft p { margin: 0; color: var(--text-secondary); font-size: var(--text-sm); }
 .term-candidate-current-preview > strong, .term-candidate-comparison-grid h4 { margin: 0; color: #53665a; font-size: var(--text-sm); }
 .term-candidate-current-preview .markdown-content > :first-child, .term-candidate-comparison-body .markdown-content > :first-child { margin-top: 0; }
-.term-candidate-rewrite-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 180px) auto; align-items: end; gap: 10px; }
-.term-candidate-rewrite-controls > .field-label:first-child { grid-column: 1; }
-.term-candidate-rewrite-controls > .field-label:nth-child(2) { grid-column: 2; }
-.term-candidate-rewrite-controls > .button { grid-column: 3; }
+.term-candidate-rewrite-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.term-candidate-rewrite-controls > .field-label { grid-column: 1; }
+.term-candidate-rewrite-controls > .button { grid-column: 2; }
 .term-candidate-disabled-reason { grid-column: 1 / -1; margin: 0; color: #8a6a39; font-size: var(--text-xs); line-height: 1.5; }
 .term-candidate-proposal-comparison { min-width: 0; border: 1px solid #e2e9e3; border-radius: 9px; padding: 10px 12px; background: #fbfdfb; }
 .term-candidate-proposal-comparison > summary { color: #435c4b; font-size: var(--text-sm); font-weight: 650; cursor: pointer; }
@@ -190,7 +189,7 @@
   .term-candidate-review-heading-actions .button { width: 100%; }
   .term-candidate-batch > small:last-child { margin-left: 0; max-width: none; }
   .term-candidate-rewrite-controls { grid-template-columns: minmax(0, 1fr); }
-  .term-candidate-rewrite-controls > .field-label:first-child, .term-candidate-rewrite-controls > .field-label:nth-child(2), .term-candidate-rewrite-controls > .button { grid-column: 1; }
+  .term-candidate-rewrite-controls > .field-label, .term-candidate-rewrite-controls > .button { grid-column: 1; }
   .term-candidate-rewrite-controls > .button { width: 100%; }
   .term-candidate-comparison-grid { grid-template-columns: 1fr; }
   .term-candidate-empty-draft { align-items: stretch; flex-direction: column; }
