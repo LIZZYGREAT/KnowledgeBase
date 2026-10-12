@@ -20,6 +20,7 @@ from backend.app.domain.term_runtime import (
 )
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.services.resolution import Resolution, normalize_key
+from backend.app.services.research_lock import GlobalResearchLock
 from backend.app.services.term_registry import TermRegistry
 from backend.app.services.term_resolver import TermResolver
 
@@ -48,6 +49,9 @@ class TermCandidateService:
     ):
         self.repository_root = Path(repository_root).resolve()
         self.repository = repository
+        self.discovery_lock = GlobalResearchLock(
+            self.repository_root / "runtime" / "term-discovery.lock"
+        )
         self.draft_service = draft_service
         self.git_manager = git_manager
         self.canonical_target_resolver = canonical_target_resolver
@@ -74,7 +78,14 @@ class TermCandidateService:
         return self.repository.restore_candidate(candidate_id, max_open, _utc_now())
 
     def delete_candidate(self, candidate_id: str) -> None:
-        result = self.repository.delete_candidate(candidate_id)
+        if not self.discovery_lock.try_acquire():
+            raise TermCandidateConflict(
+                "Term Discovery is running; try deleting this Candidate again when it finishes"
+            )
+        try:
+            result = self.repository.delete_candidate(candidate_id)
+        finally:
+            self.discovery_lock.release()
         if result == "missing":
             raise LookupError("Term Candidate '{}' does not exist".format(candidate_id))
         if result == "deleted":

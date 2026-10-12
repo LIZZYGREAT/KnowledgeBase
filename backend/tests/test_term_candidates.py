@@ -1,4 +1,5 @@
 import sqlite3
+from hashlib import sha256
 
 import pytest
 from fastapi import FastAPI
@@ -85,6 +86,146 @@ def test_restore_rejected_candidate_preserves_evidence_and_reject_record(tmp_pat
     assert not repository.is_rejected(candidate.normalized_name)
     record = connection.execute("SELECT reason, restored_at FROM rejected_candidates").fetchone()
     assert record["reason"] == "Not now" and record["restored_at"]
+    connection.close()
+
+
+def test_delete_candidate_invalidates_only_discovery_cache_for_its_evidence(tmp_path):
+    connection = connect_database(":memory:")
+    repository = TermCandidateRepository(connection)
+    service = TermCandidateService(tmp_path, repository)
+    external_url = "https://en.wikipedia.org/wiki/Feature_Extractor"
+    unrelated_url = "https://en.wikipedia.org/wiki/Unrelated"
+    cache_rows = {
+        ("document:note-one", "concept"),
+        ("document:note-two", "concept"),
+        ("source-one", "concept"),
+        ("external:{}".format(sha256(external_url.encode("utf-8")).hexdigest()), "concept"),
+    }
+    retained_rows = {
+        ("document:note-one", "entity"),
+        ("document:note-one", "vocabulary"),
+        ("document:note-three", "concept"),
+        ("source-one", "entity"),
+        ("source-one", "vocabulary"),
+        ("external:{}".format(sha256(external_url.encode("utf-8")).hexdigest()), "entity"),
+        ("external:{}".format(sha256(unrelated_url.encode("utf-8")).hexdigest()), "concept"),
+        ("work-one", "concept"),
+    }
+    all_rows = cache_rows | retained_rows
+    with connection:
+        connection.executemany(
+            """INSERT INTO corpus_analysis_state (
+                   source_id, text_hash, focus_hash, analysis_lane,
+                   analysis_version, analyzed_at
+               ) VALUES (?, 'text', 'focus', ?, 1, 'now')""",
+            sorted(all_rows),
+        )
+    candidate = service.create_candidate(
+        "Feature Extractor",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="document", origin_id="note-one", mention="Feature Extractor"
+            ),
+            TermCandidateEvidenceInput(
+                origin_type="document", origin_id="note-two", mention="Feature Extractor"
+            ),
+            TermCandidateEvidenceInput(
+                origin_type="source", origin_id="source-one", mention="Feature Extractor"
+            ),
+            TermCandidateEvidenceInput(
+                origin_type="external", origin_id=external_url, mention="Feature Extractor"
+            ),
+            TermCandidateEvidenceInput(
+                origin_type="research_work", origin_id="work-one", mention="Feature Extractor"
+            ),
+        ],
+    )
+
+    service.delete_candidate(candidate.id)
+
+    actual_rows = {
+        (row["source_id"], row["analysis_lane"])
+        for row in connection.execute(
+            "SELECT source_id, analysis_lane FROM corpus_analysis_state"
+        )
+    }
+    assert actual_rows == retained_rows
+    assert repository.get_candidate(candidate.id) is None
+    assert repository.get_evidence(candidate.id) == []
+    connection.close()
+
+
+def test_delete_candidate_rolls_back_if_discovery_cache_invalidation_fails(tmp_path):
+    connection = connect_database(":memory:")
+    repository = TermCandidateRepository(connection)
+    service = TermCandidateService(tmp_path, repository)
+    candidate = service.create_candidate(
+        "Feature Extractor",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="document", origin_id="note-one", mention="Feature Extractor"
+            )
+        ],
+    )
+    with connection:
+        connection.execute(
+            """INSERT INTO corpus_analysis_state (
+                   source_id, text_hash, focus_hash, analysis_lane,
+                   analysis_version, analyzed_at
+               ) VALUES ('document:note-one', 'text', 'focus', 'concept', 1, 'now')"""
+        )
+        connection.execute(
+            """CREATE TRIGGER reject_discovery_cache_delete
+               BEFORE DELETE ON corpus_analysis_state
+               BEGIN SELECT RAISE(ABORT, 'cache delete failed'); END"""
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="cache delete failed"):
+        service.delete_candidate(candidate.id)
+
+    assert repository.get_candidate(candidate.id) is not None
+    assert len(repository.get_evidence(candidate.id)) == 1
+    assert connection.execute(
+        "SELECT COUNT(*) FROM corpus_analysis_state WHERE source_id = 'document:note-one'"
+    ).fetchone()[0] == 1
+    assert not service.discovery_lock.held
+    connection.close()
+
+
+def test_delete_candidate_returns_conflict_while_discovery_lock_is_held(tmp_path):
+    connection = connect_database(":memory:")
+    repository = TermCandidateRepository(connection)
+    service = TermCandidateService(tmp_path, repository)
+    candidate = service.create_candidate(
+        "Feature Extractor",
+        "concept",
+        [
+            TermCandidateEvidenceInput(
+                origin_type="document", origin_id="note-one", mention="Feature Extractor"
+            )
+        ],
+    )
+    with connection:
+        connection.execute(
+            """INSERT INTO corpus_analysis_state (
+                   source_id, text_hash, focus_hash, analysis_lane,
+                   analysis_version, analyzed_at
+               ) VALUES ('document:note-one', 'text', 'focus', 'concept', 1, 'now')"""
+        )
+    assert service.discovery_lock.try_acquire()
+    try:
+        with pytest.raises(TermCandidateConflict, match="Term Discovery is running"):
+            service.delete_candidate(candidate.id)
+        assert repository.get_candidate(candidate.id) is not None
+        assert connection.execute(
+            "SELECT COUNT(*) FROM corpus_analysis_state "
+            "WHERE source_id = 'document:note-one' AND analysis_lane = 'concept'"
+        ).fetchone()[0] == 1
+        assert service.discovery_lock.held
+    finally:
+        service.discovery_lock.release()
     connection.close()
 
 

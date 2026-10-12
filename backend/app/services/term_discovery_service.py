@@ -28,7 +28,6 @@ from backend.app.repositories.term_discovery_repository import TermDiscoveryRepo
 from backend.app.services.ai_client import AIResponseError
 from backend.app.services.knowledge_state_service import KnowledgeStateService
 from backend.app.services.markdown_parser import parse_markdown
-from backend.app.services.research_lock import GlobalResearchLock
 from backend.app.services.resolution import normalize_key
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.term_candidate_service import (
@@ -100,9 +99,7 @@ class TermDiscoveryService:
         self.external_discovery = (
             external_discovery if external_discovery is not None else WikipediaDiscovery()
         )
-        self._lock = GlobalResearchLock(
-            self.repository_root / "runtime" / "term-discovery.lock"
-        )
+        self._lock = self.candidate_service.discovery_lock
         self.knowledge_state = knowledge_state_service or KnowledgeStateService(
             self.repository_root, repository.connection, clock
         )

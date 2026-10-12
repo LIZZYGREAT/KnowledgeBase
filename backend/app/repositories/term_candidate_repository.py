@@ -3,6 +3,7 @@
 import sqlite3
 import json
 import uuid
+from hashlib import sha256
 from typing import Optional
 
 from backend.app.domain.term_runtime import (
@@ -344,16 +345,23 @@ class TermCandidateRepository:
         return self.get_candidate(candidate_id)
 
     def delete_candidate(self, candidate_id: str) -> str:
-        """Delete a pending Candidate and retain its Discovery run history."""
+        """Delete a pending Candidate and invalidate only its Discovery cache rows."""
         with self.connection:
             row = self.connection.execute(
-                "SELECT status, draft_id FROM term_candidates WHERE id = ?",
+                "SELECT status, draft_id, suggested_type "
+                "FROM term_candidates WHERE id = ?",
                 (candidate_id,),
             ).fetchone()
             if row is None:
                 return "missing"
             if row["status"] != "pending" or row["draft_id"] is not None:
                 return row["status"]
+
+            evidence_rows = self.connection.execute(
+                "SELECT DISTINCT origin_type, origin_id "
+                "FROM term_candidate_evidence WHERE candidate_id = ?",
+                (candidate_id,),
+            ).fetchall()
 
             cursor = self.connection.execute(
                 "DELETE FROM term_candidates "
@@ -367,6 +375,20 @@ class TermCandidateRepository:
                 "WHERE candidate_id = ?",
                 (candidate_id,),
             )
+            for evidence in evidence_rows:
+                source_id = _discovery_cache_source_id(
+                    evidence["origin_type"], evidence["origin_id"]
+                )
+                lane = _discovery_cache_lane(
+                    evidence["origin_type"], row["suggested_type"]
+                )
+                if source_id is None or lane is None:
+                    continue
+                self.connection.execute(
+                    "DELETE FROM corpus_analysis_state "
+                    "WHERE source_id = ? AND analysis_lane = ?",
+                    (source_id, lane),
+                )
         return "deleted"
 
     def restore_candidate(self, candidate_id, max_open, now):
@@ -554,3 +576,25 @@ def _evidence_from_row(row: sqlite3.Row) -> TermCandidateEvidence:
     if "origin_rejected" in data:
         data["origin_rejected"] = bool(data["origin_rejected"])
     return TermCandidateEvidence.model_validate(data)
+
+
+def _discovery_cache_source_id(origin_type: str, origin_id: str) -> Optional[str]:
+    if origin_type == "document":
+        return "document:{}".format(origin_id)
+    if origin_type == "source":
+        return origin_id
+    if origin_type == "external":
+        return "external:{}".format(sha256(origin_id.encode("utf-8")).hexdigest())
+    return None
+
+
+def _discovery_cache_lane(origin_type: str, suggested_type: str) -> Optional[str]:
+    if origin_type in {"document", "external"}:
+        return suggested_type if suggested_type in {"concept", "entity"} else None
+    if origin_type == "source":
+        return (
+            suggested_type
+            if suggested_type in {"concept", "entity", "vocabulary"}
+            else None
+        )
+    return None
