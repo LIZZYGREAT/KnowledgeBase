@@ -21,6 +21,7 @@ from backend.app.services.ai_client import (
 from backend.app.services.ai_gateway import (
     AIGateway,
     TERM_DEPTH_GUIDANCE,
+    TERM_MARKDOWN_GUIDANCE,
     TASKS,
 )
 from backend.app.services.ai_proposal_service import AIProposalService
@@ -275,6 +276,8 @@ def test_term_generation_prompt_scales_to_depth_and_preserves_candidate_context(
 def test_term_generation_and_bilingual_rewrite_share_depth_guidance():
     assert TERM_DEPTH_GUIDANCE in TASKS["draft_term"].instruction
     assert TERM_DEPTH_GUIDANCE in TASKS["rewrite_term_bilingual"].instruction
+    assert TERM_MARKDOWN_GUIDANCE in TASKS["draft_term"].instruction
+    assert TERM_MARKDOWN_GUIDANCE in TASKS["rewrite_term_bilingual"].instruction
     assert "definition_zh and definition_en" in TASKS["draft_term"].instruction
     assert "Rewrite both complete Term explanations in one response" in TASKS["rewrite_term_bilingual"].instruction
     assert "definition_zh, definition_en, and rationale only" in TASKS["rewrite_term_bilingual"].instruction
