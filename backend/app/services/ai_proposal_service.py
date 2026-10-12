@@ -19,7 +19,7 @@ from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.style_linter import load_writing_standard
 from backend.app.services.taxonomy_registry import TaxonomyRegistry
 from backend.app.services.term_registry import TermRegistry
-from backend.app.services.term_language import replace_term_languages
+from backend.app.services.term_language import replace_term_language, replace_term_languages
 
 
 class AIProposalService:

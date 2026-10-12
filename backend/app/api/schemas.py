@@ -3,7 +3,7 @@
 from typing import Annotated, Any, Literal, Optional, Union
 from hashlib import sha256
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, constr, model_validator
 
 from backend.app.domain.common import NonEmptyText
 

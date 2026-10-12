@@ -419,6 +419,7 @@ def test_bilingual_term_proposal_keeps_draft_metadata_through_adoption():
     assert "AI title suggestion" not in proposed_content
     assert "AI alias suggestion" not in proposed_content
     assert "User note that must remain." in proposed_content
+    assert proposal.status == "proposed"
     assert drafts.get(draft.id).content == content
 
     proposals.apply_to_draft(proposal.id, draft, draft.revision)
@@ -481,6 +482,7 @@ def test_bilingual_rewrite_replaces_both_sections_and_preserves_nonlanguage_cont
         "definition_en": "### Meaning and mechanism\n\nAn encoder maps an input to a finite-dimensional feature vector that a classifier can consume.",
         "rationale": "Aligns the definition, mechanism, and downstream example in both languages.",
     }
+    assert proposal.status == "proposed"
     assert drafts.get(draft.id).content == content
     _, adopted = proposals.apply_to_draft(
         proposal.id, drafts.get(draft.id), draft.revision
