@@ -172,11 +172,17 @@ class LearningContextSync:
                 _migrate_legacy_pins(memory_files, status_before)
                 for removed_id in sorted(set(baselines) - set(selected)):
                     self._remove_source(memory_files, removed_id)
+                topic_index, active_topic_ids = self._updated_topic_index(
+                    memory_files, []
+                )
+                self._ensure_active_focus(memory_files, selected, active_topic_ids)
                 updates = {
                     relative: content
                     for relative, content in memory_files.items()
                     if content != self.service._read_memory(relative)
                 }
+                if topic_index is not None:
+                    updates["index.yaml"] = topic_index
                 if updates or status_before.get("state") != "no_sources" or baselines or status_before != self.service._read_status():
                     latest_status = self.service._read_status()
                     if _manual_state_signature(latest_status) != manual_signature_before:
@@ -228,6 +234,10 @@ class LearningContextSync:
                     continue
 
                 if plan["action"] == "skip":
+                    if force:
+                        # A forced reanalysis of an empty note is a complete
+                        # result too: it has no current evidence to retain.
+                        self._remove_source(memory_files, current_id)
                     pending_baselines[current_id] = self._new_baseline(
                         current_id, metadata, current_bytes, current_hash, "skipped"
                     )
@@ -240,6 +250,16 @@ class LearningContextSync:
                 outcomes = []
                 source_heading_updates = {}
                 source_summary_updates = {}
+                previous_source_headings = {}
+                if force:
+                    for entry_id, entry in self._entry_index(memory_files).items():
+                        source_headings = entry["metadata"].get("source_headings", {})
+                        headings = source_headings.get(current_id, [])
+                        if isinstance(headings, list):
+                            previous_source_headings[entry_id] = {
+                                item for item in headings if isinstance(item, str)
+                            }
+                unchanged_batch_headings = set()
                 for batch in plan["batches"]:
                     context = self._build_ai_context(
                         current_id,
@@ -268,6 +288,26 @@ class LearningContextSync:
                             source_summary_updates,
                             progressed_topic_ids,
                         )
+                    elif force:
+                        unchanged_batch_headings.update(
+                            item.get("heading", "未分节内容")
+                            for item in batch
+                            if isinstance(item, dict)
+                        )
+                if force:
+                    preserved_entry_ids = set(source_heading_updates)
+                    preserved_entry_ids.update(
+                        entry_id
+                        for entry_id, headings in previous_source_headings.items()
+                        if headings & unchanged_batch_headings
+                    )
+                    # Full reanalysis reconciles this source's contributions
+                    # only after every model batch succeeded.
+                    self._remove_source(
+                        memory_files,
+                        current_id,
+                        preserve_entry_ids=preserved_entry_ids,
+                    )
                 outcome = (
                     "knowledge_changed"
                     if "knowledge_changed" in outcomes
@@ -627,12 +667,9 @@ class LearningContextSync:
                     elif old_summary:
                         legacy_summary = old_summary
                         support_state = "needs_review"
-            if entry_id not in source_summary_updates:
-                source_summary_updates[entry_id] = change["summary"]
-            elif change["summary"] not in source_summary_updates[entry_id]:
-                source_summary_updates[entry_id] = (
-                    source_summary_updates[entry_id] + "\n\n" + change["summary"]
-                )[:2000]
+            # Upserts are complete replacements for this source's one entry,
+            # not delta fragments to concatenate across batches.
+            source_summary_updates[entry_id] = change["summary"]
             source_summaries[source_id] = source_summary_updates[entry_id]
             summary = _entry_summary(source_summaries)
             if legacy_summary:
@@ -658,10 +695,13 @@ class LearningContextSync:
             _append_entry(memory_files, relative, rendered)
             index[entry_id] = {"relative_path": relative, "metadata": entry_metadata}
 
-    def _remove_source(self, memory_files, source_id):
+    def _remove_source(self, memory_files, source_id, preserve_entry_ids=None):
+        preserve_entry_ids = set(preserve_entry_ids or ())
         for relative, content in list(memory_files.items()):
             for block in list(_entry_blocks(content)):
                 metadata = block["metadata"]
+                if metadata.get("entry_id") in preserve_entry_ids:
+                    continue
                 sources = metadata.get("source_headings", {})
                 if source_id not in sources:
                     continue
@@ -984,12 +1024,63 @@ class LearningContextSync:
                     topics.append(topic)
                     by_id[topic_id] = topic
                 topic["title"] = derived["title"]
+
+            for topic in topics:
+                topic_id = topic.get("id")
+                if not isinstance(topic_id, str):
+                    continue
+                derived = discovered.get(
+                    topic_id, {"title": topic.get("title", ""), "aliases": [], "keywords": []}
+                )
                 aliases = _merge_index_values(
                     topic.get("aliases", []),
                     [topic_id.replace("-", " "), *_TOPIC_BILINGUAL_NAMES.get(topic_id, ())],
                 )
-                keywords = _merge_index_values(
-                    topic.get("keywords", []),
+                existing_keywords = topic.get("keywords", [])
+                existing_keywords = (
+                    existing_keywords if isinstance(existing_keywords, list) else []
+                )
+                previous_derived = topic.get("derived_keywords", [])
+                previous_derived = (
+                    previous_derived if isinstance(previous_derived, list) else []
+                )
+                manual_keywords = topic.get("manual_keywords")
+                if not isinstance(manual_keywords, list):
+                    # Legacy indexes did not record keyword provenance. Preserve
+                    # their values as user-managed rather than deleting intent.
+                    previous_derived_keys = {
+                        " ".join(item.split()).casefold()
+                        for item in previous_derived
+                        if isinstance(item, str)
+                    }
+                    manual_keywords = [
+                        item
+                        for item in existing_keywords
+                        if not isinstance(item, str)
+                        or " ".join(item.split()).casefold() not in previous_derived_keys
+                    ]
+                manual_keys = {
+                    " ".join(item.split()).casefold()
+                    for item in manual_keywords
+                    if isinstance(item, str)
+                }
+                previous_derived_keys = {
+                    " ".join(item.split()).casefold()
+                    for item in previous_derived
+                    if isinstance(item, str)
+                }
+                manual_keywords = _merge_index_values(
+                    manual_keywords,
+                    [
+                        item
+                        for item in existing_keywords
+                        if isinstance(item, str)
+                        and " ".join(item.split()).casefold()
+                        not in manual_keys | previous_derived_keys
+                    ],
+                )
+                derived_keywords = _merge_index_values(
+                    [],
                     [
                         topic_id.replace("-", " "),
                         derived["title"],
@@ -998,9 +1089,17 @@ class LearningContextSync:
                         *sorted(_tokens(" ".join(derived["keywords"]))),
                     ],
                 )
-                if topic.get("aliases") != aliases or topic.get("keywords") != keywords:
+                keywords = _merge_index_values(manual_keywords, derived_keywords)
+                if (
+                    topic.get("aliases") != aliases
+                    or topic.get("keywords") != keywords
+                    or topic.get("manual_keywords") != manual_keywords
+                    or topic.get("derived_keywords") != derived_keywords
+                ):
                     topic["aliases"] = aliases
                     topic["keywords"] = keywords
+                    topic["manual_keywords"] = manual_keywords
+                    topic["derived_keywords"] = derived_keywords
 
             old_active = index.get("active_topic_ids", [])
             old_active = (

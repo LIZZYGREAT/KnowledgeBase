@@ -44,7 +44,7 @@ from backend.app.services.wikipedia_discovery import (
 )
 
 
-DISCOVERY_ANALYSIS_VERSION = 3
+DISCOVERY_ANALYSIS_VERSION = 4
 GLOBAL_OPEN_CAPACITY = 12
 MAX_SOURCES_PER_RUN = 3
 MAX_TEXT_CHARS_PER_REQUEST = 12_000
@@ -1200,6 +1200,8 @@ def _learning_context_query(
 
 
 def _learning_context_headings(learning_context: dict) -> list[str]:
+    from backend.app.services.learning_context_sync_entries import entry_blocks
+
     markdown_files = [
         learning_context.get("active", ""),
         learning_context.get("important", ""),
@@ -1209,23 +1211,65 @@ def _learning_context_headings(learning_context: dict) -> list[str]:
             if isinstance(item, dict)
         ],
     ]
+    selected_source_ids = learning_context.get("selected_source_ids")
+    selected_source_ids = (
+        {item for item in selected_source_ids if isinstance(item, str)}
+        if isinstance(selected_source_ids, list)
+        else set()
+    )
+    if not selected_source_ids:
+        return []
     headings = []
     seen = set()
     for markdown in markdown_files:
         if not isinstance(markdown, str):
             continue
-        for line in markdown.splitlines():
-            # Broad H1/H2 field headings do not establish every related term.
-            match = re.match(r"^\s{0,3}#{3,6}\s+(.+?)\s*#*\s*$", line)
-            if not match:
+        for block in entry_blocks(markdown):
+            metadata = block["metadata"]
+            if (
+                metadata.get("entry_id") == "current-learning-focus"
+                or metadata.get("support_state") in {"needs_review", "source_removed"}
+            ):
                 continue
-            title = match.group(1).strip()
-            key = _normalized_term_phrase(title)
-            if key and key not in seen:
-                headings.append(title[:200])
-                seen.add(key)
-            if len(headings) >= 40:
-                return headings
+            source_headings = metadata.get("source_headings", {})
+            if not isinstance(source_headings, dict):
+                continue
+            supported_sources = set(source_headings) & selected_source_ids
+            source_summaries = metadata.get("source_summaries")
+            if isinstance(source_summaries, dict):
+                evidence = [
+                    source_summaries[source_id]
+                    for source_id in sorted(supported_sources & set(source_summaries))
+                    if isinstance(source_summaries.get(source_id), str)
+                ]
+            else:
+                # A legacy merged summary cannot be attributed safely if any
+                # of its sources are outside the selected evidence scope.
+                if not supported_sources or set(source_headings) - selected_source_ids:
+                    continue
+                summary = metadata.get("summary", "")
+                evidence = [summary] if isinstance(summary, str) else []
+            if not supported_sources or not evidence:
+                continue
+
+            entry_headings = [metadata.get("title", "")]
+            for summary in evidence:
+                entry_headings.extend(
+                    match.group(1).strip()
+                    for line in summary.splitlines()
+                    if (
+                        match := re.match(
+                            r"^\s{0,3}#{3,6}\s+(.+?)\s*#*\s*$", line
+                        )
+                    )
+                )
+            for title in entry_headings:
+                key = _normalized_term_phrase(title)
+                if key and key not in seen:
+                    headings.append(title[:200])
+                    seen.add(key)
+                if len(headings) >= 40:
+                    return headings
     return headings
 
 
@@ -1289,42 +1333,7 @@ def _covered_by_learning_context(
     ):
         return True
 
-    source_text = "\n".join(
-        _learning_context_body_text(markdown)
-        for markdown in (
-            learning_context.get("active", ""),
-            learning_context.get("important", ""),
-            *[
-                item.get("markdown", "")
-                for item in learning_context.get("topics", [])
-                if isinstance(item, dict)
-            ],
-        )
-    )
-    return any(
-        _contains_term_phrase(source_text, variant)
-        for variant in mention_variants
-        if len(_normalized_term_phrase(variant).split()) > 1
-        or (resolver is not None and resolver.resolve(variant).status == "resolved")
-        or (mention.strip().isupper() and 2 <= len(mention.strip()) <= 8)
-    )
-
-
-def _learning_context_body_text(markdown: str) -> str:
-    if not isinstance(markdown, str):
-        return ""
-    lines = []
-    in_code = False
-    for line in markdown.splitlines():
-        if line.strip().startswith(("```", "~~~")):
-            in_code = not in_code
-            continue
-        if in_code or re.match(r"^\s{0,3}#{1,6}(?:\s|$)", line):
-            continue
-        if line.startswith("<!--"):
-            continue
-        lines.append(line)
-    return "\n".join(lines)
+    return False
 
 
 def _selected_document_scope(

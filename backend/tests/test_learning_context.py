@@ -4,6 +4,7 @@ import shutil
 import subprocess
 
 import pytest
+import yaml
 
 from backend.app.services.learning_context_service import (
     LearningContextError,
@@ -401,6 +402,144 @@ def test_sync_skips_small_wording_edits_but_analyzes_formula_and_negation_change
     negation = service.sync()
     assert negation["analyzed_count"] == 1
     assert len(gateway.calls) == 3
+
+
+def test_force_reanalysis_reconciles_source_entries_and_upserts_complete_summaries(tmp_path):
+    path = _sync_repo(tmp_path)
+    gateway = FakeLearningGateway(
+        _topic_changes_with_replay(
+            "Fact A is supported. Fact B was supported by the old note.",
+            "Fact B is supported by the old note.",
+        ),
+        _topic_change("Fact A remains supported."),
+        _topic_change("Fact A remains supported and Fact B is corrected."),
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+    _document(tmp_path, "other-note", "Other Learning Note")
+    service.set_sources(["gem-note", "other-note"])
+    topic_path = (
+        tmp_path
+        / "storage"
+        / "learning-context"
+        / "topics"
+        / "continual-learning.md"
+    )
+    topic_path.write_text(
+        topic_path.read_text(encoding="utf-8")
+        + "\n\n"
+        + render_entry(
+            {
+                "entry_id": "shared-method",
+                "owner": "auto",
+                "source_headings": {
+                    "gem-note": ["Mechanism"],
+                    "other-note": ["Optimization"],
+                },
+                "source_summaries": {
+                    "gem-note": "The old GEM note supports this shared method.",
+                    "other-note": "The other note still supports this method.",
+                },
+                "layer": "topic",
+                "topic_id": "continual-learning",
+                "topic_title": "持续学习",
+                "title": "Shared method",
+                "summary": "Both notes support this shared method.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    path.write_text(
+        path.read_text(encoding="utf-8").split("\n# ", 1)[0]
+        + "\n# GEM Learning Note\n"
+        + "\n".join(
+            "## Section {}\n\nCurrent GEM evidence {}.".format(index, index)
+            for index in range(11)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = service.sync(force=True, source_id="gem-note")
+
+    assert result["state"] == "synced"
+    assert len(gateway.calls) == 3
+    topic = service.read_topic("continual-learning")["markdown"]
+    entries = {item["metadata"]["entry_id"]: item["metadata"] for item in entry_blocks(topic)}
+    assert "gem-replay" not in entries
+    assert entries["gem-gradient-projection"]["source_summaries"]["gem-note"] == (
+        "Fact A remains supported and Fact B is corrected."
+    )
+    assert entries["shared-method"]["source_headings"] == {
+        "other-note": ["Optimization"]
+    }
+    assert entries["shared-method"]["source_summaries"] == {
+        "other-note": "The other note still supports this method."
+    }
+    assert "\n\nFact A remains supported." not in topic
+
+
+def test_failed_forced_reanalysis_keeps_previous_memory_and_baseline(tmp_path):
+    path = _sync_repo(tmp_path)
+    gateway = FakeLearningGateway(
+        _topic_change("Original supported fact."),
+        _topic_change("Uncommitted first-batch replacement."),
+        RuntimeError("provider unavailable"),
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+    context_root = tmp_path / "storage" / "learning-context"
+    topic_path = context_root / "topics" / "continual-learning.md"
+    state_path = context_root / "state.json"
+    old_memory = topic_path.read_bytes()
+    old_baseline = json.loads(state_path.read_text(encoding="utf-8"))["source_baselines"]["gem-note"]
+    path.write_text(
+        path.read_text(encoding="utf-8").split("\n# ", 1)[0]
+        + "\n# GEM Learning Note\n"
+        + "\n".join(
+            "## Section {}\n\nCurrent GEM evidence {}.".format(index, index)
+            for index in range(11)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = service.sync(force=True, source_id="gem-note")
+
+    new_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert result["state"] == "failed"
+    assert topic_path.read_bytes() == old_memory
+    assert new_state["source_baselines"]["gem-note"] == old_baseline
+
+
+def test_topic_index_rebuilds_automatic_keywords_and_keeps_manual_keywords(tmp_path):
+    _sync_repo(
+        tmp_path,
+        "## Unique Obsolete Concept\n\nA unique obsolete concept is explained here.\n",
+    )
+    gateway = FakeLearningGateway(
+        _topic_change("A unique obsolete concept is explained here.")
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+    index_path = tmp_path / "storage" / "learning-context" / "index.yaml"
+    index = yaml.safe_load(index_path.read_text(encoding="utf-8"))
+    topic = index["topics"][0]
+    topic["manual_keywords"] = ["my retained focus"]
+    topic["keywords"] = [*topic["keywords"], "my retained focus"]
+    index_path.write_text(
+        yaml.safe_dump(index, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    service.set_sources([])
+    service.sync()
+
+    refreshed = service.list_topics()[0]
+    assert "my retained focus" in refreshed["keywords"]
+    assert "unique obsolete concept" not in refreshed["keywords"]
+    assert service.get_context(focus="unique obsolete concept")["topics"] == []
 
 
 def test_large_section_diff_sends_the_changed_tail_instead_of_truncating_it(tmp_path):

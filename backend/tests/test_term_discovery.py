@@ -31,6 +31,7 @@ from backend.app.services.term_discovery_service import (
     _discovery_focus,
     _external_query,
     _covered_by_learning_context,
+    _learning_context_headings,
 )
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.term_registry import TermRegistry
@@ -1321,18 +1322,45 @@ def test_manual_terms_run_marks_fallback_when_context_sync_fails(tmp_path):
     connection.close()
 
 
-def test_learning_context_coverage_uses_specific_section_and_body_terms():
+def test_learning_context_coverage_requires_a_specific_source_supported_entry(tmp_path):
     context = {
-        "active": "# Continual Learning\n\n"
-        "## Foundations\n\n"
-        "Elastic Weight Consolidation (EWC) protects parameters that matter to earlier tasks.",
+        "active": render_entry(
+            {
+                "entry_id": "ewc-mechanism",
+                "owner": "auto",
+                "source_headings": {"gem-note": ["Mechanism"]},
+                "source_summaries": {
+                    "gem-note": "EWC protects parameters that matter to earlier tasks."
+                },
+                "layer": "topic",
+                "topic_id": "continual-learning",
+                "topic_title": "Continual Learning",
+                "title": "Elastic Weight Consolidation (EWC)",
+                "summary": "EWC protects parameters that matter to earlier tasks.",
+            }
+        ),
         "important": "",
         "topics": [],
-        "covered_term_headings": [],
+        "selected_source_ids": ["gem-note"],
     }
+    context["covered_term_headings"] = _learning_context_headings(context)
+    term_path = tmp_path / "knowledge" / "terms" / "elastic-weight-consolidation.md"
+    term_path.parent.mkdir(parents=True)
+    term_path.write_text(
+        "---\nschema_version: 1\nid: elastic-weight-consolidation\n"
+        "title: 弹性权重巩固\ntype: concept\ndepth: standard\n"
+        "aliases: [Elastic Weight Consolidation, EWC]\n"
+        "domains: []\ntopics: []\ntags: []\nsources: []\n---\n"
+        "# 弹性权重巩固\n",
+        encoding="utf-8",
+    )
+    resolver = TermResolver(TermRegistry.load(term_path.parent))
 
-    assert _covered_by_learning_context("Elastic Weight Consolidation", context)
-    assert _covered_by_learning_context("EWC", context)
+    assert _covered_by_learning_context(
+        "Elastic Weight Consolidation", context, resolver
+    )
+    assert _covered_by_learning_context("EWC", context, resolver)
+    assert _covered_by_learning_context("弹性权重巩固", context, resolver)
     assert not _covered_by_learning_context("Continual Learning", context)
     assert not _covered_by_learning_context("Replay", context)
     direction_only = {
@@ -1340,6 +1368,26 @@ def test_learning_context_coverage_uses_specific_section_and_body_terms():
         "user_direction": "希望下一步学习 Synaptic Intelligence (SI)。",
     }
     assert not _covered_by_learning_context("SI", direction_only)
+    mentioned_only = {
+        **context,
+        "active": "# Current focus\n\n## Next steps\n\n"
+        "Synaptic Intelligence (SI) is mentioned as a method to learn next.",
+    }
+    mentioned_only["covered_term_headings"] = _learning_context_headings(
+        mentioned_only
+    )
+    assert not _covered_by_learning_context("SI", mentioned_only)
+    unstructured_mention = {
+        "active": "# Current focus\n\n## Notes\n\n"
+        "Elastic Weight Consolidation (EWC) appears in this paragraph.",
+        "important": "",
+        "topics": [],
+        "selected_source_ids": ["gem-note"],
+    }
+    unstructured_mention["covered_term_headings"] = _learning_context_headings(
+        unstructured_mention
+    )
+    assert not _covered_by_learning_context("EWC", unstructured_mention)
 
 
 def test_term_discovery_api_exposes_settings_and_run_history(tmp_path):

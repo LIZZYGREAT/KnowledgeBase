@@ -222,7 +222,8 @@ TASKS = {
             "Keep active focused on the current direction; use important only for durable anchors; put note-specific knowledge in a topic. "
             "Update an existing entry only when its exact ID is supplied in existing_related_memory. Never invent source IDs, paths, or provenance. "
             "Do not rewrite unrelated memory or recommend changing the user's fixed direction because of a local correction. "
-            "Each summary must be concise and supported by the supplied after-text; a removal must identify an exact supplied related entry. "
+            "Each upsert summary is the complete current summary for that one knowledge claim, not a change fragment: preserve still-supported facts from the supplied existing summary and replace only unsupported or corrected facts. Split independent claims into separate entries instead of combining them. "
+            "During forced full reanalysis, reconcile all knowledge supported by the supplied source sections; re-emit complete upserts for still-supported existing entries and remove unsupported related entries. A no_change batch means its related existing entries remain supported by that batch. A removal must identify an exact supplied related entry. "
             "Return at most 20 changes."
         ),
         output_usage="analysis",
