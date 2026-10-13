@@ -347,6 +347,30 @@ class ResearchService:
         """Consume only the durable manual queue, using the shared pipeline and lock."""
         return self._tick(manual_only=True)
 
+    def fail_unstarted_request(self, request_id: str, message: str) -> None:
+        """Persist executor startup failure only for a still-pending request."""
+        if not self.global_lock.try_acquire():
+            return
+        try:
+            with self.work_repository.write_transaction():
+                request = self.run_request_repository.get(request_id)
+                if request is None or request.status != "pending":
+                    return
+                now = self._now().isoformat()
+                self.connection.execute(
+                    "UPDATE research_run_requests SET status = 'failed', completed_at = ? WHERE id = ? AND status = 'pending'",
+                    (now, request_id),
+                )
+                self.run_repository.create(ResearchRunRecord(
+                    id=self.id_factory(), profile_id=request.profile_id,
+                    request_id=request_id, trigger="manual", status="failed",
+                    profile_content_hash="unavailable", effective_config={},
+                    provider_summary={}, started_at=now, finished_at=now,
+                    error_summary=message,
+                ))
+        finally:
+            self.global_lock.release()
+
     def _tick(self, manual_only: bool) -> Optional[ResearchRunRecord]:
         if not self.global_lock.try_acquire():
             return None

@@ -211,8 +211,10 @@ async def lifespan(application: FastAPI):
         manual_worker = ManualResearchWorker(
             repository_root, database_path,
             lambda: connection.execute(
-                "SELECT 1 FROM research_run_requests WHERE status IN ('pending', 'claimed') LIMIT 1"
-            ).fetchone() is not None,
+                "SELECT id FROM research_run_requests WHERE status IN ('pending', 'claimed') "
+                "ORDER BY status = 'pending' DESC, created_at, id LIMIT 1"
+            ).fetchone(),
+            on_failure=lambda record, message: research_service.fail_unstarted_request(record["id"], message),
         )
         application.state.manual_research_worker = manual_worker
         manual_worker.start()

@@ -113,3 +113,38 @@ def test_worker_shutdown_terminates_executor(tmp_path, monkeypatch):
         assert process.stopped
 
     asyncio.run(exercise())
+
+
+def test_executor_start_failure_is_queryable_and_never_reclaims_active_work(tmp_path, monkeypatch):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([])
+    service, runs, _, ai = _service(tmp_path, connection, provider)
+    queued = service.queue_manual_run("continual-learning")
+    failed = asyncio.Event()
+
+    async def launch(*command):
+        raise OSError("cannot start child")
+
+    def record_failure(record, message):
+        service.fail_unstarted_request(record.id, message)
+        failed.set()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", launch)
+
+    async def exercise():
+        worker = ManualResearchWorker(tmp_path, tmp_path / "db", lambda: queued, on_failure=record_failure)
+        worker.start()
+        await asyncio.wait_for(failed.wait(), timeout=2)
+        await worker.stop()
+
+    asyncio.run(exercise())
+    assert service.run_request_repository.get(queued.id).status == "failed"
+    run = runs.list_for_profile(queued.profile_id)[0]
+    assert run.request_id == queued.id and run.status == "failed"
+    assert "无法启动" in run.error_summary
+    assert provider.calls == 0 and ai.calls == []
+    active = service.queue_manual_run("continual-learning")
+    service.run_request_repository.claim_next(service.now())
+    service.fail_unstarted_request(active.id, "must not overwrite running request")
+    assert service.run_request_repository.get(active.id).status == "claimed"
+    connection.close()

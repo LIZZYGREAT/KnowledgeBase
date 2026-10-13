@@ -7,7 +7,7 @@ import sys
 
 
 class ManualResearchWorker:
-    def __init__(self, root: Path, database: Path, has_work, interval: float = 30):
+    def __init__(self, root: Path, database: Path, has_work, interval: float = 30, on_failure=None):
         self.command = (
             sys.executable,
             str(Path(__file__).resolve().parents[3] / "tools" / "research.py"),
@@ -15,6 +15,7 @@ class ManualResearchWorker:
         )
         self.has_work = has_work
         self.interval = interval
+        self.on_failure = on_failure
         self.wakeup = asyncio.Event()
         self.wakeup.set()  # Recover persisted work at startup.
         self.task = None
@@ -33,19 +34,38 @@ class ManualResearchWorker:
             except asyncio.TimeoutError:
                 pass
             self.wakeup.clear()
+            work = None
             try:
-                if not self.has_work():
+                work = self.has_work()
+                if not work:
                     continue
-                self.process = await asyncio.create_subprocess_exec(*self.command)
+                launching = asyncio.create_task(asyncio.create_subprocess_exec(*self.command))
+                try:
+                    self.process = await asyncio.shield(launching)
+                except asyncio.CancelledError as cancelled:
+                    try:
+                        self.process = await launching
+                    except Exception:
+                        logging.getLogger(__name__).exception("Executor startup failed during shutdown")
+                    raise cancelled
                 code = await self.process.wait()
                 self.process = None
                 if code:
                     logging.getLogger(__name__).warning("Manual Research executor exited with %s", code)
+                    self._record_failure(work, "后台检索执行器启动检查失败，请查看后端日志，修复配置后重新提交检索。")
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logging.getLogger(__name__).exception("Manual Research executor could not start")
+                self._record_failure(work, "后台检索执行器无法启动，请查看后端日志后重试。")
             # Periodic retries cover lock contention and stale claims; avoid a busy loop.
+
+    def _record_failure(self, work, message):
+        if self.on_failure is not None and work:
+            try:
+                self.on_failure(work, message)
+            except Exception:
+                logging.getLogger(__name__).exception("Could not persist executor failure; coordinator will retry")
 
     async def stop(self):
         if self.task is not None:
