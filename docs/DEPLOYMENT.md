@@ -58,11 +58,16 @@ git status
 
 Use the actual paths if the deployment uses custom directories. Confirm `git status` works before starting the updated services. Do not add recursive ownership changes to startup scripts or run them automatically.
 
-### Research Agent scheduler
+### Manual Research and optional automatic scheduler
+
+Manual searches need only the running Web backend. Its lifespan coordinator starts one manual-only child executor using the container Python and `/workspace/tools/research.py manual-tick`, with its own SQLite connection. Startup and a 30-second fallback inspect durable work. The shared lock prevents overlap with external ticks and backups. Pending requests survive page closure/restart; claimed requests recover only after the existing 45-minute stale cutoff and lock acquisition. Startup failures become failed Run records. Inspect requests at `/api/research/requests/{request_id}` or `/api/research/profiles/{id}/requests`; the UI does this automatically.
+
+The systemd timer is explicitly optional. It is required for unattended scheduled Research and Term Discovery, not for manual searches. Do not install or enable it merely to make the Web search button work. Disabling AI analysis continues paper metadata discovery without DeepSeek calls or recommendations.
+
 
 The Research Agent runs one queued manual request or one due Profile per tick. The first tick is scheduled about two minutes after the timer itself becomes active; later ticks start about two minutes after the previous Research service becomes inactive. The service runtime is added to that idle interval, so this is not a fixed wall-clock two-minute cadence. The monotonic timer does not replay intervals missed while the host is shut down. Install the supplied systemd units on the host; they execute the CLI inside the production backend container and do not require a host Python environment.
 
-Before installing, set `WorkingDirectory` in `deploy/systemd/knowledgebase-research.service` to the server checkout and replace `/usr/bin/docker` with the path returned by `command -v docker` if it differs. Then install and enable the timer:
+Before installing, set `WorkingDirectory` in `deploy/systemd/knowledgebase-research.service` to the server checkout and replace `/usr/bin/docker` with the path returned by `command -v docker` if it differs. If automatic discovery is desired, install and enable the timer:
 
 ```sh
 sudo cp deploy/systemd/knowledgebase-research.service /etc/systemd/system/
@@ -72,7 +77,7 @@ sudo systemctl enable --now knowledgebase-research.timer
 systemctl list-timers knowledgebase-research.timer
 ```
 
-Validate configuration without contacting providers with `docker compose -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check`. Use `profiles` to inspect configured Profiles and `status` to review Inbox capacity, pauses, and recent Runs. A scheduled tick exits successfully when another process holds the global Research lock or when nothing is due.
+Validate configuration without contacting providers with `docker compose -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check`. Use `profiles` to inspect configured Profiles and `status` to review Inbox capacity, pauses, and recent Runs. A scheduled tick exits successfully when another process holds the global Research lock or when nothing is due. To disable unattended discovery, use `sudo systemctl disable --now knowledgebase-research.timer`; this does not stop Web manual execution. Stop the Web backend to stop its manual coordinator during maintenance.
 
 ### Safe upgrades
 
@@ -144,7 +149,7 @@ Record a read-only performance baseline without a fixed pass/fail threshold:
 python3 tools/perf_smoke.py --base-url http://127.0.0.1:8080 --repeat 5
 ```
 
-Only after all checks pass, restart the scheduler and confirm its status:
+Only after all checks pass, restore the scheduler **if it was enabled before the upgrade and automatic discovery is still desired**. If it was off, leave it off. Manual searches work in either case:
 
 ```sh
 sudo systemctl start knowledgebase-research.timer

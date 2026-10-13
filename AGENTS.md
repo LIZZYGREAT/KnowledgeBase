@@ -8,6 +8,8 @@
 - Keep deterministic parsing and linting independent of HTTP, Git, SQLite, and AI.
 - Keep `docs/private/` local and untracked. Do not copy its source specifications into commits.
 
+- Follow the single-user task and interaction boundaries in `docs/PRODUCT_PRINCIPLES.md`.
+
 ## Implementation
 
 - Read the relevant project docs and inspect the current tree and Git status before editing.

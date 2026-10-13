@@ -3,7 +3,7 @@
 ## Entities
 
 - **Document**: a complete note with type `paper-note`, `learning-note`, or `course-note`.
-- **Term**: a reusable knowledge node with type `concept` or `vocabulary`, and depth `stub`, `standard`, or `deep`.
+- **Term**: a reusable knowledge node with type `concept`, `entity`, or `vocabulary`, and depth `stub`, `standard`, or `deep`.
 - **Source**: a source record with type `paper`, `book`, `course`, `web`, or `personal`.
 - **Taxonomy**: canonical Domain, Topic, and Tag registries. Documents and Terms reference IDs; definitions and aliases live in the registries.
 
@@ -17,7 +17,7 @@ Term, Source, and Taxonomy resolvers match canonical IDs, titles, and aliases. T
 
 AI review states are `not_run`, `passed`, `needs_attention`, and `failed`. Human review states are `unreviewed`, `approved`, and `rejected`. Maintenance states are `current`, `needs_revision`, and `legacy`.
 
-Current Documents must pass the Writing Standard at Publish. Legacy Documents may publish with style warnings, but invalid frontmatter and other structural errors remain blocking. Import records style findings in its Runtime Item so the content can enter a Draft before those findings are resolved.
+The Writing Standard detects style preferences for both current and legacy Documents/Terms. Ordinary heading and empty Mermaid findings are warnings and do not block Publish. Invalid frontmatter/schema, unsafe parsing boundaries, broken references and conflicts remain blocking. Import, preflight and single/batch Publish share the backend grading; Import records findings in its Runtime Item. No existing body is silently rewritten or relabeled legacy to avoid checks.
 
 Draft conflict detection compares the canonical target file's content hash. Its Git revision remains available as history and diff context. Proposals store `base_content_hash` for the Draft working content they were generated from and become stale when that Draft content changes.
 

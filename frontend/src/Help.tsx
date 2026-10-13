@@ -13,143 +13,399 @@ interface HelpEntry {
 }
 
 const categories = [
-  { id: "research", titleZh: "论文推荐研究发现", titleEn: "论文推荐" },
-  { id: "workspace", titleZh: "查看或编辑工作区", titleEn: "查看或编辑" },
-  { id: "import", titleZh: "导入导入", titleEn: "导入" },
-  { id: "explorer", titleZh: "专题整理探索", titleEn: "专题整理" },
+  {
+    "id": "terms",
+    "titleZh": "管理术语",
+    "titleEn": "Manage terms"
+  },
+  {
+    "id": "research",
+    "titleZh": "找论文",
+    "titleEn": "Find papers"
+  },
+  {
+    "id": "workspace",
+    "titleZh": "保存与修改",
+    "titleEn": "Save and edit"
+  },
+  {
+    "id": "import",
+    "titleZh": "导入资料",
+    "titleEn": "Import material"
+  },
+  {
+    "id": "explorer",
+    "titleZh": "整理专题",
+    "titleEn": "Organize topics"
+  }
 ];
 
 const entries: HelpEntry[] = [
   {
-    id: "research-profile-focus",
-    category: "research",
-    titleZh: "研究方向与检索主题",
-    titleEn: "研究方向 and 检索主题",
-    aliases: ["研究方向", "检索主题", "研究方向", "焦点"],
-    keywords: ["research", "profile", "focus", "lens", "query", "研究", "检索词"],
-    bodyZh: "研究方向保存一个研究方向的发现设置、检索策略和知识范围。检索主题（页面中也可能标为检索主题）是其中的子主题，包含专属检索词。立即检索可针对选中的检索主题手动检索。",
-    bodyEn: "A 研究方向 stores discovery settings, search policies, and knowledge scope for one research direction. A 检索主题, also shown as a 检索主题 in some controls, is a subtopic with its own search queries. 立即检索 can target selected focuses.",
+    "id": "term-management",
+    "category": "terms",
+    "titleZh": "管理术语与双语解释",
+    "titleEn": "Manage terms and bilingual explanations",
+    "aliases": [
+      "Terms",
+      "Registry",
+      "解释深度"
+    ],
+    "keywords": [
+      "terms",
+      "registry",
+      "生成",
+      "双语",
+      "深度"
+    ],
+    "bodyZh": "术语库查看已收录内容，待处理判断新候选，发现术语挑选新内容。收录为新术语后选择基础速览、标准理解或系统深入，生成或人工编辑中英文解释，预览后点击确认收录。AI 重写、重新生成、采用或放弃建议都保留。",
+    "bodyEn": "Browse saved terms, review candidates or discover new terms. Choose an explanation depth, generate or edit Chinese and English explanations, preview them and confirm inclusion. Rewrite, regenerate, adopt and discard remain available."
   },
   {
-    id: "manual-scheduled-watermark",
-    category: "research",
-    titleZh: "立即检索、Manual 搜索与 Scheduled Watermark",
-    titleEn: "立即检索, Manual 搜索, and the Scheduled Watermark",
-    aliases: ["手动搜索", "计划搜索", "watermark", "scheduled", "manual"],
-    keywords: ["search now", "manual search", "scheduled research", "watermark", "手动", "定时", "追赶"],
-    bodyZh: "立即检索会加入一次 Manual 搜索队列；自动计划运行属于 Scheduled 论文推荐。手动搜索不会推进 Scheduled Watermark，因此不会改变自动检索下次继续的位置。",
-    bodyEn: "立即检索 queues a Manual 搜索. Automatic runs are Scheduled 论文推荐. A manual search does not advance the Scheduled Watermark, so it does not change where scheduled discovery resumes.",
+    "id": "term-candidate-actions",
+    "category": "terms",
+    "titleZh": "关联已有术语、暂时移除与不再推荐",
+    "titleEn": "Link existing terms, remove temporarily or stop recommendations",
+    "aliases": [
+      "Candidates",
+      "拒绝",
+      "删除"
+    ],
+    "keywords": [
+      "candidate",
+      "existing",
+      "reject",
+      "delete",
+      "restore",
+      "恢复"
+    ],
+    "bodyZh": "关联已有术语会建立与所选条目的关系。暂时移除只清理当前候选，之后可能再次推荐；不再推荐会记住你的选择，必要时可仅忽略某个来源。拒绝记录中可恢复候选，批量操作保留。",
+    "bodyEn": "Link a candidate to an existing term. Temporary removal clears the current candidate without rejection memory, so it can return. Stop recommendations records the decision; a source-only option and restoration are also available."
   },
   {
-    id: "pause-resume-catchup",
-    category: "research",
-    titleZh: "暂停、追赶暂停期间的内容，或从现在开始",
-    titleEn: "Pause, catch up, or resume from now",
-    aliases: ["追赶", "catch up", "from now", "不补历史", "resume", "watermark"],
-    keywords: ["pause automatic research", "resume research", "max_catchup_days", "watermark", "暂停", "补查", "跳过"],
-    bodyZh: "Pause 只暂停自动 Scheduled 论文推荐，立即检索仍可使用。选择追赶会从最早尚未完成的 Scheduled Watermark 继续，并补查暂停期间遗漏的时间窗，但最多回看配置的 max_catchup_days。选择从现在开始会把 Watermark 推进到当前时间，跳过暂停期间的窗口，之后只查新内容。",
-    bodyEn: "Pause stops scheduled 论文推荐 only; 立即检索 remains available. Catch up resumes at the earliest unfinished Scheduled Watermark and searches missed windows, subject to max_catchup_days. From now advances the Watermark to the current time, skips paused windows, and continues with new work only.",
+    "id": "research-profile-focus",
+    "category": "research",
+    "titleZh": "管理研究方向与检索主题",
+    "titleEn": "Research Profile and Research Focus",
+    "aliases": [
+      "Profile",
+      "Lens",
+      "研究方向",
+      "焦点"
+    ],
+    "keywords": [
+      "research",
+      "profile",
+      "focus",
+      "lens",
+      "query",
+      "研究",
+      "检索词"
+    ],
+    "bodyZh": "每个研究方向保存检索范围和知识关联。检索主题是其中的子方向，设置名称和检索词即可开始；较少使用的预算与筛选选项在高级设置中。",
+    "bodyEn": "A Research Profile stores discovery settings, search policies, and knowledge scope for one research direction. A Research Focus, also shown as a Lens in some controls, is a subtopic with its own search queries. Search Now can target selected focuses."
   },
   {
-    id: "candidate-actions",
-    category: "research",
-    titleZh: "待看论文、推荐理由与候选操作",
-    titleEn: "待看论文, 推荐理由, and candidate actions",
-    aliases: ["shortlist", "dismiss", "restore", "create note", "收藏", "忽略", "恢复"],
-    keywords: ["inbox", "candidate", "shortlist", "dismiss", "restore to inbox", "create note", "why this candidate", "容量"],
-    bodyZh: "待看论文保存新候选。推荐理由展示论文分析和知识关联。稍后阅读将候选留待后续阅读，并使其离开 New 待看论文容量计数；忽略将其移入历史但保留记录，恢复到待看论文会恢复成 New Candidate。创建笔记只创建可审阅的文献与笔记未发布修改；人工检查并确认保存后才进入正式版本。",
-    bodyEn: "The 待看论文 holds new candidates. 推荐理由 shows the analysis and knowledge links. 稍后阅读 keeps a paper for later and removes it from the New 待看论文 capacity count. 忽略 moves it to history while retaining the record; 恢复到待看论文 makes it a New Candidate again. 创建笔记 creates reviewable 文献 and 笔记未发布修改. They enter 正式版本 only after human review and 确认保存.",
+    "id": "manual-scheduled-watermark",
+    "category": "research",
+    "titleZh": "立即检索与自动发现",
+    "titleEn": "Search Now, Manual Search, and the Scheduled Watermark",
+    "aliases": [
+      "手动搜索",
+      "计划搜索",
+      "watermark",
+      "scheduled",
+      "manual"
+    ],
+    "keywords": [
+      "search now",
+      "manual search",
+      "scheduled research",
+      "watermark",
+      "手动",
+      "定时",
+      "追赶"
+    ],
+    "bodyZh": "点击“立即检索”后，后台会执行手动请求，即使自动定时器关闭也可使用。页面显示等待、检索中、完成或失败，完成后可查看新论文与运行详情。手动搜索不会改变自动检索的进度。",
+    "bodyEn": "Search Now queues a manual request that the Web backend executes even when the automatic timer is off. The page shows the persisted request status and links to results. Manual searches do not change automatic search progress."
   },
   {
-    id: "research-runs",
-    category: "research",
-    titleZh: "检索记录与 capacity_reached",
-    titleEn: "检索记录 and capacity_reached",
-    aliases: ["run", "manual", "scheduled", "success", "partial", "failed"],
-    keywords: ["runs", "manual", "scheduled", "success", "partial", "capacity_reached", "failed", "运行记录", "容量"],
-    bodyZh: "检索记录按次记录 manual 或 scheduled 检索及其结果。success 表示完成；partial 表示部分步骤未完成；capacity_reached 表示 New 待看论文已满并停止接收新候选；failed 表示运行失败。先通过稍后阅读、忽略或创建笔记腾出 New 待看论文名额，再继续发现。",
-    bodyEn: "检索记录 records each manual or scheduled search. success means it completed; partial means some steps did not complete; capacity_reached means the New 待看论文 is full and discovery stopped surfacing candidates; failed means the run failed. Free New 待看论文 capacity with 稍后阅读, 忽略, or 创建笔记 before continuing discovery.",
+    "id": "pause-resume-catchup",
+    "category": "research",
+    "titleZh": "暂停或恢复自动检索",
+    "titleEn": "Pause, catch up, or resume from now",
+    "aliases": [
+      "追赶",
+      "catch up",
+      "from now",
+      "不补历史",
+      "resume",
+      "watermark"
+    ],
+    "keywords": [
+      "pause automatic research",
+      "resume research",
+      "max_catchup_days",
+      "watermark",
+      "暂停",
+      "补查",
+      "跳过"
+    ],
+    "bodyZh": "暂停只影响自动检索，手动检索仍可使用。恢复时可选择补查暂停期间的内容，或从现在开始。自动定时器由服务器运维显式启用，手动检索不需要它。",
+    "bodyEn": "Pause stops scheduled Research only; Search Now remains available. Catch up resumes at the earliest unfinished Scheduled Watermark and searches missed windows, subject to max_catchup_days. From now advances the Watermark to the current time, skips paused windows, and continues with new work only."
   },
   {
-    id: "draft-canonical-history",
-    category: "workspace",
-    titleZh: "未发布修改、正式版本与 Git history",
-    titleEn: "未发布修改, 正式版本, and Git history",
-    aliases: ["正式版", "Runtime", "版本历史", "canonical"],
-    keywords: ["draft", "canonical", "runtime", "git history", "saved draft", "未发布", "保存"],
-    bodyZh: "未发布修改是 Runtime 中可继续编辑的临时版本；正式版本是正式知识源，以 Markdown 和 YAML 保存。保存未发布修改不会直接改变正式版本。每次成功确认保存都会创建 Git commit，因此已发布版本会保留在仓库历史中。",
-    bodyEn: "A 未发布修改 is a temporary editable Runtime version. 正式版本 is the published Markdown/YAML knowledge source. Saving a 未发布修改 does not change 正式版本. Each successful 确认保存 creates a Git commit, so published versions remain in repository history.",
+    "id": "candidate-actions",
+    "category": "research",
+    "titleZh": "待看论文、稍后阅读与忽略",
+    "titleEn": "Inbox, Why this candidate, and candidate actions",
+    "aliases": [
+      "shortlist",
+      "dismiss",
+      "restore",
+      "create note",
+      "收藏",
+      "忽略",
+      "恢复"
+    ],
+    "keywords": [
+      "inbox",
+      "candidate",
+      "shortlist",
+      "dismiss",
+      "restore to inbox",
+      "create note",
+      "why this candidate",
+      "容量"
+    ],
+    "bodyZh": "先查看推荐理由和相关知识。稍后阅读会把论文留到以后，并释放待看列表名额；忽略会移入历史但保留来源和决定，也可恢复。收藏文献会保存或关联文献信息；创建笔记会先打开可编辑内容，检查后保存。",
+    "bodyEn": "The Inbox holds new candidates. Why this candidate shows the analysis and knowledge links. Shortlist keeps a paper for later and removes it from the New Inbox capacity count. Dismiss moves it to history while retaining the record; Restore to Inbox makes it a New Candidate again. Create Note creates reviewable Source and Note Drafts. They enter Canonical only after human review and Publish."
   },
   {
-    id: "publish-preflight",
-    category: "workspace",
-    titleZh: "确认保存、重新检查、完整差异与丢弃未发布修改",
-    titleEn: "确认保存, recheck, full diff, and discard 未发布修改",
-    aliases: ["发布", "publisher preflight", "full diff", "重新检查", "discard"],
-    keywords: ["publish", "preflight", "diff", "canonical", "git commit", "index refresh", "discard draft", "发布", "差异"],
-    bodyZh: "发布前先运行保存服务 preflight（重新检查），查看完整差异，并处理检查问题。确认确认保存后，保存服务写入正式版本、创建 Git commit 并刷新索引。丢弃修改会丢弃未发布修改，保留当前正式版本。",
-    bodyEn: "Before publishing, run the 保存服务 preflight again, review the full diff, and resolve check findings. After you confirm 确认保存, the 保存服务 writes 正式版本, creates a Git commit, and refreshes indexes. 丢弃修改 removes unpublished changes and keeps the current 正式版本 version.",
+    "id": "research-runs",
+    "category": "research",
+    "titleZh": "检索记录与结果",
+    "titleEn": "Runs and capacity_reached",
+    "aliases": [
+      "run",
+      "manual",
+      "scheduled",
+      "success",
+      "partial",
+      "failed"
+    ],
+    "keywords": [
+      "runs",
+      "manual",
+      "scheduled",
+      "success",
+      "partial",
+      "capacity_reached",
+      "failed",
+      "运行记录",
+      "容量"
+    ],
+    "bodyZh": "检索记录显示实际检查、新增、分析和推荐数量。部分完成、零推荐、AI 关闭和失败分别说明；失败后查看原因，再手动重试。AI 关闭时仍可检索论文资料，不会向 DeepSeek 发送内容或生成推荐。技术详情保留请求次数、配置和进度依据。",
+    "bodyEn": "Runs records each manual or scheduled search. success means it completed; partial means some steps did not complete; capacity_reached means the New Inbox is full and discovery stopped surfacing candidates; failed means the run failed. Free New Inbox capacity with Shortlist, Dismiss, or Create Note before continuing discovery."
   },
   {
-    id: "ai-review-proposal",
-    category: "workspace",
-    titleZh: "AI 检查、AI 建议与采用建议",
-    titleEn: "AI 检查, AI 建议, and 采用建议",
-    aliases: ["AI 审阅", "AI 建议", "应用到草稿", "proposal"],
-    keywords: ["ai", "review", "proposal", "apply to draft", "canonical", "人工检查", "建议"],
-    bodyZh: "AI 检查和 AI 建议提供供人检查的分析或修改建议。采用建议只把建议写入当前未发布修改；它仍不是正式版本。检查未发布修改的内容和差异，再通过保存服务发布。",
-    bodyEn: "AI 检查 and AI 建议 provide analysis or suggested edits for a person to inspect. 采用建议 copies a suggestion into the current 未发布修改 only; it is still not 正式版本. 审阅 the 未发布修改 and its diff, then publish through the 保存服务.",
+    "id": "draft-canonical-history",
+    "category": "workspace",
+    "titleZh": "自动保存修改与正式收录",
+    "titleEn": "Draft, Canonical, and Git history",
+    "aliases": [
+      "正式版",
+      "Runtime",
+      "版本历史",
+      "canonical"
+    ],
+    "keywords": [
+      "draft",
+      "canonical",
+      "runtime",
+      "git history",
+      "saved draft",
+      "未发布",
+      "保存"
+    ],
+    "bodyZh": "编辑内容会自动保存，方便下次继续；自动保存修改不等于正式收录。确认保存成功后，正式 Markdown 或 YAML 才会更新，并保留 Git 版本历史。",
+    "bodyEn": "A Draft is a temporary editable Runtime version. Canonical is the published Markdown/YAML knowledge source. Saving a Draft does not change Canonical. Each successful Publish creates a Git commit, so published versions remain in repository history."
   },
   {
-    id: "workspace-editing-tools",
-    category: "workspace",
-    titleZh: "文献、Metadata、审阅、Annotation 与 Format",
-    titleEn: "文献, Metadata, 审阅, Annotation, and Format",
-    aliases: ["来源", "元数据", "标注", "格式化"],
-    keywords: ["source", "metadata", "review", "annotation", "format", "markdown", "draft"],
-    bodyZh: "文献编辑书目信息，Metadata 编辑知识条目的结构化属性，审阅展示内容检查。Annotation 是 Runtime 阅读标注，不改写 Markdown。Format 会修改未发布修改中的 Markdown 正文，因此需要检查并确认保存才能成为正式版本。",
-    bodyEn: "文献 edits bibliographic details; Metadata edits structured properties; 审阅 shows content checks. Annotation is a Runtime reading annotation and does not rewrite Markdown. Format changes the Markdown 未发布修改, so review and 确认保存 are required before it becomes 正式版本.",
+    "id": "publish-preflight",
+    "category": "workspace",
+    "titleZh": "内容检查、保存与版本冲突",
+    "titleEn": "Publish, recheck, full diff, and discard Draft",
+    "aliases": [
+      "发布",
+      "publisher preflight",
+      "full diff",
+      "重新检查",
+      "discard"
+    ],
+    "keywords": [
+      "publish",
+      "preflight",
+      "diff",
+      "canonical",
+      "git commit",
+      "index refresh",
+      "discard draft",
+      "发布",
+      "差异"
+    ],
+    "bodyZh": "保存前检查内容和差异。普通标题编号与排版只作提醒，不阻止保存；损坏的元数据、代码或公式边界、引用和版本冲突必须先修复。可查看具体问题并返回编辑；丢弃修改会恢复当前正式版本。",
+    "bodyEn": "Review your changes and save. Ordinary heading style findings are reminders; invalid metadata, parsing boundaries, references and version conflicts block saving. Discarding changes keeps the current published version."
   },
   {
-    id: "markdown-import",
-    category: "import",
-    titleZh: "Markdown 导入、Stage、审阅与未发布修改",
-    titleEn: "Markdown 导入, Stage, 审阅, and 未发布修改",
-    aliases: ["导入 Markdown", "staging", "review"],
-    keywords: ["markdown import", "stage", "review", "draft", "publish", "导入", "暂存"],
-    bodyZh: "Markdown 导入会先把导入内容放入 Stage 供检查和整理。确认识别出的知识条目后，再创建或更新未发布修改；未发布修改仍需通过检查并确认保存才进入正式版本。",
-    bodyEn: "Markdown 导入 first places imported content in Stage for review and organization. After checking the recognized knowledge items, create or update 未发布修改. 未发布修改 still require checks and 确认保存 before entering 正式版本.",
+    "id": "ai-review-proposal",
+    "category": "workspace",
+    "titleZh": "预览并采用 AI 建议",
+    "titleEn": "AI Review, Proposal, and Apply to Draft",
+    "aliases": [
+      "AI 审阅",
+      "AI 建议",
+      "应用到草稿",
+      "proposal"
+    ],
+    "keywords": [
+      "ai",
+      "review",
+      "proposal",
+      "apply to draft",
+      "canonical",
+      "人工检查",
+      "建议"
+    ],
+    "bodyZh": "AI 请求会说明发送给 DeepSeek 的内容，并保留必要授权。建议默认渲染显示，可以预览、采用或放弃。采用建议只更新当前编辑内容，确认收录或保存后才成为正式内容。",
+    "bodyEn": "AI Review and Proposal provide analysis or suggested edits for a person to inspect. Apply to Draft copies a suggestion into the current Draft only; it is still not Canonical. Review the Draft and its diff, then publish through the Publisher."
   },
   {
-    id: "pdf-import",
-    category: "import",
-    titleZh: "PDF 导入、文献未发布修改与本地 PDF",
-    titleEn: "PDF 导入, 文献未发布修改, and local PDFs",
-    aliases: ["PDF 导入", "文献未发布修改", "本地文件", "PDF 导入 ≠ 笔记"],
-    keywords: ["pdf import", "source draft", "local pdf", "publish", "note", "pdf import is not a note", "本地 PDF", "不是笔记"],
-    bodyZh: "PDF 导入关联论文信息与本地 PDF，并创建文献未发布修改。它不会自动生成笔记。检查来源信息并确认保存后，文献才进入正式版本；本地 PDF 文件不会提交到 Git。",
-    bodyEn: "PDF 导入 associates paper details with a local PDF and creates a 文献未发布修改. It does not automatically create a 笔记. 审阅 and 确认保存 the 文献 to add it to 正式版本; the local PDF file is not committed to Git.",
+    "id": "workspace-editing-tools",
+    "category": "workspace",
+    "titleZh": "查看、编辑与阅读标注",
+    "titleEn": "Source, Metadata, Review, Annotation, and Format",
+    "aliases": [
+      "来源",
+      "元数据",
+      "标注",
+      "格式化"
+    ],
+    "keywords": [
+      "source",
+      "metadata",
+      "review",
+      "annotation",
+      "format",
+      "markdown",
+      "draft"
+    ],
+    "bodyZh": "在条目页面查看内容、编辑解释或书目信息。全文 Markdown 编辑保留元数据和复杂格式；阅读标注单独保存，不改写正文。常用笔记阅读与撰写仍可在 Obsidian 完成。",
+    "bodyEn": "Source edits bibliographic details; Metadata edits structured properties; Review shows content checks. Annotation is a Runtime reading annotation and does not rewrite Markdown. Format changes the Markdown Draft, so review and Publish are required before it becomes Canonical."
   },
   {
-    id: "explorer-navigation",
-    category: "explorer",
-    titleZh: "专题、分组与文档列表",
-    titleEn: "专题, 分组, and document lists",
-    aliases: ["专题整理", "目录", "未归档", "最近阅读", "所有笔记", "未归入专题", "最近打开"],
-    keywords: ["explorer", "collection", "section", "all documents", "unfiled", "recent", "knowledge navigation", "浏览", "集合", "分区"],
-    bodyZh: "专题整理可按专题和分组浏览，也可查看所有笔记、未归入专题和最近打开。专题用于组织相关知识，分组是其中的目录分组；TOC 可跳到当前页面的标题。",
-    bodyEn: "专题整理 browses by 专题 and 分组, or shows 所有笔记, 未归入专题, and 最近打开. A 专题 organizes related knowledge; 分组 group items within it. The TOC jumps to headings on the current page.",
+    "id": "markdown-import",
+    "category": "import",
+    "titleZh": "导入 Markdown 并检查",
+    "titleEn": "Markdown Import, Stage, Review, and Draft",
+    "aliases": [
+      "导入 Markdown",
+      "staging",
+      "review"
+    ],
+    "keywords": [
+      "markdown import",
+      "stage",
+      "review",
+      "draft",
+      "publish",
+      "导入",
+      "暂存"
+    ],
+    "bodyZh": "在资料库 → 导入中上传 Markdown，先检查暂存内容与必要元数据，再打开编辑并保存。旧笔记可使用 Legacy 导入保留原正文；普通格式提醒不要求把正式笔记标成 legacy。",
+    "bodyEn": "Markdown Import first places imported content in Stage for review and organization. After checking the recognized knowledge items, create or update Drafts. Drafts still require checks and Publish before entering Canonical."
   },
   {
-    id: "explorer-actions-reading",
-    category: "explorer",
-    titleZh: "在此新建笔记、加入已有内容与 Reading Progress",
-    titleEn: "在此新建笔记, 加入已有内容, and Reading Progress",
-    aliases: ["在此新建笔记", "添加已有文档", "阅读进度", "专题整理"],
-    keywords: ["new note here", "add existing", "reading progress", "explorer", "collection", "section", "新建", "添加", "进度"],
-    bodyZh: "在专题或分组中选择在此新建笔记，可在该位置创建未发布修改。加入已有内容用于把已有知识条目加入当前组织位置。Reading Progress 会保存阅读位置，方便之后继续。",
-    bodyEn: "Use 在此新建笔记 inside a 专题 or 分组 to create a 未发布修改 at that location. 加入已有内容 places an existing knowledge item in the current organization. Reading Progress saves your reading position so you can continue later.",
+    "id": "pdf-import",
+    "category": "import",
+    "titleZh": "导入 PDF 与收藏文献",
+    "titleEn": "PDF Import, Source Draft, and local PDFs",
+    "aliases": [
+      "PDF 导入",
+      "Source Draft",
+      "本地文件",
+      "PDF Import ≠ Note"
+    ],
+    "keywords": [
+      "pdf import",
+      "source draft",
+      "local pdf",
+      "publish",
+      "note",
+      "pdf import is not a note",
+      "本地 PDF",
+      "不是笔记"
+    ],
+    "bodyZh": "PDF 导入会关联本地文件并生成待检查的文献信息，不会自动生成笔记。核对标题、作者、年份和标识后保存；本地 PDF 保存在文件存储中，不会提交到 Git。",
+    "bodyEn": "PDF Import associates paper details with a local PDF and creates a Source Draft. It does not automatically create a Note. Review and Publish the Source to add it to Canonical; the local PDF file is not committed to Git."
   },
+  {
+    "id": "explorer-navigation",
+    "category": "explorer",
+    "titleZh": "专题与专题整理",
+    "titleEn": "Topics, groups, and document lists",
+    "aliases": [
+      "Explorer",
+      "目录",
+      "未归档",
+      "最近阅读",
+      "All Documents",
+      "Unfiled",
+      "Recent",
+      "专题整理",
+      "专题"
+    ],
+    "keywords": [
+      "explorer",
+      "collection",
+      "section",
+      "all documents",
+      "unfiled",
+      "recent",
+      "knowledge navigation",
+      "浏览",
+      "集合",
+      "分区"
+    ],
+    "bodyZh": "专题把相关笔记、术语和文献引用组织在一起，例如“持续学习”。专题整理可浏览和维护目录，分组是专题内部的目录节点；也可查看全部笔记、未归入专题和最近打开。",
+    "bodyEn": "Topic organization browses by topic and group, or shows All Documents, Unfiled, and Recent. A topic organizes related knowledge references; groups arrange items within it. The table of contents jumps to headings on the current page."
+  },
+  {
+    "id": "explorer-actions-reading",
+    "category": "explorer",
+    "titleZh": "新建专题、加入内容与排序",
+    "titleEn": "Create topics, add content, and track reading",
+    "aliases": [
+      "在此新建笔记",
+      "添加已有文档",
+      "阅读进度",
+      "专题整理",
+      "专题"
+    ],
+    "keywords": [
+      "new note here",
+      "add existing",
+      "reading progress",
+      "explorer",
+      "collection",
+      "section",
+      "新建",
+      "添加",
+      "进度"
+    ],
+    "bodyZh": "在专题整理中创建专题，填写稳定的英文标识、名称和可选描述。进入编辑结构后加入已有内容或新建分组，修改顺序后确认保存。专题只保存引用，不复制原正文；可记录阅读进度方便继续。",
+    "bodyEn": "Create a topic with a stable English identifier, name and optional description. Add existing content or groups, then confirm the new order. Topics store references instead of copying source text. Reading progress saves your place."
+  }
 ];
 
 export function HelpPage() {
@@ -174,20 +430,20 @@ export function HelpPage() {
   return <div className="page-stack help-page">
     <PageHeader
       eyebrow={isChinese ? "知识库指南" : "KNOWLEDGEBASE GUIDE"}
-      title={isChinese ? "使用帮助" : "帮助"}
-      description={isChinese ? "查找论文推荐、阅读、导入与知识编辑流程的说明。" : "Find guidance for 论文推荐, reading, imports, and knowledge editing."}
-      action={<div className="help-language-switch" role="group" aria-label={isChinese ? "帮助语言" : "帮助 language"}>
+      title={isChinese ? "使用帮助" : "Help"}
+      description={isChinese ? "管理术语、找论文、保存修改、导入资料与整理专题。" : "Find guidance for Research, reading, imports, and knowledge editing."}
+      action={<div className="help-language-switch" role="group" aria-label={isChinese ? "帮助语言" : "Help language"}>
         <button type="button" aria-pressed={isChinese} onClick={() => setLanguage("zh")}>中文</button>
         <button type="button" aria-pressed={!isChinese} onClick={() => setLanguage("en")}>English</button>
       </div>}
     />
     <div className="help-controls">
       <label className="help-search-label">
-        <span>{isChinese ? "搜索帮助" : "搜索 help"}</span>
+        <span>{isChinese ? "搜索帮助" : "Search help"}</span>
         <input
           type="search"
-          aria-label={isChinese ? "搜索帮助" : "搜索 help"}
-          placeholder={isChinese ? "搜索功能、按钮或概念……" : "搜索 features, buttons, or concepts…"}
+          aria-label={isChinese ? "搜索帮助" : "Search help"}
+          placeholder={isChinese ? "搜索功能、按钮或概念……" : "Search features, buttons, or concepts…"}
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -195,7 +451,7 @@ export function HelpPage() {
           }}
         />
       </label>
-      <nav className="help-category-nav" aria-label={isChinese ? "帮助分类" : "帮助 categories"}>
+      <nav className="help-category-nav" aria-label={isChinese ? "帮助分类" : "Help categories"}>
         <button type="button" className={!activeCategory ? "is-active" : ""} aria-pressed={!activeCategory} onClick={() => setActiveCategory("")}>{isChinese ? "全部" : "All"}</button>
         {visibleCategories.map((category) => <button
           key={category.id}
@@ -218,6 +474,6 @@ export function HelpPage() {
           </article>)}</div>
         </section>;
       })}
-    </div> : <div className="help-no-results surface" role="status">{isChinese ? "没有找到相关帮助。试试搜索 watermark、发布或专题整理。" : "No matching help found. Try watermark, publish, or 专题整理."}</div>}
+    </div> : <div className="help-no-results surface" role="status">{isChinese ? "没有找到相关帮助。试试搜索术语、论文、保存或专题。" : "No matching help found. Try watermark, publish, or Explorer."}</div>}
   </div>;
 }

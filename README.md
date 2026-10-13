@@ -1,21 +1,23 @@
 # KnowledgeBase
 
-KnowledgeBase keeps canonical knowledge in Markdown and YAML. Runtime state and uploaded files live outside the canonical knowledge tree.
+KnowledgeBase is a single-user learning and research assistant. Its primary tasks are managing Terms and discovering, reviewing and collecting papers. Obsidian remains the main tool for reading and writing notes; KnowledgeBase supports their links, imports and necessary edits. Canonical knowledge stays in Markdown and YAML, while Runtime state and uploads live outside that tree.
+
+The personal-use revision adds timer-independent manual Research, clear Term review and inclusion, nonblocking style reminders, task-first Home navigation, and the display names “专题” (Collection) and “专题整理” (Explorer). Internal IDs, routes and schemas remain unchanged. See [Product principles](docs/PRODUCT_PRINCIPLES.md).
 
 This repository implements Phases 0–14: repository boundaries and canonical schemas; deterministic Markdown parsing and linting; Term, Taxonomy, and Source registries and resolvers; SQLite-backed Draft and Proposal workflows; controlled publishing and restore through Git; rebuildable search and usage indexes; staged Markdown/PDF imports; the server-side DeepSeek Gateway; the Knowledge API; the Reference Hub reader and editor; Source, Evidence, PaperSkill, and Context Export integrations; non-canonical reader annotations and Markdown formatting tools; legacy migration workflows; private production deployment and backup support; the Collection Explorer + Unified Workspace; and the Research Agent.
 
-**Phases 0–14 are implemented; Phase 13 is complete and frozen, and Phase 14 implementation is complete. GitHub Actions is the authoritative source for current CI status. Production acceptance remains pending.** Research Profiles are canonical YAML under `config/research/profiles/`; GitManager tracks that explicit root without allowlisting the whole repository.
+**Phases 0–14 and the personal-use revision are implemented and checked locally. Phase 13 remains frozen except for the explicitly scoped usability changes. GitHub Actions is the authoritative source for CI status; local checks do not assert a new CI result. Production user acceptance, real Provider/DeepSeek calls and host systemd execution remain unverified.** Research Profiles are canonical YAML under `config/research/profiles/`; GitManager tracks that explicit root without allowlisting the whole repository.
 
 ## Local setup
 
-Backend and knowledge checks:
+Backend and knowledge checks (Python 3.12 or newer):
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r backend/requirements-dev.txt
-python -m pytest -q
+python -m pytest -q backend/tests
 python tools/kb.py check
 python tools/kb.py rebuild
 python tools/research.py check --root .
@@ -45,7 +47,13 @@ Copy `.env.example` to `.env` before starting Compose. The backend mounts the re
 
 The backend API is available at `http://127.0.0.1:8000`; OpenAPI is at `/openapi.json` and the interactive schema at `/docs`. Context Export and read responses do not expose repository paths. AI requests require caller confirmation before sending Draft content and task-specific registry context to DeepSeek; AI results are stored as Proposals.
 
-Browser uploads start at Library → Import. Batch-stage local Markdown and PDFs with `python tools/kb.py import <path...> --profile legacy`. Staging does not publish Canonical content; review each staged item before creating Drafts, confirming PDF Sources, applying metadata suggestions, and publishing. Production migration and restore steps are in [Import workflow](docs/IMPORT_WORKFLOW.md) and [Deployment](docs/DEPLOYMENT.md).
+Browser uploads start at 资料库 → 导入. Batch-stage local Markdown and PDFs with `python tools/kb.py import <path...> --profile legacy`. Staging does not publish Canonical content; review each staged item before creating Drafts, confirming PDF Sources, applying metadata suggestions, and publishing. Production migration and restore steps are in [Import workflow](docs/IMPORT_WORKFLOW.md) and [Deployment](docs/DEPLOYMENT.md).
+
+## Manual and automatic discovery
+
+While the Web backend is running, 立即检索 persists a manual request and wakes a lifespan-owned executor. It uses a separate Python process and SQLite connection through `tools/research.py manual-tick`, handles only the manual queue and shares the Research lock and pipeline. Startup and a 30-second fallback check recover persisted work; claimed requests retain the existing 45-minute stale-claim condition. Executor startup failures are recorded as queryable failed Runs.
+
+The page restores requests, polls actual status and links to results and details. Automatic Research/Term discovery is optional and still requires explicitly enabling the host timer. Manual work never advances scheduled watermarks. Turning AI analysis off still permits metadata discovery without DeepSeek calls or new recommendations.
 
 ## Repository map
 
