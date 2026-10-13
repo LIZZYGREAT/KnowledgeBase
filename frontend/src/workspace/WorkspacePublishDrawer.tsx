@@ -32,7 +32,7 @@ export function WorkspacePublishDrawer({
 
   return <WorkspaceDrawer
     title="发布变更"
-    description={batch ? "检查本次关联的 Source、Document 与可选 Collection Draft，再由 Publisher 在一次 Git 提交中发布。" : "检查 Draft 与当前正式内容的差异，再由 Publisher 完成发布。"}
+    description={batch ? "检查关联的文献、笔记与专题修改，一次保存为正式版本。" : "检查编辑内容与正式版本的差异，确认后保存。"}
     wide
     onClose={onClose}
   >
@@ -64,7 +64,7 @@ export function WorkspacePublishDrawer({
           </li>
         </ul>}
         {errors.length > 0 && <ul className="preflight-errors">{errors.map(({ label, message }, index) => <li key={`${label}:${index}`}>{label}：{message}</li>)}</ul>}
-        {warnings.length > 0 && <div className="preflight-warnings"><strong>发布警告</strong><ul>{warnings.map(({ label, warning }, index) => <li key={`${label}:${index}`}>{label}：{warning}</li>)}</ul></div>}
+        {warnings.length > 0 && <details className="preflight-warnings"><summary>格式提醒（{warnings.length} 项，不影响保存）</summary><ul>{warnings.map(({ label, warning }, index) => <li key={`${label}:${index}`}>{label}：{warning}</li>)}</ul></details>}
         {!busy && items.length === 0 && <p className="subtle-copy">尚未完成检查。</p>}
       </section>
 

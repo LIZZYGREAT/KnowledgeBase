@@ -318,22 +318,13 @@ class AIProposalService:
             maintenance_status=(metadata.maintenance.status if metadata.maintenance else None),
         )
         errors = [issue for issue in issues if issue.severity == "ERROR"]
-        numbering = [issue for issue in errors if issue.code == "heading.h3_numbering"]
-        if numbering:
-            lines = ", ".join(str(issue.line) for issue in numbering[:12])
-            suffix = "" if len(numbering) <= 12 else " 等"
-            raise AIResponseError(
-                "标题格式：{} 个 H3 缺少“1. ”编号（可修正后重试）；行 {}{}。".format(
-                    len(numbering), lines, suffix
-                )
-            )
         if errors:
             details = "; ".join(
-                "{}（第 {} 行）".format(issue.code, issue.line)
+                "第 {} 行：{}（{}）".format(issue.line, issue.message, issue.code)
                 for issue in errors[:8]
             )
             raise AIResponseError(
-                "Generated Term Markdown failed Publisher structure checks: {}".format(
+                "AI 解释存在结构问题，请修改后重试：{}".format(
                     details
                 )
             )

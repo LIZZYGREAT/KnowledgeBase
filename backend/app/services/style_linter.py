@@ -65,6 +65,25 @@ _CHINESE_NUMBERED = r"^[一二三四五六七八九十百零〇两]+、\S.*$"
 _H1_NUMBERING = r"^\s*(?:\d+[.)、]|[一二三四五六七八九十百零〇两]+[、.])\s*"
 _H4_H5_NUMBERING = r"^\s*(?:\d+[.)、]|[一二三四五六七八九十百零〇两]+[、.])\s*\S"
 
+_ISSUE_LABELS = {
+    "heading.h1_count": "建议保留一个主标题。",
+    "heading.h1_numbering": "建议主标题不编号。",
+    "heading.h2_numbering": "建议二级标题使用“一、”等中文编号。",
+    "heading.h3_numbering": "建议三级标题使用“1. ”等编号。",
+    "heading.h3_dot_space": "建议三级标题编号的句点后保留一个空格。",
+    "heading.higher_numbering": "建议四、五级标题不编号。",
+    "heading.hierarchy": "建议标题层级连续，避免跳级。",
+    "heading.max_level": "标题层级超过写作偏好中的上限。",
+    "mermaid.empty": "图表块为空，可以补充图表或删除空块。",
+    "frontmatter.missing": "缺少 YAML 元数据，请在正文前补充必需字段。",
+    "frontmatter.unclosed": "YAML 元数据缺少结束分隔符 ---。",
+    "frontmatter.mapping": "YAML 元数据必须使用字段与值的格式。",
+    "math.unclosed_inline": "行内公式缺少结束的 $，请补齐公式边界。",
+    "math.unclosed_display": "公式块缺少结束的 $$，请补齐公式边界。",
+    "code_fence.unclosed": "代码块缺少结束围栏，请补齐代码边界。",
+    "wiki_link.syntax": "知识链接格式不完整，请使用 [[术语标识]] 并补齐括号。",
+}
+
 
 def load_writing_standard(path: Optional[Path] = None) -> WritingStandard:
     if path is None:
@@ -101,7 +120,7 @@ def lint_markdown(
                 issues.extend(
                     LintIssue(
                         "schema.metadata",
-                        "metadata{}: {}".format(
+                        "元数据字段{}无效：{}".format(
                             "." + ".".join(str(part) for part in detail["loc"])
                             if detail["loc"]
                             else "",
@@ -121,6 +140,14 @@ def lint_markdown(
             )
 
     issues.extend(_lint_headings(parsed, standard))
+    if entity_type == "term" or (parsed.frontmatter and _infer_entity_type(parsed.frontmatter) == "term"):
+        languages = {}
+        for heading in parsed.headings:
+            label = re.sub(r"^[一二三四五六七八九十]+、\s*", "", heading.text)
+            if heading.level == 2 and label in {"中文解释", "English Explanation"}:
+                if label in languages:
+                    issues.append(LintIssue("term.language_duplicate", "语言分节重复，请保留唯一的中文解释和英文解释分节。", heading.line))
+                languages[label] = heading.line
     if standard.mermaid.enabled:
         for block in parsed.mermaid_blocks:
             meaningful_lines = [
@@ -139,14 +166,16 @@ def lint_markdown(
     if maintenance_status is None and parsed.frontmatter is not None:
         maintenance = parsed.frontmatter.get("maintenance") or {}
         maintenance_status = maintenance.get("status") if isinstance(maintenance, dict) else None
-    if maintenance_status == "legacy":
-        issues = [
-            replace(issue, severity="WARN")
-            if issue.code.startswith("heading.") or issue.code.startswith("mermaid.")
-            else issue
-            for issue in issues
-        ]
-    return issues
+    # One policy for Import, AI, preflight, single/batch Publish and repository checks.
+    # Parsing and metadata failures retain their blocking severity.
+    return [
+        replace(
+            issue,
+            severity="WARN" if issue.code.startswith("heading.") or issue.code == "mermaid.empty" else issue.severity,
+            message=_ISSUE_LABELS.get(issue.code, issue.message),
+        )
+        for issue in issues
+    ]
 
 
 def validate_source_metadata(value):
@@ -160,7 +189,7 @@ def validate_taxonomy_registry(value):
 def _infer_entity_type(metadata: dict) -> Optional[str]:
     if metadata.get("type") in {"paper-note", "learning-note", "course-note"}:
         return "document"
-    if metadata.get("type") in {"concept", "vocabulary"}:
+    if metadata.get("type") in {"concept", "entity", "vocabulary"}:
         return "term"
     return None
 

@@ -56,6 +56,15 @@ def test_linter_reports_heading_errors_and_safe_format_fix():
     }
     safe_fix = next(issue.safe_fix for issue in issues if issue.code == "heading.h3_dot_space")
     assert safe_fix == "### 1. Missing space"
+    assert all(issue.severity == "WARN" for issue in issues if issue.code.startswith("heading."))
+
+
+def test_style_reminders_do_not_downgrade_structural_failures():
+    text = read_fixture("valid_document.md") + "\n### Example\n\n```mermaid\n```\n\n```text\nunfinished"
+    issues = lint_markdown(text, "document", STANDARD)
+    assert next(issue for issue in issues if issue.code == "heading.h3_numbering").severity == "WARN"
+    assert next(issue for issue in issues if issue.code == "mermaid.empty").severity == "WARN"
+    assert next(issue for issue in issues if issue.code == "code_fence.unclosed").severity == "ERROR"
 
 
 def test_linter_reports_unclosed_math():

@@ -1108,16 +1108,33 @@ def test_validation_failure_does_not_write_or_commit(publish_context):
     assert git.current_revision() == head
 
 
-def test_current_document_style_issues_still_block_publish(publish_context):
+@pytest.mark.parametrize("heading", ["### Example", "### 8.Example", "## Unnumbered section"])
+def test_current_document_style_issues_are_consistent_warnings(publish_context, heading):
     repository, _, drafts, _, publisher = publish_context
     git = GitManager(repository)
     target = "knowledge/documents/learning/current-style.md"
-    content = _document("current-style") + "\n## Unnumbered section\n"
+    content = _document("current-style") + "\n" + heading + "\n\nBody unchanged.\n"
     draft = _create_draft(drafts, git, "document", "current-style", content, target)
 
-    with pytest.raises(PublishValidationError, match="heading.h2_numbering"):
-        publisher.publish(draft.id, expected_revision=draft.revision)
-    assert not (repository / target).exists()
+    preflight = publisher.preflight(draft.id)
+    batch = publisher.preflight_batch([(draft.id, draft.revision)])
+    assert preflight.valid and preflight.warnings
+    assert batch[0].valid and batch[0].warnings == preflight.warnings
+    result = publisher.publish(draft.id, expected_revision=draft.revision)
+    assert result.warnings == preflight.warnings
+    assert (repository / target).read_text(encoding="utf-8") == content
+
+
+def test_batch_publish_keeps_style_warnings_and_original_body(publish_context):
+    repository, _, drafts, _, publisher = publish_context
+    git = GitManager(repository)
+    target = "knowledge/documents/learning/batch-style.md"
+    content = _document("batch-style") + "\n### Example\n\n```markdown\n### 8.Example\n```\n"
+    draft = _create_draft(drafts, git, "document", "batch-style", content, target)
+    preflight = publisher.preflight(draft.id)
+    result = publisher.publish_batch([(draft.id, draft.revision)])
+    assert result.results[0].warnings == preflight.warnings
+    assert (repository / target).read_text(encoding="utf-8") == content
 
 
 def test_legacy_document_style_issues_publish_with_warnings(publish_context):

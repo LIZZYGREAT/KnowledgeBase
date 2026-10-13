@@ -886,8 +886,8 @@ class Publisher:
         ]
         if errors:
             raise PublishValidationError(
-                "Markdown validation failed: "
-                + "; ".join("{}: {}".format(issue.code, issue.message) for issue in errors)
+                "内容检查未通过，请在编辑器修复以下问题："
+                + "; ".join("第 {} 行：{}（{}）".format(issue.line, issue.message, issue.code) for issue in errors)
             )
 
         warnings = [
@@ -919,7 +919,8 @@ class Publisher:
         )
         if references:
             raise PublishValidationError(
-                "; ".join("{}: {}".format(issue.path, issue.message) for issue in references)
+                "引用检查未通过，请核对来源、分类或知识链接："
+                + "; ".join("{} 第 {} 行：{}".format(issue.path, issue.line, issue.message) for issue in references)
             )
         return warnings
 
