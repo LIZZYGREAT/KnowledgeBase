@@ -18,6 +18,18 @@ class ResearchHistoryContext:
     approved_ids: tuple[str, ...]
     selected_note_ids: tuple[str, ...] = ()
 
+    @property
+    def progress_ids(self) -> tuple[str, ...]:
+        """Identity set for historical progress, keeping note selection explicit."""
+        return tuple(
+            sorted(
+                {
+                    *self.approved_ids,
+                    *("selected-note:" + note_id for note_id in self.selected_note_ids),
+                }
+            )
+        )
+
 
 def research_history_context(root, profile, sources, selected_note_ids=()):
     years = []
@@ -160,7 +172,7 @@ def _matches(text, phrases):
     return any(phrase.casefold() in text.casefold() for phrase in phrases)
 
 
-def historical_plan(repository, profile, query, provider, anchor, now, approved_ids=()):
+def historical_plan(repository, profile, query, provider, anchor, now, progress_ids=()):
     """One annual window per stream per Run, with an independent progress key."""
     key = "history:" + query.query_key
     state = repository.get_state(profile.id, query.lens_id, provider, key)
@@ -168,13 +180,15 @@ def historical_plan(repository, profile, query, provider, anchor, now, approved_
     checkpoint = repository.history_checkpoint(profile.id, query.lens_id, provider, key)
     start = datetime.fromisoformat(checkpoint["start"]) if checkpoint else previous or datetime(max(1000, anchor - 2), 1, 1, tzinfo=timezone.utc)
     scope = repository.history_scope(profile.id, query.lens_id, provider, key)
-    known_ids = set(scope.get("approved_ids", ()))
-    # One newly observed approval batch unlocks at most one additional year.
-    # Keep the union so removing/reapproving a known entity cannot extend forever.
+    # Migrate the old formal-approval-only checkpoint once. New checkpoints
+    # store selected notes and formal approvals together as observed progress.
+    known_ids = set(scope.get("progress_ids", scope.get("approved_ids", ())))
+    # One newly observed progress batch unlocks at most one additional year.
+    # Keep the union so removing/reselecting known knowledge cannot extend forever.
     ceiling_year = scope.get("ceiling_year", anchor + 3)
     if profile.search.history_seed_year is not None:
         ceiling_year = max(ceiling_year, profile.search.history_seed_year + 3)
-    if scope and set(approved_ids) - known_ids:
+    if scope and set(progress_ids) - known_ids:
         ceiling_year += 1
     ceiling_year = min(9999, ceiling_year)
     ceiling = min(now, datetime(ceiling_year, 1, 1, tzinfo=timezone.utc))
@@ -184,5 +198,8 @@ def historical_plan(repository, profile, query, provider, anchor, now, approved_
         query_key=key, query_text=query.text,
         slices=(ResearchSearchSlice(start, end),) if start < end else (),
         manual=False, previous_watermark=previous,
-        history_scope={"approved_ids": sorted(known_ids | set(approved_ids)), "ceiling_year": ceiling_year},
+        history_scope={
+            "progress_ids": sorted(known_ids | set(progress_ids)),
+            "ceiling_year": ceiling_year,
+        },
     )

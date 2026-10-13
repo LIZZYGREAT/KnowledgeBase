@@ -165,8 +165,9 @@ def _validate_query_lens_settings(profile, query, lens):
     expected_include_terms = (
         () if query.is_exploration else tuple(lens.include_terms)
     )
+    expected_priority = "low" if query.is_exploration else lens.priority
     if (
-        query.priority != lens.priority
+        query.priority != expected_priority
         or query.lens_title != lens.title
         or query.include_terms != expected_include_terms
         or query.exclude_terms != tuple(lens.exclude_terms)

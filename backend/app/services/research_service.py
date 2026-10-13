@@ -628,7 +628,7 @@ class ResearchService:
             profile, sync_before_search=trigger == "manual"
         )
         personalized_queries, exploration_queries = _research_query_overrides(
-            profile, learning_context
+            profile, learning_context, lens_overrides
         )
         queries = self.query_builder.build(
             profile,
@@ -837,7 +837,15 @@ class ResearchService:
                     manual_run=run.trigger == "manual",
                 )
                 if anchor is not None:
-                    history = historical_plan(self.search_repository, profile, query, provider_name, anchor, now, history_context.approved_ids)
+                    history = historical_plan(
+                        self.search_repository,
+                        profile,
+                        query,
+                        provider_name,
+                        anchor,
+                        now,
+                        history_context.progress_ids,
+                    )
                     if history.slices:
                         checkpoint = self.search_repository.history_checkpoint(history.profile_id, history.lens_id, history.provider, history.query_key)
                         streams.append(_SearchStream(
@@ -1589,7 +1597,9 @@ _MAX_PERSONALIZED_QUERIES_PER_LENS = 2
 
 
 def _research_query_overrides(
-    profile: ResearchProfile, context: dict
+    profile: ResearchProfile,
+    context: dict,
+    lens_overrides: Optional[Mapping[str, bool]] = None,
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """Build short main-direction queries and a separate explicit exploration stream."""
     preferences = context.get("preferences", {})
@@ -1664,7 +1674,12 @@ def _research_query_overrides(
     for heading, body in _learning_context_sections(context.get("important", "")):
         add_candidate(heading, body)
 
-    enabled_lenses = [lens for lens in profile.lenses if lens.enabled]
+    overrides = dict(lens_overrides or {})
+    enabled_lenses = [
+        lens
+        for lens in profile.lenses
+        if overrides.get(lens.id, lens.enabled)
+    ]
     profile_queries = {
         lens.id: {normalize_query(query) for query in lens.queries}
         for lens in enabled_lenses
@@ -1707,6 +1722,7 @@ def _research_query_overrides(
     exploration_directions = _research_context_values(
         preferences.get("exploration_directions"), 8
     )
+    exploration_lens = enabled_lenses[0] if enabled_lenses else None
     if primary_direction and exploration_directions:
         for raw_direction in exploration_directions:
             direction = _clean_research_phrase(raw_direction)
@@ -1718,28 +1734,23 @@ def _research_query_overrides(
                 )
             ):
                 continue
-            matches = []
-            for lens in enabled_lenses:
-                if _research_query_is_excluded(direction, lens.exclude_terms):
-                    continue
-                score = _research_exploration_lens_match(lens, direction)
-                if score > 0:
-                    matches.append((score, lens))
-            if not matches:
-                continue
-            best_score = max(item[0] for item in matches)
-            best = [item for item in matches if item[0] == best_score]
-            if len(best) != 1:
-                continue
-            lens = best[0][1]
-            query = _short_research_query(direction)
-            if not query or _research_query_is_excluded(
-                query, (*profile.exclude_terms, *lens.exclude_terms, *preference_exclusions)
+            if exploration_lens is None or _research_query_is_excluded(
+                direction, exploration_lens.exclude_terms
             ):
                 continue
-            if normalize_query(query) in profile_queries[lens.id]:
+            query = _short_research_query(direction)
+            if not query or _research_query_is_excluded(
+                query,
+                (
+                    *profile.exclude_terms,
+                    *exploration_lens.exclude_terms,
+                    *preference_exclusions,
+                ),
+            ):
                 continue
-            exploration[lens.id] = [query]
+            if normalize_query(query) in profile_queries[exploration_lens.id]:
+                continue
+            exploration[exploration_lens.id] = [query]
             break
 
     return personalized, exploration
@@ -1810,24 +1821,6 @@ def _research_lens_match(lens, phrase: str, evidence: str) -> tuple[int, str]:
             best_score = score
             best_anchor = anchor
     return best_score, best_anchor
-
-
-def _research_exploration_lens_match(lens, direction: str) -> int:
-    direction_normalized = normalize_query(direction)
-    phrases = [lens.title, *lens.queries, *lens.include_terms]
-    if any(
-        _contains_query_phrase(normalize_query(phrase), direction_normalized)
-        for phrase in phrases
-    ):
-        return 100 + len(_research_tokens(direction))
-    direction_tokens = set(_research_tokens(direction)) - _RESEARCH_QUERY_STOPWORDS
-    return max(
-        (
-            len(direction_tokens & (set(_research_tokens(phrase)) - _RESEARCH_QUERY_STOPWORDS)) * 8
-            for phrase in phrases
-        ),
-        default=0,
-    )
 
 
 def _research_anchor(phrase: str, evidence_tokens: set[str]) -> str:

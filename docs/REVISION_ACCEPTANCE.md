@@ -145,6 +145,12 @@ Stage A 的学习上下文、API、Terms 与 Research Run 回归共 136 项通�
 
 Python 回归使用本机 Python 3.9，而项目要求 Python 3.12；本阶段未执行真实 Provider/DeepSeek、个人资料推荐质量或生产验收。Stage B–D 与最终全量检查仍待完成。
 
+## Phase 15 第二轮修订 Stage B（2026-10-14）
+
+Research 的跨方向基础探索已通过仓库默认 Continual Learning Profile 验证：Fake Provider 收到独立、短的 RL 查询，默认 CL 查询保持原样；探索查询不携带 CL `include_terms`，并采用低优先级。筛选、分析输入和每日 `explore_basic` 准入沿用现有边界。历史进度将新选定笔记与正式批准 ID 分开记账；已建立的历史窗口每观察到一批新进度最多推进一年，笔记的审核状态和 `approved_ids` 不变，旧检查点继续读取。
+
+`python -m pytest -q backend/tests/test_research_query_builder.py backend/tests/test_research_history.py backend/tests/test_research_runs.py backend/tests/test_research_candidate.py backend/tests/test_research_analysis_service.py backend/tests/test_research_screening.py`：131 项通过。覆盖默认 CL Profile 的真实 Provider 查询文本、新选笔记推进历史窗口、探索 include terms 隔离，以及现有请求预算、水位、去重和每日准入。`python tools/research.py check --root .` 通过，1 个 Profile 和 AI 配置有效。初次在受限环境中运行配置检查时，Python 路径解析被系统拒绝；在授权检查环境重跑后通过。使用本机 Python 3.9，pytest 有 fixture loop scope 配置弃用提示；未调用真实 Provider/DeepSeek，未验证个人推荐质量或生产运行。私有修订方案未纳入提交。Stage C、D 与最终全量回归仍待完成。
+
 ## Phase 15 修订复现基线（2026-10-13）
 
 按本轮修订方案读取 GitHub Actions 实际日志：运行 `38392976076`（基线代码 `93d7165`）为 635 通过、1 失败、3 警告；更早基线运行 `38359515724` 为 605 通过、1 失败、3 警告。两次均失败于 `backend/tests/test_knowledge_api.py::test_research_profile_controls_manual_queue_runs_and_candidate_actions`：API 测试临时仓库缺少 `tools/research.py`，但真实 lifespan worker 被启动并把请求从预期的 `pending` 改为 `failed`。这是测试隔离问题，基线中已存在，不是学习上下文改动引入。

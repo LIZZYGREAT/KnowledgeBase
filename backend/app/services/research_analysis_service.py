@@ -125,6 +125,11 @@ class ResearchAnalysisService:
         learning_progress_context = self._learning_progress_input(
             work, profile, matched_lens
         )
+        matched_lens_payload = matched_lens.model_dump(mode="json")
+        if exploration_direction:
+            # Keep the carrier Lens for provenance, but do not let its topic
+            # terms screen or bias a separate foundational exploration.
+            matched_lens_payload["include_terms"] = []
         return {
             "analysis_version": RESEARCH_ANALYSIS_VERSION,
             "prompt_version": RESEARCH_ANALYSIS_PROMPT_VERSION,
@@ -141,7 +146,7 @@ class ResearchAnalysisService:
                 "breadth_policy": _breadth_policy(breadth),
                 "allowed_collection_ids": list(profile.context.collections),
             },
-            "matched_lens": matched_lens.model_dump(mode="json"),
+            "matched_lens": matched_lens_payload,
             "knowledge_context": context_pack.model_dump(mode="json"),
             "readiness_context": readiness_context,
             "learning_progress_context": learning_progress_context,

@@ -71,7 +71,7 @@ def test_new_approved_related_knowledge_unlocks_one_year_and_keeps_profile_progr
     context = research_history_context(root, unrelated, SourceRegistry(()))
     assert context.approved_ids == ()
     other_query = service.query_builder.build(unrelated)[0]
-    plan = historical_plan(repository, unrelated, other_query, "arxiv", 2017, _NOW, context.approved_ids)
+    plan = historical_plan(repository, unrelated, other_query, "arxiv", 2017, _NOW, context.progress_ids)
     assert plan.slices[0].start_at.year == 2015
     assert plan.history_scope["ceiling_year"] == 2020
     connection.close()
@@ -93,11 +93,101 @@ def test_schema18_checkpoint_resumes_and_preserves_cursor_with_new_scope(tmp_pat
     repository.save_history_checkpoint(resumed, resumed.slices[0].start_at, checkpoint["cursor"])
     repository.save_history_checkpoint(resumed, None, None)
     assert repository.history_checkpoint(profile.id, query.lens_id, "arxiv", plan.query_key) is None
-    assert repository.history_scope(profile.id, query.lens_id, "arxiv", plan.query_key)["approved_ids"] == ["document:ewc-review"]
+    assert repository.history_scope(profile.id, query.lens_id, "arxiv", plan.query_key)["progress_ids"] == ["document:ewc-review"]
     repository.complete_slice(profile.id, query.lens_id, "arxiv", plan.query_key, "2020-01-01T00:00:00+00:00", _NOW.isoformat())
     # A changed bibliographic fallback alone cannot jump an established scope.
     changed_date = historical_plan(repository, profile, query, "arxiv", 2024, _NOW, ("document:ewc-review",))
     assert changed_date.slices == ()
     assert changed_date.history_scope["ceiling_year"] == 2020
     assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+    connection.close()
+
+
+def test_new_selected_note_advances_history_ceiling_without_approval(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    service, _runs, repository, _client = _service(
+        tmp_path, connection, FakeProvider([]), profile=profile
+    )
+    root = service.repository_root
+    documents = root / "knowledge" / "documents" / "learning"
+    documents.mkdir(parents=True, exist_ok=True)
+    (documents / "gem-note.md").write_text(
+        "---\nschema_version: 1\nid: gem-note\ntitle: GEM Note\n"
+        "type: learning-note\ndomains: []\ntopics: []\ntags: []\n"
+        "sources: [paper-2017]\nreview:\n  human:\n    status: unreviewed\n---\n"
+        "Selected progress about GEM.\n",
+        encoding="utf-8",
+    )
+    sources = SourceRegistry(
+        tuple(
+            SourceMetadata(
+                schema_version=1,
+                id=source_id,
+                title=source_id,
+                type="paper",
+                year=year,
+            )
+            for source_id, year in (("paper-2017", 2017), ("paper-2020", 2020))
+        )
+    )
+
+    initial_context = research_history_context(
+        root, profile, sources, selected_note_ids=["gem-note"]
+    )
+    query = service.query_builder.build(profile)[0]
+    first = historical_plan(
+        repository,
+        profile,
+        query,
+        "arxiv",
+        initial_context.anchor_year,
+        _NOW,
+        initial_context.progress_ids,
+    )
+    assert initial_context.approved_ids == ()
+    assert first.history_scope["progress_ids"] == ["selected-note:gem-note"]
+    assert first.history_scope["ceiling_year"] == 2020
+
+    service.watermarks.mark_attempt(first, first.slices[0], _NOW)
+    repository.save_history_checkpoint(first, None, None)
+    repository.complete_slice(
+        first.profile_id,
+        first.lens_id,
+        first.provider,
+        first.query_key,
+        "2020-01-01T00:00:00+00:00",
+        _NOW.isoformat(),
+    )
+    (documents / "rl-note.md").write_text(
+        "---\nschema_version: 1\nid: rl-note\ntitle: RL Note\n"
+        "type: learning-note\ndomains: []\ntopics: []\ntags: []\n"
+        "sources: [paper-2020]\nreview:\n  human:\n    status: unreviewed\n---\n"
+        "Selected reinforcement learning progress.\n",
+        encoding="utf-8",
+    )
+    updated_context = research_history_context(
+        root, profile, sources, selected_note_ids=["gem-note", "rl-note"]
+    )
+    updated = historical_plan(
+        repository,
+        profile,
+        query,
+        "arxiv",
+        updated_context.anchor_year,
+        _NOW,
+        updated_context.progress_ids,
+    )
+
+    assert updated_context.approved_ids == ()
+    assert updated.history_scope["progress_ids"] == [
+        "selected-note:gem-note",
+        "selected-note:rl-note",
+    ]
+    assert updated.history_scope["ceiling_year"] == 2021
+    assert updated.slices[0].start_at.year == 2020
+    assert updated.slices[0].end_at.year == 2021
+    assert "status: unreviewed" in (documents / "rl-note.md").read_text(
+        encoding="utf-8"
+    )
     connection.close()

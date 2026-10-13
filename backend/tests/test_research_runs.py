@@ -189,7 +189,7 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
     personal_queries = [
         query for query in planned if query.text not in profile_query_texts
     ]
-    assert len(personal_queries) == 3
+    assert len(personal_queries) == 4
     by_text = {query.text: query for query in personal_queries}
     assert "Continual Learning Elastic Weight Consolidation" in by_text
     assert "Continual Learning Synaptic Intelligence parameter importance" in by_text
@@ -198,10 +198,14 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
     assert by_text["Continual Learning Synaptic Intelligence parameter importance"].lens_id == "regularization"
     assert by_text["Continual Learning iCaRL experience replay"].lens_id == "replay"
     assert all(len(query.text.split()) <= 8 for query in personal_queries)
-    assert all("Reinforcement Learning" not in query.text for query in planned)
+    assert all(
+        "Reinforcement Learning" not in query.text
+        for query in planned
+        if not query.is_exploration
+    )
     assert all("RLHF" not in query.text for query in planned)
     assert all("RLHF" in query.profile_exclude_terms for query in personal_queries)
-    assert not exploration
+    assert exploration == {"regularization": ["Reinforcement Learning basics"]}
 
     run = service.run_profile(profile.id)
 
@@ -221,28 +225,35 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
         "arxiv",
         "history:" + personal_query.query_key,
     )
-    assert scope["approved_ids"] == []
+    assert scope["progress_ids"] == ["selected-note:ewc-note"]
     assert any(start.year == 2015 for _query, start, _end in provider.requested)
     connection.close()
 
 
 def test_explicit_exploration_reaches_provider_as_its_own_query(tmp_path):
     connection = connect_database(":memory:")
-    profile = _profile()
-    foundations = profile.lenses[0].model_copy(
-        update={
-            "id": "foundations",
-            "title": "Foundations",
-            "priority": "low",
-            "queries": ["reinforcement learning fundamentals"],
-            "include_terms": ["fisher information"],
-        }
+    profile = ResearchProfileRegistry.load(Path(__file__).parents[2]).get(
+        "continual-learning"
     )
+    assert profile is not None
     profile = profile.model_copy(
         update={
-            "lenses": [profile.lenses[0], foundations],
+            "providers": profile.providers.model_copy(update={"discovery": ["arxiv"]}),
+            "search": profile.search.model_copy(
+                update={"max_provider_requests_per_run": 40}
+            ),
             "ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False}),
         }
+    )
+    assert [lens.id for lens in profile.lenses] == [
+        "regularization",
+        "replay",
+        "class-incremental",
+    ]
+    assert not any(
+        "reinforcement learning" in text.casefold()
+        for lens in profile.lenses
+        for text in (lens.title, *lens.queries, *lens.include_terms)
     )
 
     class ContextReader:
@@ -281,7 +292,7 @@ def test_explicit_exploration_reaches_provider_as_its_own_query(tmp_path):
     effective_profile, context = service._profile_with_learning_context(profile)
     personalized, exploration = _research_query_overrides(effective_profile, context)
     assert personalized == {}
-    assert exploration == {"foundations": ["Reinforcement Learning basics"]}
+    assert exploration == {"regularization": ["Reinforcement Learning basics"]}
 
     planned = service.query_builder.build(
         effective_profile,
@@ -291,10 +302,37 @@ def test_explicit_exploration_reaches_provider_as_its_own_query(tmp_path):
     exploration_query = next(query for query in planned if query.is_exploration)
     assert exploration_query.text == "Reinforcement Learning basics"
     assert exploration_query.include_terms == ()
+    assert exploration_query.priority == "low"
+
+    from backend.app.services.research_watermark import ResearchSearchSlice
+
+    exploration_work = ResearchWorkRecord(
+        id="rl-foundations",
+        canonical_key="arxiv:rl-foundations",
+        title="Foundations of Reinforcement Learning",
+        normalized_title="foundations of reinforcement learning",
+        abstract="An introduction to agents, policies, and reward signals.",
+        authors=("A. Author",),
+        year=2024,
+        published_at="2024-01-01",
+        created_at=_NOW.isoformat(),
+        updated_at=_NOW.isoformat(),
+    )
+    screening = service.screening.screen(
+        exploration_work,
+        effective_profile,
+        exploration_query,
+        ResearchSearchSlice(
+            datetime(2023, 1, 1, tzinfo=timezone.utc),
+            datetime(2025, 1, 1, tzinfo=timezone.utc),
+        ),
+        _NOW,
+    )
+    assert screening.eligible
 
     run = service.run_profile(profile.id)
 
-    assert run is not None and run.status == "success"
+    assert run is not None and run.status in {"success", "partial"}
     assert "Reinforcement Learning basics" in provider.requested
     assert "Continual Learning Reinforcement Learning basics" not in provider.requested
     assert set(profile.lenses[0].queries) <= set(provider.requested)

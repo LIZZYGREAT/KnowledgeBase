@@ -194,6 +194,10 @@ def test_analysis_hash_uses_semantic_input_not_runtime_budgets_and_tracks_model(
         "kind": "explicit_exploration",
         "direction": "Reinforcement Learning basics",
     }
+    assert exploration_input["matched_lens"]["include_terms"] == []
+    assert service.build_analysis_input(work, profile, lens, pack)["matched_lens"][
+        "include_terms"
+    ] == ["fisher information"]
     assert service.input_hash(
         work,
         profile,

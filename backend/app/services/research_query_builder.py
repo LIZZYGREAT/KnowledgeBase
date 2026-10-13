@@ -108,7 +108,7 @@ class ResearchQueryBuilder:
                         text=text.strip(),
                         normalized_text=normalized_text,
                         query_key=query_key,
-                        priority=lens.priority,
+                        priority="low" if is_exploration else lens.priority,
                         include_terms=(
                             () if is_exploration else tuple(lens.include_terms)
                         ),
