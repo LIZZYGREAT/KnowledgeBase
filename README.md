@@ -8,6 +8,20 @@ This repository implements Phases 0–14: repository boundaries and canonical sc
 
 **Phases 0–14 and the personal-use revision are implemented and checked locally. Phase 13 remains frozen except for the explicitly scoped usability changes. GitHub Actions is the authoritative source for CI status; local checks do not assert a new CI result. Production user acceptance, real Provider/DeepSeek calls and host systemd execution remain unverified.** Research Profiles are canonical YAML under `config/research/profiles/`; GitManager tracks that explicit root without allowlisting the whole repository.
 
+## 产品定位与设计原则（开发约束）
+
+KnowledgeBase 服务单用户个人科研学习，重点是 Terms 管理和**符合当前学习进度**的论文发现；Obsidian 仍是主要笔记工具。推荐当前可学、能自然延伸或稍有挑战的内容，经典旧论文也可推荐；适配度和解释质量优先于新旧、热度与数量，没有合适内容时可以不推荐。
+
+- 学习资料由用户明确选择，默认一篇也不纳入；只有被选中的正式笔记内容可作为推荐域的掌握依据。课程笔记不会自动加入。
+- PDF、收藏、打开记录、草稿、点击和 AI 推荐都不代表已经掌握；关键词与兴趣只表达探索意向。
+- 学习上下文按 `active / important / archive` 分层，按需读取，并随有效知识变化增量更新；无有效变化时不调用学习上下文 AI。
+- 用户能查看、编辑和固定上下文；人工内容优先，自动更新不得覆盖人工固定的内容。
+- 保持正式笔记和 Term 的 Publisher 发布边界。上下文和推荐是 Runtime 工作状态，不改写正式知识。
+- 优先使用现有 Markdown、SQLite、Git、AI Gateway、Terms 和 Research 流程；不引入向量数据库、新 Agent 框架、评分公式或复杂兼容层。
+- 自动检索必须显式启用；手动检索独立可用。打开首页或查看上下文不会触发隐藏的模型请求。
+
+完整条款见 [产品原则](docs/PRODUCT_PRINCIPLES.md)。
+
 ## Local setup
 
 Backend and knowledge checks (Python 3.12 or newer):

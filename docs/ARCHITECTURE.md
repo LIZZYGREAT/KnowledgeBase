@@ -2,7 +2,7 @@
 
 ## Current phase
 
-The current product is a single-user learning and research assistant, prioritizing Terms and paper discovery/review/collection. Obsidian is the main note-reading and writing tool. The scoped personal-use revision covers manual execution, style grading, Term workflows, Home priority, display names and documentation; it does not add Later features or rebuild Collections. See [Product principles](PRODUCT_PRINCIPLES.md).
+The current product is a single-user learning and research assistant, prioritizing Terms and paper discovery/review/collection. Obsidian is the main note-reading and writing tool. The current implementation phase is **Learning Progress Context + Progressive Recommendations**: user-selected formal learning notes provide scoped progress evidence for Terms and Research; users can edit local layered context; updates are incremental; existing Publisher, Term review, Research Runtime and explicit scheduling boundaries remain in force. It does not add multi-user support, a new notes platform, or rebuild Collections. See [Product principles](PRODUCT_PRINCIPLES.md).
 
 **Phases 0–14 are implemented; Phases 1–5 and 13 are complete and frozen, and Phase 14 implementation is complete. Performance Phases A–B are complete and frozen; production acceptance remains pending.** The personal-use revision is implemented and verified locally; this does not assert a new CI or production acceptance result. GitHub Actions is the authoritative source for current CI status. Runtime SQLite schema version is 19. Phase 13 includes the Collection Explorer + Unified Workspace convergence and final Runtime Draft, Publisher, Import, navigation, batch-preflight, discard, and restore correctness fixes. Phase 14 explicitly extends GitManager's canonical tracked roots from `knowledge/` to `knowledge/` and `config/research/profiles/`; never allowlist the entire repository. Performance Phase C is deferred pending production profiling. Live Provider/DeepSeek smoke checks, systemd execution, and production backup/restore require operator-provided host access and data.
 
@@ -44,6 +44,7 @@ The current formal rules are:
 - Production backups include a consistent SQLite snapshot so persistent Runtime state can be restored with the canonical Git bundle and `storage/` files. Derived indexes can be rebuilt from canonical files and retained usage-event history.
 - Publish and Restore return success after the canonical Git commit. Proposal status or index refresh failures are returned as warnings; `python tools/kb.py rebuild` repairs derived indexes.
 - Import Jobs and Items live in Runtime SQLite. `storage/staging/` holds temporary import copies, and `storage/papers/` holds local PDFs; neither directory is committed. Import uses no AI or network service.
+- Learning context, selected source IDs, preferences, layered Markdown memories and sync checkpoints live under ignored `storage/learning-context/`; do not add them to canonical knowledge or Git. The context service validates every source against canonical Document metadata and has no network dependency for reads. AI updates are structured results that the service validates and merges only into auto-managed entries; pinned user content is preserved. Research and Term recommendation services share this context without changing the meaning of formal review elsewhere.
 
 ## Technology
 
@@ -183,3 +184,11 @@ Term Candidates reuse their Runtime Draft and matching Proposed content in an in
 ### Knowledge-first Home and backlog review
 
 Home shows at most three evidence-backed paper or Term suggestions before workload and agent details. It reads existing API data, deduplicates the same Work across Profiles, permits an empty result, and queues an incremental next-step request through the existing manual queue. Pending Term selection supports rejection only; rejected, accepted, and Drafting Candidates cannot be bulk approved or rejected through that selection. Duplicate groups retain their distinct origins. Known Term labels require explicit approval and actual content; older unverified snapshots are not promoted. Low-value cached surface analyses cannot monopolize the discovery backlog. See `docs/REVISION_ACCEPTANCE.md` for local verification and outstanding manual acceptance.
+
+## Phase 15: Learning Progress Context + Progressive Recommendations (in progress)
+
+This is the current phase. Stage A establishes product rules and the file-backed `LearningContextService`; later work in this same phase adds source/preference editing, incremental sync, and integrations with existing Term and Research services. Only the explicitly selected canonical `paper-note`, `learning-note`, or manually selected `course-note` files can provide progress evidence. First-run selection is empty. A selected note is evidence only for the content actually present in it.
+
+Context files live under ignored `storage/learning-context/`: `sources.yaml`, `preferences.yaml`, `index.yaml`, `active.md`, `important.md`, `topics/*.md`, and `state.json`. Reads do not create files or call AI. Context is assembled from only requested layers and relevant topic files. `KnowledgeStateService.established`, canonical review status, Publisher, Research Runtime, and automatic Research scheduling keep their existing meanings and controls.
+
+Stages B–F are delivered as part of Phase 15, not as separate Later features: interactive management; local diff/filter and bounded structured AI sync; Term recommendation adaptation; Research recommendation adaptation; then end-to-end validation and user documentation.
