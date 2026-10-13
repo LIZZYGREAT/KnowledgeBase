@@ -118,7 +118,8 @@ describe("学习进度上下文 page", () => {
 
     const direction = await screen.findByLabelText("固定研究方向");
     fireEvent.change(direction, { target: { value: "Continual Learning" } });
-    fireEvent.change(screen.getByLabelText(/搜索关键词/), { target: { value: "GEM\nEWC" } });
+    const keywords = screen.getByLabelText(/搜索关键词/);
+    await user.type(keywords, "GEM{enter}EWC");
     await user.click(screen.getByRole("button", { name: "保存搜索偏好" }));
 
     await waitFor(() => expect(api.setLearningContextPreferences).toHaveBeenCalledWith({
@@ -130,6 +131,38 @@ describe("学习进度上下文 page", () => {
     }));
     expect(screen.getByText(/不会作为已掌握知识/)).toBeTruthy();
     expect(current.sources.included_document_ids).toEqual([]);
+  });
+
+  it("asks before discarding unsaved Markdown when switching memory layers", async () => {
+    const current = overview();
+    current.topics = [{
+      id: "continual-learning",
+      title: "持续学习",
+      aliases: [],
+      keywords: [],
+    }];
+    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    vi.spyOn(api, "getLearningContextTopic").mockResolvedValue({
+      ...current.topics[0],
+      markdown: "### 专题内容",
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    await user.click(await screen.findByRole("button", { name: "编辑这一层" }));
+    const editor = screen.getByLabelText("编辑学习上下文 Markdown");
+    fireEvent.change(editor, { target: { value: "尚未保存的说明" } });
+    const layerPicker = screen.getByLabelText("查看层级");
+    await user.selectOptions(layerPicker, "topic:continual-learning");
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("未保存的修改"));
+    expect(layerPicker).toHaveProperty("value", "active");
+    expect(screen.getByLabelText("编辑学习上下文 Markdown")).toHaveProperty(
+      "value",
+      "尚未保存的说明",
+    );
+    expect(api.getLearningContextTopic).not.toHaveBeenCalled();
   });
 
   it("runs learning context sync only after the user presses its explicit action", async () => {

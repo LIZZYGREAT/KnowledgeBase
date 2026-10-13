@@ -17,6 +17,7 @@ import { EmptyState, ErrorState, PageHeader, SectionHeading } from "./ui";
 import type { RegisterBeforeNavigate } from "./navigation";
 
 type MemoryLayer = "active" | "important" | `topic:${string}`;
+type PreferenceListKey = "keywords" | "exclude_keywords" | "exploration_directions" | "important_anchors";
 
 const preferenceFields: Array<[keyof Omit<LearningContextPreferences, "fixed_direction">, string]> = [
   ["keywords", "搜索关键词"],
@@ -31,6 +32,28 @@ function toLines(values: string[]) {
 
 function fromLines(value: string) {
   return Array.from(new Set(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)));
+}
+
+function preferenceLines(preferences: LearningContextPreferences): Record<PreferenceListKey, string> {
+  return {
+    keywords: toLines(preferences.keywords),
+    exclude_keywords: toLines(preferences.exclude_keywords),
+    exploration_directions: toLines(preferences.exploration_directions),
+    important_anchors: toLines(preferences.important_anchors),
+  };
+}
+
+function normalizePreferenceDraft(
+  preferences: LearningContextPreferences,
+  lines: Record<PreferenceListKey, string>,
+): LearningContextPreferences {
+  return {
+    ...preferences,
+    keywords: fromLines(lines.keywords),
+    exclude_keywords: fromLines(lines.exclude_keywords),
+    exploration_directions: fromLines(lines.exploration_directions),
+    important_anchors: fromLines(lines.important_anchors),
+  };
 }
 
 function sourceTypeLabel(type: string) {
@@ -53,6 +76,12 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   const [sourceQuery, setSourceQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [preferencesDraft, setPreferencesDraft] = useState<LearningContextPreferences | null>(null);
+  const [preferenceTextDraft, setPreferenceTextDraft] = useState<Record<PreferenceListKey, string>>({
+    keywords: "",
+    exclude_keywords: "",
+    exploration_directions: "",
+    important_anchors: "",
+  });
   const [selectedLayer, setSelectedLayer] = useState<MemoryLayer>("active");
   const [memoryText, setMemoryText] = useState("");
   const [memoryOriginal, setMemoryOriginal] = useState("");
@@ -68,6 +97,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
       setOverview(value);
       setSelectedIds(value.sources.included_document_ids);
       setPreferencesDraft(value.preferences);
+      setPreferenceTextDraft(preferenceLines(value.preferences));
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "无法读取学习进度上下文");
     } finally {
@@ -88,9 +118,12 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     () => JSON.stringify([...selectedIds].sort()) !== JSON.stringify([...includedIds].sort()),
     [includedIds, selectedIds],
   );
+  const normalizedPreferenceDraft = preferencesDraft
+    ? normalizePreferenceDraft(preferencesDraft, preferenceTextDraft)
+    : null;
   const preferencesDirty = Boolean(
-    overview && preferencesDraft
-      && JSON.stringify(preferencesDraft) !== JSON.stringify(overview.preferences),
+    overview && normalizedPreferenceDraft
+      && JSON.stringify(normalizedPreferenceDraft) !== JSON.stringify(overview.preferences),
   );
   const memoryDirty = memoryEditing && memoryLoaded && memoryText !== memoryOriginal;
   const hasUnsavedChanges = sourceDirty || preferencesDirty || memoryDirty;
@@ -160,11 +193,11 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   }
 
   async function savePreferences() {
-    if (!preferencesDraft) return;
+    if (!normalizedPreferenceDraft) return;
     setSaving(true);
     setNotice("");
     try {
-      await setLearningContextPreferences(preferencesDraft);
+      await setLearningContextPreferences(normalizedPreferenceDraft);
       await refresh();
       setNotice("搜索偏好已保存，不会作为已掌握知识。");
     } catch (error) {
@@ -241,6 +274,14 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     } finally {
       setSyncing(false);
     }
+  }
+
+  function changeMemoryLayer(nextLayer: MemoryLayer) {
+    if (nextLayer === selectedLayer) return;
+    if (memoryDirty && !window.confirm("当前上下文有未保存的修改；放弃修改并切换层级吗？")) {
+      return;
+    }
+    setSelectedLayer(nextLayer);
   }
 
   if (loading && !overview) return <div className="page-stack"><PageHeader eyebrow="LEARNING PROGRESS" title="学习进度" /><div className="loading-state" role="status">正在读取学习进度…</div></div>;
@@ -340,7 +381,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
           <div className="learning-memory-controls">
             <label className="field-label">
               <span>查看层级</span>
-              <select value={selectedLayer} onChange={(event) => setSelectedLayer(event.target.value as MemoryLayer)}>
+              <select value={selectedLayer} onChange={(event) => changeMemoryLayer(event.target.value as MemoryLayer)}>
                 <option value="active">当前关注</option>
                 <option value="important">重要知识</option>
                 {topicLayers.map((topic: LearningContextTopic) => <option value={`topic:${topic.id}`} key={topic.id}>历史专题：{topic.title}</option>)}
@@ -444,8 +485,8 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
               <span>{label}<small>每行一项</small></span>
               <textarea
                 className="learning-preference-list"
-                value={toLines(preferencesDraft[key])}
-                onChange={(event) => setPreferencesDraft({ ...preferencesDraft, [key]: fromLines(event.target.value) })}
+                value={preferenceTextDraft[key]}
+                onChange={(event) => setPreferenceTextDraft({ ...preferenceTextDraft, [key]: event.target.value })}
                 placeholder="可留空"
               />
             </label>

@@ -168,3 +168,9 @@ Terms 在用户选择正式笔记后，仅把白名单中的笔记送入学习�
 Research 保留 Profile 原查询和历史年度窗口，并将个性化查询拆为少量短查询，只路由到语义相容的 Lens；跨方向基础方向只有在用户显式配置时才形成独立查询，不混入主方向，也不继承对应 Lens 的 include terms。`explore_basic` 必须来自该显式查询，通过高/中准备度且无缺失前置条件的确定性准入，并限制为每 Profile 每 UTC 日最多一篇。被用户选中的未审核笔记可按关联 Source 年份或正文引用年份独立启动历史搜索，但 `approved_ids` 与 Review 状态保持不变。Research 分析版本升至 10，缓存按新的查询范围重新计算。
 
 `backend/tests/test_research_query_builder.py`、`test_research_screening.py`、`test_research_candidate.py`、`test_research_analysis_service.py`、`test_research_runs.py`、`test_research_history.py`、`test_research_api.py`、`test_research_watermark.py` 与 `test_research_quality_cases.py` 专项结果：163 项通过。覆盖实际 Provider 收到的分 Lens 短查询、独立基础探索、Lens include terms 隔离、探索推荐的基础性/准备度/每日准入，以及未审核已选笔记只扩展历史检索而不进入批准范围。测试使用本机 Python 3.9 依赖；pytest 提示 fixture loop scope 配置未来默认值将变化。Python 3.12 CI 尚未重跑，未调用真实 Provider/DeepSeek。私有修订方案未纳入提交。
+
+## Phase 15 Stage D 修订记录（2026-10-13）
+
+新增独立的可选 systemd 每日 one-shot 检查，默认不安装或启用；CLI 先做本地 dry-run，仅在所选资料待处理时同步。手动 Terms/Research 搜索会在读取学习上下文前检查变化并尝试同步；失败时继续使用上次保存内容，但在 Run 中明确标注。同步 API 的文件、Git 与可选 AI 工作在线程池执行，其他读取请求可继续响应。AI、笔记超限、输入校验和本地同步失败提供不含模型请求或密钥的分类提示。
+
+`backend/tests/test_learning_context.py`、`test_learning_context_api.py`、`test_learning_context_systemd_timer.py`、`test_research_runs.py` 与 `test_term_discovery.py` 专项结果：131 项通过，7 项 HTTPX API 弃用警告，以及 pytest-asyncio fixture loop scope 配置警告。覆盖变化检测和同步、失败时保留旧内容并标明回退、手动 Research/Terms Run 的回退提示、同步期间并行读取、timer 与 Research 定时任务独立。`frontend/tests/unit/learning-context.test.tsx`：6 项通过；`npm run typecheck` 与 `npm run build` 通过，构建提示已有 Mermaid/ELK 分块超过 500 kB。前端测试覆盖逐字输入 `GEM{enter}EWC` 后保存为两项，以及取消切层时保留未保存 Markdown。使用本机 Python 3.9 和 Node 环境；Python 3.12 CI 尚未重跑，也未在生产主机安装/启用 timer 或调用真实 Provider/DeepSeek。README 中没有声称 Phase 15 全部验收通过；私有修订方案未纳入提交。
