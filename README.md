@@ -22,7 +22,22 @@ KnowledgeBase 服务单用户个人科研学习，重点是 Terms 管理和**符
 
 完整条款见 [产品原则](docs/PRODUCT_PRINCIPLES.md)。
 
-Phase 15 adds a local Learning Context page and uses explicitly selected note content to guide Terms and Research recommendations. Research keeps each Profile's existing searches and annual classic-paper discovery, adds a separate search from selected learning topics and search preferences, and filters excluded keywords locally for that Run. Candidate cards identify a recommendation as **主方向**, **自然延伸**, or **基础探索**, explain its fit, and link cited learning notes. Search preferences, Profile Lens settings, pinned or retrieved context, activity, and PDF exposure do not establish mastery; formal Term status and Publisher controls remain unchanged. Learning Context files stay under ignored `storage/learning-context/` and are not committed. End-to-end validation and remaining user documentation are still in progress.
+Phase 15 adds a local Learning Context page and uses explicitly selected note content to guide Terms and Research recommendations. Research keeps each Profile's existing searches and annual classic-paper discovery, adds a separate search from selected learning topics and search preferences, and filters excluded keywords locally for that Run. Candidate cards identify a recommendation as **主方向**, **自然延伸**, or **基础探索**, explain its fit, and link cited learning notes. Search preferences, Profile Lens settings, pinned or retrieved context, activity, and PDF exposure do not establish mastery; formal Term status and Publisher controls remain unchanged. Learning Context files stay under ignored `storage/learning-context/` and are not committed. Stages A–F are implemented; the isolated local acceptance flow and remaining validation limits are recorded in [revision acceptance](docs/REVISION_ACCEPTANCE.md).
+
+## 学习进度上下文 / Learning Context
+
+在侧栏打开“学习进度”，手动选择要用于推荐的正式笔记，再点击“同步知识变化”。首次选择为空；课程笔记必须手动加入。页面可以查看和编辑当前方向、重要知识与主题记忆，也可以设置学习兴趣和排除词。人工编辑的内容会固定为人工维护，不会被后续自动同步覆盖。这里的编辑不会改写 Canonical 笔记。
+
+学习上下文保存在本地忽略目录 `storage/learning-context/`。查看页面和读取状态不会调用 AI；同步仅在所选笔记发生有效内容变化时，才可能把有界的变更内容发送到已配置的 AI Gateway。未变化、仅格式调整及少量普通措辞修改会在本地跳过。需要先检查变化时，可运行：
+
+```powershell
+python tools/learning_context.py status --root .
+python tools/learning_context.py sync --root . --dry-run
+```
+
+检查结果后，可在页面点击“同步知识变化”，或运行 `python tools/learning_context.py sync --root .`。`--force` 可重新分析所有已选笔记；`--source-id <ID>` 可限制到一个已选来源。同步只更新本地学习上下文，不发布 Canonical 知识。
+
+学习上下文不进入 Git。个人备份时请保留 `storage/learning-context/`；生产备份脚本会归档整个忽略的 `storage/` 目录。产品边界与掌握证据规则见[产品原则](docs/PRODUCT_PRINCIPLES.md)。
 
 ## Local setup
 

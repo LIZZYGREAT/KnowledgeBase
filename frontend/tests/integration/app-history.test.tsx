@@ -108,7 +108,7 @@ describe("App browser history guards", () => {
     const nav = await screen.findByRole("navigation", { name: "主导航" });
     const labels = within(nav).getAllByRole("button").map((button) => button.querySelector("strong")?.textContent);
 
-    expect(labels).toEqual(["首页", "术语", "论文推荐", "专题整理", "资料库", "搜索", "分类", "审阅", "帮助"]);
+    expect(labels).toEqual(["首页", "学习进度", "术语", "论文推荐", "专题整理", "资料库", "搜索", "分类", "审阅", "帮助"]);
     expect(within(nav).getByText("主要任务")).toBeTruthy();
     expect(within(nav).getByText("知识整理")).toBeTruthy();
     expect(within(nav).getByText("维护")).toBeTruthy();

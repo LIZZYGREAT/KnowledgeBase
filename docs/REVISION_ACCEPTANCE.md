@@ -79,7 +79,7 @@ Profile Search 新增可选 `history_seed_year`、`max_provider_requests_per_run
 - 检查首页精选、空态和“寻找下一步”；请求进入既有队列，历史分页继续，近期水位保持独立。
 - 回归 Document、Import、KaTeX、Markdown、Explorer、Review、Library 和 History 的实际操作。
 
-以上真实浏览器和个人资料验收尚待人工执行。
+以上旧研究与 Term 功能的真实浏览器和个人资料验收尚待人工执行；Phase 15 学习上下文流程单独记录于下文。
 
 ## 后续补丁修订记录
 
@@ -115,3 +115,24 @@ Profile Search 新增可选 `history_seed_year`、`max_provider_requests_per_run
 历史起点来自明确的学习阶段种子或保守日期推断，批准知识驱动的逐年扩展也不代表完整引文图谱；主题去重以模型的增量判断和长摘要完全相同的保守规则为主，不删除原 Work/Discovery。历史 unreviewed 内容没有批量改成 approved。没有真实生产资料，因此不能宣称个人推荐质量、接受率或成本已经达标。
 
 生产测试 Term 清理脚本 `scripts/kb_term_test_reset.sh` 已准备，要求 schema 19、干净 Git worktree、无已发布 Term、Research Timer/Service 停止并持有 Research 与 Term Discovery 锁；脚本先创建并验证新备份，再事务性清理 Term Runtime 数据、从 Canonical 重建索引，并校验 Research、Imports、PDF、Document 与 Source 数据指纹。脚本只供运维人员手动执行，Codex 未在本次修订中运行它。
+
+## Phase 15 Stage F 验收记录
+
+日期：2026-10-13。本阶段按 A–F 分别完成并提交。阶段 F 补充了 README 的学习上下文操作、同步、数据位置与备份说明，并在临时隔离副本中用合成笔记、假 AI 和假文献 Provider 完成人工流程：明确选择笔记、同步并查看主题记忆、编辑并固定人工上下文、对笔记作纯格式调整后再次同步、运行 Terms 发现、再运行 Research。Research 返回一条引用所选笔记、标记“自然延伸”的合成推荐。Terms 检查正常完成；合成建议与上下文已覆盖的概念相同，因此没有新增 Term 候选。纯格式调整跳过了分析，AI 调用记录未增加。隔离环境的定时检索保持手动关闭，正式资料和生产服务未接入。
+
+| 检查 | 结果 |
+| --- | --- |
+| 前端单元测试：`npm run test:unit` | 35 个文件，167 项通过。 |
+| 前端集成测试：`npm run test:integration` | 11 个文件，140 项通过；补上新增“学习进度”导航项的预期。 |
+| `npm run typecheck`、`npm run build` | 通过；构建仍有 Mermaid/ELK 相关分块提示。 |
+| 后端：`D:\python\python.exe -m pytest -q backend/tests` | 625 项通过、6 项平台条件跳过、5 项失败。4 项失败来自仅有的 Python 3.9 环境下手动 Research Worker 的事件循环行为；1 项失败是 API 测试夹具无法访问其脚本路径。项目要求 Python 3.12+；本机未能提供兼容的完整依赖环境，不能记为全绿。 |
+| `python tools/kb.py check` | 7 个 Canonical 文件通过，无警告。 |
+| `python tools/research.py check --root .` | Research Profile 与 AI 配置通过。 |
+| 临时索引重建 | 成功，目标位于独立临时目录；没有覆盖项目 Runtime 数据库。 |
+| CI shell 脚本语法：`sh -n backend/entrypoint.sh`、`sh -n scripts/production-backup.sh`、`bash -n scripts/kb_term_test_reset.sh` | 均通过。 |
+| `docker compose -f docker-compose.production.yml config -q` | 配置校验通过；未启动容器。 |
+| `git diff --check` | 通过。 |
+
+后端测试限定为 `backend/tests`，以避开旧的、被忽略的 `runtime/pytest-*` 临时目录；尝试在仓库根目录收集测试时，这些残留目录造成收集错误。CI 等价检查因此不是全绿：完整后端仅部分通过且受 Python 版本限制。GitHub Actions 未查询。本次没有运行生产 Compose、真实 DeepSeek/Provider、定时器或生产备份清理操作。
+
+隔离验收覆盖的是该学习进度上下文纵向流程，不替代个人数据上的推荐质量判断或此前列出的其他浏览器回归项。部署主机的 Python 3.12 全量后端测试、真实 Provider/AI 调用、成本、定时服务和备份恢复仍需上线前按运维手册检查；没有据此声称真实推荐质量或生产就绪性已经达标。
