@@ -16,6 +16,7 @@ from backend.app.repositories.pdf_corpus_repository import PdfCorpusRepository
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.repositories.term_discovery_repository import TermDiscoveryRepository
 from backend.app.services.knowledge_state_service import KnowledgeStateService
+from backend.app.services.learning_context_service import LearningContextService
 from backend.app.services.pdf_corpus_service import PdfCorpusService
 from backend.app.services.term_candidate_service import (
     TermCandidateConflict,
@@ -109,7 +110,7 @@ def test_run_creates_only_non_stretch_candidate_with_explainable_assessment(tmp_
     connection.close()
 
 
-def test_run_snapshot_records_the_effective_focus_sent_to_discovery(tmp_path, monkeypatch):
+def test_run_focus_ignores_recent_activity_and_records_personalized_focus(tmp_path, monkeypatch):
     connection, service, _candidate_service, _pdf_service, gateway = _service(tmp_path)
     service.update_settings(TermDiscoverySettings(enabled_lanes=["concept"]))
     monkeypatch.setattr(
@@ -141,11 +142,7 @@ def test_run_snapshot_records_the_effective_focus_sent_to_discovery(tmp_path, mo
     discovery_calls = [context for task, context in gateway.calls if task == "discover_terms"]
     assert run.status == "success"
     assert discovery_calls
-    assert run.snapshot["effective_focus"] == [
-        "iCaRL",
-        "Herding",
-        "Continual Learning",
-    ]
+    assert run.snapshot["effective_focus"] == ["Continual Learning"]
     assert all(context["focus"] == run.snapshot["effective_focus"] for context in discovery_calls)
     connection.close()
 
@@ -405,6 +402,7 @@ def test_discovery_skips_accepted_evidence_for_same_origin_and_normalized_mentio
         "run-accepted",
         {},
         ["continual learning"],
+        service._learning_context([], service._learning_preferences()),
         registry,
         TermResolver(registry),
         "new-focus-hash",
@@ -480,6 +478,7 @@ def test_discovery_skips_note_already_related_to_existing_term_without_candidate
         "run-related",
         {},
         ["continual learning"],
+        service._learning_context([], service._learning_preferences()),
         registry,
         TermResolver(registry),
         "new-focus-hash",
@@ -636,7 +635,7 @@ def test_notes_run_before_pdfs_and_external_search_waits_for_remaining_budget(tm
     connection.close()
 
 
-def test_external_query_prioritizes_recent_terms_and_topics_over_profile_queries():
+def test_external_query_uses_configured_focus_without_recent_activity():
     explicit_focus = [
         "continual learning",
         "Continual Learning Profile",
@@ -661,14 +660,17 @@ def test_external_query_prioritizes_recent_terms_and_topics_over_profile_queries
 
     assert focus[:5] == [
         "continual learning",
-        "iCaRL",
-        "Herding",
-        "exemplar selection",
-        "machine-learning",
+        "Continual Learning Profile",
+        "Class-Incremental Learning",
+        "continual learning methods",
+        "class incremental learning",
     ]
     query = _external_query(focus)
-    assert query == "continual learning iCaRL Herding exemplar selection"
-    assert "Continual Learning Profile" not in query
+    assert query == (
+        "continual learning Continual Learning Profile Class-Incremental Learning "
+        "continual learning methods"
+    )
+    assert "iCaRL" not in query
 
 
 def test_scheduled_external_discovery_can_run_without_local_corpus(tmp_path):
@@ -990,6 +992,174 @@ def test_recent_note_focus_does_not_change_term_mastery(tmp_path):
     connection.close()
 
 
+def test_selected_learning_context_guides_terms_without_unselected_course_pollution(tmp_path):
+    selected_notes = {
+        "lwf": "Learning without Forgetting",
+        "ewc": "Elastic Weight Consolidation",
+        "icarl": "iCaRL",
+        "gem": "Gradient Episodic Memory",
+    }
+    for document_id, title in selected_notes.items():
+        _write_document(
+            tmp_path,
+            document_id,
+            title,
+            "{} is a continual learning method.".format(title),
+            domains=["machine-learning"],
+            topics=["continual-learning"],
+        )
+
+    course_path = tmp_path / "knowledge" / "documents" / "courses" / "ethernet-course.md"
+    course_path.parent.mkdir(parents=True, exist_ok=True)
+    course_path.write_text(
+        "---\nschema_version: 1\nid: ethernet-course\n"
+        "title: Ethernet in Physical Networks\ntype: course-note\n"
+        "domains: [computer-networking]\ntopics: [ethernet]\n---\n"
+        "# Ethernet\nEthernet frames connect devices in a local network.\n",
+        encoding="utf-8",
+    )
+    os.utime(course_path, (_clock().timestamp(), _clock().timestamp()))
+
+    context_service = LearningContextService(tmp_path)
+    context_service.set_sources(list(selected_notes))
+    context_service.set_preferences(
+        {
+            "fixed_direction": "Continual learning",
+            "keywords": ["continual learning"],
+            "exclude_keywords": ["RLHF", "Ethernet"],
+            "exploration_directions": ["reinforcement learning basics"],
+            "important_anchors": ["Gradient Episodic Memory"],
+        }
+    )
+    context_service._write_yaml(
+        "index.yaml",
+        {
+            "topics": [
+                {
+                    "id": "continual-learning",
+                    "title": "Continual Learning",
+                    "aliases": ["EWC", "LwF", "iCaRL", "GEM"],
+                    "keywords": ["continual learning", "catastrophic forgetting"],
+                }
+            ]
+        },
+    )
+    context_service.save_topic(
+        "continual-learning",
+        "# Covered methods\n\n"
+        "### Learning without Forgetting (LwF)\n"
+        "LwF uses distillation to preserve prior-task behavior.\n\n"
+        "### Elastic Weight Consolidation (EWC)\n"
+        "EWC protects important parameters to reduce forgetting.\n\n"
+        "### iCaRL\n"
+        "iCaRL combines exemplar replay with representation learning.\n\n"
+        "### Gradient Episodic Memory (GEM)\n"
+        "GEM constrains updates using past-task gradients.\n",
+    )
+
+    output = {
+        "candidates": [
+            _suggestion(
+                "Learning without Forgetting",
+                "concept",
+                "Learning without Forgetting uses distillation to preserve prior-task behavior.",
+                "core_gap",
+                "This method is covered by a selected learning note.",
+            ),
+            _suggestion(
+                "Elastic Weight Consolidation",
+                "concept",
+                "Elastic Weight Consolidation protects important parameters.",
+                "core_gap",
+                "This method is covered by a selected learning note.",
+            ),
+            _suggestion(
+                "iCaRL",
+                "concept",
+                "iCaRL combines exemplar replay with representation learning.",
+                "core_gap",
+                "This method is covered by a selected learning note.",
+            ),
+            _suggestion(
+                "Gradient Episodic Memory",
+                "concept",
+                "Gradient Episodic Memory constrains updates using past-task gradients.",
+                "core_gap",
+                "This method is covered by a selected learning note.",
+            ),
+            _suggestion(
+                "Synaptic Intelligence",
+                "concept",
+                "Synaptic Intelligence estimates parameter importance over time.",
+                "next",
+                "It directly extends the selected continual learning methods.",
+            ),
+            _suggestion(
+                "RLHF",
+                "concept",
+                "RLHF uses feedback from human preferences.",
+                "core_gap",
+                "It is outside the fixed learning direction and is excluded.",
+            ),
+            _suggestion(
+                "Ethernet",
+                "concept",
+                "Ethernet connects devices in a local network.",
+                "core_gap",
+                "It appears only in an unselected course note.",
+            ),
+        ]
+    }
+    corpus_text = (
+        "Learning without Forgetting uses distillation to preserve prior-task behavior. "
+        "Elastic Weight Consolidation protects important parameters. "
+        "iCaRL combines exemplar replay with representation learning. "
+        "Gradient Episodic Memory constrains updates using past-task gradients. "
+        "Synaptic Intelligence estimates parameter importance over time. "
+        "RLHF uses feedback from human preferences. "
+        "Ethernet connects devices in a local network.\n"
+    ) * 3
+    connection, service, candidate_service, _pdf_service, gateway = _service(
+        tmp_path,
+        output,
+        corpus_text=corpus_text,
+        learning_context_service=context_service,
+    )
+    service.update_settings(
+        TermDiscoverySettings(enabled_lanes=["concept"], focus_override="continual learning")
+    )
+
+    run = service.run()
+
+    source_call = next(
+        context
+        for task, context in gateway.calls
+        if task == "discover_terms" and context["source"]["id"] == "source-alpha"
+    )
+    assert run.status == "success"
+    assert "ethernet" in [item.casefold() for item in run.snapshot["focus"]["recent_topics"]]
+    assert "ethernet" not in " ".join(source_call["focus"]).casefold()
+    assert source_call["learning_context"]["current_focus"] == run.snapshot["effective_focus"]
+    assert {
+        item["id"] for item in source_call["learning_context"]["included_sources"]
+    } == set(selected_notes)
+    assert "ethernet-course" not in {
+        item["id"] for item in source_call["learning_context"]["included_sources"]
+    }
+    assert source_call["learning_context"]["topics"][0]["id"] == "continual-learning"
+    assert {
+        "Learning without Forgetting (LwF)",
+        "Elastic Weight Consolidation (EWC)",
+        "iCaRL",
+        "Gradient Episodic Memory (GEM)",
+    } <= set(source_call["learning_context"]["covered_term_headings"])
+    assert source_call["learning_context"]["preferences"]["fixed_direction"] == "Continual learning"
+    assert [item.display_name for item in candidate_service.list_candidates("pending")] == [
+        "Synaptic Intelligence"
+    ]
+    connection.close()
+
+
 def test_term_discovery_api_exposes_settings_and_run_history(tmp_path):
     @asynccontextmanager
     async def lifespan(app):
@@ -1102,7 +1272,12 @@ def test_semantic_existing_suggestion_rejects_deterministic_conflict(tmp_path):
 
 
 def _service(
-    tmp_path, output=None, connection=None, corpus_text=None, external_discovery=None
+    tmp_path,
+    output=None,
+    connection=None,
+    corpus_text=None,
+    external_discovery=None,
+    learning_context_service=None,
 ):
     connection = connection or connect_database(":memory:")
     terms = tmp_path / "knowledge" / "terms"
@@ -1155,6 +1330,7 @@ def _service(
         gateway,
         clock=_clock,
         external_discovery=external_discovery,
+        learning_context_service=learning_context_service,
     )
     pdf_service.calls = pdf_calls
     gateway.calls_by_task = lambda task: [call for call in gateway.calls if call[0] == task]

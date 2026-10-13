@@ -171,6 +171,16 @@ def test_ai_task_registry_declares_output_contracts():
     assert TASKS["update_learning_context"].proposal_kind is None
 
 
+def test_term_discovery_prompt_uses_selected_progress_without_changing_term_review():
+    instruction = TASKS["discover_terms"].instruction
+
+    assert "explicitly selected learning notes" in instruction
+    assert "unselected recent documents" in instruction
+    assert "never approve a canonical Term" in instruction
+    assert "exclude_keywords must be honored" in instruction
+    assert "already explained in learning_context" in instruction
+
+
 def test_learning_context_update_task_requires_localized_structured_changes():
     client = MockDeepSeekClient(
         {

@@ -44,7 +44,7 @@ from backend.app.services.wikipedia_discovery import (
 )
 
 
-DISCOVERY_ANALYSIS_VERSION = 1
+DISCOVERY_ANALYSIS_VERSION = 2
 GLOBAL_OPEN_CAPACITY = 12
 MAX_SOURCES_PER_RUN = 3
 MAX_TEXT_CHARS_PER_REQUEST = 12_000
@@ -53,6 +53,9 @@ MAX_DOCUMENTS_PER_RUN = 3
 MAX_DOCUMENT_BYTES = 2_000_000
 MAX_RECENT_DOCUMENTS = 12
 MAX_EXTERNAL_QUERY_FOCUS_ITEMS = 4
+MAX_TERM_LEARNING_CONTEXT_CHARS = 6000
+MAX_TERM_CONTEXT_SOURCES = 20
+MAX_TERM_PREFERENCE_ITEMS = 12
 _LANE_ORDER: tuple[DiscoveryLane, ...] = ("concept", "entity", "vocabulary")
 
 
@@ -89,6 +92,7 @@ class TermDiscoveryService:
         knowledge_state_service: Optional[KnowledgeStateService] = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         external_discovery=None,
+        learning_context_service=None,
     ):
         self.repository_root = Path(repository_root).resolve()
         self.repository = repository
@@ -103,6 +107,7 @@ class TermDiscoveryService:
         self.knowledge_state = knowledge_state_service or KnowledgeStateService(
             self.repository_root, repository.connection, clock
         )
+        self.learning_context = learning_context_service
 
     def get_settings(self) -> TermDiscoverySettings:
         return self.repository.get_settings()
@@ -208,19 +213,28 @@ class TermDiscoveryService:
         focus: list[str] = []
         focus_snapshot: dict = {}
         if core_lanes or settings.external_enabled:
-            explicit_focus = _focus_context(self.repository_root, settings)
+            base_focus = _focus_context(self.repository_root, settings)
+            preferences = self._learning_preferences()
+            context_seed = _learning_context_query(
+                base_focus, preferences, settings.focus_override
+            )
+            learning_context = self._learning_context(
+                context_seed.split(), preferences
+            )
+            explicit_focus = _term_focus_seed(
+                base_focus,
+                preferences,
+                [item["title"] for item in learning_context["topics"]],
+                settings.focus_override,
+            )
             focus_snapshot = self.knowledge_state.build_snapshot(explicit_focus)
             focus = _discovery_focus(
                 explicit_focus, focus_snapshot, settings.focus_override
             )
+            learning_context["current_focus"] = focus[:20]
         if core_lanes:
-            focus_hash = _json_hash(
-                {
-                    "focus": focus,
-                    "knowledge": focus_snapshot.get("knowledge", {}),
-                    "activity": focus_snapshot.get("activity", {}),
-                    "term_states": focus_snapshot.get("term_states", {}),
-                }
+            focus_hash = _term_discovery_focus_hash(
+                focus, focus_snapshot, learning_context
             )
             registry = TermRegistry.load(
                 self.repository_root / "knowledge" / "terms"
@@ -317,19 +331,30 @@ class TermDiscoveryService:
         allocated_budgets = dict(budgets)
         remaining_budgets = dict(budgets)
 
-        focus = _focus_context(self.repository_root, settings)
-        snapshot = self.knowledge_state.build_snapshot(focus)
-        focus = _discovery_focus(focus, snapshot, settings.focus_override)
-        snapshot["effective_focus"] = focus[:20]
-        focus_hash = _json_hash(
-            {
-                "focus": focus,
-                "knowledge": snapshot.get("knowledge", {}),
-                "activity": snapshot.get("activity", {}),
-                "reviewed_scopes": [item for item in snapshot.get("registry", []) if item.get("state") == "established" and item.get("content_excerpt")][:20],
-                "term_states": snapshot.get("term_states", {}),
-            }
+        base_focus = _focus_context(self.repository_root, settings)
+        preferences = self._learning_preferences()
+        context_seed = _learning_context_query(
+            base_focus, preferences, settings.focus_override
         )
+        learning_context = self._learning_context(context_seed.split(), preferences)
+        explicit_focus = _term_focus_seed(
+            base_focus,
+            preferences,
+            [item["title"] for item in learning_context["topics"]],
+            settings.focus_override,
+        )
+        snapshot = self.knowledge_state.build_snapshot(explicit_focus)
+        focus = _discovery_focus(explicit_focus, snapshot, settings.focus_override)
+        learning_context["current_focus"] = focus[:20]
+        snapshot["effective_focus"] = focus[:20]
+        focus_hash = _term_discovery_focus_hash(focus, snapshot, learning_context)
+        snapshot["learning_context"] = {
+            "included_source_ids": [
+                item["id"] for item in learning_context["included_sources"]
+            ],
+            "matched_topic_ids": [item["id"] for item in learning_context["topics"]],
+            "context_hash": _json_hash(learning_context),
+        }
         registry = TermRegistry.load(self.repository_root / "knowledge" / "terms")
         resolver = TermResolver(registry)
         source_registry = SourceRegistry.load(
@@ -372,6 +397,7 @@ class TermDiscoveryService:
             run_id,
             snapshot,
             focus,
+            learning_context,
             registry,
             resolver,
             focus_hash,
@@ -418,6 +444,7 @@ class TermDiscoveryService:
                 run_id,
                 snapshot,
                 focus,
+                learning_context,
                 registry,
                 resolver,
                 focus_hash,
@@ -478,6 +505,7 @@ class TermDiscoveryService:
             run_id,
             snapshot,
             focus,
+            learning_context,
             registry,
             resolver,
             focus_hash,
@@ -509,6 +537,7 @@ class TermDiscoveryService:
         run_id: str,
         snapshot: dict,
         focus: list[str],
+        learning_context: dict,
         registry: TermRegistry,
         resolver: TermResolver,
         focus_hash: str,
@@ -547,6 +576,7 @@ class TermDiscoveryService:
                         corpus.text,
                         snapshot,
                         focus,
+                        learning_context,
                         registry,
                         resolver,
                     )
@@ -587,6 +617,23 @@ class TermDiscoveryService:
                             )
                         )
                         filtered_counts[lane] += 1
+                        continue
+                    if _excluded_by_preferences(
+                        suggestion.mention, learning_context["preferences"]
+                    ) or _covered_by_learning_context(
+                        suggestion.mention, learning_context
+                    ):
+                        filtered_counts[lane] += 1
+                        items.append(
+                            self._item(
+                                run_id,
+                                lane,
+                                corpus.origin_id,
+                                suggestion,
+                                "filtered",
+                                None,
+                            )
+                        )
                         continue
                     if suggestion.recommendation_level == "stretch":
                         filtered_counts[lane] += 1
@@ -765,6 +812,7 @@ class TermDiscoveryService:
         corpus_text: str,
         snapshot: dict,
         focus: list[str],
+        learning_context: dict,
         registry: TermRegistry,
         resolver: TermResolver,
     ) -> list:
@@ -772,11 +820,14 @@ class TermDiscoveryService:
             "lane": lane,
             "focus": focus,
             "knowledge_state": {
-                "focus": snapshot.get("focus", {}),
-                "knowledge": snapshot.get("knowledge", {}),
-                "exposure": snapshot.get("exposure", {}),
-                "activity": snapshot.get("activity", {}),
+                "focus": {"explicit": focus[:20]},
+                "knowledge": {
+                    "established": snapshot.get("knowledge", {}).get(
+                        "established", []
+                    )[:40]
+                },
             },
+            "learning_context": learning_context,
             "term_registry": [
                 {"id": term.id, "title": term.title, "aliases": list(term.aliases[:8]), "type": term.type}
                 for term in registry.terms[:200]
@@ -828,6 +879,52 @@ class TermDiscoveryService:
             if any(normalize_key(item.mention) not in requested for item in output.candidates):
                 raise AIResponseError("Vocabulary Discovery returned a term outside mined corpus candidates")
         return output.candidates
+
+    def _learning_preferences(self) -> dict:
+        if self.learning_context is None:
+            return _empty_learning_preferences()
+        return self.learning_context.get_preferences()
+
+    def _learning_context(self, focus: list[str], preferences: dict) -> dict:
+        if self.learning_context is None:
+            raw = {
+                "included_sources": [],
+                "preferences": preferences,
+                "active": "",
+                "important": "",
+                "topics": [],
+            }
+        else:
+            raw = self.learning_context.get_context(
+                focus=" ".join(focus),
+                include_important=True,
+                max_chars=MAX_TERM_LEARNING_CONTEXT_CHARS,
+            )
+        bounded = {
+            "included_sources": [
+                {
+                    "id": item["id"],
+                    "title": item["title"],
+                    "type": item["type"],
+                }
+                for item in raw.get("included_sources", [])[:MAX_TERM_CONTEXT_SOURCES]
+            ],
+            "preferences": _bounded_term_preferences(
+                raw.get("preferences", preferences)
+            ),
+            "active": raw.get("active", "")[:MAX_TERM_LEARNING_CONTEXT_CHARS],
+            "important": raw.get("important", "")[:MAX_TERM_LEARNING_CONTEXT_CHARS],
+            "topics": [
+                {
+                    "id": item["id"],
+                    "title": item["title"],
+                    "markdown": item["markdown"][:MAX_TERM_LEARNING_CONTEXT_CHARS],
+                }
+                for item in raw.get("topics", [])[:3]
+            ],
+        }
+        bounded["covered_term_headings"] = _learning_context_headings(bounded)
+        return bounded
 
     def _item(self, run_id, lane, source_id, suggestion, outcome, candidate_id):
         return TermDiscoveryRunItem(
@@ -960,15 +1057,173 @@ def _focus_context(repository_root: Path, settings: TermDiscoverySettings) -> li
     return list(dict.fromkeys(item.strip() for item in focus if item.strip()))[:20]
 
 
+def _empty_learning_preferences() -> dict:
+    return {
+        "fixed_direction": "",
+        "keywords": [],
+        "exclude_keywords": [],
+        "exploration_directions": [],
+        "important_anchors": [],
+    }
+
+
+def _bounded_term_preferences(value: dict) -> dict:
+    defaults = _empty_learning_preferences()
+    if not isinstance(value, dict):
+        value = {}
+    fixed_direction = value.get("fixed_direction", "")
+    defaults["fixed_direction"] = (
+        " ".join(fixed_direction.split())[:300]
+        if isinstance(fixed_direction, str)
+        else ""
+    )
+    for field in (
+        "keywords",
+        "exclude_keywords",
+        "exploration_directions",
+        "important_anchors",
+    ):
+        entries = value.get(field, [])
+        if not isinstance(entries, list):
+            continue
+        seen = set()
+        for entry in entries:
+            if not isinstance(entry, str):
+                continue
+            cleaned = " ".join(entry.split())[:160]
+            folded = cleaned.casefold()
+            if cleaned and folded not in seen:
+                defaults[field].append(cleaned)
+                seen.add(folded)
+            if len(defaults[field]) >= MAX_TERM_PREFERENCE_ITEMS:
+                break
+    return defaults
+
+
+def _term_focus_seed(
+    base_focus: list[str],
+    preferences: dict,
+    matched_topics: Optional[list[str]] = None,
+    focus_override: Optional[str] = None,
+) -> list[str]:
+    values = [focus_override or "", preferences.get("fixed_direction", "")]
+    values.extend(preferences.get("keywords", [])[:MAX_TERM_PREFERENCE_ITEMS])
+    values.extend(matched_topics or [])
+    values.extend(base_focus)
+    result = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        cleaned = " ".join(value.split())
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(cleaned)
+        if len(result) >= 40:
+            break
+    return result
+
+
+def _learning_context_query(
+    base_focus: list[str], preferences: dict, focus_override: Optional[str]
+) -> str:
+    values = [focus_override or "", preferences.get("fixed_direction", "")]
+    values.extend(preferences.get("keywords", [])[:MAX_TERM_PREFERENCE_ITEMS])
+    if not any(isinstance(value, str) and value.strip() for value in values):
+        values = base_focus[:4]
+    return " ".join(
+        dict.fromkeys(
+            " ".join(value.split())
+            for value in values
+            if isinstance(value, str) and value.strip()
+        )
+    )[:1200]
+
+
+def _learning_context_headings(learning_context: dict) -> list[str]:
+    markdown_files = [
+        learning_context.get("active", ""),
+        learning_context.get("important", ""),
+        *[
+            item.get("markdown", "")
+            for item in learning_context.get("topics", [])
+            if isinstance(item, dict)
+        ],
+    ]
+    headings = []
+    seen = set()
+    for markdown in markdown_files:
+        if not isinstance(markdown, str):
+            continue
+        for line in markdown.splitlines():
+            match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", line)
+            if not match:
+                continue
+            title = match.group(1).strip()
+            key = _normalized_term_phrase(title)
+            if key and key not in seen:
+                headings.append(title[:200])
+                seen.add(key)
+            if len(headings) >= 40:
+                return headings
+    return headings
+
+
+def _term_name_variants(value: str) -> set[str]:
+    if not isinstance(value, str):
+        return set()
+    variants = {value}
+    aliases = re.findall(r"\(([^()]*)\)", value)
+    base = re.sub(r"\s*\([^()]*\)", " ", value).strip()
+    if base:
+        variants.add(base)
+    variants.update(alias.strip() for alias in aliases if alias.strip())
+    return {
+        normalized
+        for normalized in (_normalized_term_phrase(item) for item in variants)
+        if normalized
+    }
+
+
+def _normalized_term_phrase(value: str) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(
+        re.findall(r"[a-z0-9]+|[\u3400-\u9fff]+", value.casefold())
+    )
+
+
+def _contains_term_phrase(text: str, phrase: str) -> bool:
+    normalized_text = _normalized_term_phrase(text)
+    normalized_phrase = _normalized_term_phrase(phrase)
+    if not normalized_text or not normalized_phrase:
+        return False
+    return " {} ".format(normalized_phrase) in " {} ".format(normalized_text)
+
+
+def _excluded_by_preferences(mention: str, preferences: dict) -> bool:
+    return any(
+        _contains_term_phrase(mention, item)
+        for item in preferences.get("exclude_keywords", [])
+        if isinstance(item, str)
+    )
+
+
+def _covered_by_learning_context(mention: str, learning_context: dict) -> bool:
+    mention_variants = _term_name_variants(mention)
+    if not mention_variants:
+        return False
+    return any(
+        bool(mention_variants & _term_name_variants(heading))
+        for heading in learning_context.get("covered_term_headings", [])
+    )
+
+
 def _discovery_focus(
     explicit_focus: list[str], snapshot: dict, focus_override: Optional[str] = None
 ) -> list[str]:
-    focus_state = snapshot.get("focus", {})
-    recent_terms = [
-        item.get("title", "")
-        for item in focus_state.get("recent_terms", [])
-        if isinstance(item, dict)
-    ]
     profile_focus = list(explicit_focus)
     override = " ".join((focus_override or "").split())
     if (
@@ -977,13 +1232,9 @@ def _discovery_focus(
         and " ".join(profile_focus[0].split()).casefold() == override.casefold()
     ):
         profile_focus = profile_focus[1:]
-    focus = (
-        ([override] if override else [])
-        + recent_terms
-        + list(focus_state.get("recent_topics", []))
-        + list(focus_state.get("recent_domains", []))
-        + profile_focus
-    )
+    # Recent opens, links, and PDF exposure remain separate Knowledge State
+    # signals. They are not evidence for this reader's learning direction.
+    focus = ([override] if override else []) + profile_focus
     return list(dict.fromkeys(value.strip() for value in focus if value.strip()))[:40]
 
 
@@ -1185,6 +1436,22 @@ def _tokens(text: str) -> list[str]:
 def _json_hash(value) -> str:
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _term_discovery_focus_hash(focus: list[str], snapshot: dict, learning_context: dict) -> str:
+    return _json_hash(
+        {
+            "focus": focus,
+            "knowledge": snapshot.get("knowledge", {}),
+            "reviewed_scopes": [
+                item
+                for item in snapshot.get("registry", [])
+                if item.get("state") == "established" and item.get("content_excerpt")
+            ][:20],
+            "term_states": snapshot.get("term_states", {}),
+            "learning_context": learning_context,
+        }
+    )
 
 
 def _external_query(focus: list[str]) -> str:

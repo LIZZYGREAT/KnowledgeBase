@@ -116,12 +116,14 @@ async def lifespan(application: FastAPI):
         pdf_corpus_service = PdfCorpusService(
             repository_root, PdfCorpusRepository(connection)
         )
+        learning_context_service = LearningContextService(repository_root, ai_gateway)
         term_discovery_service = TermDiscoveryService(
             repository_root,
             TermDiscoveryRepository(connection),
             pdf_corpus_service,
             term_candidate_service,
             ai_gateway,
+            learning_context_service=learning_context_service,
         )
         term_analysis_service = TermAnalysisService(
             repository_root,
@@ -160,7 +162,6 @@ async def lifespan(application: FastAPI):
         ui_summary_service = UiSummaryService(
             connection, research_service.profile_registry.profiles
         )
-        learning_context_service = LearningContextService(repository_root, ai_gateway)
         research_conversion_service = ResearchConversionService(
             repository_root,
             connection,
