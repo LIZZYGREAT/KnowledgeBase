@@ -57,7 +57,7 @@ const terms: EntitySummary[] = [
   },
   {
     id: "word-term",
-    title: "Word Term",
+    title: "Word 术语",
     entity_type: "term",
     metadata: { type: "vocabulary", depth: "deep", aliases: [], domains: [], topics: [] },
   },
@@ -80,7 +80,7 @@ const candidate = (overrides: Partial<TermCandidate>): TermCandidate => ({
     candidate_id: "candidate-new",
     origin_type: "document",
     origin_id: "note-one",
-    origin_title: "Note One",
+    origin_title: "笔记 One",
     origin_rejected: false,
     mention: "adaptive token pruning",
     context_excerpt: "Adaptive token pruning reduces redundant tokens.",
@@ -104,7 +104,7 @@ const candidates = [
       candidate_id: "candidate-existing",
       origin_type: "document",
       origin_id: "note-two",
-      origin_title: "Note Two",
+      origin_title: "笔记 Two",
       origin_rejected: false,
       mention: "Calibrated Optimizer",
       context_excerpt: "The Calibrated Optimizer improves convergence.",
@@ -116,7 +116,7 @@ const candidates = [
   candidate({
     id: "candidate-research",
     normalized_name: "research reading phrase",
-    display_name: "Research Reading Phrase",
+    display_name: "论文推荐 Reading Phrase",
     suggested_type: "vocabulary",
     status: "drafting",
     draft_id: "draft-research",
@@ -134,10 +134,10 @@ const candidates = [
       discovered_at: "2026-01-03T00:00:00Z",
     }],
   }),
-  candidate({ id: "candidate-closed", status: "accepted", display_name: "Closed Candidate" }),
+  candidate({ id: "candidate-closed", status: "accepted", display_name: "Closed 候选" }),
 ];
 
-describe("Terms Registry controls", () => {
+describe("术语 术语库 controls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.listAllEntities.mockResolvedValue(terms);
@@ -171,91 +171,91 @@ describe("Terms Registry controls", () => {
     api.requestCandidateTermDraftProposal.mockResolvedValue({});
   });
 
-  it("filters Registry entries by all three Term types", async () => {
+  it("filters 术语库 entries by all three 术语 types", async () => {
     render(<TermsPage onOpen={vi.fn()} />);
 
     expect(await screen.findByText("Survivor Term")).not.toBeNull();
     expect(screen.getByText("Loser Term")).not.toBeNull();
-    expect(screen.getByText("Word Term")).not.toBeNull();
+    expect(screen.getByText("Word 术语")).not.toBeNull();
 
     await userEvent.selectOptions(screen.getByLabelText("类别"), "entity");
 
     expect(screen.getByText("Loser Term")).not.toBeNull();
     expect(screen.queryByText("Survivor Term")).toBeNull();
-    expect(screen.queryByText("Word Term")).toBeNull();
+    expect(screen.queryByText("Word 术语")).toBeNull();
   });
 
-  it("sends Terms tab selections to their matching URLs", async () => {
+  it("sends 术语 tab selections to their matching URLs", async () => {
     const navigate = vi.fn();
     render(<TermsPage onOpen={vi.fn()} navigate={navigate} />);
     await screen.findByText("Survivor Term");
 
-    await userEvent.click(screen.getByRole("tab", { name: "Candidates" }));
+    await userEvent.click(screen.getByRole("tab", { name: "待处理" }));
     expect(navigate).toHaveBeenLastCalledWith("/terms?tab=candidates");
-    await userEvent.click(screen.getByRole("tab", { name: "Mentions" }));
+    await userEvent.click(screen.getByRole("tab", { name: "笔记提及" }));
     expect(navigate).toHaveBeenLastCalledWith("/terms?tab=mentions");
-    await userEvent.click(screen.getByRole("tab", { name: "Discovery" }));
+    await userEvent.click(screen.getByRole("tab", { name: "发现术语" }));
     expect(navigate).toHaveBeenLastCalledWith("/terms?tab=discovery");
-    await userEvent.click(screen.getByRole("tab", { name: "Registry" }));
+    await userEvent.click(screen.getByRole("tab", { name: "术语库" }));
     expect(navigate).toHaveBeenLastCalledWith("/terms");
   });
 
-  it("searches Registry titles, IDs and aliases and filters by Domain and Topic", async () => {
+  it("searches 术语库 titles, IDs and aliases and filters by 领域 and 主题", async () => {
     render(<TermsPage onOpen={vi.fn()} />);
 
     expect(await screen.findByText("Survivor Term")).not.toBeNull();
-    await userEvent.type(screen.getByLabelText("搜索 Term"), "Current Alias");
+    await userEvent.type(screen.getByLabelText("搜索 术语"), "Current Alias");
     expect(screen.getByText("Survivor Term")).not.toBeNull();
     expect(screen.queryByText("Loser Term")).toBeNull();
 
-    await userEvent.clear(screen.getByLabelText("搜索 Term"));
-    await userEvent.selectOptions(screen.getByLabelText("按 Domain 筛选"), "ai");
+    await userEvent.clear(screen.getByLabelText("搜索 术语"));
+    await userEvent.selectOptions(screen.getByLabelText("按 领域 筛选"), "ai");
     expect(screen.getByText("Survivor Term")).not.toBeNull();
     expect(screen.queryByText("Loser Term")).toBeNull();
 
-    await userEvent.selectOptions(screen.getByLabelText("按 Domain 筛选"), "");
-    await userEvent.selectOptions(screen.getByLabelText("按 Topic 筛选"), "methods");
+    await userEvent.selectOptions(screen.getByLabelText("按 领域 筛选"), "");
+    await userEvent.selectOptions(screen.getByLabelText("按 主题 筛选"), "methods");
     expect(screen.getByText("Loser Term")).not.toBeNull();
     expect(screen.queryByText("Survivor Term")).toBeNull();
   });
 
-  it("groups explicit links, detections, Sources, PDFs, and Research Works by Term", async () => {
+  it("groups explicit links, detections, Sources, PDFs, and 论文推荐 Works by 术语", async () => {
     api.getEntity.mockResolvedValue({
       ...terms[0],
       content: "",
       canonical_content: "",
       related_terms: [],
       backlinks: [
-        { source_entity_type: "document", source_entity_id: "note-one", source_title: "Note One", link_target: "Survivor Term", line: 14 },
-        { source_entity_type: "term", source_entity_id: "word-term", source_title: "Word Term", link_target: "Survivor Term", line: 7 },
+        { source_entity_type: "document", source_entity_id: "note-one", source_title: "笔记 One", link_target: "Survivor Term", line: 14 },
+        { source_entity_type: "term", source_entity_id: "word-term", source_title: "Word 术语", link_target: "Survivor Term", line: 7 },
       ],
       detected_mentions: [
-        { id: "note-one", title: "Note One" },
-        { id: "unlinked-note", title: "Unlinked Note" },
+        { id: "note-one", title: "笔记 One" },
+        { id: "unlinked-note", title: "Unlinked 笔记" },
       ],
       evidence: [],
       related_documents: [],
       term_relations: [
-        { entity_type: "document", entity_id: "note-one", term_id: "survivor-term", title: "Note One", created_from_candidate_id: "candidate-one", created_at: "2026-01-01T00:00:00Z" },
+        { entity_type: "document", entity_id: "note-one", term_id: "survivor-term", title: "笔记 One", created_from_candidate_id: "candidate-one", created_at: "2026-01-01T00:00:00Z" },
         { entity_type: "source", entity_id: "source-paper", term_id: "survivor-term", title: "Source Paper", created_from_candidate_id: "candidate-two", created_at: "2026-01-02T00:00:00Z" },
-        { entity_type: "research_work", entity_id: "work-one", term_id: "survivor-term", title: "Research Work", created_from_candidate_id: "candidate-three", created_at: "2026-01-03T00:00:00Z" },
+        { entity_type: "research_work", entity_id: "work-one", term_id: "survivor-term", title: "论文推荐 Work", created_from_candidate_id: "candidate-three", created_at: "2026-01-03T00:00:00Z" },
       ],
     } satisfies EntityDetail);
     const navigate = vi.fn();
     render(<TermsPage onOpen={vi.fn()} navigate={navigate} initialTab="mentions" />);
 
-    const notes = await screen.findByRole("region", { name: "Notes" });
-    expect(within(notes).getByText("Note One")).toBeTruthy();
+    const notes = await screen.findByRole("region", { name: "笔记" });
+    expect(within(notes).getByText("笔记 One")).toBeTruthy();
     expect(within(notes).getByText("Accepted detection")).toBeTruthy();
     expect(within(notes).getByText("Explicit link")).toBeTruthy();
-    expect(within(notes).getByText("Unlinked Note")).toBeTruthy();
+    expect(within(notes).getByText("Unlinked 笔记")).toBeTruthy();
     expect(within(await screen.findByRole("region", { name: "Sources & PDFs" })).getByText("Source Paper")).toBeTruthy();
-    expect(within(await screen.findByRole("region", { name: "Research Works" })).getByText("Research Work")).toBeTruthy();
-    expect(within(await screen.findByRole("region", { name: "Related Terms" })).getByText("Word Term")).toBeTruthy();
+    expect(within(await screen.findByRole("region", { name: "论文推荐 Works" })).getByText("论文推荐 Work")).toBeTruthy();
+    expect(within(await screen.findByRole("region", { name: "Related 术语" })).getByText("Word 术语")).toBeTruthy();
 
-    await userEvent.click(within(notes).getByRole("button", { name: /Note One/ }));
+    await userEvent.click(within(notes).getByRole("button", { name: /笔记 One/ }));
     await userEvent.click(within(screen.getByRole("region", { name: "Sources & PDFs" })).getByRole("button", { name: /Source Paper/ }));
-    await userEvent.click(within(screen.getByRole("region", { name: "Research Works" })).getByRole("button", { name: /Research Work/ }));
+    await userEvent.click(within(screen.getByRole("region", { name: "论文推荐 Works" })).getByRole("button", { name: /论文推荐 Work/ }));
     expect(navigate).toHaveBeenNthCalledWith(1, "/documents/note-one");
     expect(navigate).toHaveBeenNthCalledWith(2, "/sources/source-paper");
     expect(navigate).toHaveBeenNthCalledWith(3, "/research?work_id=work-one");
@@ -297,7 +297,7 @@ describe("Terms Registry controls", () => {
 
     expect(await screen.findByText("最终别名")).not.toBeNull();
     expect((await screen.findAllByText("Former Alias")).length).toBeGreaterThan(0);
-    expect(screen.getByText("所选 Terms 的类型与深度")).not.toBeNull();
+    expect(screen.getByText("所选 术语 的类型与深度")).not.toBeNull();
     expect(screen.getByText("以下条目的正文会随合并删除，不会复制到 Survivor：")).not.toBeNull();
     const confirmButton = screen.getByRole("button", { name: "确认合并" });
     expect((confirmButton as HTMLButtonElement).disabled).toBe(true);
@@ -316,24 +316,24 @@ describe("Terms Registry controls", () => {
       final_type: "entity",
       final_depth: "stub",
     }));
-    expect((await screen.findByRole("status")).textContent).toContain("已将 1 个 Term 合并到 Survivor Term。");
+    expect((await screen.findByRole("status")).textContent).toContain("已将 1 个 术语 合并到 Survivor Term。");
     await waitFor(() => expect(screen.queryByText("Loser Term")).toBeNull());
   });
 
-  it("bulk rejects only selected pending Candidates", async () => {
+  it("bulk rejects only selected pending 待处理", async () => {
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "选择候选 Adaptive Token Pruning" }));
-    expect(screen.queryByRole("checkbox", { name: "选择候选 Closed Candidate" })).toBeNull();
-    expect(screen.queryByRole("checkbox", { name: "选择候选 Research Reading Phrase" })).toBeNull();
-    expect(screen.getByRole("button", { name: "批量删除" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "选择候选 Closed 候选" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "选择候选 论文推荐 Reading Phrase" })).toBeNull();
+    expect(screen.getByRole("button", { name: "批量暂时移除" })).toBeTruthy();
     await userEvent.click(screen.getByText("更多操作"));
-    await userEvent.click(screen.getByRole("button", { name: "批量拒绝" }));
+    await userEvent.click(screen.getByRole("button", { name: "批量不再推荐" }));
     await waitFor(() => expect(api.rejectTermCandidate).toHaveBeenCalledWith("candidate-new", { scope: "global" }));
     expect(api.rejectTermCandidate).toHaveBeenCalledTimes(1);
     expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
   });
 
-  it("limits batch deletion to selected Candidates visible under the current filters", async () => {
+  it("limits batch deletion to selected 待处理 visible under the current filters", async () => {
     const pdfCandidate = candidate({
       id: "candidate-pdf",
       normalized_name: "pdf reading phrase",
@@ -358,10 +358,10 @@ describe("Terms Registry controls", () => {
     await screen.findByText("PDF Reading Phrase");
     await userEvent.click(screen.getByRole("checkbox", { name: "选择候选 Adaptive Token Pruning" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "选择候选 PDF Reading Phrase" }));
-    await userEvent.click(screen.getByRole("button", { name: "Notes" }));
+    await userEvent.click(screen.getByRole("button", { name: "笔记" }));
 
     expect(screen.getByText("当前筛选已选 1 项")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "批量删除" }));
+    await userEvent.click(screen.getByRole("button", { name: "批量暂时移除" }));
     const confirmation = screen.getByRole("dialog", { name: "确认删除候选" });
     expect(confirmation.textContent).toContain("Adaptive Token Pruning");
     expect(confirmation.textContent).not.toContain("PDF Reading Phrase");
@@ -371,10 +371,10 @@ describe("Terms Registry controls", () => {
     expect(api.deleteTermCandidate).toHaveBeenCalledWith("candidate-new");
   });
 
-  it("deletes a pending Candidate without recording a rejection", async () => {
+  it("deletes a pending 候选 without recording a rejection", async () => {
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
     await screen.findByText("Adaptive Token Pruning");
-    await userEvent.click(screen.getAllByRole("button", { name: "删除", exact: true })[0]);
+    await userEvent.click(screen.getAllByRole("button", { name: "暂时移除", exact: true })[0]);
 
     expect(await screen.findByRole("dialog", { name: "确认删除候选" })).toBeTruthy();
     expect(screen.getByText(/不加入拒绝历史；以后仍可能再次被推荐/)).toBeTruthy();
@@ -385,52 +385,52 @@ describe("Terms Registry controls", () => {
     expect((await screen.findByRole("status")).textContent).toContain("已删除“Adaptive Token Pruning”");
   });
 
-  it("reports partial batch deletion failures and keeps the failed Candidate selected", async () => {
+  it("reports partial batch deletion failures and keeps the failed 候选 selected", async () => {
     api.deleteTermCandidate.mockImplementation(async (candidateId: string) => {
-      if (candidateId === "candidate-existing") throw new Error("Candidate changed before deletion");
+      if (candidateId === "candidate-existing") throw new Error("候选 changed before deletion");
       return { deleted: true };
     });
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "选择候选 Adaptive Token Pruning" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "选择候选 Calibrated Optimizer" }));
-    await userEvent.click(screen.getByRole("button", { name: "批量删除" }));
+    await userEvent.click(screen.getByRole("button", { name: "批量暂时移除" }));
     await userEvent.click(screen.getByRole("button", { name: "删除 2 项" }));
 
     expect((await screen.findByRole("status")).textContent).toContain("成功 1 项，失败 1 项");
-    expect(screen.getByRole("status").textContent).toContain("Calibrated Optimizer：Candidate changed before deletion");
+    expect(screen.getByRole("status").textContent).toContain("Calibrated Optimizer：候选 changed before deletion");
     expect((screen.getByRole("checkbox", { name: "选择候选 Calibrated Optimizer" }) as HTMLInputElement).checked).toBe(true);
     expect(api.deleteTermCandidate).toHaveBeenCalledTimes(2);
     expect(api.rejectTermCandidate).not.toHaveBeenCalled();
   });
 
-  it("filters Candidate review and links a selected Registry Term", async () => {
+  it("filters 候选 review and links a selected 术语库 术语", async () => {
     api.acceptTermCandidate.mockResolvedValue({});
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
 
     expect(await screen.findByText("Adaptive Token Pruning")).not.toBeNull();
     expect(screen.getByText("Calibrated Optimizer")).not.toBeNull();
-    expect(screen.getByText("Research Reading Phrase")).not.toBeNull();
-    expect(screen.queryByText("Closed Candidate")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Notes" }));
-    expect(screen.queryByText("Research Reading Phrase")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getByText("论文推荐 Reading Phrase")).not.toBeNull();
+    expect(screen.queryByText("Closed 候选")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "笔记" }));
+    expect(screen.queryByText("论文推荐 Reading Phrase")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "全部" }));
     await userEvent.selectOptions(screen.getByLabelText("类别"), "entity");
     expect(screen.queryByText("Adaptive Token Pruning")).toBeNull();
     expect(screen.getByText("Calibrated Optimizer")).not.toBeNull();
     await userEvent.selectOptions(screen.getByLabelText("类别"), "");
 
-    const pickerTrigger = screen.getByRole("button", { name: "选择其他 Term" });
+    const pickerTrigger = screen.getByRole("button", { name: "选择其他术语" });
     await userEvent.click(pickerTrigger);
-    expect(document.activeElement).toBe(screen.getByLabelText("搜索 Term"));
-    await userEvent.type(screen.getByLabelText("搜索 Term"), "Loser Term");
+    expect(document.activeElement).toBe(screen.getByLabelText("搜索 术语"));
+    await userEvent.type(screen.getByLabelText("搜索 术语"), "Loser Term");
     await userEvent.click(screen.getByRole("option", { name: /Loser Term/ }));
-    await userEvent.click(screen.getByRole("button", { name: "链接到所选 Term" }));
+    await userEvent.click(screen.getByRole("button", { name: "链接到所选 术语" }));
 
     await waitFor(() => expect(api.acceptTermCandidate).toHaveBeenCalledWith("candidate-existing", "loser-term"));
     await waitFor(() => expect(document.activeElement).toBe(pickerTrigger));
   });
 
-  it("reopens a Drafting Candidate's Term Draft with its explicit Candidate context", async () => {
+  it("reopens a 编辑中 候选's 未发布的术语修改 with its explicit 候选 context", async () => {
     const draft: Draft = {
       id: "draft-research",
       entity_type: "term",
@@ -448,29 +448,29 @@ describe("Terms Registry controls", () => {
     const onOpen = vi.fn();
     render(<TermsPage onOpen={onOpen} navigate={navigate} initialTab="candidates" />);
 
-    const openDraftButton = await screen.findByRole("button", { name: "打开 Term Draft" });
+    const openDraftButton = await screen.findByRole("button", { name: "继续编辑解释" });
     await userEvent.click(openDraftButton);
 
     await waitFor(() => expect(api.getDraft).toHaveBeenCalledWith("draft-research"));
     expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByLabelText("Research Reading Phrase 的 Term Draft 编辑区"));
-    const draftingTitle = screen.getByRole("heading", { level: 2, name: "Research Reading Phrase" });
+    expect(document.activeElement).toBe(screen.getByLabelText("论文推荐 Reading Phrase 的 未发布的术语修改 编辑区"));
+    const draftingTitle = screen.getByRole("heading", { level: 2, name: "论文推荐 Reading Phrase" });
     const draftingCard = draftingTitle.closest("article");
-    expect(within(draftingCard as HTMLElement).queryByRole("button", { name: "删除", exact: true })).toBeNull();
+    expect(within(draftingCard as HTMLElement).queryByRole("button", { name: "暂时移除", exact: true })).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "关闭编辑" }));
     await waitFor(() => expect(document.activeElement).toBe(openDraftButton));
   });
 
-  it("filters Candidates by Notes, PDF, Research, and Web Discovery and collapses long evidence", async () => {
-    const pdfCandidate = candidate({ id: "candidate-pdf", display_name: "PDF Candidate", evidence: [{ ...candidate({}).evidence[0], id: "evidence-pdf", candidate_id: "candidate-pdf", origin_type: "source", origin_id: "source-pdf", origin_title: "PDF Source" }] });
-    const researchCandidate = candidate({ id: "candidate-research-work", display_name: "Research Candidate", evidence: [{ ...candidate({}).evidence[0], id: "evidence-research-work", candidate_id: "candidate-research-work", origin_type: "research_work", origin_id: "work-one", origin_title: "Research Work" }] });
-    const webCandidate = candidate({ id: "candidate-web", display_name: "Web Candidate", evidence: [{ ...candidate({}).evidence[0], id: "evidence-web", candidate_id: "candidate-web", origin_type: "external", origin_id: "https://example.com/discovery", origin_title: "Web Discovery" }] });
+  it("filters 待处理 by 笔记, PDF, 论文推荐, and 外部发现 and collapses long evidence", async () => {
+    const pdfCandidate = candidate({ id: "candidate-pdf", display_name: "PDF 候选", evidence: [{ ...candidate({}).evidence[0], id: "evidence-pdf", candidate_id: "candidate-pdf", origin_type: "source", origin_id: "source-pdf", origin_title: "PDF Source" }] });
+    const researchCandidate = candidate({ id: "candidate-research-work", display_name: "论文推荐 候选", evidence: [{ ...candidate({}).evidence[0], id: "evidence-research-work", candidate_id: "candidate-research-work", origin_type: "research_work", origin_id: "work-one", origin_title: "论文推荐 Work" }] });
+    const webCandidate = candidate({ id: "candidate-web", display_name: "Web 候选", evidence: [{ ...candidate({}).evidence[0], id: "evidence-web", candidate_id: "candidate-web", origin_type: "external", origin_id: "https://example.com/discovery", origin_title: "外部发现" }] });
     const manyEvidenceCandidate = candidate({
       id: "candidate-many-evidence",
-      display_name: "Many Evidence Candidate",
-      evidence: Array.from({ length: 4 }, (_, index) => ({ ...candidate({}).evidence[0], id: `evidence-many-${index}`, candidate_id: "candidate-many-evidence", origin_id: `note-${index}`, origin_title: `Note ${index}`, context_excerpt: `Context ${index}` })),
+      display_name: "Many Evidence 候选",
+      evidence: Array.from({ length: 4 }, (_, index) => ({ ...candidate({}).evidence[0], id: `evidence-many-${index}`, candidate_id: "candidate-many-evidence", origin_id: `note-${index}`, origin_title: `笔记 ${index}`, context_excerpt: `Context ${index}` })),
     });
     api.listTermCandidates.mockResolvedValue([candidate({}), pdfCandidate, researchCandidate, webCandidate, manyEvidenceCandidate]);
     const user = userEvent.setup();
@@ -478,18 +478,18 @@ describe("Terms Registry controls", () => {
 
     expect(await screen.findByText("Adaptive Token Pruning")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "PDF" }));
-    expect(screen.getByText("PDF Candidate")).not.toBeNull();
+    expect(screen.getByText("PDF 候选")).not.toBeNull();
     expect(screen.queryByText("Adaptive Token Pruning")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Research" }));
-    expect(screen.getByText("Research Candidate")).not.toBeNull();
-    expect(screen.queryByText("PDF Candidate")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Web Discovery" }));
-    expect(screen.getByText("Web Candidate")).not.toBeNull();
-    expect(screen.queryByText("Research Candidate")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("button", { name: "论文推荐" }));
+    expect(screen.getByText("论文推荐 候选")).not.toBeNull();
+    expect(screen.queryByText("PDF 候选")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "外部发现" }));
+    expect(screen.getByText("Web 候选")).not.toBeNull();
+    expect(screen.queryByText("论文推荐 候选")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "全部" }));
 
-    await screen.findByText("Many Evidence Candidate");
-    const evidenceCard = screen.getByText("Many Evidence Candidate").closest("article");
+    await screen.findByText("Many Evidence 候选");
+    const evidenceCard = screen.getByText("Many Evidence 候选").closest("article");
     const evidenceSummary = within(evidenceCard as HTMLElement).getByText("来源与证据");
     const evidenceDetails = evidenceSummary.closest("details") as HTMLDetailsElement;
     expect(evidenceDetails.open).toBe(false);
@@ -498,7 +498,7 @@ describe("Terms Registry controls", () => {
     expect(screen.getByText("Context 0")).not.toBeNull();
   });
 
-  it("creates an inline review Draft and requires an explicit action for AI generation", async () => {
+  it("creates an inline review 未发布修改 and requires an explicit action for AI generation", async () => {
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoViewSpy });
     scrollIntoViewSpy.mockClear();
     const draft: Draft = {
@@ -522,11 +522,11 @@ describe("Terms Registry controls", () => {
     const navigate = vi.fn();
     render(<TermsPage onOpen={onOpen} navigate={navigate} initialTab="candidates" />);
 
-    await userEvent.click((await screen.findAllByRole("button", { name: "编辑解释" }))[0]);
+    await userEvent.click((await screen.findAllByRole("button", { name: "收录为新术语" }))[0]);
     await waitFor(() => expect(api.createCandidateTermDraft).toHaveBeenCalledWith("candidate-new"));
     expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
     expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Adaptive Token Pruning 的 Term Draft 编辑区")));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Adaptive Token Pruning 的 未发布的术语修改 编辑区")));
     expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
     await userEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
     await waitFor(() => expect(api.requestCandidateTermDraftProposal).toHaveBeenCalledWith(draft.id, "candidate-new"));
@@ -534,12 +534,12 @@ describe("Terms Registry controls", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("allows Create Term from an active external Candidate source", async () => {
+  it("allows Create 术语 from an active external 候选 source", async () => {
     api.listTermCandidates.mockResolvedValue([
       candidate({
         id: "candidate-external",
         normalized_name: "external evidence term",
-        display_name: "External Evidence Term",
+        display_name: "External Evidence 术语",
         evidence: [{
           id: "evidence-external",
           candidate_id: "candidate-external",
@@ -557,7 +557,7 @@ describe("Terms Registry controls", () => {
     ]);
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
 
-    const createButton = await screen.findByRole("button", { name: "编辑解释" });
+    const createButton = await screen.findByRole("button", { name: "收录为新术语" });
     expect((createButton as HTMLButtonElement).disabled).toBe(false);
     await userEvent.click(screen.getByText("来源与证据"));
     expect(screen.getAllByText("A bounded external excerpt.").length).toBeGreaterThan(0);

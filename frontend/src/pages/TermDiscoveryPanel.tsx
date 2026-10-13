@@ -13,12 +13,12 @@ import { errorMessage } from "../errors";
 import { Chip, ErrorState, LoadingState } from "../ui";
 
 const LANES: Array<{ id: TermDiscoveryLane; title: string; description: string }> = [
-  { id: "concept", title: "Concept", description: "方法、机制、理论和稳定概念" },
-  { id: "entity", title: "Entity", description: "值得重复识别的模型、数据集和系统" },
-  { id: "vocabulary", title: "Vocabulary", description: "影响科研论文理解的专业词汇" },
+  { id: "concept", title: "概念", description: "方法、机制、理论和稳定概念" },
+  { id: "entity", title: "命名实体", description: "值得重复识别的模型、数据集和系统" },
+  { id: "vocabulary", title: "专业词汇", description: "影响科研论文理解的专业词汇" },
 ];
 
-export function TermDiscoveryPanel() {
+export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => void }) {
   const [state, setState] = useState<TermDiscoveryState | null>(null);
   const [runs, setRuns] = useState<TermDiscoveryRun[]>([]);
   const [draft, setDraft] = useState<TermDiscoverySettings | null>(null);
@@ -83,7 +83,7 @@ export function TermDiscoveryPanel() {
       setState(nextState);
       setDraft(nextState.settings);
       setSourceText(nextState.settings.source_preferences.join(", "));
-      setNotice("Discovery 设置已保存。");
+      setNotice("发现术语 设置已保存。");
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -97,6 +97,10 @@ export function TermDiscoveryPanel() {
     setError("");
     setNotice("");
     try {
+      if (draft && state) {
+        const settings = { ...draft, source_preferences: sourceText.split(",").map((item) => item.trim()).filter(Boolean), focus_override: draft.focus_override?.trim() || null };
+        if (JSON.stringify(settings) !== JSON.stringify(state.settings)) await updateTermDiscoverySettings(settings);
+      }
       const run = await runTermDiscovery();
       const [nextState, nextRuns] = await Promise.all([
         getTermDiscoveryState(),
@@ -105,9 +109,8 @@ export function TermDiscoveryPanel() {
       setState(nextState);
       setDraft(nextState.settings);
       setRuns(nextRuns);
-      setNotice(run.candidate_count
-        ? `本次新增 ${run.candidate_count} 个 Term Candidate。`
-        : "本次没有新增 Candidate；可查看运行记录了解原因。");
+      setSourceText(nextState.settings.source_preferences.join(", "));
+      setNotice(run.status === "failed" ? "发现失败，请查看发现记录中的原因。" : `${run.status === "partial" ? "部分完成。" : "发现完成。"}${run.candidate_count ? `本次新增 ${run.candidate_count} 个待处理术语。` : "本次没有新增术语，可调整发现范围后再试。"}`);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -115,54 +118,56 @@ export function TermDiscoveryPanel() {
     }
   }
 
-  if (loading) return <LoadingState label="正在读取 Discovery 状态…" />;
+  if (loading) return <LoadingState label="正在读取 发现术语 状态…" />;
   if (error && !state) return <ErrorState message={error} retry={() => { setLoading(true); void refresh().catch((reason: unknown) => setError(errorMessage(reason))).finally(() => setLoading(false)); }} />;
   if (!state || !draft) return null;
 
   return (
-    <section className="term-discovery-panel" aria-label="Term Discovery">
+    <section className="term-discovery-panel" aria-label="发现术语">
       <div className="term-discovery-overview surface">
         <div className="term-discovery-overview-heading">
-          <div><span className="section-kicker">FOCUS-AWARE RECOMMENDATIONS</span><h2>Discovery</h2><p>从本地 PDF、Notes 和可选的外部摘要中挑选少量适合当前学习进度的 Term。</p></div>
-          <button className="button button-primary" type="button" disabled={busy} onClick={() => void runNow()}>{busy ? "正在运行…" : "Run Now"}</button>
+          <div><span className="section-kicker">发现适合当前学习方向的术语</span><h2>发现术语</h2><p>从本地 PDF、笔记 和可选的外部摘要中挑选少量适合当前学习进度的 术语。</p></div>
+          <button className="button button-primary" type="button" disabled={busy} onClick={() => void runNow()}>{busy ? "正在运行…" : "立即发现"}</button>
         </div>
         <div className="term-discovery-capacity-grid">
-          <div><span>Open Candidates</span><strong>{state.open_count} / {state.global_capacity}</strong></div>
-          <div><span>24h remaining</span><strong>{state.daily_remaining}</strong></div>
-          {LANES.map((lane) => <div key={lane.id}><span>{lane.title}</span><strong>{state.lane_open[lane.id] ?? 0} / {state.lane_capacity[lane.id] ?? 0}</strong></div>)}
+          <div><span>待处理术语</span><strong>{state.open_count} / {state.global_capacity}</strong></div>
         </div>
-        {state.last_run && <p className="term-discovery-last-run">Last run · {state.last_run.status.replaceAll("_", " ")} · {new Date(state.last_run.started_at).toLocaleString()}</p>}
+        {state.last_run && <p className="term-discovery-last-run">最近发现 · {state.last_run.status.replaceAll("_", " ")} · {new Date(state.last_run.started_at).toLocaleString()}</p>}
       </div>
 
       <form className="term-discovery-settings surface" onSubmit={(event) => void saveSettings(event)}>
-        <div className="section-heading"><div><h3>Discovery settings</h3><p>Focus 优先复用 Research Profile；这里只保存少量运行偏好。</p></div><button className="button button-secondary" type="submit" disabled={busy}>{busy ? "Saving…" : "Save settings"}</button></div>
+        <div className="section-heading"><div><h3>发现设置</h3><p>检索主题 优先复用 研究方向；这里只保存少量运行偏好。</p></div><button className="button button-secondary" type="submit" disabled={busy}>{busy ? "正在保存…" : "保存设置"}</button></div>
         <div className="term-discovery-lanes">
           {LANES.map((lane) => <label className="term-discovery-lane" key={lane.id}>
             <input type="checkbox" checked={draft.enabled_lanes.includes(lane.id)} onChange={() => toggleLane(lane.id)} />
             <span><strong>{lane.title}</strong><small>{lane.description}</small></span>
-            <span className="term-discovery-lane-quota"><small>容量</small><input type="number" min={1} max={12} value={draft.lane_capacities[lane.id]} onChange={(event) => setDraft((current) => current ? { ...current, lane_capacities: { ...current.lane_capacities, [lane.id]: Number(event.target.value) } } : current)} aria-label={`${lane.title} capacity`} /></span>
           </label>)}
         </div>
+        <details className="term-discovery-advanced"><summary>高级设置</summary>
+        <p>每日还可新增 {state.daily_remaining} 项；自动发现由已启用的定时任务运行。</p>
+        {LANES.map((lane) => <label className="field-label" key={lane.id}>{lane.title}容量（待处理 {state.lane_open[lane.id] ?? 0}）<input type="number" min={1} max={12} value={draft.lane_capacities[lane.id]} onChange={(event) => setDraft((current) => current ? { ...current, lane_capacities: { ...current.lane_capacities, [lane.id]: Number(event.target.value) } } : current)} aria-label={`${lane.title} capacity`} /></label>)}
         <div className="term-discovery-setting-fields">
           <label className="field-label">每日新增上限<input type="number" min={1} max={12} value={draft.daily_max_new} onChange={(event) => setDraft((current) => current ? { ...current, daily_max_new: Number(event.target.value) } : current)} /></label>
-          <label className="field-label">Focus override（可选）<input value={draft.focus_override ?? ""} maxLength={500} onChange={(event) => setDraft((current) => current ? { ...current, focus_override: event.target.value || null } : current)} placeholder="沿用 Research Profile 的方向" /></label>
-          <label className="field-label">优先 Source ID（逗号分隔）<input value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="例如 source-alpha, source-beta" /></label>
+          <label className="field-label">自定义研究方向（可选）<input value={draft.focus_override ?? ""} maxLength={500} onChange={(event) => setDraft((current) => current ? { ...current, focus_override: event.target.value || null } : current)} placeholder="沿用 研究方向 的方向" /></label>
+          <label className="field-label">优先 文献标识（逗号分隔）<input value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="例如 source-alpha, source-beta" /></label>
         </div>
         <label className="term-discovery-external-setting">
           <input type="checkbox" checked={draft.external_enabled} onChange={(event) => setDraft((current) => current ? { ...current, external_enabled: event.target.checked } : current)} />
-          <span><strong>启用 Wikipedia 外部发现</strong><small>开启后，每次手动或定时运行最多发送一次 Focus 查询并读取两条摘要；Focus 查询会发给 Wikipedia，摘要会交给 AI 分析。只用于 Concept 和 Entity。</small></span>
+          <span><strong>启用 Wikipedia 外部发现</strong><small>开启后，每次手动或定时运行最多发送一次 检索主题 查询并读取两条摘要；检索主题 查询会发给 Wikipedia，摘要会交给 AI 分析。只用于 概念 和 命名实体。</small></span>
         </label>
+        </details>
       </form>
 
       {notice && <p className="editor-notice success-notice" role="status">{notice}</p>}
+      {notice && navigate && <button className="button button-secondary" onClick={() => navigate("/terms?tab=candidates")}>查看待处理术语</button>}
       {error && <p className="error-copy" role="alert">{error}</p>}
 
-      <section className="term-discovery-history surface" aria-label="Discovery Run History">
-        <div className="section-heading"><div><h3>Run History</h3><p>Stretch 建议保留在运行结果中，不会占用 Candidate Inbox。</p></div><span className="count-label">{runs.length} runs</span></div>
+      <section className="term-discovery-history surface" aria-label="发现术语 发现记录">
+        <div className="section-heading"><div><h3>发现记录</h3><p>拓展建议保留在运行结果中，不会占用 待处理列表。</p></div><span className="count-label">{runs.length} runs</span></div>
         {runs.length ? <div className="term-discovery-run-list">{runs.map((run) => <details className="term-discovery-run" key={run.id}>
           <summary><span><Chip tone={run.status === "success" ? "green" : run.status === "partial" ? "amber" : "neutral"}>{run.status.replaceAll("_", " ")}</Chip> {new Date(run.started_at).toLocaleString()}</span><strong>{run.candidate_count} new</strong></summary>
           <div className="term-discovery-run-detail">
-            <p>预算：Concept {run.lane_budgets.concept ?? 0} · Entity {run.lane_budgets.entity ?? 0} · Vocabulary {run.lane_budgets.vocabulary ?? 0}</p>
+            <p>预算：概念 {run.lane_budgets.concept ?? 0} · 命名实体 {run.lane_budgets.entity ?? 0} · 专业词汇 {run.lane_budgets.vocabulary ?? 0}</p>
             <p>模型建议 {Object.values(run.raw_counts).reduce((sum, value) => sum + value, 0)} · 过滤 {Object.values(run.filtered_counts).reduce((sum, value) => sum + value, 0)}</p>
             {run.error_summary && <p className="error-copy">{run.error_summary}</p>}
             {run.items.map((item) => <article className="term-discovery-result" key={item.id}>
@@ -172,7 +177,7 @@ export function TermDiscoveryPanel() {
               {item.rationale && <blockquote>{item.context_excerpt}</blockquote>}
             </article>)}
           </div>
-        </details>)}</div> : <p className="term-discovery-empty">还没有运行记录。开启需要的 Lane 后，可手动运行一次。</p>}
+        </details>)}</div> : <p className="term-discovery-empty">还没有运行记录。选择需要的术语类别 后，可手动运行一次。</p>}
       </section>
     </section>
   );

@@ -58,6 +58,19 @@ beforeEach(() => {
   api.requestCandidateTermDraftProposal.mockResolvedValue({ proposal: makeProposal(), external_provider_notice: "sent" });
 });
 
+test("confirms inclusion in one click even when ordinary heading reminders remain", async () => {
+  const done = vi.fn();
+  state.content = initialContent + "\n### Example\n\nValid explanation.\n";
+  const warnings = ["heading.h3_numbering: 建议标题编号。"];
+  api.preflightDraft.mockResolvedValue({ draft_id: "d", valid: true, conflict: false, errors: [], warnings });
+  api.publishDraft.mockResolvedValue({ draft_id: "d", commit_revision: "commit", warnings });
+  renderReview(done);
+  fireEvent.click(screen.getByRole("button", { name: "确认收录", exact: true }));
+  await waitFor(() => expect(done).toHaveBeenCalledWith(warnings));
+  expect(publishDraft).toHaveBeenCalledOnce();
+  expect(state.content).toContain("### Example");
+});
+
 test("shows the saved standard depth and explains its added detail", async () => {
   const standardContent = initialContent.replace("depth: stub", "depth: standard");
   state.content = standardContent;
@@ -70,7 +83,7 @@ test("shows the saved standard depth and explains its added detail", async () =>
   expect(screen.getByText("在完整基础上解释关键机制、流程、关系或输入输出。")).toBeTruthy();
 });
 
-test("closes the inline review only after saving the current Draft", async () => {
+test("closes the inline review only after saving the current 未发布修改", async () => {
   const onClose = vi.fn();
   renderReview(vi.fn(), makeSeed(), onClose);
 
@@ -79,14 +92,14 @@ test("closes the inline review only after saving the current Draft", async () =>
   await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
 });
 
-test("saves a selected depth before generation without changing other Draft content", async () => {
+test("saves a selected depth before generation without changing other 未发布修改 content", async () => {
   renderReview();
   const depth = await screen.findByRole("combobox", { name: "解释深度" });
   await waitFor(() => expect((depth as HTMLSelectElement).disabled).toBe(false));
 
   fireEvent.change(depth, { target: { value: "deep" } });
 
-  expect(await screen.findByText("深度已保存为「系统深入」；后续生成会读取当前 Draft。")).toBeTruthy();
+  expect(await screen.findByText("解释深度已保存为「系统深入」；后续生成会读取当前编辑内容。")).toBeTruthy();
   expect(state.content).toBe(initialContent.replace("depth: stub", "depth: deep"));
   api.requestCandidateTermDraftProposal.mockImplementation(async (draftId: string, candidateId: string) => {
     expect(draftId).toBe("d");
@@ -101,7 +114,7 @@ test("saves a selected depth before generation without changing other Draft cont
   await waitFor(() => expect(requestCandidateTermDraftProposal).toHaveBeenCalledWith("d", "candidate-1"));
 });
 
-test("reopening the review reads the selected depth from the saved Draft", async () => {
+test("reopening the review reads the selected depth from the saved 未发布修改", async () => {
   state.content = initialContent.replace("depth: stub", "depth: deep");
   const first = renderReview();
   const firstSelector = await screen.findByRole("combobox", { name: "解释深度" });
@@ -130,14 +143,14 @@ test("an unhandled Proposal blocks depth changes until it is adopted or discarde
 test("one approval marks human review, preflights and publishes the reviewed revision", async () => {
   const done = vi.fn();
   renderReview(done);
-  fireEvent.click(screen.getByRole("button", { name: "通过", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "确认收录", exact: true }));
   await waitFor(() => expect(done).toHaveBeenCalled());
   expect(state.content).toContain("status: approved");
   expect(preflightDraft).toHaveBeenCalledWith("d");
   expect(publishDraft).toHaveBeenCalledWith("d", 2);
 });
 
-test("repairs only current Draft H3 numbering without AI and then allows Publisher flow", async () => {
+test("repairs only current 未发布修改 H3 numbering without AI and then allows 保存服务 flow", async () => {
   const done = vi.fn();
   const draftContent = initialContent.replace(
     "Experience Replay retains examples.",
@@ -149,7 +162,7 @@ test("repairs only current Draft H3 numbering without AI and then allows Publish
   await waitFor(() => expect((screen.getByRole("button", { name: /修正 H3 编号/ }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "修正 H3 编号（3 处）" }));
 
-  expect(await screen.findByText("已只修正 3 个 H3 标题编号；解释正文保持不变，Draft 已保存，可检查后发布。")).toBeTruthy();
+  expect(await screen.findByText("已只修正 3 个 H3 标题编号；解释正文保持不变，未发布修改 已保存，可检查后发布。")).toBeTruthy();
   expect(state.content).toContain("### 1. Meaning\n\nChinese body stays exact.");
   expect(state.content).toContain("### 2. Example\n\nExample body stays exact.");
   expect(state.content).toContain("## 二、English Explanation\n\n### 1. Meaning\n\nEnglish body stays exact.");
@@ -158,35 +171,35 @@ test("repairs only current Draft H3 numbering without AI and then allows Publish
   expect(requestCandidateTermDraftProposal).not.toHaveBeenCalled();
   expect(requestTermRewrite).not.toHaveBeenCalled();
 
-  fireEvent.click(screen.getByRole("button", { name: "通过", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "确认收录", exact: true }));
   await waitFor(() => expect(done).toHaveBeenCalledOnce());
   expect(preflightDraft).toHaveBeenCalledWith("d");
   expect(publishDraft).toHaveBeenCalledWith("d", 2);
 });
 
-test("summarizes repeated H3 preflight errors and keeps their details expandable", async () => {
-  const repeatedIssue = "heading.h3_numbering: H3 headings must use Arabic numbering followed by '. '.";
+test("keeps structural errors visible with expandable details and does not publish", async () => {
+  const repeatedIssue = "第 8 行：公式块缺少结束的 $$，请补齐公式边界。";
   api.preflightDraft.mockResolvedValue({
     draft_id: "d", valid: false, conflict: false,
-    errors: [`Markdown validation failed: ${Array.from({ length: 8 }, () => repeatedIssue).join("; ")}`],
+    errors: [repeatedIssue],
     warnings: [],
   });
   renderReview();
-  fireEvent.click(screen.getByRole("button", { name: "通过", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "确认收录", exact: true }));
 
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toBe("标题格式：8 个 H3 缺少“1. ”编号（可修正后重试）");
-  const details = screen.getByText("查看 Preflight 详情").closest("details");
+  expect(alert.textContent).toBe(repeatedIssue);
+  const details = screen.getByText("查看具体问题").closest("details");
   expect(details?.open).toBe(false);
-  expect(details?.textContent?.match(/heading\.h3_numbering:/g)).toHaveLength(8);
+  expect(details?.textContent).toContain(repeatedIssue);
   expect(publishDraft).not.toHaveBeenCalled();
 });
 
-test("a publish conflict keeps the reviewed Draft and never reports approval", async () => {
+test("a publish conflict keeps the reviewed 未发布修改 and never reports approval", async () => {
   const done = vi.fn();
   api.publishDraft.mockRejectedValue(new Error("正式版已变化"));
   renderReview(done);
-  fireEvent.click(screen.getByRole("button", { name: "通过", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "确认收录", exact: true }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("正式版已变化"));
   expect(done).not.toHaveBeenCalled();
   expect(state.content).toContain("Experience Replay retains examples.");
@@ -225,8 +238,8 @@ test("reuses a matching cached proposal and compares the old body with the unado
   api.listProposals.mockResolvedValue([proposal]);
   renderReview(vi.fn(), makeSeed());
 
-  expect(await screen.findByText(/已载入与当前 Draft 匹配的建议/)).toBeTruthy();
-  const oldBody = screen.getByRole("region", { name: "当前 Term Draft 原文" });
+  expect(await screen.findByText(/已载入与当前编辑内容 匹配的建议/)).toBeTruthy();
+  const oldBody = screen.getByRole("region", { name: "当前编辑原文" });
   const newBody = screen.getByRole("region", { name: "尚未采用的双语重写建议" });
   expect(oldBody.textContent).toContain("Experience Replay retains examples.");
   expect(newBody.textContent).toContain("Suggested Chinese explanation.");
@@ -235,7 +248,7 @@ test("reuses a matching cached proposal and compares the old body with the unado
   expect(newBody.querySelector("h1")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "重新生成双语解释" }));
-  await waitFor(() => expect(screen.getByText(/已复用与当前 Draft 内容匹配的双语建议/)).toBeTruthy());
+  await waitFor(() => expect(screen.getByText(/已复用与当前编辑内容 内容匹配的双语建议/)).toBeTruthy());
   expect(requestCandidateTermDraftProposal).not.toHaveBeenCalled();
   expect(requestTermRewrite).not.toHaveBeenCalled();
 });
@@ -246,10 +259,10 @@ test("shows an initial bilingual proposal without an empty comparison column", a
   api.listProposals.mockResolvedValue([makeProposal()]);
   renderReview(vi.fn(), makeSeed(blankContent));
 
-  expect(await screen.findByText("初次生成：当前 Draft 没有原文。")).toBeTruthy();
+  expect(await screen.findByText("初次生成：当前编辑内容 没有原文。")).toBeTruthy();
   expect(screen.getByRole("region", { name: "尚未采用的双语重写建议" }).textContent).toContain("Suggested Chinese explanation.");
   expect(screen.getByRole("region", { name: "尚未采用的双语重写建议" }).textContent).toContain("Suggested English explanation.");
-  expect(screen.queryByRole("region", { name: "当前 Term Draft 原文" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "当前编辑原文" })).toBeNull();
 });
 
 test("does not offer an older single-language rewrite as a bilingual Proposal", async () => {
@@ -265,22 +278,22 @@ test("does not offer an older single-language rewrite as a bilingual Proposal", 
   await waitFor(() => expect(requestCandidateTermDraftProposal).toHaveBeenCalledWith("d", "candidate-1"));
 });
 
-test("adoption only updates the Draft and keeps Publish as a separate human action", async () => {
+test("adoption only updates the 未发布修改 and keeps Publish as a separate human action", async () => {
   const proposal = makeProposal();
   api.listProposals.mockResolvedValue([proposal]);
   renderReview();
   await screen.findByRole("region", { name: "尚未采用的双语重写建议" });
-  fireEvent.click(screen.getByRole("button", { name: "采用到 Draft" }));
+  fireEvent.click(screen.getByRole("button", { name: "采用建议" }));
 
-  expect(await screen.findByText("建议已采用到 Term Draft；仍需检查并单独发布。")).toBeTruthy();
+  expect(await screen.findByText("建议已采用到当前编辑内容；确认收录后才会成为正式内容。")).toBeTruthy();
   expect(applyProposalToDraft).toHaveBeenCalledWith("proposal-1", "d", 2);
   expect(publishDraft).not.toHaveBeenCalled();
 });
 
-test("rejects the Candidate only after discarding its Draft", async () => {
+test("rejects the 候选 only after discarding its 未发布修改", async () => {
   const done = vi.fn();
   renderReview(done);
-  fireEvent.click(screen.getByRole("button", { name: "拒绝", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "不再推荐", exact: true }));
   await waitFor(() => expect(done).toHaveBeenCalledOnce());
   expect(discardDraft).toHaveBeenCalledWith("d", 2);
   expect(rejectTermCandidate).toHaveBeenCalledWith("candidate-1", { scope: "global" });

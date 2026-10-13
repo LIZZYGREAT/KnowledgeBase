@@ -48,7 +48,7 @@ beforeEach(() => {
   api.rejectProposal.mockResolvedValue(undefined);
 });
 
-test("language switches show missing-language feedback without AI or Draft writes", () => {
+test("language switches show missing-language feedback without AI or 未发布修改 writes", () => {
   const workspace = makeWorkspace(chineseOnlyBody);
   render(<TermLanguageCard body={chineseOnlyBody} workspace={workspace} navigate={vi.fn()} disabled={false} />);
   fireEvent.click(screen.getByRole("button", { name: "English", exact: true }));
@@ -91,7 +91,7 @@ test("requests one bilingual rewrite and compares both language sections before 
   expect(screen.getByRole("region", { name: "重写前双语解释" }).textContent).toContain("Fisher Information constrains important parameters.");
   expect(screen.getByRole("region", { name: "尚未采用的双语重写建议" }).textContent).toContain("新解释说明参数重要性如何影响训练。");
   expect(screen.getByRole("region", { name: "尚未采用的双语重写建议" }).textContent).toContain("The rewrite explains how parameter importance affects training.");
-  expect(screen.getByText(/当前 Draft 和正式知识尚未改变/)).toBeTruthy();
+  expect(screen.getByText(/当前编辑内容和正式版本尚未改变/)).toBeTruthy();
   expect((screen.getByRole("button", { name: "English", exact: true }) as HTMLButtonElement).disabled).toBe(true);
 });
 
@@ -116,8 +116,8 @@ test("adopts or rejects only the Proposal and leaves publishing to Workspace", a
   fireEvent.click(screen.getByRole("button", { name: "AI 双语重写", exact: true }));
   fireEvent.change(screen.getByLabelText("重写要求"), { target: { value: "Explain the mechanism." } });
   fireEvent.click(screen.getByRole("button", { name: "AI 双语重写", exact: true }));
-  fireEvent.click(await screen.findByRole("button", { name: "采用到 Draft" }));
-  expect(await screen.findByText("建议已采用到 Term Draft；仍需检查并单独发布。")).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "采用建议" }));
+  expect(await screen.findByText("建议已采用到当前编辑内容；确认收录后才会成为正式内容。")).toBeTruthy();
   expect(workspace.applyProposalToDraft).toHaveBeenCalledWith("rewrite-proposal");
 
   view.unmount();
@@ -128,6 +128,6 @@ test("adopts or rejects only the Proposal and leaves publishing to Workspace", a
   fireEvent.change(screen.getByLabelText("重写要求"), { target: { value: "Explain the mechanism." } });
   fireEvent.click(screen.getByRole("button", { name: "AI 双语重写", exact: true }));
   fireEvent.click(await screen.findByRole("button", { name: "放弃建议" }));
-  expect(await screen.findByText("建议已放弃；Term Draft 未被修改。")).toBeTruthy();
+  expect(await screen.findByText("建议已放弃；当前解释未被修改。")).toBeTruthy();
   expect(rejectProposal).toHaveBeenCalledWith("rewrite-proposal");
 });

@@ -15,6 +15,7 @@ import {
 import { errorMessage } from "../errors";
 import { Chip, EmptyState, ErrorState, LoadingState, titleCase } from "../ui";
 import { TermCandidateReview } from "./TermCandidateReview";
+import { termTypeLabel } from "../termLabels";
 import { readList, readString, useResource, type Navigate, type SelectEntity } from "./PageShared";
 
 type OriginFilter = "all" | "notes" | "pdf" | "research" | "web";
@@ -39,6 +40,7 @@ export function TermCandidatesPanel({
   const [selected, setSelected] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [publishWarnings, setPublishWarnings] = useState<string[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState<TermCandidate[] | null>(null);
   const [resolutionFilter, setResolutionFilter] = useState<ResolutionFilter>("all");
   const [busyCandidateId, setBusyCandidateId] = useState("");
@@ -182,7 +184,7 @@ export function TermCandidatesPanel({
         : `已删除“${item.candidate.display_name}”；未加入拒绝历史。`);
     } else {
       const failureDetails = failed.map((item) => `${item.candidate.display_name}：${item.error}`).join("；");
-      setNotice(`批量删除完成：成功 ${outcomes.length - failed.length} 项，失败 ${failed.length} 项。${failureDetails ? `失败详情：${failureDetails}` : ""}`);
+      setNotice(`批量暂时移除完成：成功 ${outcomes.length - failed.length} 项，失败 ${failed.length} 项。${failureDetails ? `失败详情：${failureDetails}` : ""}`);
     }
     setDeleteConfirmation(null);
     setBatchBusy(false);
@@ -260,9 +262,9 @@ export function TermCandidatesPanel({
   }
 
   return (
-    <section ref={panelRef} tabIndex={-1} className="term-candidates-panel" aria-label="Term Candidates">
+    <section ref={panelRef} tabIndex={-1} className="term-candidates-panel" aria-label="待处理术语">
       <header className="term-candidate-page-heading">
-        <div><h2>Term Candidates</h2><p>{showRejected ? "查看已拒绝的候选及其拒绝历史。" : "判断候选术语，编辑解释或关联已有 Term。"}</p></div>
+        <div><h2>待处理术语</h2><p>{showRejected ? "查看已拒绝的候选及其拒绝历史。" : "判断候选术语，编辑解释或关联已有术语。"}</p></div>
         <div className="term-candidate-page-summary">
           <span className="count-label">{showRejected ? `${displayedCandidateCount} 条拒绝记录` : `显示 ${displayedCandidateCount} / 待审 ${openCandidateCount}`}</span>
           <button className="button button-quiet" type="button" onClick={() => { setShowRejected(!showRejected); setSelected([]); }}>{showRejected ? "返回待审" : "拒绝历史"}</button>
@@ -271,11 +273,11 @@ export function TermCandidatesPanel({
       <div className="term-candidate-toolbar surface" aria-label="候选筛选">
         <div className="term-candidate-origin-filter">
           <div className="segmented-control" role="group" aria-label="候选来源">
-            <button type="button" aria-pressed={originFilter === "all"} className={originFilter === "all" ? "active" : ""} onClick={() => selectOriginFilter("all")}>All</button>
-            <button type="button" aria-pressed={originFilter === "notes"} className={originFilter === "notes" ? "active" : ""} onClick={() => selectOriginFilter("notes")}>Notes</button>
+            <button type="button" aria-pressed={originFilter === "all"} className={originFilter === "all" ? "active" : ""} onClick={() => selectOriginFilter("all")}>全部</button>
+            <button type="button" aria-pressed={originFilter === "notes"} className={originFilter === "notes" ? "active" : ""} onClick={() => selectOriginFilter("notes")}>笔记</button>
             <button type="button" aria-pressed={originFilter === "pdf"} className={originFilter === "pdf" ? "active" : ""} onClick={() => selectOriginFilter("pdf")}>PDF</button>
-            <button type="button" aria-pressed={originFilter === "research"} className={originFilter === "research" ? "active" : ""} onClick={() => selectOriginFilter("research")}>Research</button>
-            <button type="button" aria-pressed={originFilter === "web"} className={originFilter === "web" ? "active" : ""} onClick={() => selectOriginFilter("web")}>Web Discovery</button>
+            <button type="button" aria-pressed={originFilter === "research"} className={originFilter === "research" ? "active" : ""} onClick={() => selectOriginFilter("research")}>论文推荐</button>
+            <button type="button" aria-pressed={originFilter === "web"} className={originFilter === "web" ? "active" : ""} onClick={() => selectOriginFilter("web")}>外部发现</button>
           </div>
           {originFilter === "notes" && <label className="field-label compact-field">来源笔记
             <select value={documentFilter} onChange={(event) => setDocumentFilter(event.target.value)}>
@@ -286,23 +288,24 @@ export function TermCandidatesPanel({
         </div>
         <div className="term-candidate-filters">
           <label className="field-label compact-field">类别<select value={termTypeFilter} onChange={(event) => setTermTypeFilter(event.target.value as TermType | "")}>
-            <option value="">全部类别</option><option value="concept">Concept</option><option value="entity">Entity</option><option value="vocabulary">Vocabulary</option>
+            <option value="">全部类别</option><option value="concept">概念</option><option value="entity">命名实体</option><option value="vocabulary">专业词汇</option>
           </select></label>
           <label className="field-label compact-field">匹配<select value={resolutionFilter} onChange={(event) => setResolutionFilter(event.target.value as ResolutionFilter)}>
-            <option value="all">Existing 与 New</option><option value="existing">Existing</option><option value="new">New</option>
+            <option value="all">已有条目 与 新条目</option><option value="existing">已有条目</option><option value="new">新条目</option>
           </select></label>
         </div>
       </div>
       {notice && <p role="status">{notice}</p>}
+      {publishWarnings.length > 0 && <details><summary>查看保存提醒（{publishWarnings.length} 项）</summary><ul>{publishWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
 
       {!showRejected && <div className="term-candidate-batch surface">
         <span>当前筛选已选 {selectedOpen.length} 项</span>
-        <button className="button button-danger" type="button" disabled={batchBusy || !selectedOpen.length} onClick={() => askToDelete(selectedOpen)}>批量删除</button>
+        <button className="button button-danger" type="button" disabled={batchBusy || !selectedOpen.length} onClick={() => askToDelete(selectedOpen)}>批量暂时移除</button>
         <details className="term-candidate-more-actions">
           <summary className="button button-secondary">更多操作</summary>
-          <div><button className="button button-quiet" type="button" disabled={batchBusy || !selectedOpen.length} onClick={() => void rejectSelected()}>批量拒绝</button><small>拒绝会写入拒绝历史，并影响后续推荐。</small></div>
+          <div><button className="button button-quiet" type="button" disabled={batchBusy || !selectedOpen.length} onClick={() => void rejectSelected()}>批量不再推荐</button><small>拒绝会写入拒绝历史，并影响后续推荐。</small></div>
         </details>
-        <small>删除只清理所选候选及证据，不加入拒绝历史；已消耗的调用额度不会退回。</small>
+        <small>暂时移除后仍可能再次推荐；不再推荐会记住你的选择。</small>
       </div>}
       {duplicateGroups.length > 0 && <details className="term-candidate-duplicate-groups"><summary>查看 {duplicateGroups.length} 个重复组</summary>{duplicateGroups.map((group) => <section key={group[0].normalized_name}><strong>{group[0].display_name} · {group.length} 项</strong>{group.map((candidate) => <p key={candidate.id}>{candidate.evidence.map((item) => item.origin_title || item.origin_id).join(" · ")}</p>)}<button className="button button-secondary" type="button" disabled={batchBusy} onClick={() => setSelected((current) => Array.from(new Set([...current, ...group.filter((candidate) => candidate.status === "pending").map((candidate) => candidate.id)])))}>选择此组待审项</button></section>)}</details>}
 
@@ -314,7 +317,7 @@ export function TermCandidatesPanel({
             const canCreateTerm = candidate.evidence.some((item) => !item.origin_rejected);
             const candidateIntent = candidate.discovery_assessment?.why_now.trim()
               || candidate.evidence.find((item) => item.rationale?.trim())?.rationale
-              || "等待人工审核的 Term 候选。";
+              || "等待人工审核的 术语 候选。";
             const evidenceContent = <div className="term-candidate-evidence-list">
               {candidate.evidence.map((item) => (
                 <section className={`term-candidate-evidence ${item.origin_rejected ? "rejected" : ""}`} key={item.id}>
@@ -338,7 +341,7 @@ export function TermCandidatesPanel({
                   </div>
                   {item.context_excerpt && <blockquote>{item.context_excerpt}</blockquote>}
                   {item.rationale && <p>{item.rationale}</p>}
-                  {!item.origin_rejected && candidate.status === "pending" && <button className="text-button term-local-reject" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "local", origin_type: item.origin_type, origin_id: item.origin_id }))}>仅此来源不再推荐</button>}
+                  {!item.origin_rejected && candidate.status === "pending" && <button className="text-button term-local-reject" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "local", origin_type: item.origin_type, origin_id: item.origin_id }))}>仅忽略此来源</button>}
                 </section>
               ))}
             </div>;
@@ -346,7 +349,7 @@ export function TermCandidatesPanel({
               <article key={candidate.id} className="term-candidate-card surface">
                 <div className="term-candidate-card-topline">
                   {!showRejected && candidate.status === "pending" && <label className="term-candidate-select"><input type="checkbox" aria-label={`选择候选 ${candidate.display_name}`} checked={selected.includes(candidate.id)} disabled={batchBusy} onChange={(event) => setSelected((current) => event.target.checked ? [...current, candidate.id] : current.filter((id) => id !== candidate.id))} />选择</label>}
-                  <div className="term-candidate-badges"><Chip>{titleCase(candidate.suggested_type)}</Chip><Chip tone={isExisting ? "green" : "neutral"}>{isExisting ? "Existing" : "New"}</Chip>{candidate.status === "drafting" && <Chip tone="amber">Drafting</Chip>}</div>
+                  <div className="term-candidate-badges"><Chip>{termTypeLabel(candidate.suggested_type)}</Chip><Chip tone={isExisting ? "green" : "neutral"}>{isExisting ? "已有条目" : "新条目"}</Chip>{candidate.status === "drafting" && <Chip tone="amber">编辑中</Chip>}</div>
                 </div>
                 <header className="term-candidate-heading">
                   <div>
@@ -354,23 +357,24 @@ export function TermCandidatesPanel({
                     {isExisting && <p className="term-candidate-match">匹配到：{suggestedTerm?.title ?? candidate.suggested_term_id}</p>}
                   </div>
                 </header>
-                <p className="term-candidate-intent">{candidateIntent}</p>
+                <p className="term-candidate-intent">{candidateIntent.length > 180 ? candidateIntent.slice(0, 180) + "…" : candidateIntent}</p>
+                <p className="term-candidate-source-summary">来源：{Array.from(new Set(candidate.evidence.map((item) => item.origin_title || item.origin_id))).slice(0, 2).join(" · ") || "暂无来源信息"}</p>
                 {actionErrors[candidate.id] && <p className="error-copy" role="alert">{actionErrors[candidate.id]}</p>}
                 <footer className="term-candidate-actions">
-                  {candidate.status === "rejected" ? <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => restoreTermCandidate(candidate.id))}>恢复</button> : candidate.status === "drafting" ? <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => void openCandidateDraft(candidate, event.currentTarget)}>{busyCandidateId === candidate.id ? "正在打开…" : "打开 Term Draft"}</button> : <>
+                  {candidate.status === "rejected" ? <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => restoreTermCandidate(candidate.id))}>恢复</button> : candidate.status === "drafting" ? <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => void openCandidateDraft(candidate, event.currentTarget)}>{busyCandidateId === candidate.id ? "正在打开…" : "继续编辑解释"}</button> : <>
                     {isExisting ? <>
-                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => acceptTermCandidate(candidate.id, candidate.suggested_term_id!))}>关联已有 Term</button>
-                      <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => openTermPicker(candidate, event.currentTarget)}>选择其他 Term</button>
+                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => acceptTermCandidate(candidate.id, candidate.suggested_term_id!))}>关联已有术语</button>
+                      <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => openTermPicker(candidate, event.currentTarget)}>选择其他术语</button>
                     </> : <>
-                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 Term Draft 需要至少一个未拒绝的候选来源" : undefined} onClick={(event) => startCreate(candidate, event.currentTarget)}>编辑解释</button>
-                      <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => openTermPicker(candidate, event.currentTarget)}>关联已有 Term</button>
+                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 未发布的术语修改 需要至少一个未拒绝的候选来源" : undefined} onClick={(event) => startCreate(candidate, event.currentTarget)}>收录为新术语</button>
+                      <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => openTermPicker(candidate, event.currentTarget)}>关联已有术语</button>
                     </>}
-                    <button className="button button-danger" type="button" disabled={busyCandidateId === candidate.id || batchBusy} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }))}>拒绝</button>
-                    <button className="button button-quiet term-candidate-delete" type="button" disabled={busyCandidateId === candidate.id || batchBusy} onClick={() => askToDelete([candidate])}>删除</button>
+                    <button className="button button-danger" type="button" disabled={busyCandidateId === candidate.id || batchBusy} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }))}>不再推荐</button>
+                    <button className="button button-quiet term-candidate-delete" type="button" disabled={busyCandidateId === candidate.id || batchBusy} onClick={() => askToDelete([candidate])}>暂时移除</button>
                   </>}
                 </footer>
-                {reviewDrafts[candidate.id] && <div className="term-candidate-review-anchor" ref={reviewRefFor(candidate.id)} tabIndex={-1} aria-label={`${candidate.display_name} 的 Term Draft 编辑区`}>
-                  <TermCandidateReview candidate={candidate} seed={reviewDrafts[candidate.id]} onClose={() => returnFromReview(candidate.id)} onDone={(warnings = []) => { setNotice(warnings.length ? "已发布 Term。" + warnings.join("；") : "操作已完成。"); returnFromReview(candidate.id); resource.retry(); }} />
+                {reviewDrafts[candidate.id] && <div className="term-candidate-review-anchor" ref={reviewRefFor(candidate.id)} tabIndex={-1} aria-label={`${candidate.display_name} 的 未发布的术语修改 编辑区`}>
+                  <TermCandidateReview candidate={candidate} seed={reviewDrafts[candidate.id]} onClose={() => returnFromReview(candidate.id)} onDone={(warnings = []) => { setNotice("操作已完成。"); setPublishWarnings(warnings); returnFromReview(candidate.id); resource.retry(); }} />
                 </div>}
                 {candidate.discovery_assessment && <details className="term-candidate-readiness">
                   <summary><Chip tone={candidate.discovery_assessment.recommendation_level === "core_gap" ? "amber" : "neutral"}>{candidate.discovery_assessment.recommendation_level.replaceAll("_", " ")}</Chip> 学习准备情况</summary>
@@ -385,24 +389,24 @@ export function TermCandidatesPanel({
             );
           })}
         </div>
-      ) : <EmptyState title="没有符合条件的候选词" description="分析 Canonical Note 后，新发现的词会出现在这里，等待人工确认。" />}
+      ) : <EmptyState title="没有符合条件的候选词" description="分析 正式笔记 后，新发现的词会出现在这里，等待人工确认。" />}
 
       {pickerCandidate && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyCandidateId) setPickerCandidate(null); }}>
         <section className="explorer-modal term-picker-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-candidate-picker-title">
-          <div className="section-heading"><div><h2 id="term-candidate-picker-title">为“{pickerCandidate.display_name}”选择已有 Term</h2><p>搜索 Registry 后选中一个 Term，建立候选词关系。</p></div><button className="button button-quiet" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>关闭</button></div>
-          <label className="field-label">搜索 Term<input ref={pickerSearchRef} value={termQuery} onChange={(event) => setTermQuery(event.target.value)} placeholder="标题、ID 或别名" /></label>
-          <div className="term-picker-list" role="listbox" aria-label="Term Registry 搜索结果">
-            {pickerTerms.map((term) => <button type="button" role="option" aria-selected={selectedTermId === term.id} className={selectedTermId === term.id ? "selected" : ""} key={term.id} onClick={() => setSelectedTermId(term.id)}><strong>{term.title}</strong><small>{titleCase(readString(term.metadata.type) || "concept")} · {term.id}</small></button>)}
-            {!pickerTerms.length && <p className="subtle-copy">没有找到匹配的 Term。</p>}
+          <div className="section-heading"><div><h2 id="term-candidate-picker-title">为“{pickerCandidate.display_name}”选择已有 术语</h2><p>搜索 术语库 后选中一个 术语，建立候选词关系。</p></div><button className="button button-quiet" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>关闭</button></div>
+          <label className="field-label">搜索 术语<input ref={pickerSearchRef} value={termQuery} onChange={(event) => setTermQuery(event.target.value)} placeholder="标题、ID 或别名" /></label>
+          <div className="term-picker-list" role="listbox" aria-label="术语库 搜索结果">
+            {pickerTerms.map((term) => <button type="button" role="option" aria-selected={selectedTermId === term.id} className={selectedTermId === term.id ? "selected" : ""} key={term.id} onClick={() => setSelectedTermId(term.id)}><strong>{term.title}</strong><small>{termTypeLabel(readString(term.metadata.type) || "concept")} · {term.id}</small></button>)}
+            {!pickerTerms.length && <p className="subtle-copy">没有找到匹配的 术语。</p>}
           </div>
           {actionErrors[pickerCandidate.id] && <p className="error-copy" role="alert">{actionErrors[pickerCandidate.id]}</p>}
-          <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>取消</button><button className="button button-primary" type="button" disabled={!selectedTermId || Boolean(busyCandidateId)} onClick={() => void linkCandidateToSelectedTerm()}>{busyCandidateId === pickerCandidate.id ? "正在保存…" : "链接到所选 Term"}</button></div>
+          <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>取消</button><button className="button button-primary" type="button" disabled={!selectedTermId || Boolean(busyCandidateId)} onClick={() => void linkCandidateToSelectedTerm()}>{busyCandidateId === pickerCandidate.id ? "正在保存…" : "链接到所选 术语"}</button></div>
         </section>
       </div>}
 
       {deleteConfirmation && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !batchBusy) setDeleteConfirmation(null); }}>
         <section className="explorer-modal term-candidate-delete-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-candidate-delete-title">
-          <div className="section-heading"><div><h2 id="term-candidate-delete-title">确认删除候选</h2><p>仅删除当前候选及其证据，不加入拒绝历史；以后仍可能再次被推荐。已消耗的 API / Discovery 调用额度不会退回。</p></div></div>
+          <div className="section-heading"><div><h2 id="term-candidate-delete-title">确认删除候选</h2><p>仅删除当前候选及其证据，不加入拒绝历史；以后仍可能再次被推荐。</p></div></div>
           {deleteConfirmation.length === 1
             ? <strong>{deleteConfirmation[0].display_name}</strong>
             : <div className="term-candidate-delete-list"><strong>将删除 {deleteConfirmation.length} 个已选待审候选：</strong><ul>{deleteConfirmation.map((candidate) => <li key={candidate.id}>{candidate.display_name}</li>)}</ul></div>}

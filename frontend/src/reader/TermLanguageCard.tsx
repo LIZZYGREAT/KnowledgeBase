@@ -49,7 +49,7 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
       const result = await requestTermRewrite(draft.id, requirements.trim());
       setComparisonOriginal(splitMarkdownFrontmatter(workspace.getCurrentContent()).body);
       setProposal(result.proposal);
-      setActionFeedback("中英文双语重写建议已返回，仅供对比；当前 Draft 和正式知识尚未改变。");
+      setActionFeedback("中英文双语重写建议已返回，供你预览；当前编辑内容和正式版本尚未改变。");
     } catch (reason) {
       setError(errorMessage(reason));
       setActionFeedback("重写失败；输入仍保留，可检查错误后重试。");
@@ -62,12 +62,12 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     if (!proposal || busy) return;
     setBusy(true);
     setError("");
-    setActionFeedback("正在将建议写入 Term Draft…");
+    setActionFeedback("正在将建议写入 未发布的术语修改…");
     try {
       await workspace.applyProposalToDraft(proposal.id);
       setProposal(null);
       setRewriting(false);
-      setActionFeedback("建议已采用到 Term Draft；仍需检查并单独发布。");
+      setActionFeedback("建议已采用到当前编辑内容；确认收录后才会成为正式内容。");
     } catch (reason) {
       setError(errorMessage(reason));
       setActionFeedback("采用失败；建议仍保留，可检查错误后重试。");
@@ -84,7 +84,7 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     try {
       await rejectProposal(proposal.id);
       setProposal(null);
-      setActionFeedback("建议已放弃；Term Draft 未被修改。");
+      setActionFeedback("建议已放弃；当前解释未被修改。");
     } catch (reason) {
       setError(errorMessage(reason));
       setActionFeedback("放弃失败；建议仍保留，可检查错误后重试。");
@@ -93,7 +93,7 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     }
   }
 
-  return <section className="term-language-card surface" aria-label="Term 解释">
+  return <section className="term-language-card surface" aria-label="术语 解释">
     <div className="term-language-actions">
       <div className="term-language-switch" role="group" aria-label="解释语言">
         <button type="button" className={`button ${language === "zh" ? "button-primary" : "button-secondary"}`} disabled={busy || Boolean(proposal)} aria-pressed={language === "zh"} onClick={() => { setLanguage("zh"); setActionFeedback(""); }}>中文</button>
@@ -108,18 +108,18 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     {structured && <details><summary>完整原文与其他内容</summary><Markdown content={body} onNavigate={navigate} /></details>}
     {rewriting && <div className="term-language-rewrite">
       <label className="field-label">重写要求<textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} disabled={disabled || busy} placeholder="例如：解释向量维度、来源和分类器如何使用，并给出简单例子" rows={2} /></label>
-      <p className="subtle-copy">显式请求会将当前 Term Draft 发送给 DeepSeek；结果先供对比，不会自动采用或发布。</p>
+      <p className="subtle-copy">显式请求会将当前编辑内容 发送给 DeepSeek；结果先供对比，不会自动采用或发布。</p>
       <button type="button" className="button button-primary" disabled={disabled || busy || Boolean(rewriteBlockedReason)} onClick={() => void rewrite()}>{busy && !proposal ? "正在重写…" : "AI 双语重写"}</button>
       {rewriteBlockedReason && !busy && <p className="term-language-disabled-reason" role="status">{rewriteBlockedReason}</p>}
     </div>}
     {proposal && <details className="term-language-comparison" open>
       <summary>原文与双语重写建议对比</summary>
       <div className="term-language-comparison-grid">
-        <section aria-label="重写前双语解释"><h4>当前 Draft 原文</h4><div className="term-language-comparison-body"><Markdown content={comparisonOriginal} onNavigate={navigate} /></div></section>
+        <section aria-label="重写前双语解释"><h4>当前编辑原文</h4><div className="term-language-comparison-body"><Markdown content={comparisonOriginal} onNavigate={navigate} /></div></section>
         <section aria-label="尚未采用的双语重写建议"><h4>AI 建议 · 尚未采用</h4><div className="term-language-comparison-body"><Markdown content={proposedBody} onNavigate={navigate} /></div></section>
       </div>
       <div className="term-language-proposal-actions" role="group" aria-label="重写建议操作">
-        <button type="button" className="button button-primary" disabled={disabled || busy} onClick={() => void adopt()}>{busy ? "正在采用…" : "采用到 Draft"}</button>
+        <button type="button" className="button button-primary" disabled={disabled || busy} onClick={() => void adopt()}>{busy ? "正在采用…" : "采用建议"}</button>
         <button type="button" className="button button-danger" disabled={busy} onClick={() => void discardSuggestion()}>{busy ? "处理中…" : "放弃建议"}</button>
       </div>
     </details>}

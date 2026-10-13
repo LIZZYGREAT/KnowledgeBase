@@ -46,7 +46,7 @@ const run = {
   items: [],
 };
 
-describe("Term Discovery panel", () => {
+describe("发现术语 panel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.getTermDiscoveryState.mockResolvedValue(state);
@@ -55,28 +55,38 @@ describe("Term Discovery panel", () => {
     api.updateTermDiscoverySettings.mockResolvedValue(state);
   });
 
+  it("shows failed discovery clearly and keeps advanced configuration collapsed", async () => {
+    api.runTermDiscovery.mockResolvedValue({ ...run, status: "failed", candidate_count: 0 });
+    render(<TermDiscoveryPanel />);
+    await screen.findByRole("heading", { name: "发现术语" });
+    expect(screen.getByText("高级设置").closest("details")?.open).toBe(false);
+    await userEvent.click(screen.getByRole("button", { name: "立即发现" }));
+    expect((await screen.findByRole("status")).textContent).toContain("发现失败");
+  });
+
   it("shows lane and inbox capacity and starts a manual run", async () => {
     const user = userEvent.setup();
     render(<TermDiscoveryPanel />);
 
-    expect(await screen.findByRole("heading", { name: "Discovery" })).not.toBeNull();
+    expect(await screen.findByRole("heading", { name: "发现术语" })).not.toBeNull();
     expect(screen.getByText("2 / 12")).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "Run Now" }));
+    await user.click(screen.getByRole("button", { name: "立即发现" }));
 
     await waitFor(() => expect(api.runTermDiscovery).toHaveBeenCalledWith());
     const status = await screen.findByRole("status");
-    expect(status.textContent).toContain("新增 2 个 Term Candidate");
+    expect(status.textContent).toContain("新增 2 个待处理术语");
   });
 
-  it("saves lane, Focus, and source preferences", async () => {
+  it("saves lane, 检索主题, and source preferences", async () => {
     const user = userEvent.setup();
     render(<TermDiscoveryPanel />);
 
-    await screen.findByRole("heading", { name: "Discovery" });
-    await user.click(screen.getByRole("checkbox", { name: /Vocabulary/ }));
-    await user.type(screen.getByLabelText(/Focus override/), " continual learning ");
-    await user.type(screen.getByLabelText(/优先 Source ID/), " source-alpha, source-beta ");
-    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    await screen.findByRole("heading", { name: "发现术语" });
+    await user.click(screen.getByRole("checkbox", { name: /专业词汇/ }));
+    await user.click(screen.getByText("高级设置"));
+    await user.type(screen.getByLabelText(/自定义研究方向/), " continual learning ");
+    await user.type(screen.getByLabelText(/优先 文献标识/), " source-alpha, source-beta ");
+    await user.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() => expect(api.updateTermDiscoverySettings).toHaveBeenCalledWith(
       expect.objectContaining({
