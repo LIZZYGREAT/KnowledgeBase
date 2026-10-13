@@ -198,3 +198,29 @@ Research 保留 Profile 原查询和历史年度窗口，并将个性化查询�
 强制全文重分析现在按来源做完成后的对账：仍支持的条目更新，不再支持的条目撤销该来源贡献，共享条目保留其他来源，固定条目保留可见内容并失去过期证据。所有批次成功后才提交快照；中途失败保留旧记忆和成功基线。跨批次 upsert 的摘要是单条知识主张的完整替换文本，不再把差异片段拼接。专题索引分开保存人工与自动关键词；每次同步从仍有效的来源条目重建自动部分，全部取消选择时也更新索引。Terms 覆盖过滤仅接受所选来源支持的自动知识条目标题/具体小节和已解析 Term 别名；纯正文提及、手写搜索意图与合成当前焦点不代表已掌握。Terms 分析版本升至 4，旧缓存会按新判重规则重新分析。
 
 `python -m pytest -q backend/tests/test_learning_context.py backend/tests/test_term_discovery.py`：65 项通过、1 项现有 HTTPX 弃用警告，以及 pytest-asyncio fixture loop scope 配置提示。随后复跑强制重分析撤销与失败回退、关键词重建和 Terms 证据边界 4 项，全部通过；补上共享条目其他来源保留断言后，该强制重分析用例再通过 1 次。测试覆盖 R09–R13，包括共享来源保留、跨批次摘要无重复、提及 SI 不判为掌握、EWC 中英文别名与机制条目判重，以及自动关键词失效后人工词保留。使用本机 Python 3.9；Python 3.12 CI 尚未重跑，也未调用真实 DeepSeek/生产服务。旧版 `index.yaml` 没有关键词来源标记；首次迁移时旧关键词保守视为人工值，避免丢失用户意图，因此迁移前已失效的自动词无法可靠区分并清除；新生成的自动关键词已有独立来源记录，可按证据撤回。私有修订方案未纳入提交。
+
+## Phase 15 第二轮修订 Stage D（2026-10-14）
+
+Stage D 代码提交：`043171c`（基于 Stage C 提交 `50a0b54`）。学习上下文日常视图现按自动知识条目展示，不暴露内部 entry 注释；每次只编辑标题和正文，保存后只固定该条目，其他自动条目继续同步。完整 Markdown 原文保留为收起的高级入口。同步期间沿用现有 `/api/learning-context` 返回临时内存进度，显示当前资料、章节批次和完成篇数；结束后清除临时进度，没有新增队列或持久任务状态。README 开头原则保持不变，未部署或调用真实 DeepSeek。
+
+新增验收覆盖 R14：前端默认视图不呈现机器标记，单条编辑后其他条目仍为自动维护；API 保存后保留来源章节、人工备注和其他知识条目，只固定目标条目。真实 GEM/iCaRL 多批次 Fake Gateway 回归读取同步中的 `sync_progress`、章节批次推进，以及结束后状态清除。R15 的同步失败旧快照保护与 R16 的无变化零 AI 调用由既有学习上下文回归继续覆盖。R01–R13 的对应验收事实见 Stage A–C 记录。
+
+| 检查 | 结果 |
+| --- | --- |
+| 学习上下文、API 与 Terms 专项：`python -m pytest -q backend/tests/test_learning_context.py backend/tests/test_learning_context_api.py backend/tests/test_term_discovery.py` | 74 项通过；9 条既有 HTTPX 弃用警告。 |
+| Research 专项：`python -m pytest -q backend/tests/test_research_query_builder.py backend/tests/test_research_history.py backend/tests/test_research_runs.py backend/tests/test_research_candidate.py` | 97 项通过。 |
+| 完整后端：Python 3.12.14 下运行 `pytest.main(['-q', 'backend/tests'])` | 662 项通过、6 项平台条件跳过、3 条弃用警告；收集 668 项。 |
+| 前端单元测试：`npm run test:unit` | 35 个文件，172 项通过。 |
+| 前端集成测试：`npm run test:integration` | 11 个文件，140 项通过。 |
+| `npm run typecheck`、`npm run build` | 通过；构建有既有大型分块提示。 |
+| `python tools/kb.py check` | 7 个文件，无错误、无警告。 |
+| `python tools/research.py check --root .` | 1 个 Profile 与 AI 配置有效。 |
+| `git diff --check` | 通过。 |
+
+完整后端回归的实际启动命令（从仓库根目录执行）：
+
+```powershell
+& 'C:\Users\lenovo\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe' -c "import sys; sys.path.append(r'.venv\Lib\site-packages'); sys.path.append(r'D:\python\Lib\site-packages'); import pytest; raise SystemExit(pytest.main(['-q', 'backend/tests']))"
+```
+
+本机 `.venv` 仍使用 Python 3.9，且其 pytest 在该解释器下因类型注解导入错误不可用。曾用系统 Python 3.9 跑完整后端，658 项通过、6 项跳过，4 项既有 Manual Research Worker 测试因缺少当前 asyncio 事件循环而失败；同一 Worker 测试文件在 Python 3.12 下 6 项通过。最终完整后端结果使用桌面随附 Python 3.12.14，并复用已有 `.venv` 测试依赖和本机 pytest-asyncio 插件，未修改依赖清单或虚拟环境。私有修订方案未纳入提交；无真实 Provider/DeepSeek、生产数据、生产服务或推荐质量验收。
