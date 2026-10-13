@@ -141,4 +141,10 @@ Profile Search 新增可选 `history_seed_year`、`max_provider_requests_per_run
 
 按本轮修订方案读取 GitHub Actions 实际日志：运行 `38392976076`（基线代码 `93d7165`）为 635 通过、1 失败、3 警告；更早基线运行 `38359515724` 为 605 通过、1 失败、3 警告。两次均失败于 `backend/tests/test_knowledge_api.py::test_research_profile_controls_manual_queue_runs_and_candidate_actions`：API 测试临时仓库缺少 `tools/research.py`，但真实 lifespan worker 被启动并把请求从预期的 `pending` 改为 `failed`。这是测试隔离问题，基线中已存在，不是学习上下文改动引入。
 
-API 队列测试现在注入空闲 Worker；Worker 执行本身仍由独立的 `test_manual_research_worker.py` 覆盖。该修订尚未在 Python 3.12 CI 上执行。当前工作机只有 Python 3.9，项目要求 Python 3.12；本机无法据此报告后端 pytest 结果。后续阶段的测试结果按实际环境逐项补记。没有调用真实 Provider/DeepSeek，也没有修改服务器或调度器。
+API 队列测试现在注入空闲 Worker；Worker 执行本身仍由独立的 `test_manual_research_worker.py` 覆盖。该修订尚未在 Python 3.12 CI 上执行。可用的项目依赖解释器为 Python 3.9，缺少 `python-multipart`，因此该 API 测试未能在本机收集；捆绑 Python 3.12 也没有项目测试依赖。后续阶段的测试结果按实际环境逐项补记。没有调用真实 Provider/DeepSeek，也没有修改服务器或调度器。
+
+## Phase 15 Stage A 修订记录（2026-10-13）
+
+首次与强制全文同步现按 H1/H2 逻辑章节组织，并按每批最多 10 个章节、18,000 个输入字符调用同一 AI 任务。所有批次成功后才提交记忆和基准；失败批次不会发布前序批次的临时结果。成功结果会从仍被选中资料支持的专题条目生成 `active.md`，并为专题索引补充 slug 英文别名、已知中文别名及来源章节/标题关键词；已有用户词项排在自动补充项之前。Research 英文 Profile 可以按 slug 匹配中文专题。
+
+`backend/tests/test_learning_context.py` 专项结果：18 项通过，使用机器上可用的 Python 3.9 与其已安装依赖（不是 CI 的 Python 3.12 依赖组）。回归直接复制四篇 GEM/iCaRL Canonical 笔记到临时 Git 仓库，验证各请求不超预算、所有模型输入片段合并后覆盖完整正文、首轮生成 active 与双语索引、紧接的无变化同步 AI 调用为 0 且文件字节不变、强制重分析完成；另验证后续批次失败时不推进基准或写入部分记忆。Python 3.12 CI 尚未重跑，本地真实 Provider/DeepSeek 未调用。

@@ -51,13 +51,17 @@ def section_units(markdown):
     body_lines = lines[body_start:]
     headings = sorted(parsed.headings, key=lambda item: item.body_index)
     units = []
-    first_heading = headings[0].body_index if headings else len(body_lines)
+    # Treat H1/H2 as logical sections and keep deeper headings inside their
+    # parent section. This gives the model useful chapter-sized context while
+    # still keeping every paragraph available for bounded batching below.
+    boundaries = [heading for heading in headings if heading.level <= 2]
+    first_heading = boundaries[0].body_index if boundaries else len(body_lines)
     preamble = "\n".join(body_lines[:first_heading]).strip()
     if preamble:
         units.append({"key": "__preamble__", "heading": "未分节内容", "text": preamble})
     occurrences = {}
-    for index, heading in enumerate(headings):
-        stop = headings[index + 1].body_index if index + 1 < len(headings) else len(body_lines)
+    for index, heading in enumerate(boundaries):
+        stop = boundaries[index + 1].body_index if index + 1 < len(boundaries) else len(body_lines)
         section = "\n".join(body_lines[heading.body_index:stop]).strip()
         normalized = normalize_heading(heading.text) or "未命名章节"
         occurrences[normalized] = occurrences.get(normalized, 0) + 1
@@ -101,6 +105,32 @@ def changed_sections(old_text, new_text, full=False):
                 }
             )
     return changed
+
+
+def batch_sections(sections):
+    """Split complete change sections into bounded, ordered model requests."""
+    batches = []
+    current = []
+    current_chars = 0
+    for section in sections:
+        size = sum(
+            len(section.get(field, ""))
+            for field in ("before", "after", "nearby_context")
+        )
+        if size > _MAX_DIFF_CHARS:
+            raise LearningContextError("单个章节变化超过模型输入上限")
+        if current and (
+            len(current) >= _MAX_SECTIONS
+            or current_chars + size > _MAX_DIFF_CHARS
+        ):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(section)
+        current_chars += size
+    if current:
+        batches.append(current)
+    return batches
 
 
 def _bounded_section_pairs(before, after):

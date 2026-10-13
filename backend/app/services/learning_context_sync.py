@@ -23,9 +23,7 @@ from backend.app.services.learning_context_service import (
 )
 from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.learning_context_sync_diff import (
-    _MAX_DIFF_CHARS,
-    _MAX_SECTION_CHARS,
-    _MAX_SECTIONS,
+    batch_sections as _batch_sections,
     changed_sections as _changed_sections,
     is_minor_wording_change as _is_minor_wording_change,
     markdown_body as _markdown_body,
@@ -48,10 +46,32 @@ logger = logging.getLogger(__name__)
 _BASELINE_REF_PREFIX = "refs/learning-context/"
 _MAX_RELATED_ENTRIES = 12
 _MAX_RELATED_CHARS = 7000
+_TOPIC_BILINGUAL_NAMES = {
+    "continual-learning": ("持续学习",),
+    "lifelong-learning": ("终身学习", "持续学习"),
+    "reinforcement-learning": ("强化学习",),
+}
 
 
 def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _merge_index_values(existing, derived, limit=40):
+    values = existing if isinstance(existing, list) else []
+    result = []
+    seen = set()
+    for item in [*values, *derived]:
+        if not isinstance(item, str):
+            continue
+        cleaned = " ".join(item.split())[:200]
+        key = cleaned.casefold()
+        if cleaned and key not in seen:
+            result.append(cleaned)
+            seen.add(key)
+        if len(result) >= limit:
+            break
+    return result
 
 
 class _ManualReviewRequired(RuntimeError):
@@ -170,44 +190,53 @@ class LearningContextSync:
                     skipped_count += 1
                     continue
 
-                context = self._build_ai_context(
-                    current_id,
-                    metadata,
-                    plan["changed_sections"],
-                    plan["change_kind"],
-                    memory_files,
-                    force,
-                )
                 if self.gateway is None:
                     raise LearningContextError("AI gateway is unavailable for a substantive change")
-                output = self.gateway.run("update_learning_context", context)
-                if not isinstance(output, LearningContextUpdateOutput):
-                    output = LearningContextUpdateOutput.model_validate(output)
-                if output.outcome == "knowledge_changed":
-                    allowed_entry_ids = {
-                        item["id"] for item in context["existing_related_memory"]
-                    }
-                    self._apply_changes(
-                        memory_files,
+                outcomes = []
+                for batch in plan["batches"]:
+                    context = self._build_ai_context(
                         current_id,
-                        [item.model_dump() for item in output.changes],
-                        plan["changed_sections"],
-                        status_before.get("user_managed_files", []),
-                        allowed_entry_ids,
+                        metadata,
+                        batch,
+                        plan["change_kind"],
+                        memory_files,
+                        force,
                     )
+                    output = self.gateway.run("update_learning_context", context)
+                    if not isinstance(output, LearningContextUpdateOutput):
+                        output = LearningContextUpdateOutput.model_validate(output)
+                    outcomes.append(output.outcome)
+                    if output.outcome == "knowledge_changed":
+                        allowed_entry_ids = {
+                            item["id"] for item in context["existing_related_memory"]
+                        }
+                        self._apply_changes(
+                            memory_files,
+                            current_id,
+                            [item.model_dump() for item in output.changes],
+                            batch,
+                            status_before.get("user_managed_files", []),
+                            allowed_entry_ids,
+                        )
+                outcome = (
+                    "knowledge_changed"
+                    if "knowledge_changed" in outcomes
+                    else "no_change"
+                )
                 pending_baselines[current_id] = self._new_baseline(
                     current_id,
                     metadata,
                     current_bytes,
                     current_hash,
-                    output.outcome,
+                    outcome,
                 )
                 source_results.append(
                     {
                         "source_id": current_id,
                         "action": "analyzed",
-                        "outcome": output.outcome,
+                        "outcome": outcome,
                         "changed_sections": len(plan["changed_sections"]),
+                        "batch_count": len(plan["batches"]),
                     }
                 )
                 analyzed_count += 1
@@ -232,6 +261,12 @@ class LearningContextSync:
             for removed_id in sorted(removed_ids):
                 self._remove_source(memory_files, removed_id, status_before.get("user_managed_files", []))
                 baselines.pop(removed_id, None)
+
+            self._ensure_active_focus(
+                memory_files,
+                selected,
+                status_before.get("user_managed_files", []),
+            )
 
             baselines.update(pending_baselines)
             updates = {
@@ -261,7 +296,7 @@ class LearningContextSync:
                 }
             )
             state_after.pop("last_error_type", None)
-            topic_index = self._updated_topic_index(memory_files, updates)
+            topic_index = self._updated_topic_index(memory_files)
             if topic_index is not None:
                 updates["index.yaml"] = topic_index
             if self.service._read_sources() != selected:
@@ -340,20 +375,23 @@ class LearningContextSync:
                 "action": "skip",
                 "summary": {"source_id": source_id, "action": "skipped", "reason": "少量普通措辞调整"},
             }
-        total = sum(len(item["before"]) + len(item["after"]) + len(item["nearby_context"]) for item in changed_sections)
-        if len(changed_sections) > _MAX_SECTIONS or total > _MAX_DIFF_CHARS:
-            raise LearningContextError(
-                "变化范围过大，暂未发送模型；请按章节拆分修改后重试。"
-            )
+        batches = _batch_sections(changed_sections)
+        if not batches:
+            return {
+                "action": "skip",
+                "summary": {"source_id": source_id, "action": "skipped", "reason": "没有可分析的正文内容"},
+            }
         return {
             "action": "analyze",
             "changed_sections": changed_sections,
+            "batches": batches,
             "change_kind": change_kind,
             "summary": {
                 "source_id": source_id,
                 "action": "analyze",
                 "reason": "需要检查知识变化",
                 "changed_sections": len(changed_sections),
+                "batch_count": len(batches),
             },
         }
 
@@ -614,34 +652,152 @@ class LearningContextSync:
                 check=False,
             )
 
-    def _updated_topic_index(self, memory_files, updates):
+    def _ensure_active_focus(self, memory_files, selected_ids, user_managed_files):
+        if "active.md" in set(user_managed_files or []):
+            return
+        supported = []
+        selected = set(selected_ids)
+        for relative, content in sorted(memory_files.items()):
+            if not relative.startswith("topics/") or not relative.endswith(".md"):
+                continue
+            for block in _entry_blocks(content):
+                metadata = block["metadata"]
+                if metadata.get("layer") != "topic":
+                    continue
+                sources = metadata.get("source_headings", {})
+                selected_sources = {
+                    source_id: headings
+                    for source_id, headings in sources.items()
+                    if source_id in selected
+                }
+                if selected_sources:
+                    supported.append((metadata, selected_sources))
+
+        active = memory_files.get("active.md", "")
+        active_entries = [
+            block
+            for block in _entry_blocks(active)
+            if block["metadata"].get("entry_id") == "current-learning-focus"
+        ]
+        if not supported:
+            if active_entries:
+                _remove_entry(memory_files, "active.md", "current-learning-focus")
+            return
+
+        topics = {}
+        source_headings = {}
+        for metadata, sources in supported:
+            topic_id = metadata.get("topic_id")
+            title = metadata.get("topic_title")
+            if not isinstance(topic_id, str) or not isinstance(title, str):
+                continue
+            topic = topics.setdefault(topic_id, {"title": title, "entries": []})
+            topic["entries"].append(metadata.get("title", ""))
+            for source_id, headings in sources.items():
+                current = source_headings.setdefault(source_id, [])
+                current.extend(headings if isinstance(headings, list) else [])
+        if not topics:
+            return
+
+        topic_labels = []
+        details = []
+        for topic_id in sorted(topics):
+            topic = topics[topic_id]
+            topic_labels.append(topic["title"])
+            entries = list(dict.fromkeys(item for item in topic["entries"] if item))
+            if entries:
+                details.append("{}：{}".format(topic["title"], "、".join(entries[:3])))
+        summary = "当前纳入资料主要围绕{}。已整理的相关知识包括{}。".format(
+            "、".join(topic_labels[:3]), "；".join(details[:3])
+        )[:1800]
+        metadata = {
+            "entry_id": "current-learning-focus",
+            "owner": "auto",
+            "source_headings": {
+                source_id: sorted(set(headings))
+                for source_id, headings in sorted(source_headings.items())
+            },
+            "layer": "active",
+            "title": "当前关注：{}".format("、".join(topic_labels[:2]))[:200],
+            "summary": summary,
+        }
+        rendered = _render_entry(metadata)
+        if active_entries:
+            _replace_entry(memory_files, "active.md", "current-learning-focus", rendered)
+        else:
+            _append_entry(memory_files, "active.md", rendered)
+
+    def _updated_topic_index(self, memory_files):
         try:
             index = self.service._read_yaml("index.yaml", {"topics": []})
             if not isinstance(index, dict) or not isinstance(index.get("topics", []), list):
                 raise LearningContextError("index.yaml must contain a topics list")
             topics = [dict(item) for item in index.get("topics", []) if isinstance(item, dict)]
             by_id = {item.get("id"): item for item in topics if isinstance(item.get("id"), str)}
-            additions = []
-            for relative in updates:
+            discovered = {}
+            source_titles = {
+                item["id"]: item["title"]
+                for item in self.service._selected_source_summaries()
+            }
+            for relative, content in memory_files.items():
                 if not relative.startswith("topics/") or not relative.endswith(".md"):
                     continue
                 topic_file_id = Path(relative).stem
-                if topic_file_id in by_id:
-                    continue
-                content = memory_files.get(relative, "")
                 for block in _entry_blocks(content):
                     metadata = block["metadata"]
                     topic_id = metadata.get("topic_id")
                     topic_title = metadata.get("topic_title")
                     if metadata.get("layer") == "topic" and topic_id == topic_file_id and topic_title:
-                        additions.append(
-                            {"id": topic_id, "title": topic_title, "aliases": [], "keywords": []}
+                        item = discovered.setdefault(
+                            topic_id,
+                            {"title": topic_title, "aliases": [], "keywords": []},
                         )
-                        by_id[topic_id] = additions[-1]
-                        break
-            if not additions:
+                        item["aliases"].append(metadata.get("title", ""))
+                        item["keywords"].extend(
+                            heading
+                            for values in metadata.get("source_headings", {}).values()
+                            if isinstance(values, list)
+                            for heading in values
+                            if isinstance(heading, str)
+                        )
+                        item["keywords"].extend(
+                            source_titles[source_id]
+                            for source_id in metadata.get("source_headings", {})
+                            if source_id in source_titles
+                        )
+            changed = False
+            for topic_id, derived in discovered.items():
+                topic = by_id.get(topic_id)
+                if topic is None:
+                    topic = {
+                        "id": topic_id,
+                        "title": derived["title"],
+                        "aliases": [],
+                        "keywords": [],
+                    }
+                    topics.append(topic)
+                    by_id[topic_id] = topic
+                    changed = True
+                aliases = _merge_index_values(
+                    topic.get("aliases", []),
+                    [topic_id.replace("-", " "), *_TOPIC_BILINGUAL_NAMES.get(topic_id, ())],
+                )
+                keywords = _merge_index_values(
+                    topic.get("keywords", []),
+                    [
+                        topic_id.replace("-", " "),
+                        derived["title"],
+                        *derived["aliases"],
+                        *derived["keywords"],
+                        *sorted(_tokens(" ".join(derived["keywords"]))),
+                    ],
+                )
+                if topic.get("aliases") != aliases or topic.get("keywords") != keywords:
+                    topic["aliases"] = aliases
+                    topic["keywords"] = keywords
+                    changed = True
+            if not changed:
                 return None
-            topics.extend(additions)
             index["topics"] = topics
             return yaml.safe_dump(index, allow_unicode=True, sort_keys=False)
         except Exception as error:

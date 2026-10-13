@@ -331,7 +331,12 @@ class LearningContextService:
             return []
         scored = []
         for topic in topics:
-            values = [topic["title"], *topic["aliases"], *topic["keywords"]]
+            values = [
+                topic["id"].replace("-", " "),
+                topic["title"],
+                *topic["aliases"],
+                *topic["keywords"],
+            ]
             topic_tokens = set(_tokens(" ".join(values)))
             overlap = len(tokens & topic_tokens)
             if overlap:

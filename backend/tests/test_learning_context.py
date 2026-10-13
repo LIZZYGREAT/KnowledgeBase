@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import shutil
 import subprocess
 
 import pytest
@@ -7,6 +8,13 @@ import pytest
 from backend.app.services.learning_context_service import (
     LearningContextError,
     LearningContextService,
+)
+from backend.app.services.learning_context_sync_diff import (
+    _MAX_DIFF_CHARS,
+    _MAX_SECTIONS,
+    markdown_body,
+    section_units,
+    semantic_text,
 )
 
 
@@ -164,6 +172,20 @@ def test_context_assembly_reads_only_relevant_layers_and_topics(tmp_path):
     assert result["important"] == ""
     assert [item["id"] for item in result["topics"]] == ["continual-learning"]
     assert "EWC、GEM 与 iCaRL" in result["topics"][0]["markdown"]
+
+
+def test_section_units_keep_h3_details_with_their_h2_chapter():
+    units = section_units(
+        "# Note\n\n## Method\n\nOverview.\n\n### Detail A\n\nFirst detail.\n\n"
+        "### Detail B\n\nSecond detail.\n\n## Results\n\nResult text.\n"
+    )
+
+    assert len(units) == 3
+    method = next(item for item in units if item["heading"] == "Method")
+    assert "### Detail A" in method["text"]
+    assert "First detail." in method["text"]
+    assert "### Detail B" in method["text"]
+    assert "Second detail." in method["text"]
 
 
 def test_recommendation_context_is_bounded_and_tracks_only_selected_sources(tmp_path):
@@ -464,3 +486,132 @@ def test_clearing_all_sources_retracts_auto_context_and_baseline(tmp_path):
         cwd=tmp_path,
         capture_output=True,
     ).returncode != 0
+
+
+def test_large_initial_sync_failure_does_not_advance_baseline_or_publish_partial_memory(tmp_path):
+    body = "\n\n".join(
+        "## Chapter {}\n\nThis chapter explains a distinct continual learning method detail {}."
+        .format(index, "with enough evidence for bounded batching.")
+        for index in range(12)
+    )
+    _sync_repo(tmp_path, body)
+    gateway = FakeLearningGateway(_topic_change(), RuntimeError("provider unavailable"))
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+
+    result = service.sync()
+
+    state_path = tmp_path / "storage" / "learning-context" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert result["state"] == "failed"
+    assert len(gateway.calls) == 2
+    assert state["source_baselines"] == {}
+    assert not (
+        tmp_path / "storage" / "learning-context" / "topics" / "continual-learning.md"
+    ).exists()
+
+
+def test_real_learning_notes_sync_in_bounded_complete_batches_and_seed_recommendation_context(tmp_path):
+    repository = Path(__file__).resolve().parents[2]
+    source_root = repository / "knowledge" / "documents" / "learning"
+    source_ids = [
+        "gem-gradient-episodic-memory-for-continual-learning",
+        "gem-sgd",
+        "icarl",
+        "icarl-incremental-classifier-and-representation-learning",
+    ]
+    target_root = tmp_path / "knowledge" / "documents" / "learning"
+    target_root.mkdir(parents=True)
+    for source_id in source_ids:
+        shutil.copy2(source_root / (source_id + ".md"), target_root / (source_id + ".md"))
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+
+    class CorpusGateway:
+        def __init__(self):
+            self.calls = []
+            self.first_batch_sources = set()
+
+        def run(self, task_name, context):
+            self.calls.append((task_name, context))
+            source_id = context["source_document_id"]
+            if source_id in self.first_batch_sources:
+                return {"outcome": "no_change", "changes": []}
+            self.first_batch_sources.add(source_id)
+            return {
+                "outcome": "knowledge_changed",
+                "changes": [
+                    {
+                        "entry_id": "source-" + source_id[:45],
+                        "action": "upsert",
+                        "title": "Progress from " + source_id,
+                        "summary": "已分析章节：" + context["changed_sections"][0]["heading"],
+                        "layer": "topic",
+                        "topic_id": "continual-learning",
+                        "topic_title": "持续学习",
+                        "rationale": "Fake gateway test result from the supplied passage.",
+                    }
+                ],
+            }
+
+    gateway = CorpusGateway()
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(source_ids)
+
+    first = service.sync()
+
+    assert first["state"] == "synced"
+    assert first["analyzed_count"] == 4
+    assert len(gateway.calls) > len(source_ids)
+    captured_by_source = {source_id: [] for source_id in source_ids}
+    for task_name, context in gateway.calls:
+        assert task_name == "update_learning_context"
+        sections = context["changed_sections"]
+        assert 0 < len(sections) <= _MAX_SECTIONS
+        assert sum(
+            len(section["before"]) + len(section["after"]) + len(section["nearby_context"])
+            for section in sections
+        ) <= _MAX_DIFF_CHARS
+        captured_by_source[context["source_document_id"]].extend(
+            section["after"] for section in sections
+        )
+
+    for source_id in source_ids:
+        canonical = (source_root / (source_id + ".md")).read_text(encoding="utf-8")
+        assert semantic_text("\n".join(captured_by_source[source_id])) == semantic_text(
+            markdown_body(canonical)
+        )
+
+    context_root = tmp_path / "storage" / "learning-context"
+    active_path = context_root / "active.md"
+    topic_path = context_root / "topics" / "continual-learning.md"
+    index_path = context_root / "index.yaml"
+    state_path = context_root / "state.json"
+    topic_memory = topic_path.read_text(encoding="utf-8")
+    assert active_path.is_file() and active_path.read_text(encoding="utf-8").strip()
+    assert all(source_id in topic_memory for source_id in source_ids)
+    topic = service.list_topics()[0]
+    assert topic["id"] == "continual-learning"
+    assert "continual learning" in topic["aliases"]
+    assert "持续学习" in topic["keywords"]
+    assert service.get_context(focus="Continual Learning")["topics"][0]["id"] == topic["id"]
+    recommendation = service.get_recommendation_context("Continual Learning")
+    assert recommendation["active"]
+    assert recommendation["topics"][0]["id"] == topic["id"]
+
+    def snapshot():
+        paths = [active_path, topic_path, index_path, state_path]
+        return {path.relative_to(context_root).as_posix(): path.read_bytes() for path in paths}
+
+    memory_snapshot = snapshot()
+    call_count = len(gateway.calls)
+    unchanged = service.sync()
+    assert unchanged["analyzed_count"] == 0
+    assert len(gateway.calls) == call_count
+    assert memory_snapshot == snapshot()
+
+    force_start = len(gateway.calls)
+    forced = service.sync(force=True)
+    assert forced["state"] == "synced"
+    assert len(gateway.calls) > force_start
+    forced_sources = {context["source_document_id"] for _, context in gateway.calls[force_start:]}
+    assert forced_sources == set(source_ids)
