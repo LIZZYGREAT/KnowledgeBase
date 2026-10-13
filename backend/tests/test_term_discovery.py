@@ -17,6 +17,7 @@ from backend.app.repositories.term_candidate_repository import TermCandidateRepo
 from backend.app.repositories.term_discovery_repository import TermDiscoveryRepository
 from backend.app.services.knowledge_state_service import KnowledgeStateService
 from backend.app.services.learning_context_service import LearningContextService
+from backend.app.services.learning_context_sync_entries import render_entry
 from backend.app.services.pdf_corpus_service import PdfCorpusService
 from backend.app.services.term_candidate_service import (
     TermCandidateConflict,
@@ -29,6 +30,7 @@ from backend.app.services.term_discovery_service import (
     _dynamic_allowance,
     _discovery_focus,
     _external_query,
+    _covered_by_learning_context,
 )
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.term_registry import TermRegistry
@@ -1044,17 +1046,30 @@ def test_selected_learning_context_guides_terms_without_unselected_course_pollut
             ]
         },
     )
-    context_service.save_topic(
-        "continual-learning",
-        "# Covered methods\n\n"
-        "### Learning without Forgetting (LwF)\n"
-        "LwF uses distillation to preserve prior-task behavior.\n\n"
-        "### Elastic Weight Consolidation (EWC)\n"
-        "EWC protects important parameters to reduce forgetting.\n\n"
-        "### iCaRL\n"
-        "iCaRL combines exemplar replay with representation learning.\n\n"
-        "### Gradient Episodic Memory (GEM)\n"
-        "GEM constrains updates using past-task gradients.\n",
+    source_summaries = {
+        "lwf": "### Learning without Forgetting (LwF)\n"
+        "LwF uses distillation to preserve prior-task behavior.",
+        "ewc": "### Elastic Weight Consolidation (EWC)\n"
+        "EWC protects important parameters to reduce forgetting.",
+        "icarl": "### iCaRL\n"
+        "iCaRL combines exemplar replay with representation learning.",
+        "gem": "### Gradient Episodic Memory (GEM)\n"
+        "GEM constrains updates using past-task gradients.",
+    }
+    context_service._atomic_write(
+        "topics/continual-learning.md",
+        render_entry(
+            {
+                "entry_id": "covered-methods",
+                "owner": "auto",
+                "title": "Covered methods",
+                "source_headings": {
+                    document_id: ["Method"] for document_id in selected_notes
+                },
+                "source_summaries": source_summaries,
+                "summary": "\n\n".join(source_summaries.values()),
+            }
+        ),
     )
 
     output = {
@@ -1154,10 +1169,35 @@ def test_selected_learning_context_guides_terms_without_unselected_course_pollut
         "Gradient Episodic Memory (GEM)",
     } <= set(source_call["learning_context"]["covered_term_headings"])
     assert source_call["learning_context"]["preferences"]["fixed_direction"] == "Continual learning"
+    document_context_ids = {
+        context["source"]["id"]
+        for task, context in gateway.calls
+        if task == "discover_terms"
+        and context["source"]["id"]
+        in {*selected_notes, "ethernet-course"}
+    }
+    assert document_context_ids <= set(selected_notes)
+    assert "ethernet-course" not in document_context_ids
     assert [item.display_name for item in candidate_service.list_candidates("pending")] == [
         "Synaptic Intelligence"
     ]
     connection.close()
+
+
+def test_learning_context_coverage_uses_specific_section_and_body_terms():
+    context = {
+        "active": "# Continual Learning\n\n"
+        "## Foundations\n\n"
+        "Elastic Weight Consolidation (EWC) protects parameters that matter to earlier tasks.",
+        "important": "",
+        "topics": [],
+        "covered_term_headings": [],
+    }
+
+    assert _covered_by_learning_context("Elastic Weight Consolidation", context)
+    assert _covered_by_learning_context("EWC", context)
+    assert not _covered_by_learning_context("Continual Learning", context)
+    assert not _covered_by_learning_context("Replay", context)
 
 
 def test_term_discovery_api_exposes_settings_and_run_history(tmp_path):

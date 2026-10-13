@@ -306,6 +306,7 @@ class LearningContextService:
             bounded_topics.append({**topic, "markdown": body})
             remaining -= len(body)
         return {
+            "selected_source_ids": self._read_sources(),
             "included_sources": self._selected_source_summaries(),
             "preferences": preferences,
             "active": active,

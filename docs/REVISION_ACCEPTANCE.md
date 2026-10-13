@@ -156,3 +156,9 @@ API 队列测试现在注入空闲 Worker；Worker 执行本身仍由独立的 `
 `backend/tests/test_learning_context.py` 与 `backend/tests/test_learning_context_api.py` 专项结果：29 项通过、6 项 HTTPX API 测试弃用警告；运行环境另提示 pytest-asyncio 的 fixture loop scope 将来默认值将变化。新增覆盖包括条目独立固定后其他条目继续更新、手动说明保留且不进入推荐上下文、共享来源按来源摘要过滤、取消最后来源后的固定条目安全保留、旧版整文件冻结迁移、来源待核对与显式确认、Markdown 完整段落/条目截断及条目级 API 操作。前端学习上下文单元测试 5 项通过，`npm run typecheck` 与 `npm run build` 通过；构建仍提示已有 Mermaid/ELK 大分块。
 
 这些本地专项检查使用现有 Python 3.9 测试环境；Python 3.12 CI 尚未重跑。未调用真实 Provider/DeepSeek，未修改生产服务。私有修订方案未纳入提交。
+
+## Phase 15 Stage C1 修订记录（2026-10-13）
+
+Terms 在用户选择正式笔记后，仅把白名单中的笔记送入学习语料分析；取消选择或来源暂不可用时不会回退扫描其他笔记。首次选择为空时，独立的通用 Terms 工作流仍可扫描全库，但其内容不会因此成为学习进度证据。现有 PDF 抽取保持独立通道，不作为掌握依据。重复过滤除了专门章节标题，也会核对来源筛选后的学习上下文正文和规范 Term 别名；忽略一级、二级宽泛标题。Terms 分析版本升至 3，使原分析缓存按新规则重新计算。
+
+`backend/tests/test_learning_context.py`、`backend/tests/test_learning_context_api.py` 与 `backend/tests/test_term_discovery.py` 专项结果：59 项通过，7 项 HTTPX API 弃用警告，另有 pytest-asyncio fixture loop scope 配置警告。新增验收确认选择 ID 透传、未选课程笔记不会进入个性化文档分析、上下文正文/别名可去重、宽泛一级/二级标题不代表掌握。测试使用本机 Python 3.9 依赖；Python 3.12 CI 尚未重跑，未调用真实 Provider/DeepSeek。私有修订方案未纳入提交。

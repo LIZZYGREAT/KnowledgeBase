@@ -44,7 +44,7 @@ from backend.app.services.wikipedia_discovery import (
 )
 
 
-DISCOVERY_ANALYSIS_VERSION = 2
+DISCOVERY_ANALYSIS_VERSION = 3
 GLOBAL_OPEN_CAPACITY = 12
 MAX_SOURCES_PER_RUN = 3
 MAX_TEXT_CHARS_PER_REQUEST = 12_000
@@ -248,6 +248,7 @@ class TermDiscoveryService:
                     focus_snapshot,
                     focus_hash,
                     registry,
+                    _selected_document_scope(learning_context),
                 )
             )
         has_external = False
@@ -378,6 +379,7 @@ class TermDiscoveryService:
             snapshot,
             focus_hash,
             registry,
+            _selected_document_scope(learning_context),
         )
         self.repository.retain_vocabulary_sources(
             {
@@ -621,7 +623,7 @@ class TermDiscoveryService:
                     if _excluded_by_preferences(
                         suggestion.mention, learning_context["preferences"]
                     ) or _covered_by_learning_context(
-                        suggestion.mention, learning_context
+                        suggestion.mention, learning_context, resolver
                     ):
                         filtered_counts[lane] += 1
                         items.append(
@@ -889,6 +891,7 @@ class TermDiscoveryService:
         if self.learning_context is None:
             raw = {
                 "included_sources": [],
+                "selected_source_ids": None,
                 "preferences": preferences,
                 "active": "",
                 "important": "",
@@ -909,6 +912,11 @@ class TermDiscoveryService:
                 }
                 for item in raw.get("included_sources", [])[:MAX_TERM_CONTEXT_SOURCES]
             ],
+            "selected_source_ids": (
+                list(raw.get("selected_source_ids", []))
+                if self.learning_context is not None
+                else None
+            ),
             "preferences": _bounded_term_preferences(
                 raw.get("preferences", preferences)
             ),
@@ -1158,7 +1166,8 @@ def _learning_context_headings(learning_context: dict) -> list[str]:
         if not isinstance(markdown, str):
             continue
         for line in markdown.splitlines():
-            match = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", line)
+            # Broad H1/H2 field headings do not establish every related term.
+            match = re.match(r"^\s{0,3}#{3,6}\s+(.+?)\s*#*\s*$", line)
             if not match:
                 continue
             title = match.group(1).strip()
@@ -1211,14 +1220,74 @@ def _excluded_by_preferences(mention: str, preferences: dict) -> bool:
     )
 
 
-def _covered_by_learning_context(mention: str, learning_context: dict) -> bool:
+def _covered_by_learning_context(
+    mention: str, learning_context: dict, resolver: Optional[TermResolver] = None
+) -> bool:
     mention_variants = _term_name_variants(mention)
     if not mention_variants:
         return False
-    return any(
+    if resolver is not None:
+        resolution = resolver.resolve(mention)
+        if resolution.status == "resolved":
+            term = resolver.registry.get(resolution.entity_id)
+            if term is not None:
+                for value in (term.title, *term.aliases):
+                    mention_variants.update(_term_name_variants(value))
+
+    if any(
         bool(mention_variants & _term_name_variants(heading))
         for heading in learning_context.get("covered_term_headings", [])
+    ):
+        return True
+
+    source_text = "\n".join(
+        _learning_context_body_text(markdown)
+        for markdown in (
+            learning_context.get("active", ""),
+            learning_context.get("important", ""),
+            *[
+                item.get("markdown", "")
+                for item in learning_context.get("topics", [])
+                if isinstance(item, dict)
+            ],
+        )
     )
+    return any(
+        _contains_term_phrase(source_text, variant)
+        for variant in mention_variants
+        if len(_normalized_term_phrase(variant).split()) > 1
+        or (resolver is not None and resolver.resolve(variant).status == "resolved")
+        or (mention.strip().isupper() and 2 <= len(mention.strip()) <= 8)
+    )
+
+
+def _learning_context_body_text(markdown: str) -> str:
+    if not isinstance(markdown, str):
+        return ""
+    lines = []
+    in_code = False
+    for line in markdown.splitlines():
+        if line.strip().startswith(("```", "~~~")):
+            in_code = not in_code
+            continue
+        if in_code or re.match(r"^\s{0,3}#{1,6}(?:\s|$)", line):
+            continue
+        if line.startswith("<!--"):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _selected_document_scope(learning_context: dict) -> Optional[set[str]]:
+    selected_source_ids = learning_context.get("selected_source_ids")
+    if not isinstance(selected_source_ids, list):
+        return None
+    selected = {
+        source_id
+        for source_id in selected_source_ids
+        if isinstance(source_id, str) and source_id.strip()
+    }
+    return selected or None
 
 
 def _discovery_focus(
@@ -1246,6 +1315,7 @@ def _select_documents(
     snapshot: dict,
     focus_hash: str,
     registry: TermRegistry,
+    selected_document_ids: Optional[set[str]] = None,
 ) -> list[DiscoveryCorpus]:
     note_lanes = tuple(
         lane for lane in enabled_lanes if lane in {"concept", "entity"}
@@ -1275,6 +1345,11 @@ def _select_documents(
             parsed = parse_markdown(content)
             metadata = DocumentMetadata.model_validate(parsed.frontmatter)
             if path.stem != metadata.id:
+                continue
+            if (
+                selected_document_ids is not None
+                and metadata.id not in selected_document_ids
+            ):
                 continue
             relative = path.relative_to(documents_root)
             expected_directory = {

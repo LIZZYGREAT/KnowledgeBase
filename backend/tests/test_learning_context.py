@@ -152,8 +152,10 @@ def test_unselected_course_note_never_becomes_a_progress_source(tmp_path):
     service = LearningContextService(tmp_path)
 
     assert service.get_context()["included_sources"] == []
+    assert service.get_context()["selected_source_ids"] == []
     service.set_sources(["learning-note"])
     context = service.get_context()
+    assert context["selected_source_ids"] == ["learning-note"]
     assert [item["id"] for item in context["included_sources"]] == ["learning-note"]
 
 
