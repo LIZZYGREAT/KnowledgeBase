@@ -195,47 +195,48 @@ function ContextList({ title, items, empty }: { title: string; items: string[]; 
 }
 
 function AgentStatusRow({ title, state, lastResult, onOpen }: { title: string; state: string; lastResult: string; onOpen?: () => void }) {
-  return <div className="agent-status-row">{onOpen ? <button type="button" onClick={onOpen}>{title}</button> : <strong>{title}</strong>}<Chip tone={state === "ready" ? "green" : state.startsWith("failed") ? "rose" : "amber"}>{state}</Chip><small>{lastResult}</small></div>;
+  return <div className="agent-status-row">{onOpen ? <button type="button" onClick={onOpen}>{title}</button> : <strong>{title}</strong>}<Chip tone={state === "就绪" ? "green" : state.startsWith("失败") ? "rose" : "amber"}>{state}</Chip><small>{lastResult}</small></div>;
 }
 
 function termLaneState(lane: TermDiscoveryLane, state: TermDiscoveryState) {
-  if (!state.settings.enabled_lanes.includes(lane)) return "paused";
-  if (state.open_count >= state.global_capacity || (state.lane_open[lane] ?? 0) >= (state.lane_capacity[lane] ?? 0) || state.daily_remaining <= 0) return "paused · capacity reached";
-  return "ready";
+  if (!state.settings.enabled_lanes.includes(lane)) return "已暂停";
+  if (state.open_count >= state.global_capacity || (state.lane_open[lane] ?? 0) >= (state.lane_capacity[lane] ?? 0) || state.daily_remaining <= 0) return "已暂停 · 容量已满";
+  return "就绪";
 }
 
 function termLaneResult(lane: TermDiscoveryLane, state: TermDiscoveryState) {
   const run = state.last_run;
-  if (!run) return "No run yet";
+  if (!run) return "尚无运行记录";
   const created = run.items.filter((item) => item.lane === lane && item.outcome === "created").length;
-  return `${runStatusLabel(run.status)} · ${created} new · ${formatDate(run.started_at)}`;
+  return `${runStatusLabel(run.status)} · 新增 ${created} 个 · ${formatDate(run.started_at)}`;
 }
 
 function researchAgentState(profiles: ResearchProfileSummary[]) {
-  if (!profiles.length) return "not configured";
+  if (!profiles.length) return "尚未配置";
   const activeProfiles = profiles.filter((profile) => profile.enabled && !(profile.paused_until && Date.parse(profile.paused_until) > Date.now()));
-  if (!activeProfiles.length) return "paused";
-  if (activeProfiles.every((profile) => profile.inbox.remaining <= 0)) return "paused · 待看论文 full";
-  return "ready";
+  if (!activeProfiles.length) return "已暂停";
+  if (activeProfiles.every((profile) => profile.inbox.remaining <= 0)) return "已暂停 · 待看论文已满";
+  return "就绪";
 }
 
 function researchAgentResult(profiles: ResearchProfileSummary[]) {
   const latest = profiles.flatMap((profile) => profile.latest_run ? [profile.latest_run] : [])
     .sort((left, right) => right.started_at.localeCompare(left.started_at))[0];
-  return latest ? `${runStatusLabel(latest.status)} · ${latest.surfaced_count} surfaced · ${formatDate(latest.started_at)}` : "No run yet";
+  return latest ? `${runStatusLabel(latest.status)} · 已推荐 ${latest.surfaced_count} 项 · ${formatDate(latest.started_at)}` : "尚无运行记录";
 }
 
 function runStatusLabel(status: string) {
   const labels: Record<string, string> = {
-    success: "success",
-    partial: "partial",
-    failed: "failed",
-    interrupted: "interrupted",
-    skipped_capacity: "skipped · capacity reached",
-    skipped_paused: "paused",
-    skipped_disabled: "paused · disabled",
-    skipped_inbox_full: "skipped · 待看论文 full",
-    capacity_reached: "capacity reached",
+    running: "运行中",
+    success: "成功",
+    partial: "部分完成",
+    failed: "失败",
+    interrupted: "已中断",
+    skipped_capacity: "已跳过 · 容量已满",
+    skipped_paused: "已暂停",
+    skipped_disabled: "已暂停 · 已停用",
+    skipped_inbox_full: "已跳过 · 待看论文已满",
+    capacity_reached: "容量已满",
   };
   return labels[status] ?? status.replaceAll("_", " ");
 }

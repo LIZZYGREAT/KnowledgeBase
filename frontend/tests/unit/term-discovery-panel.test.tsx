@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TermDiscoveryPanel } from "../../src/pages/TermDiscoveryPanel";
@@ -75,6 +75,43 @@ describe("发现术语 panel", () => {
     await waitFor(() => expect(api.runTermDiscovery).toHaveBeenCalledWith());
     const status = await screen.findByRole("status");
     expect(status.textContent).toContain("新增 2 个待处理术语");
+  });
+
+  it("localizes discovery history statuses, counts, outcomes, and readiness", async () => {
+    api.listTermDiscoveryRuns.mockResolvedValue([{
+      ...run,
+      status: "partial",
+      items: [{
+        id: "item-one",
+        run_id: "run-one",
+        lane: "concept",
+        source_id: "note-one",
+        mention: "Attention Routing",
+        outcome: "created",
+        candidate_id: "candidate-one",
+        assessment: {
+          readiness: "high",
+          recommendation_level: "core_gap",
+          known_prerequisites: [],
+          missing_prerequisites: [],
+          why_now: "适合当前学习阶段。",
+        },
+        rationale: "来自已审核笔记。",
+        context_excerpt: "Attention routes retrieved memories.",
+      }],
+    }]);
+    render(<TermDiscoveryPanel />);
+
+    expect(await screen.findByText("1 次运行")).not.toBeNull();
+    expect(screen.getByText("部分完成")).not.toBeNull();
+    const runSummary = screen.getByText("新增 2 个");
+    expect(runSummary).not.toBeNull();
+    const runDetails = runSummary.closest("details") as HTMLDetailsElement;
+    fireEvent.click(runSummary.closest("summary") as HTMLElement);
+    expect(await within(runDetails).findByText("已加入待处理")).not.toBeNull();
+    expect(within(runDetails).getByText("准备度：高")).not.toBeNull();
+    expect(within(runDetails).getByText("概念")).not.toBeNull();
+    expect(screen.queryByText(/\bruns\b|\bnew\b|\breadiness\b/)).toBeNull();
   });
 
   it("saves lane, 检索主题, and source preferences", async () => {

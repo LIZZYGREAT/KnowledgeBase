@@ -18,6 +18,35 @@ const LANES: Array<{ id: TermDiscoveryLane; title: string; description: string }
   { id: "vocabulary", title: "专业词汇", description: "影响科研论文理解的专业词汇" },
 ];
 
+const LANE_LABELS: Record<TermDiscoveryLane, string> = {
+  concept: "概念",
+  entity: "命名实体",
+  vocabulary: "专业词汇",
+};
+
+const RUN_STATUS_LABELS: Record<TermDiscoveryRun["status"], string> = {
+  success: "成功",
+  partial: "部分完成",
+  failed: "失败",
+  skipped_capacity: "容量已满",
+  skipped_disabled: "已停用",
+};
+
+const OUTCOME_LABELS: Record<TermDiscoveryRun["items"][number]["outcome"], string> = {
+  created: "已加入待处理",
+  stretch: "拓展建议",
+  duplicate: "已存在",
+  filtered: "未纳入",
+  rejected: "已拒绝",
+  error: "处理失败",
+};
+
+const READINESS_LABELS: Record<TermDiscoveryRun["items"][number]["assessment"]["readiness"], string> = {
+  high: "高",
+  medium: "中",
+  low: "低",
+};
+
 export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => void }) {
   const [state, setState] = useState<TermDiscoveryState | null>(null);
   const [runs, setRuns] = useState<TermDiscoveryRun[]>([]);
@@ -132,7 +161,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
         <div className="term-discovery-capacity-grid">
           <div><span>待处理术语</span><strong>{state.open_count} / {state.global_capacity}</strong></div>
         </div>
-        {state.last_run && <p className="term-discovery-last-run">最近发现 · {state.last_run.status.replaceAll("_", " ")} · {new Date(state.last_run.started_at).toLocaleString()}</p>}
+        {state.last_run && <p className="term-discovery-last-run">最近发现 · {RUN_STATUS_LABELS[state.last_run.status]} · {new Date(state.last_run.started_at).toLocaleString()}</p>}
       </div>
 
       <form className="term-discovery-settings surface" onSubmit={(event) => void saveSettings(event)}>
@@ -163,15 +192,15 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
       {error && <p className="error-copy" role="alert">{error}</p>}
 
       <section className="term-discovery-history surface" aria-label="发现术语发现记录">
-        <div className="section-heading"><div><h3>发现记录</h3><p>拓展建议保留在运行结果中，不会占用待处理列表。</p></div><span className="count-label">{runs.length} runs</span></div>
+        <div className="section-heading"><div><h3>发现记录</h3><p>拓展建议保留在运行结果中，不会占用待处理列表。</p></div><span className="count-label">{runs.length} 次运行</span></div>
         {runs.length ? <div className="term-discovery-run-list">{runs.map((run) => <details className="term-discovery-run" key={run.id}>
-          <summary><span><Chip tone={run.status === "success" ? "green" : run.status === "partial" ? "amber" : "neutral"}>{run.status.replaceAll("_", " ")}</Chip> {new Date(run.started_at).toLocaleString()}</span><strong>{run.candidate_count} new</strong></summary>
+          <summary><span><Chip tone={run.status === "success" ? "green" : run.status === "partial" ? "amber" : "neutral"}>{RUN_STATUS_LABELS[run.status]}</Chip> {new Date(run.started_at).toLocaleString()}</span><strong>新增 {run.candidate_count} 个</strong></summary>
           <div className="term-discovery-run-detail">
             <p>预算：概念 {run.lane_budgets.concept ?? 0} · 命名实体 {run.lane_budgets.entity ?? 0} · 专业词汇 {run.lane_budgets.vocabulary ?? 0}</p>
             <p>模型建议 {Object.values(run.raw_counts).reduce((sum, value) => sum + value, 0)} · 过滤 {Object.values(run.filtered_counts).reduce((sum, value) => sum + value, 0)}</p>
             {run.error_summary && <p className="error-copy">{run.error_summary}</p>}
             {run.items.map((item) => <article className="term-discovery-result" key={item.id}>
-              <div><strong>{item.mention}</strong><Chip>{item.lane}</Chip><Chip tone={item.outcome === "created" ? "green" : item.outcome === "stretch" ? "amber" : "neutral"}>{item.outcome}</Chip><Chip>{item.assessment.readiness} readiness</Chip></div>
+              <div><strong>{item.mention}</strong><Chip>{LANE_LABELS[item.lane]}</Chip><Chip tone={item.outcome === "created" ? "green" : item.outcome === "stretch" ? "amber" : "neutral"}>{OUTCOME_LABELS[item.outcome]}</Chip><Chip>准备度：{READINESS_LABELS[item.assessment.readiness]}</Chip></div>
               <p>{item.assessment.why_now}</p>
               {(item.assessment.known_prerequisites.length > 0 || item.assessment.missing_prerequisites.length > 0) && <small>已有：{item.assessment.known_prerequisites.join("、") || "—"} · 缺少：{item.assessment.missing_prerequisites.join("、") || "—"}</small>}
               {item.rationale && <blockquote>{item.context_excerpt}</blockquote>}

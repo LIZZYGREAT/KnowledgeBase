@@ -1171,9 +1171,9 @@ describe("论文推荐 workspace", () => {
     fireEvent.change(historySeed, { target: { value: "2012" } });
     fireEvent.blur(historySeed);
     expect(await screen.findByText(/预填 2010-01-01 至 2014-12-31/)).toBeTruthy();
-    fireEvent.click(screen.getByLabelText("发现术语 Provider openalex"));
-    fireEvent.click(screen.getByLabelText("发现术语 Provider arxiv"));
-    const lastDiscoveryProvider = screen.getByLabelText("发现术语 Provider openalex") as HTMLInputElement;
+    fireEvent.click(screen.getByLabelText("论文发现来源 openalex"));
+    fireEvent.click(screen.getByLabelText("论文发现来源 arxiv"));
+    const lastDiscoveryProvider = screen.getByLabelText("论文发现来源 openalex") as HTMLInputElement;
     expect(lastDiscoveryProvider.checked).toBe(true);
     expect(lastDiscoveryProvider.disabled).toBe(true);
     fireEvent.click(lastDiscoveryProvider);

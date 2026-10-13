@@ -265,8 +265,8 @@ describe("Knowledge Dashboard", () => {
     const researchButton = await screen.findByRole("button", { name: "论文推荐" });
     const researchRow = researchButton.parentElement;
     expect(researchRow).not.toBeNull();
-    expect(within(researchRow as HTMLElement).getByText("ready")).not.toBeNull();
-    expect(within(researchRow as HTMLElement).getByText(/success · 2 surfaced/)).not.toBeNull();
+    expect(within(researchRow as HTMLElement).getByText("就绪")).not.toBeNull();
+    expect(within(researchRow as HTMLElement).getByText(/成功 · 已推荐 2 项/)).not.toBeNull();
     expect(api.listTermCandidates).toHaveBeenCalledWith("pending");
     expect(api.listResearchProfiles).toHaveBeenCalledOnce();
     expect(api.listUsage).toHaveBeenCalledWith("recent");
@@ -352,7 +352,8 @@ describe("Knowledge Dashboard", () => {
     const researchButton = await screen.findByRole("button", { name: "论文推荐" });
     const researchRow = researchButton.parentElement;
     expect(researchRow).not.toBeNull();
-    expect(await within(researchRow as HTMLElement).findByText("paused")).not.toBeNull();
+    expect(await within(researchRow as HTMLElement).findByText("已暂停")).not.toBeNull();
+    expect(within(researchRow as HTMLElement).getByText("尚无运行记录")).not.toBeNull();
   });
 
   it("shows 论文推荐 as paused when all active profile inboxes are full", async () => {
@@ -366,7 +367,7 @@ describe("Knowledge Dashboard", () => {
 
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
-    expect(await screen.findByText("paused · 待看论文 full")).not.toBeNull();
+    expect(await screen.findByText("已暂停 · 待看论文已满")).not.toBeNull();
   });
 
   it("uses the effective 检索主题 stored in the 发现术语 run", async () => {

@@ -364,7 +364,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
                   <legend>论文发现来源</legend>
                   {DISCOVERY_PROVIDERS.map((provider) => {
                     const checked = editableProfile.providers.discovery.includes(provider.id);
-                    return <label className="research-default-toggle" key={provider.id}><input aria-label={"发现术语 Provider " + provider.id} type="checkbox" checked={checked} disabled={checked && editableProfile.providers.discovery.length === 1} onChange={() => toggleProvider("discovery", provider.id)} /><span>{provider.label}</span></label>;
+                    return <label className="research-default-toggle" key={provider.id}><input aria-label={"论文发现来源 " + provider.id} type="checkbox" checked={checked} disabled={checked && editableProfile.providers.discovery.length === 1} onChange={() => toggleProvider("discovery", provider.id)} /><span>{provider.label}</span></label>;
                   })}
                   <span className="field-hint">至少选择一个论文发现来源。</span>
                 </fieldset>
