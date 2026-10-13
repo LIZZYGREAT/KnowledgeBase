@@ -143,13 +143,36 @@ class LearningContextSync:
         ):
             raise LearningContextError("Invalid source document ID")
         with _SYNC_LOCK:
-            return self._run_locked(dry_run=dry_run, force=force, source_id=source_id)
+            self.service._set_sync_progress(
+                {
+                    "phase": "preparing",
+                    "completed_sources": 0,
+                    "total_sources": 0,
+                    "source_index": 0,
+                    "completed_batches": 0,
+                    "total_batches": 0,
+                    "batch_index": 0,
+                    "current_source_id": None,
+                    "current_source_title": None,
+                }
+            )
+            try:
+                return self._run_locked(
+                    dry_run=dry_run, force=force, source_id=source_id
+                )
+            finally:
+                self.service._set_sync_progress(None)
 
     def _run_locked(self, *, dry_run: bool, force: bool, source_id: Optional[str]):
         selected = self.service._read_sources()
         if source_id is not None and source_id not in selected:
             raise LearningContextError("Reanalysis requires a selected learning document")
         targets = [source_id] if source_id else selected
+        self.service._update_sync_progress(
+            phase="checking",
+            completed_sources=0,
+            total_sources=len(targets),
+        )
         status_before = deepcopy(self.service._read_status())
         manual_signature_before = _manual_state_signature(status_before)
         baselines = status_before.get("source_baselines", {})
@@ -210,20 +233,44 @@ class LearningContextSync:
             original_memory_files = dict(memory_files)
             if not dry_run:
                 _migrate_legacy_pins(memory_files, status_before)
-            for current_id in targets:
+            for source_index, current_id in enumerate(targets, start=1):
+                self.service._update_sync_progress(
+                    phase="checking",
+                    completed_sources=source_index - 1,
+                    total_sources=len(targets),
+                    source_index=source_index,
+                    completed_batches=0,
+                    total_batches=0,
+                    batch_index=0,
+                    current_source_id=current_id,
+                    current_source_title=current_id,
+                )
                 source = self._read_source(current_id)
                 baseline = baselines.get(current_id)
                 if source is None:
                     source_results.append(
                         {"source_id": current_id, "action": "missing", "reason": "note is unavailable"}
                     )
+                    self.service._update_sync_progress(
+                        completed_sources=source_index,
+                        current_source_id=None,
+                        current_source_title=None,
+                    )
                     continue
                 current_bytes, metadata, current_text = source
+                self.service._update_sync_progress(
+                    current_source_title=metadata.title
+                )
                 current_hash = hashlib.sha256(current_bytes).hexdigest()
                 plan = self._plan(current_id, current_bytes, current_text, baseline, force)
                 if plan["action"] == "unchanged":
                     source_results.append(plan["summary"])
                     skipped_count += 1
+                    self.service._update_sync_progress(
+                        completed_sources=source_index,
+                        current_source_id=None,
+                        current_source_title=None,
+                    )
                     continue
                 if dry_run:
                     source_results.append(plan["summary"])
@@ -231,6 +278,11 @@ class LearningContextSync:
                         analyzed_count += 1
                     else:
                         skipped_count += 1
+                    self.service._update_sync_progress(
+                        completed_sources=source_index,
+                        current_source_id=None,
+                        current_source_title=None,
+                    )
                     continue
 
                 if plan["action"] == "skip":
@@ -243,6 +295,11 @@ class LearningContextSync:
                     )
                     source_results.append(plan["summary"])
                     skipped_count += 1
+                    self.service._update_sync_progress(
+                        completed_sources=source_index,
+                        current_source_id=None,
+                        current_source_title=None,
+                    )
                     continue
 
                 if self.gateway is None:
@@ -260,7 +317,12 @@ class LearningContextSync:
                                 item for item in headings if isinstance(item, str)
                             }
                 unchanged_batch_headings = set()
-                for batch in plan["batches"]:
+                self.service._update_sync_progress(
+                    phase="analyzing",
+                    total_batches=len(plan["batches"]),
+                )
+                for batch_index, batch in enumerate(plan["batches"], start=1):
+                    self.service._update_sync_progress(batch_index=batch_index)
                     context = self._build_ai_context(
                         current_id,
                         metadata,
@@ -294,6 +356,9 @@ class LearningContextSync:
                             for item in batch
                             if isinstance(item, dict)
                         )
+                    self.service._update_sync_progress(
+                        completed_batches=batch_index
+                    )
                 if force:
                     preserved_entry_ids = set(source_heading_updates)
                     preserved_entry_ids.update(
@@ -330,6 +395,15 @@ class LearningContextSync:
                     }
                 )
                 analyzed_count += 1
+                self.service._update_sync_progress(
+                    phase="checking",
+                    completed_sources=source_index,
+                    current_source_id=None,
+                    current_source_title=None,
+                    completed_batches=0,
+                    total_batches=0,
+                    batch_index=0,
+                )
 
             if dry_run:
                 return {

@@ -16,7 +16,7 @@ from backend.app.api.learning_context import (
 )
 from backend.app.api.research import list_profiles
 from backend.app.services.learning_context_service import LearningContextService
-from backend.app.services.learning_context_sync_entries import render_entry
+from backend.app.services.learning_context_sync_entries import entry_blocks, render_entry
 
 
 def _document(root: Path, document_id: str = "gem-note"):
@@ -132,6 +132,68 @@ def test_api_can_pin_and_restore_one_automatic_entry(tmp_path):
     assert restored.status_code == 200
     assert after.json()["manual_entries"] == []
     assert "保留此说明。" in after.json()["active"]
+
+
+def test_api_edits_one_entry_and_preserves_other_automatic_entries(tmp_path):
+    context_root = tmp_path / "storage" / "learning-context"
+    context_root.mkdir(parents=True)
+    first = render_entry(
+        {
+            "entry_id": "gem-gradient-projection",
+            "owner": "auto",
+            "source_headings": {"gem-note": ["Mechanism"]},
+            "layer": "active",
+            "title": "梯度投影",
+            "summary": "GEM 将梯度投影到可行区域。",
+        }
+    )
+    second = render_entry(
+        {
+            "entry_id": "gem-replay",
+            "owner": "auto",
+            "source_headings": {"gem-note": ["Replay"]},
+            "layer": "active",
+            "title": "记忆回放",
+            "summary": "回放历史样本。",
+        }
+    )
+    (context_root / "active.md").write_text(
+        first + "\n" + second + "\n\n人工备注。\n", encoding="utf-8"
+    )
+
+    with _client(tmp_path) as client:
+        saved = client.put(
+            "/api/learning-context/entries/gem-gradient-projection",
+            json={
+                "layer": "active",
+                "title": "修订后的梯度投影",
+                "summary": "修订后仍保留来源依据。",
+            },
+        )
+        overview = client.get("/api/learning-context").json()
+
+    assert saved.status_code == 200
+    assert saved.json()["pinned"] is True
+    assert saved.json()["title"] == "修订后的梯度投影"
+    assert "人工备注。" in saved.json()["markdown"]
+    blocks = {
+        item["metadata"]["entry_id"]: item["metadata"]
+        for item in entry_blocks(overview["active"])
+    }
+    assert blocks["gem-gradient-projection"]["pinned"] is True
+    assert blocks["gem-gradient-projection"]["source_headings"] == {
+        "gem-note": ["Mechanism"]
+    }
+    assert blocks["gem-gradient-projection"]["summary"] == "修订后仍保留来源依据。"
+    assert blocks["gem-replay"].get("pinned") is not True
+    assert blocks["gem-replay"]["summary"] == "回放历史样本。"
+    assert "人工备注。" in overview["active"]
+    assert {
+        item["entry_id"]: item["summary"] for item in overview["editable_entries"]
+    } == {
+        "gem-gradient-projection": "修订后仍保留来源依据。",
+        "gem-replay": "回放历史样本。",
+    }
 
 
 def test_api_rejects_noncanonical_and_unknown_source_ids(tmp_path):

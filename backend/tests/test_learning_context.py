@@ -1015,9 +1015,12 @@ def test_real_learning_notes_sync_in_bounded_complete_batches_and_seed_recommend
         def __init__(self):
             self.calls = []
             self.first_batch_sources = set()
+            self.progress_snapshots = []
+            self.service = None
 
         def run(self, task_name, context):
             self.calls.append((task_name, context))
+            self.progress_snapshots.append(self.service.get_overview()["status"])
             source_id = context["source_document_id"]
             if source_id in self.first_batch_sources:
                 return {"outcome": "no_change", "changes": []}
@@ -1040,6 +1043,7 @@ def test_real_learning_notes_sync_in_bounded_complete_batches_and_seed_recommend
 
     gateway = CorpusGateway()
     service = LearningContextService(tmp_path, gateway)
+    gateway.service = service
     service.set_sources(source_ids)
 
     first = service.sync()
@@ -1047,6 +1051,17 @@ def test_real_learning_notes_sync_in_bounded_complete_batches_and_seed_recommend
     assert first["state"] == "synced"
     assert first["analyzed_count"] == 4
     assert len(gateway.calls) > len(source_ids)
+    progress = [status["sync_progress"] for status in gateway.progress_snapshots]
+    assert all(status["state"] == "syncing" for status in gateway.progress_snapshots)
+    assert all(item["phase"] == "analyzing" for item in progress)
+    assert any(item["total_batches"] > 1 for item in progress)
+    assert any(
+        item["total_batches"] > 1
+        and item["batch_index"] >= 2
+        and item["completed_batches"] >= 1
+        for item in progress
+    )
+    assert "sync_progress" not in service.get_overview()["status"]
     captured_by_source = {source_id: [] for source_id in source_ids}
     for task_name, context in gateway.calls:
         assert task_name == "update_learning_context"

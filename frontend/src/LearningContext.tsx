@@ -9,6 +9,8 @@ import {
   setLearningContextPreferences,
   setLearningContextSources,
   setLearningContextTopicStatus,
+  updateLearningContextEntry,
+  type LearningContextEditableEntry,
   type LearningContextOverview,
   type LearningContextPreferences,
   type LearningContextTopic,
@@ -67,6 +69,16 @@ function memoryPath(layer: MemoryLayer) {
   return layer.startsWith("topic:") ? `topics/${layer.slice(6)}.md` : `${layer}.md`;
 }
 
+function withoutAutomaticEntryBlocks(markdown: string) {
+  return markdown
+    .replace(
+      /^<!-- learning-context-entry \{[^\r\n]*\} -->\r?\n[\s\S]*?^<!-- \/learning-context-entry -->\r?\n?/gm,
+      "",
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function LearningContextPage({ registerBeforeNavigate }: { registerBeforeNavigate?: RegisterBeforeNavigate }) {
   const [overview, setOverview] = useState<LearningContextOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -89,6 +101,9 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   const [memoryLoaded, setMemoryLoaded] = useState(false);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryEditing, setMemoryEditing] = useState(false);
+  const [editingEntryId, setEditingEntryId] = useState("");
+  const [entryDraftTitle, setEntryDraftTitle] = useState("");
+  const [entryDraftSummary, setEntryDraftSummary] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -107,6 +122,29 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!syncing) return;
+    let current = true;
+    const refreshProgress = async () => {
+      try {
+        const value = await getLearningContext();
+        if (current) {
+          setOverview((previous) => previous
+            ? { ...previous, status: value.status }
+            : value);
+        }
+      } catch {
+        // The active sync request still reports its final result if polling fails.
+      }
+    };
+    void refreshProgress();
+    const timer = window.setInterval(() => void refreshProgress(), 1200);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [syncing]);
 
   const topicId = selectedLayer.startsWith("topic:") ? selectedLayer.slice(6) : "";
   const currentMemory = selectedLayer === "active"
@@ -127,7 +165,14 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
       && JSON.stringify(normalizedPreferenceDraft) !== JSON.stringify(overview.preferences),
   );
   const memoryDirty = memoryEditing && memoryLoaded && memoryText !== memoryOriginal;
-  const hasUnsavedChanges = sourceDirty || preferencesDirty || memoryDirty;
+  const editableEntries = overview?.editable_entries.filter(
+    (entry) => entry.relative_path === memoryPath(selectedLayer),
+  ) ?? [];
+  const editingEntry = editableEntries.find((entry) => entry.entry_id === editingEntryId);
+  const entryDirty = Boolean(editingEntry && (
+    entryDraftTitle !== editingEntry.title || entryDraftSummary !== editingEntry.summary
+  ));
+  const hasUnsavedChanges = sourceDirty || preferencesDirty || memoryDirty || entryDirty;
 
   useEffect(() => {
     if (!registerBeforeNavigate) return;
@@ -150,6 +195,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     let current = true;
     setMemoryLoaded(false);
     setMemoryEditing(false);
+    setEditingEntryId("");
     async function loadMemory() {
       setMemoryLoading(true);
       try {
@@ -228,6 +274,38 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     }
   }
 
+  function beginEntryEdit(entry: LearningContextEditableEntry) {
+    setEditingEntryId(entry.entry_id);
+    setEntryDraftTitle(entry.title);
+    setEntryDraftSummary(entry.summary);
+  }
+
+  async function saveEntry(entry: LearningContextEditableEntry) {
+    if (!entryDraftTitle.trim() || !entryDraftSummary.trim()) {
+      setNotice("条目标题和正文都不能为空。");
+      return;
+    }
+    setSaving(true);
+    setNotice("");
+    try {
+      const result = await updateLearningContextEntry(entry.entry_id, {
+        layer: entry.layer,
+        ...(entry.topic_id ? { topic_id: entry.topic_id } : {}),
+        title: entryDraftTitle,
+        summary: entryDraftSummary,
+      });
+      setMemoryText(result.markdown);
+      setMemoryOriginal(result.markdown);
+      setEditingEntryId("");
+      await refresh();
+      setNotice("已保存并固定这条知识；其他自动条目仍会继续同步。");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "保存知识条目失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function changeTopicStatus(status: "current" | "history" | "automatic") {
     if (!topicId) return;
     setSaving(true);
@@ -274,7 +352,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
 
   async function runSync(force = false, onlySourceId?: string) {
     if (!overview) return;
-    if (sourceDirty || preferencesDirty || memoryDirty) {
+    if (sourceDirty || preferencesDirty || memoryDirty || entryDirty) {
       setNotice("请先保存当前未提交的修改，再同步学习上下文。");
       return;
     }
@@ -299,7 +377,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
 
   function changeMemoryLayer(nextLayer: MemoryLayer) {
     if (nextLayer === selectedLayer) return;
-    if (memoryDirty && !window.confirm("当前上下文有未保存的修改；放弃修改并切换层级吗？")) {
+    if ((memoryDirty || entryDirty) && !window.confirm("当前上下文有未保存的修改；放弃修改并切换层级吗？")) {
       return;
     }
     setSelectedLayer(nextLayer);
@@ -309,12 +387,14 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   if (loadError && !overview) return <div className="page-stack"><PageHeader eyebrow="LEARNING PROGRESS" title="学习进度" /><ErrorState message={loadError} retry={() => void refresh()} /></div>;
   if (!overview || !preferencesDraft) return null;
 
-  const memoryEntries = overview.manual_entries.filter(
+  const memoryStatusEntries = overview.manual_entries.filter(
     (entry) => entry.relative_path === memoryPath(selectedLayer),
   );
-  const restorableEntries = memoryEntries.filter((entry) => entry.pinned || entry.removed);
-  const reviewEntries = memoryEntries.filter((entry) => entry.support_state === "needs_review");
-  const removedSourceEntries = memoryEntries.filter((entry) => entry.support_state === "source_removed");
+  const restorableEntries = memoryStatusEntries.filter((entry) => entry.pinned || entry.removed);
+  const reviewEntries = memoryStatusEntries.filter((entry) => entry.support_state === "needs_review");
+  const removedSourceEntries = memoryStatusEntries.filter((entry) => entry.support_state === "source_removed");
+  const manualMemoryText = withoutAutomaticEntryBlocks(memoryText);
+  const syncProgress = overview.status.sync_progress;
   const sourceCount = includedIds.length;
   const topicLayers = overview.topics;
   const selectedTopic = topicLayers.find((topic) => topic.id === topicId);
@@ -334,11 +414,25 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
       <section className="learning-context-status surface" aria-live="polite">
         <div><span className={`learning-status-dot learning-status-${overview.status.state}`} /><strong>{statusCopy}</strong></div>
         <span>{sourceCount ? `已纳入 ${sourceCount} 篇正式笔记` : "尚未选择学习资料"}</span>
+        {syncing && (
+          <div className="learning-sync-progress" role="status">
+            {syncProgress?.total_sources
+              ? `正在${syncProgress.phase === "analyzing" ? "分析" : "检查"}第 ${syncProgress.source_index}/${syncProgress.total_sources} 篇：${syncProgress.current_source_title || syncProgress.current_source_id || "准备中"}`
+              : "正在准备本次同步…"}
+            {syncProgress?.total_sources ? (
+              <span>已完成 {syncProgress.completed_sources}/{syncProgress.total_sources} 篇。</span>
+            ) : null}
+            {syncProgress?.phase === "analyzing" && syncProgress.total_batches > 0 ? (
+              <span>正在处理第 {syncProgress.batch_index}/{syncProgress.total_batches} 个章节批次（已完成 {syncProgress.completed_batches} 批）。</span>
+            ) : null}
+            <small>较长笔记可能分多个章节批次；完成后会显示本次分析和跳过数量。</small>
+          </div>
+        )}
         <div className="learning-panel-actions">
-          <button className="button button-primary" type="button" disabled={(!sourceCount && overview.status.state !== "pending") || sourceDirty || saving || syncing} onClick={() => void runSync()}>
-            {syncing ? "正在检查…" : "同步知识变化"}
+          <button className="button button-primary" type="button" disabled={(!sourceCount && overview.status.state !== "pending") || sourceDirty || saving || syncing || memoryDirty || entryDirty} onClick={() => void runSync()}>
+            {syncing ? (syncProgress?.phase === "analyzing" ? "正在分析…" : "正在检查…") : "同步知识变化"}
           </button>
-          <button className="button button-secondary" type="button" disabled={!sourceCount || sourceDirty || saving || syncing} onClick={() => void runSync(true)}>
+          <button className="button button-secondary" type="button" disabled={!sourceCount || sourceDirty || saving || syncing || memoryDirty || entryDirty} onClick={() => void runSync(true)}>
             重新分析全部已选资料
           </button>
         </div>
@@ -415,23 +509,23 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                 : removedSourceEntries.length
                   ? `来源已移除 ${removedSourceEntries.length} 条`
                 : restorableEntries.length
-                  ? `固定 ${memoryEntries.filter((entry) => entry.pinned).length} 条`
+                  ? `固定 ${memoryStatusEntries.filter((entry) => entry.pinned).length} 条`
                   : "自动同步"}
             </span>
           </div>
           {selectedTopic && (
             <div className="learning-topic-actions" aria-label="专题方向管理">
-              {!selectedTopic.is_active && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryDirty} onClick={() => void changeTopicStatus("current")}>设为当前方向</button>}
-              {selectedTopic.is_active && selectedTopic.manual_status !== "history" && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryDirty} onClick={() => void changeTopicStatus("history")}>移至历史</button>}
-              {selectedTopic.manual_status === "current" || selectedTopic.manual_status === "history" ? <button className="text-button" type="button" disabled={saving || syncing || memoryDirty} onClick={() => void changeTopicStatus("automatic")}>恢复自动整理</button> : selectedTopic.is_active ? <button className="text-button" type="button" disabled={saving || syncing || memoryDirty} onClick={() => void changeTopicStatus("current")}>固定为当前方向</button> : null}
+              {!selectedTopic.is_active && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryDirty || entryDirty} onClick={() => void changeTopicStatus("current")}>设为当前方向</button>}
+              {selectedTopic.is_active && selectedTopic.manual_status !== "history" && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryDirty || entryDirty} onClick={() => void changeTopicStatus("history")}>移至历史</button>}
+              {selectedTopic.manual_status === "current" || selectedTopic.manual_status === "history" ? <button className="text-button" type="button" disabled={saving || syncing || memoryDirty || entryDirty} onClick={() => void changeTopicStatus("automatic")}>恢复自动整理</button> : selectedTopic.is_active ? <button className="text-button" type="button" disabled={saving || syncing || memoryDirty || entryDirty} onClick={() => void changeTopicStatus("current")}>固定为当前方向</button> : null}
             </div>
           )}
           <p className="learning-memory-preservation">
             当前关注里的手写说明会补充搜索方向，但不会作为已掌握知识；重要知识与历史专题中的手写说明只作为个人备注。自动同步只更新带有自动条目标记的内容。
           </p>
-          {memoryEntries.length > 0 && (
+          {memoryStatusEntries.length > 0 && (
             <div className="learning-memory-entry-list" aria-label="人工条目状态">
-              {memoryEntries.map((entry) => (
+              {memoryStatusEntries.map((entry) => (
                 <div className="learning-memory-entry-status" key={`${entry.relative_path}:${entry.entry_id}`}>
                   <span>
                     <strong>{entry.title}</strong>
@@ -445,7 +539,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                             ? "人工固定"
                             : "来源待核对"}</small>
                   </span>
-                  {(entry.pinned || entry.removed) && !memoryEditing && (
+                  {(entry.pinned || entry.removed) && !memoryEditing && !editingEntryId && (
                     <button
                       className="text-button"
                       type="button"
@@ -456,7 +550,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                       {entry.removed ? "允许自动补回" : "解除固定"}
                     </button>
                   )}
-                  {entry.support_state === "needs_review" && !memoryEditing && (
+                  {entry.support_state === "needs_review" && !memoryEditing && !editingEntryId && (
                     <button
                       className="text-button"
                       type="button"
@@ -473,30 +567,64 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
           )}
           {memoryLoading ? <div className="loading-state" role="status">正在读取上下文…</div> : (
             <>
-              {memoryEditing ? (
-                <label className="learning-memory-editor">
-                  <span className="sr-only">编辑学习上下文 Markdown</span>
-                  <textarea value={memoryText} onChange={(event) => setMemoryText(event.target.value)} spellCheck={false} />
-                </label>
-              ) : (
-                <div className="learning-memory-preview">
-                  {memoryText.trim() ? <MarkdownContent content={memoryText} /> : <EmptyState title="这一层还没有内容" description="选择学习资料并同步后会逐步形成上下文；你也可以手动添加自己的说明。" />}
-                </div>
-              )}
-              <div className="learning-panel-actions">
-                {memoryEditing ? (
-                  <>
-                    <button className="button button-primary" type="button" disabled={saving || !memoryDirty} onClick={() => void saveMemory()}>{saving ? "正在保存…" : "保存上下文"}</button>
-                    <button className="button button-secondary" type="button" disabled={saving} onClick={() => { setMemoryText(memoryOriginal); setMemoryEditing(false); }}>取消</button>
-                    {memoryDirty && <span className="learning-unsaved">上下文有未保存的修改</span>}
-                  </>
-                ) : (
-                  <>
-                    <button className="button button-secondary" type="button" onClick={() => { setMemoryText(memoryOriginal); setMemoryEditing(true); }}>编辑这一层</button>
-                    {restorableEntries.length > 0 && <button className="text-button" type="button" disabled={saving} onClick={() => void restoreAutomatic()}>解除本层所有固定</button>}
-                  </>
+              <div className="learning-memory-preview">
+                {editableEntries.map((entry) => (
+                  <article className="learning-memory-auto-entry" key={entry.entry_id}>
+                    {editingEntryId === entry.entry_id ? (
+                      <div className="learning-memory-entry-editor">
+                        <label className="field-label">
+                          <span>知识标题</span>
+                          <input value={entryDraftTitle} maxLength={200} onChange={(event) => setEntryDraftTitle(event.target.value)} />
+                        </label>
+                        <label className="field-label">
+                          <span>知识正文</span>
+                          <textarea value={entryDraftSummary} maxLength={2000} onChange={(event) => setEntryDraftSummary(event.target.value)} />
+                        </label>
+                        <div className="learning-panel-actions">
+                          <button className="button button-primary" type="button" disabled={saving || !entryDirty} onClick={() => void saveEntry(entry)}>{saving ? "正在保存…" : "保存并固定"}</button>
+                          <button className="button button-secondary" type="button" disabled={saving} onClick={() => setEditingEntryId("")}>取消</button>
+                          {entryDirty && <span className="learning-unsaved">条目有未保存的修改</span>}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="learning-memory-auto-entry-heading">
+                          <h3>{entry.title}</h3>
+                          <button className="text-button" type="button" disabled={saving || syncing || memoryDirty || entryDirty} onClick={() => beginEntryEdit(entry)}>编辑条目</button>
+                        </div>
+                        <MarkdownContent content={entry.summary} />
+                        <small>{entry.pinned ? "人工固定" : "自动维护"}</small>
+                      </>
+                    )}
+                  </article>
+                ))}
+                {manualMemoryText ? <MarkdownContent content={manualMemoryText} /> : null}
+                {!editableEntries.length && !manualMemoryText && (
+                  <EmptyState title="这一层还没有内容" description="选择学习资料并同步后会逐步形成上下文；你也可以手动添加自己的说明。" />
                 )}
               </div>
+              <details className="learning-memory-advanced">
+                <summary>高级 Markdown 原文</summary>
+                <p>原文包含自动条目的内部标记；日常修改请使用上方的单条编辑。</p>
+                {memoryEditing ? (
+                  <>
+                    <label className="learning-memory-editor">
+                      <span className="sr-only">编辑高级 Markdown 原文</span>
+                      <textarea value={memoryText} onChange={(event) => setMemoryText(event.target.value)} spellCheck={false} />
+                    </label>
+                    <div className="learning-panel-actions">
+                      <button className="button button-primary" type="button" disabled={saving || !memoryDirty || entryDirty} onClick={() => void saveMemory()}>{saving ? "正在保存…" : "保存上下文"}</button>
+                      <button className="button button-secondary" type="button" disabled={saving} onClick={() => { setMemoryText(memoryOriginal); setMemoryEditing(false); }}>取消</button>
+                      {memoryDirty && <span className="learning-unsaved">上下文有未保存的修改</span>}
+                    </div>
+                  </>
+                ) : (
+                  <div className="learning-panel-actions">
+                    <button className="button button-secondary" type="button" disabled={entryDirty || syncing} onClick={() => { setMemoryText(memoryOriginal); setMemoryEditing(true); }}>编辑高级 Markdown 原文</button>
+                    {restorableEntries.length > 0 && <button className="text-button" type="button" disabled={saving || syncing || entryDirty} onClick={() => void restoreAutomatic()}>解除本层所有固定</button>}
+                  </div>
+                )}
+              </details>
             </>
           )}
         </section>

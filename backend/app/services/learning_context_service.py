@@ -174,6 +174,15 @@ class LearningContextService:
         self.documents_root = self.knowledge_root / "documents"
         self.context_root = self.repository_root / "storage" / "learning-context"
         self.ai_gateway = ai_gateway
+        self._sync_progress: Optional[dict[str, Any]] = None
+
+    def _set_sync_progress(self, value: Optional[dict[str, Any]]) -> None:
+        self._sync_progress = dict(value) if isinstance(value, dict) else None
+
+    def _update_sync_progress(self, **values: Any) -> None:
+        current = dict(self._sync_progress or {})
+        current.update(values)
+        self._sync_progress = current
 
     def sync(
         self,
@@ -448,6 +457,14 @@ class LearningContextService:
         public_status = {
             key: value for key, value in status.items() if key not in internal_status_keys
         }
+        if self._sync_progress is not None:
+            public_status.update(
+                {
+                    "state": "syncing",
+                    "message": "正在分析所选学习资料",
+                    "sync_progress": dict(self._sync_progress),
+                }
+            )
         return {
             "sources": self.get_sources(),
             "preferences": self.get_preferences(),
@@ -456,6 +473,7 @@ class LearningContextService:
             "topics": self.list_topics(),
             "status": public_status,
             "manual_entries": self._manual_entry_statuses(status),
+            "editable_entries": self._editable_entry_details(),
         }
 
     def save_memory(self, layer: str, markdown: str) -> dict[str, Any]:
@@ -476,6 +494,69 @@ class LearningContextService:
             **topic,
             "markdown": markdown,
             "pinned_entry_ids": pinned_entry_ids,
+        }
+
+    def update_memory_entry(
+        self,
+        layer: str,
+        entry_id: str,
+        title: str,
+        summary: str,
+        topic_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        if layer in {"active", "important"} and topic_id is None:
+            relative = "{}.md".format(layer)
+        elif layer == "topic" and isinstance(topic_id, str):
+            self.read_topic(topic_id)
+            relative = "topics/{}.md".format(topic_id)
+        else:
+            raise LearningContextError("Invalid memory entry layer")
+        if not isinstance(entry_id, str) or not _TOPIC_ID.fullmatch(entry_id):
+            raise LearningContextError("Invalid learning context entry ID")
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
+            raise LearningContextError("Entry title must contain 1 to 200 characters")
+        if not isinstance(summary, str) or not summary.strip() or len(summary.strip()) > 2000:
+            raise LearningContextError("Entry text must contain 1 to 2000 characters")
+
+        from backend.app.services.learning_context_sync_entries import (
+            entry_blocks,
+            render_entry,
+            replace_entry,
+        )
+
+        original = self._read_memory(relative)
+        block = next(
+            (
+                item
+                for item in entry_blocks(original)
+                if item["metadata"].get("entry_id") == entry_id
+            ),
+            None,
+        )
+        if block is None:
+            raise LookupError("Learning context entry '{}' does not exist".format(entry_id))
+        metadata = dict(block["metadata"])
+        metadata["title"] = title.strip()
+        metadata["summary"] = summary.strip()
+        metadata["pinned"] = True
+        metadata.pop("user_body", None)
+        memory_files = {relative: original}
+        replace_entry(memory_files, relative, entry_id, render_entry(metadata))
+        state = self._read_status()
+        revision = state.get("manual_revision", 0)
+        state["manual_revision"] = (
+            revision if isinstance(revision, int) and not isinstance(revision, bool) else 0
+        ) + 1
+        self._atomic_write(relative, memory_files[relative])
+        self._write_status(state)
+        return {
+            "relative_path": relative,
+            "entry_id": entry_id,
+            "title": metadata["title"],
+            "summary": metadata["summary"],
+            "pinned": True,
+            "markdown": memory_files[relative],
+            "manual_entries": self._manual_entry_statuses(state),
         }
 
     def restore_automatic_memory(
@@ -808,6 +889,30 @@ class LearningContextService:
                         "pinned": False,
                         "removed": True,
                         "support_state": None,
+                    }
+                )
+        return entries
+
+    def _editable_entry_details(self) -> list[dict[str, Any]]:
+        from backend.app.services.learning_context_sync_entries import entry_blocks
+
+        paths = ["active.md", "important.md"] + [
+            "topics/{}.md".format(topic["id"]) for topic in self.list_topics()
+        ]
+        entries = []
+        for relative in paths:
+            for block in entry_blocks(self._read_memory(relative)):
+                metadata = block["metadata"]
+                entries.append(
+                    {
+                        "relative_path": relative,
+                        "layer": "topic" if relative.startswith("topics/") else relative[:-3],
+                        "topic_id": Path(relative).stem if relative.startswith("topics/") else None,
+                        "entry_id": metadata["entry_id"],
+                        "title": metadata.get("title", metadata["entry_id"]),
+                        "summary": metadata.get("summary", ""),
+                        "pinned": bool(metadata.get("pinned")),
+                        "support_state": metadata.get("support_state"),
                     }
                 )
         return entries

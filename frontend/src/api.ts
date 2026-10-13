@@ -1267,6 +1267,29 @@ export interface LearningContextTopic {
   markdown?: string;
 }
 
+export interface LearningContextEditableEntry {
+  relative_path: string;
+  layer: "active" | "important" | "topic";
+  topic_id: string | null;
+  entry_id: string;
+  title: string;
+  summary: string;
+  pinned: boolean;
+  support_state: string | null;
+}
+
+export interface LearningContextSyncProgress {
+  phase: "preparing" | "checking" | "analyzing" | string;
+  completed_sources: number;
+  total_sources: number;
+  source_index: number;
+  completed_batches: number;
+  total_batches: number;
+  batch_index: number;
+  current_source_id: string | null;
+  current_source_title: string | null;
+}
+
 export interface LearningContextPreferences {
   fixed_direction: string;
   keywords: string[];
@@ -1285,7 +1308,13 @@ export interface LearningContextOverview {
   active: string;
   important: string;
   topics: LearningContextTopic[];
-  status: { state: string; message?: string; [key: string]: unknown };
+  status: {
+    state: string;
+    message?: string;
+    sync_progress?: LearningContextSyncProgress;
+    [key: string]: unknown;
+  };
+  editable_entries: LearningContextEditableEntry[];
   manual_entries: Array<{
     relative_path: string;
     entry_id: string;
@@ -1351,6 +1380,29 @@ export function saveLearningContextMemory(layer: "active" | "important", markdow
     `/api/learning-context/memory/${layer}`,
     { method: "PUT", body: JSON.stringify({ markdown }) },
   );
+}
+
+export function updateLearningContextEntry(
+  entryId: string,
+  value: {
+    layer: LearningContextEditableEntry["layer"];
+    topic_id?: string;
+    title: string;
+    summary: string;
+  },
+) {
+  return request<{
+    relative_path: string;
+    entry_id: string;
+    title: string;
+    summary: string;
+    pinned: boolean;
+    markdown: string;
+    manual_entries: LearningContextOverview["manual_entries"];
+  }>(`/api/learning-context/entries/${encodeURIComponent(entryId)}`, {
+    method: "PUT",
+    body: JSON.stringify(value),
+  });
 }
 
 export function saveLearningContextTopic(topicId: string, markdown: string) {

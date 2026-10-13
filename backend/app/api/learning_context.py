@@ -27,6 +27,13 @@ class MemoryRequest(LearningContextRequest):
     markdown: StrictStr
 
 
+class MemoryEntryRequest(LearningContextRequest):
+    layer: Literal["active", "important", "topic"]
+    topic_id: Optional[StrictStr] = None
+    title: StrictStr
+    summary: StrictStr
+
+
 class TopicStatusRequest(LearningContextRequest):
     status: Literal["current", "history", "automatic"]
 
@@ -102,6 +109,19 @@ async def save_learning_topic(topic_id: str, body: MemoryRequest, request: Reque
 @router.put("/memory/{layer}")
 async def save_learning_memory(layer: str, body: MemoryRequest, request: Request):
     return request.app.state.learning_context_service.save_memory(layer, body.markdown)
+
+
+@router.put("/entries/{entry_id}")
+async def update_learning_memory_entry(
+    entry_id: str, body: MemoryEntryRequest, request: Request
+):
+    return request.app.state.learning_context_service.update_memory_entry(
+        body.layer,
+        entry_id,
+        body.title,
+        body.summary,
+        body.topic_id,
+    )
 
 
 @router.post("/memory/{layer}/restore-automatic")
