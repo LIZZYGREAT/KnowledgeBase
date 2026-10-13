@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.api.learning_context import router
 from backend.app.services.learning_context_service import LearningContextService
+from backend.app.services.learning_context_sync_entries import render_entry
 
 
 def _document(root: Path, document_id: str = "gem-note"):
@@ -65,7 +66,7 @@ def test_api_selection_and_preferences_are_saved_without_ai(tmp_path):
     assert overview.json()["preferences"]["fixed_direction"] == "continual learning"
 
 
-def test_api_memory_edit_is_pinned_until_user_restores_automatic_updates(tmp_path):
+def test_api_manual_note_is_saved_without_pinning_the_whole_layer(tmp_path):
     with _client(tmp_path) as client:
         saved = client.put(
             "/api/learning-context/memory/active",
@@ -78,13 +79,49 @@ def test_api_memory_edit_is_pinned_until_user_restores_automatic_updates(tmp_pat
         after_restore = client.get("/api/learning-context")
 
     assert saved.status_code == 200
-    assert saved.json()["user_managed"] is True
+    assert saved.json()["pinned_entry_ids"] == []
     assert overview.json()["active"] == "# 人工固定的方向\n\n保留这段内容。\n"
-    assert "active.md" in overview.json()["user_managed_files"]
+    assert overview.json()["manual_entries"] == []
     assert restored.status_code == 200
-    assert restored.json()["user_managed"] is False
     assert restored.json()["markdown"] == "# 人工固定的方向\n\n保留这段内容。\n"
-    assert after_restore.json()["user_managed_files"] == []
+    assert after_restore.json()["active"] == "# 人工固定的方向\n\n保留这段内容。\n"
+
+
+def test_api_can_pin_and_restore_one_automatic_entry(tmp_path):
+    context_root = tmp_path / "storage" / "learning-context"
+    context_root.mkdir(parents=True)
+    original = render_entry(
+        {
+            "entry_id": "current-direction",
+            "owner": "auto",
+            "source_headings": {"gem-note": ["Mechanism"]},
+            "layer": "active",
+            "title": "当前方向",
+            "summary": "根据所选笔记生成。",
+        }
+    )
+    (context_root / "active.md").write_text(
+        original + "\n## 人工补充\n\n保留此说明。\n", encoding="utf-8"
+    )
+    edited = original.replace("根据所选笔记生成。", "我确认了这条方向。")
+    with _client(tmp_path) as client:
+        saved = client.put(
+            "/api/learning-context/memory/active",
+            json={"markdown": edited + "\n## 人工补充\n\n保留此说明。\n"},
+        )
+        pinned = client.get("/api/learning-context")
+        restored = client.post(
+            "/api/learning-context/memory/active/restore-automatic?entry_id=current-direction"
+        )
+        after = client.get("/api/learning-context")
+
+    assert saved.status_code == 200
+    assert saved.json()["pinned_entry_ids"] == ["current-direction"]
+    assert pinned.json()["manual_entries"][0]["pinned"] is True
+    assert "保留此说明。" in pinned.json()["active"]
+    assert restored.status_code == 200
+    assert after.json()["manual_entries"] == []
+    assert "保留此说明。" in after.json()["active"]
 
 
 def test_api_rejects_noncanonical_and_unknown_source_ids(tmp_path):
@@ -128,7 +165,7 @@ def test_api_edits_only_an_indexed_topic(tmp_path):
     assert topic.status_code == 200
     assert topic.json()["markdown"] == "# 自动整理\n\nGEM。\n"
     assert saved.status_code == 200
-    assert saved.json()["user_managed"] is True
+    assert saved.json()["pinned_entry_ids"] == []
     assert missing.status_code == 404
     assert (context_root / "topics" / "continual-learning.md").read_text(encoding="utf-8") == (
         "# 人工修订\n\nGEM 与 QP。\n"

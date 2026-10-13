@@ -8,7 +8,10 @@ import pytest
 from backend.app.services.learning_context_service import (
     LearningContextError,
     LearningContextService,
+    _truncate_complete_markdown,
 )
+from backend.app.services.learning_context_sync import LearningContextSync
+from backend.app.services.learning_context_sync_entries import entry_blocks, render_entry
 from backend.app.services.learning_context_sync_diff import (
     _MAX_DIFF_CHARS,
     _MAX_SECTIONS,
@@ -58,6 +61,38 @@ def _topic_change(summary="GEM projects gradients into a feasible region."):
             }
         ],
     }
+
+
+def _topic_changes_with_replay(projection_summary, replay_summary):
+    response = _topic_change(projection_summary)
+    response["changes"].append(
+        {
+            "entry_id": "gem-replay",
+            "action": "upsert",
+            "title": "记忆回放",
+            "summary": replay_summary,
+            "layer": "topic",
+            "topic_id": "continual-learning",
+            "topic_title": "持续学习",
+            "rationale": "来源章节解释了回放机制。",
+        }
+    )
+    return response
+
+
+def _memory_entry(entry_id, layer, title, summary, topic_id=None):
+    metadata = {
+        "entry_id": entry_id,
+        "owner": "auto",
+        "source_headings": {"cl-note": ["Introduction"]},
+        "layer": layer,
+        "title": title,
+        "summary": summary,
+    }
+    if topic_id:
+        metadata["topic_id"] = topic_id
+        metadata["topic_title"] = title
+    return render_entry(metadata)
 
 
 def _document(root: Path, document_id: str, title: str, kind: str = "learning-note"):
@@ -143,12 +178,22 @@ def test_preferences_are_normalized_and_do_not_create_mastery_evidence(tmp_path)
 def test_context_assembly_reads_only_relevant_layers_and_topics(tmp_path):
     _document(tmp_path, "cl-note", "Continual Learning note")
     service = LearningContextService(tmp_path)
+    service.set_sources(["cl-note"])
     context_root = tmp_path / "storage" / "learning-context"
     (context_root / "topics").mkdir(parents=True)
-    (context_root / "active.md").write_text("# 当前方向\n\nEWC 与持续学习。\n", encoding="utf-8")
-    (context_root / "important.md").write_text("# 稳定知识\n\nReplay。\n", encoding="utf-8")
+    (context_root / "active.md").write_text(
+        _memory_entry("current-focus", "active", "当前方向", "EWC 与持续学习。"),
+        encoding="utf-8",
+    )
+    (context_root / "important.md").write_text(
+        _memory_entry("stable-knowledge", "important", "稳定知识", "Replay。"),
+        encoding="utf-8",
+    )
     (context_root / "topics" / "continual-learning.md").write_text(
-        "# 持续学习\n\nEWC、GEM 与 iCaRL。\n", encoding="utf-8"
+        _memory_entry(
+            "continual-learning-entry", "topic", "持续学习", "EWC、GEM 与 iCaRL。", "continual-learning"
+        ),
+        encoding="utf-8",
     )
     (context_root / "topics" / "ethernet.md").write_text(
         "# Ethernet\n\n课程笔记不应混入。\n", encoding="utf-8"
@@ -203,10 +248,19 @@ def test_recommendation_context_is_bounded_and_tracks_only_selected_sources(tmp_
     )
     context_root = tmp_path / "storage" / "learning-context"
     (context_root / "topics").mkdir(parents=True)
-    (context_root / "active.md").write_text("# 当前方向\n\nEWC 与持续学习。\n", encoding="utf-8")
-    (context_root / "important.md").write_text("# 稳定锚点\n\nFisher information。\n", encoding="utf-8")
+    (context_root / "active.md").write_text(
+        _memory_entry("current-focus", "active", "当前方向", "EWC 与持续学习。"),
+        encoding="utf-8",
+    )
+    (context_root / "important.md").write_text(
+        _memory_entry("stable-anchor", "important", "稳定锚点", "Fisher information。"),
+        encoding="utf-8",
+    )
     (context_root / "topics" / "continual-learning.md").write_text(
-        "# 持续学习\n\nEWC、GEM 与 iCaRL。\n", encoding="utf-8"
+        _memory_entry(
+            "continual-learning-entry", "topic", "持续学习", "EWC、GEM 与 iCaRL。", "continual-learning"
+        ),
+        encoding="utf-8",
     )
     (context_root / "index.yaml").write_text(
         "topics:\n"
@@ -217,7 +271,7 @@ def test_recommendation_context_is_bounded_and_tracks_only_selected_sources(tmp_
         encoding="utf-8",
     )
 
-    result = service.get_recommendation_context("GEM continual learning", max_chars=800)
+    result = service.get_recommendation_context("GEM continual learning", max_chars=1200)
 
     assert result["included_source_count"] == 1
     assert result["included_sources"] == [
@@ -227,9 +281,9 @@ def test_recommendation_context_is_bounded_and_tracks_only_selected_sources(tmp_
     assert result["active"]
     assert result["important"]
     assert [topic["id"] for topic in result["topics"]] == ["continual-learning"]
-    assert len(result["active"]) <= 800
-    assert len(result["important"]) <= 800
-    assert len(result["topics"][0]["markdown"]) <= 800
+    assert len(result["active"]) <= 1200
+    assert len(result["important"]) <= 1200
+    assert len(result["topics"][0]["markdown"]) <= 1200
 
 
 def test_topic_ids_cannot_escape_context_storage(tmp_path):
@@ -405,29 +459,180 @@ def test_failed_sync_keeps_context_and_last_successful_baseline_for_retry(tmp_pa
     assert "The corrected condition is recorded." in context_path.read_text(encoding="utf-8")
 
 
-def test_user_managed_memory_blocks_automatic_overwrite_without_advancing_baseline(tmp_path):
+def test_editing_one_entry_pins_only_that_entry_and_keeps_manual_notes(tmp_path):
     path = _sync_repo(tmp_path)
-    gateway = FakeLearningGateway(_topic_change(), _topic_change("Updated automatic summary."), _topic_change("Updated automatic summary."))
+    gateway = FakeLearningGateway(
+        _topic_changes_with_replay("Initial projection summary.", "Initial replay summary."),
+        _topic_changes_with_replay("Updated projection summary.", "Updated replay summary."),
+    )
     service = LearningContextService(tmp_path, gateway)
     service.set_sources(["gem-note"])
     service.sync()
-    topic_path = "topics/continual-learning.md"
-    service.save_topic("continual-learning", "# My hand-edited context\n\nKeep this wording.\n")
+    original = service.read_topic("continual-learning")["markdown"]
+    edited = original.replace(
+        "gem-note：Initial projection summary.",
+        "gem-note：Manually reviewed projection summary.",
+    ) + "\n## Personal note\n\nKeep this free-form note.\n"
+    saved = service.save_topic("continual-learning", edited)
     state_path = tmp_path / "storage" / "learning-context" / "state.json"
     baseline_before = json.loads(state_path.read_text(encoding="utf-8"))["source_baselines"]["gem-note"]
     path.write_text(path.read_text(encoding="utf-8") + "\nA new method detail.\n", encoding="utf-8")
 
-    protected = service.sync()
+    result = service.sync()
+    memory = service.read_topic("continual-learning")["markdown"]
+    blocks = {block["metadata"]["entry_id"]: block for block in entry_blocks(memory)}
 
-    assert protected["state"] == "needs_manual_review"
-    assert service.read_topic("continual-learning")["markdown"] == "# My hand-edited context\n\nKeep this wording.\n"
-    assert json.loads(state_path.read_text(encoding="utf-8"))["source_baselines"]["gem-note"] == baseline_before
-    assert topic_path in service.get_overview()["user_managed_files"]
+    assert saved["pinned_entry_ids"] == ["gem-gradient-projection"]
+    assert result["state"] == "synced"
+    assert "Manually reviewed projection summary." in memory
+    assert "Updated replay summary." in memory
+    assert "Keep this free-form note." in memory
+    recommendation_context = service.get_context(topic_id="continual-learning")
+    assert all(
+        "Keep this free-form note." not in topic["markdown"]
+        for topic in recommendation_context["topics"]
+    )
+    assert blocks["gem-gradient-projection"]["metadata"]["pinned"] is True
+    assert blocks["gem-replay"]["metadata"].get("pinned") is not True
+    assert json.loads(state_path.read_text(encoding="utf-8"))["source_baselines"]["gem-note"] != baseline_before
+    assert [item["entry_id"] for item in service.get_overview()["manual_entries"]] == [
+        "gem-gradient-projection"
+    ]
 
-    service.restore_automatic_memory("topic", "continual-learning")
+    service.restore_automatic_memory("topic", "continual-learning", "gem-gradient-projection")
+    path.write_text(path.read_text(encoding="utf-8") + "\nAnother method detail.\n", encoding="utf-8")
+    gateway.responses.append(_topic_changes_with_replay("Latest projection summary.", "Latest replay summary."))
     retried = service.sync()
     assert retried["state"] == "synced"
-    assert "Updated automatic summary." in service.read_topic("continual-learning")["markdown"]
+    assert "Latest projection summary." in service.read_topic("continual-learning")["markdown"]
+
+
+def test_unpublished_source_evidence_is_removed_and_legacy_shared_summary_is_flagged(tmp_path):
+    _sync_repo(tmp_path)
+    _document(tmp_path, "other-note", "Other Note")
+    context_root = tmp_path / "storage" / "learning-context"
+    (context_root / "topics").mkdir(parents=True)
+    (context_root / "sources.yaml").write_text("included_document_ids:\n  - gem-note\n", encoding="utf-8")
+    (context_root / "index.yaml").write_text(
+        "topics:\n  - id: continual-learning\n    title: 持续学习\n", encoding="utf-8"
+    )
+    legacy_metadata = {
+        "entry_id": "legacy-shared-entry",
+        "owner": "auto",
+        "source_headings": {"gem-note": ["Mechanism"], "other-note": ["Mechanism"]},
+        "layer": "topic",
+        "topic_id": "continual-learning",
+        "topic_title": "持续学习",
+        "title": "旧版共享条目",
+        "summary": "来源无法拆分的旧版摘要。",
+    }
+    (context_root / "topics" / "continual-learning.md").write_text(
+        render_entry(legacy_metadata), encoding="utf-8"
+    )
+    service = LearningContextService(tmp_path)
+    service.set_sources(["other-note"])
+    memory_files = {"topics/continual-learning.md": render_entry(legacy_metadata)}
+    LearningContextSync(service)._remove_source(memory_files, "gem-note")
+    service._atomic_write("topics/continual-learning.md", memory_files["topics/continual-learning.md"])
+
+    memory = service.read_topic("continual-learning")["markdown"]
+    block = entry_blocks(memory)[0]
+    assert block["metadata"]["support_state"] == "needs_review"
+    assert "来源无法拆分的旧版摘要" in memory
+    assert service.get_context(topic_id="continual-learning")["topics"] == []
+
+    service.restore_automatic_memory(
+        "topic",
+        "continual-learning",
+        "legacy-shared-entry",
+        confirm_support=True,
+    )
+    confirmed = entry_blocks(service.read_topic("continual-learning")["markdown"])[0]
+    assert confirmed["metadata"].get("support_state") is None
+    assert set(confirmed["metadata"]["source_summaries"]) == {"other-note"}
+    assert service.get_context(topic_id="continual-learning")["topics"]
+
+
+def test_context_truncation_keeps_complete_paragraphs_and_entry_markers():
+    markdown = (
+        "# Context\n\nA complete first paragraph.\n\n"
+        "<!-- learning-context-entry {\"entry_id\":\"valid-entry\",\"owner\":\"auto\",\"source_headings\":{\"gem-note\":[\"Mechanism\"]}} -->\n"
+        "### Topic\n\nA complete auto entry.\n<!-- /learning-context-entry -->\n\n"
+        "A later paragraph that must not jump ahead.\n"
+    )
+    bounded = _truncate_complete_markdown(markdown, len("# Context\n\nA complete first paragraph.\n\n") + 12)
+
+    assert bounded == "# Context\n\nA complete first paragraph.\n\n"
+    assert "learning-context-entry" not in bounded
+    assert "later paragraph" not in bounded
+
+
+def test_legacy_layer_freeze_migrates_to_entry_pins_on_next_sync(tmp_path):
+    _sync_repo(tmp_path)
+    gateway = FakeLearningGateway(_topic_change())
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+    state_path = tmp_path / "storage" / "learning-context" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["user_managed_files"] = ["topics/continual-learning.md"]
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    result = service.sync()
+
+    migrated_state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocks = entry_blocks(service.read_topic("continual-learning")["markdown"])
+    assert result["state"] == "synced"
+    assert blocks[0]["metadata"]["pinned"] is True
+    assert "user_managed_files" not in migrated_state
+
+
+def test_removed_last_source_preserves_pinned_text_but_excludes_it_from_context(tmp_path):
+    path = _sync_repo(tmp_path)
+    service = LearningContextService(tmp_path, FakeLearningGateway(_topic_change()))
+    service.set_sources(["gem-note"])
+    service.sync()
+    original = service.read_topic("continual-learning")["markdown"]
+    service.save_topic(
+        "continual-learning",
+        original.replace(
+            "gem-note：GEM projects gradients into a feasible region.",
+            "gem-note：Manually reviewed summary.",
+        ),
+    )
+
+    service.set_sources([])
+    result = service.sync()
+
+    memory = service.read_topic("continual-learning")["markdown"]
+    block = entry_blocks(memory)[0]
+    assert result["state"] == "no_sources"
+    assert block["metadata"]["support_state"] == "source_removed"
+    assert "Manually reviewed summary." in memory
+    assert service.get_context(topic_id="continual-learning")["topics"] == []
+
+
+def test_source_scope_filters_unselected_source_summary_before_sync(tmp_path):
+    _sync_repo(tmp_path)
+    other_note = _document(tmp_path, "other-note", "GEM Other Note")
+    other_note.write_text(
+        other_note.read_text(encoding="utf-8")
+        + "\n## Mechanism\n\nGEM computes a projection to preserve previous tasks.\n",
+        encoding="utf-8",
+    )
+    response = _topic_change("GEM summary.")
+    gateway = FakeLearningGateway(response, response)
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note", "other-note"])
+    initial_sync = service.sync()
+    assert initial_sync["state"] == "synced", gateway.calls
+    service.set_sources(["other-note"])
+
+    context = service.get_context(topic_id="continual-learning")
+
+    topic_context = context["topics"][0]["markdown"]
+    assert "other-note：GEM summary." in topic_context
+    assert "gem-note：GEM summary." not in topic_context
 
 
 def test_removing_one_source_retracts_only_its_auto_entries(tmp_path):

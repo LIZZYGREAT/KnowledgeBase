@@ -24,6 +24,11 @@
 .learning-memory-controls { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
 .learning-memory-controls .field-label { flex: 1; min-width: 0; }
 .learning-memory-controls .field-label select { min-height: 38px; border: 1px solid #e1e8e2; border-radius: 7px; padding: 0 9px; color: #33463a; background: #fff; font-size: var(--text-base); }
+.learning-memory-preservation { margin: -5px 0 0; color: #78877e; font-size: var(--text-sm); line-height: 1.55; }
+.learning-memory-entry-list { display: grid; gap: 8px; }
+.learning-memory-entry-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #e8eee9; border-radius: 8px; padding: 9px 11px; background: #fcfdfc; }
+.learning-memory-entry-status strong { display: block; color: #41564a; font-size: var(--text-sm); }
+.learning-memory-entry-status small { display: block; margin-top: 2px; color: #85928a; font-size: var(--text-xs); }
 .learning-memory-preview { min-height: 210px; max-height: 520px; overflow: auto; border: 1px solid #e8eee9; border-radius: 8px; padding: 14px; background: #fcfdfc; }
 .learning-memory-preview .empty-state { min-height: 175px; }
 .learning-memory-preview .markdown-content { padding: 0; }

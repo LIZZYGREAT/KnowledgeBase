@@ -53,11 +53,34 @@ def entry_blocks(markdown):
 
 def render_entry(metadata):
     encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    user_body = metadata.get("user_body")
+    if isinstance(user_body, str):
+        return (
+            "<!-- learning-context-entry {} -->\n"
+            "{}\n"
+            "{}\n".format(encoded, user_body.rstrip("\n"), ENTRY_END)
+        )
     return (
         "<!-- learning-context-entry {} -->\n"
         "### {}\n\n{}\n"
         "{}\n".format(encoded, metadata["title"], metadata["summary"], ENTRY_END)
     )
+
+
+def visible_entry_content(block):
+    lines = block["text"].splitlines()
+    body_lines = lines[1:]
+    if body_lines and body_lines[-1].strip() == ENTRY_END:
+        body_lines.pop()
+    body = "\n".join(body_lines).strip("\n")
+    heading = re.match(r"^###\s+(.+?)\s*(?:\n|$)", body)
+    if heading:
+        title = heading.group(1).strip()
+        summary = body[heading.end():].strip()
+    else:
+        title = block["metadata"].get("title", "")
+        summary = body.strip()
+    return title, summary, body
 
 
 def replace_entry(memory_files, relative, entry_id, replacement):

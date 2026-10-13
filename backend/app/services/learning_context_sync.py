@@ -74,6 +74,50 @@ def _merge_index_values(existing, derived, limit=40):
     return result
 
 
+def _manual_state_signature(status):
+    revision = status.get("manual_revision", 0) if isinstance(status, dict) else 0
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        revision = 0
+    legacy = status.get("user_managed_files", []) if isinstance(status, dict) else []
+    suppressed = status.get("suppressed_entries", []) if isinstance(status, dict) else []
+    return (
+        revision,
+        tuple(sorted(item for item in legacy if isinstance(item, str)))
+        if isinstance(legacy, list)
+        else (),
+        json.dumps(suppressed, ensure_ascii=False, sort_keys=True)
+        if isinstance(suppressed, list)
+        else "[]",
+    )
+
+
+def _entry_summary(source_summaries):
+    return "\n\n".join(
+        "{}：{}".format(source_id, summary)
+        for source_id, summary in sorted(source_summaries.items())
+        if isinstance(source_id, str) and isinstance(summary, str) and summary.strip()
+    )[:2000]
+
+
+def _migrate_legacy_pins(memory_files, status):
+    legacy = status.get("user_managed_files", [])
+    if not isinstance(legacy, list):
+        status.pop("user_managed_files", None)
+        return
+    for relative in legacy:
+        if not isinstance(relative, str) or relative not in memory_files:
+            continue
+        for block in reversed(_entry_blocks(memory_files[relative])):
+            if block["metadata"].get("pinned"):
+                continue
+            metadata = deepcopy(block["metadata"])
+            metadata["pinned"] = True
+            rendered = _render_entry(metadata)
+            content = memory_files[relative]
+            memory_files[relative] = content[:block["start"]] + rendered + content[block["end"]:]
+    status.pop("user_managed_files", None)
+
+
 class _ManualReviewRequired(RuntimeError):
     pass
 
@@ -107,6 +151,7 @@ class LearningContextSync:
             raise LearningContextError("Reanalysis requires a selected learning document")
         targets = [source_id] if source_id else selected
         status_before = deepcopy(self.service._read_status())
+        manual_signature_before = _manual_state_signature(status_before)
         baselines = status_before.get("source_baselines", {})
         if not isinstance(baselines, dict):
             baselines = {}
@@ -124,20 +169,17 @@ class LearningContextSync:
             if not dry_run:
                 memory_files = self._read_memory_files()
                 original_memory_files = dict(memory_files)
+                _migrate_legacy_pins(memory_files, status_before)
                 for removed_id in sorted(set(baselines) - set(selected)):
-                    self._remove_source(
-                        memory_files,
-                        removed_id,
-                        status_before.get("user_managed_files", []),
-                    )
+                    self._remove_source(memory_files, removed_id)
                 updates = {
                     relative: content
                     for relative, content in memory_files.items()
                     if content != self.service._read_memory(relative)
                 }
-                if updates or status_before.get("state") != "no_sources" or baselines:
+                if updates or status_before.get("state") != "no_sources" or baselines or status_before != self.service._read_status():
                     latest_status = self.service._read_status()
-                    if latest_status.get("user_managed_files", []) != status_before.get("user_managed_files", []):
+                    if _manual_state_signature(latest_status) != manual_signature_before:
                         return self._needs_manual_review(status_before, baselines)
                     for relative in set(original_memory_files) | set(memory_files):
                         if self.service._read_memory(relative) != original_memory_files.get(relative, ""):
@@ -159,6 +201,8 @@ class LearningContextSync:
         try:
             memory_files = self._read_memory_files()
             original_memory_files = dict(memory_files)
+            if not dry_run:
+                _migrate_legacy_pins(memory_files, status_before)
             for current_id in targets:
                 source = self._read_source(current_id)
                 baseline = baselines.get(current_id)
@@ -193,6 +237,8 @@ class LearningContextSync:
                 if self.gateway is None:
                     raise LearningContextError("AI gateway is unavailable for a substantive change")
                 outcomes = []
+                source_heading_updates = {}
+                source_summary_updates = {}
                 for batch in plan["batches"]:
                     context = self._build_ai_context(
                         current_id,
@@ -215,8 +261,10 @@ class LearningContextSync:
                             current_id,
                             [item.model_dump() for item in output.changes],
                             batch,
-                            status_before.get("user_managed_files", []),
+                            status_before.get("suppressed_entries", []),
                             allowed_entry_ids,
+                            source_heading_updates,
+                            source_summary_updates,
                         )
                 outcome = (
                     "knowledge_changed"
@@ -259,13 +307,12 @@ class LearningContextSync:
                 if item["action"] == "missing"
             )
             for removed_id in sorted(removed_ids):
-                self._remove_source(memory_files, removed_id, status_before.get("user_managed_files", []))
+                self._remove_source(memory_files, removed_id)
                 baselines.pop(removed_id, None)
 
             self._ensure_active_focus(
                 memory_files,
                 selected,
-                status_before.get("user_managed_files", []),
             )
 
             baselines.update(pending_baselines)
@@ -302,7 +349,7 @@ class LearningContextSync:
             if self.service._read_sources() != selected:
                 raise _ManualReviewRequired()
             latest_status = self.service._read_status()
-            if latest_status.get("user_managed_files", []) != status_before.get("user_managed_files", []):
+            if _manual_state_signature(latest_status) != manual_signature_before:
                 raise _ManualReviewRequired()
             for relative in set(original_memory_files) | set(memory_files):
                 if self.service._read_memory(relative) != original_memory_files.get(relative, ""):
@@ -409,7 +456,9 @@ class LearningContextSync:
     def _related_entries(self, source_id, source_title, sections, memory_files):
         found = []
         total = 0
-        selected_ids = set(self.service._read_sources())
+        selected_ids = {
+            item["id"] for item in self.service._selected_source_summaries()
+        }
         focus_tokens = _tokens(
             source_title
             + " "
@@ -421,21 +470,47 @@ class LearningContextSync:
         for relative, content in memory_files.items():
             for block in _entry_blocks(content):
                 metadata = block["metadata"]
+                if metadata.get("support_state") in {"needs_review", "source_removed"}:
+                    continue
                 source_headings = metadata.get("source_headings", {})
                 selected_support = sorted(set(source_headings) & selected_ids)
+                source_summaries = metadata.get("source_summaries")
+                if isinstance(source_summaries, dict):
+                    selected_summaries = {
+                        key: value
+                        for key, value in source_summaries.items()
+                        if key in selected_support and isinstance(value, str)
+                    }
+                    if not selected_summaries or (
+                        metadata.get("pinned")
+                        and (
+                            set(selected_support) != set(source_headings)
+                            or set(selected_summaries) != set(source_headings)
+                        )
+                    ):
+                        continue
+                    summary = "\n\n".join(
+                        "{}：{}".format(key, value)
+                        for key, value in sorted(selected_summaries.items())
+                    )[:2000]
+                else:
+                    if set(source_headings) - selected_ids:
+                        continue
+                    summary = metadata.get("summary", "")
                 related_tokens = _tokens(
-                    "{} {}".format(metadata.get("title", ""), metadata.get("summary", ""))
+                    "{} {}".format(metadata.get("title", ""), summary)
                 )
                 if source_id not in source_headings and not (focus_tokens & related_tokens):
                     continue
                 entry = {
                     "id": metadata["entry_id"],
                     "title": metadata.get("title", ""),
-                    "summary": metadata.get("summary", ""),
+                    "summary": summary,
                     "layer": metadata.get("layer", "topic"),
                     "topic_id": metadata.get("topic_id"),
                     "topic_title": metadata.get("topic_title"),
                     "source_ids": selected_support,
+                    "pinned": bool(metadata.get("pinned")),
                     "source_headings": {
                         key: value for key, value in source_headings.items() if key in selected_ids
                     },
@@ -447,9 +522,21 @@ class LearningContextSync:
         return found
 
     def _apply_changes(
-        self, memory_files, source_id, changes, changed_sections, user_managed_files, allowed_entry_ids
+        self,
+        memory_files,
+        source_id,
+        changes,
+        changed_sections,
+        suppressed_entries,
+        allowed_entry_ids,
+        source_heading_updates,
+        source_summary_updates,
     ):
-        managed = set(user_managed_files) if isinstance(user_managed_files, list) else set()
+        suppressed_ids = {
+            item.get("entry_id")
+            for item in suppressed_entries
+            if isinstance(item, dict) and isinstance(item.get("entry_id"), str)
+        } if isinstance(suppressed_entries, list) else set()
         index = self._entry_index(memory_files)
         headings = sorted(
             {item.get("heading", "未分节内容") for item in changed_sections if item.get("heading")}
@@ -458,23 +545,42 @@ class LearningContextSync:
             entry_id = change["entry_id"]
             existing = index.get(entry_id)
             if change["action"] == "remove":
+                if entry_id in suppressed_ids:
+                    continue
                 if existing is None or source_id not in existing["metadata"].get("source_headings", {}):
                     raise LearningContextError("AI removal did not target a related auto-managed entry")
                 old_relative, old_metadata = existing["relative_path"], existing["metadata"]
-                if old_relative in managed:
-                    raise _ManualReviewRequired()
+                if old_metadata.get("pinned"):
+                    continue
                 updated = deepcopy(old_metadata)
                 updated["source_headings"].pop(source_id, None)
+                source_summaries = updated.get("source_summaries")
+                if isinstance(source_summaries, dict):
+                    source_summaries.pop(source_id, None)
+                    updated["source_summaries"] = source_summaries
+                    if source_summaries:
+                        updated["summary"] = _entry_summary(source_summaries)
                 if updated["source_headings"]:
+                    if not isinstance(source_summaries, dict) and updated.get("summary"):
+                        updated["support_state"] = "needs_review"
                     _replace_entry(memory_files, old_relative, entry_id, _render_entry(updated))
                 else:
-                    _remove_entry(memory_files, old_relative, entry_id)
-                index.pop(entry_id, None)
+                    if old_metadata.get("pinned"):
+                        updated["support_state"] = "source_removed"
+                        _replace_entry(memory_files, old_relative, entry_id, _render_entry(updated))
+                    else:
+                        _remove_entry(memory_files, old_relative, entry_id)
+                if updated["source_headings"]:
+                    index[entry_id] = {"relative_path": old_relative, "metadata": updated}
+                else:
+                    index.pop(entry_id, None)
                 continue
 
             relative = _layer_path(change["layer"], change.get("topic_id"))
-            if relative in managed or (existing and existing["relative_path"] in managed):
-                raise _ManualReviewRequired()
+            if entry_id in suppressed_ids:
+                continue
+            if existing and existing["metadata"].get("pinned"):
+                continue
             if (
                 existing
                 and source_id not in existing["metadata"].get("source_headings", {})
@@ -482,8 +588,37 @@ class LearningContextSync:
             ):
                 raise LearningContextError("AI update collided with an entry from another source")
             source_headings = deepcopy(existing["metadata"].get("source_headings", {})) if existing else {}
-            previous_headings = source_headings.get(source_id, [])
-            source_headings[source_id] = sorted(set(previous_headings) | set(headings))
+            current_headings = source_heading_updates.setdefault(entry_id, set())
+            current_headings.update(headings or ["未分节内容"])
+            source_headings[source_id] = sorted(current_headings)
+            source_summaries = {}
+            legacy_summary = None
+            support_state = None
+            if existing:
+                old_metadata = existing["metadata"]
+                stored_summaries = old_metadata.get("source_summaries")
+                if isinstance(stored_summaries, dict):
+                    source_summaries = deepcopy(stored_summaries)
+                    legacy_summary = old_metadata.get("legacy_summary")
+                    support_state = old_metadata.get("support_state")
+                else:
+                    old_sources = list(old_metadata.get("source_headings", {}))
+                    old_summary = old_metadata.get("summary", "")
+                    if len(old_sources) == 1 and old_summary:
+                        source_summaries[old_sources[0]] = old_summary
+                    elif old_summary:
+                        legacy_summary = old_summary
+                        support_state = "needs_review"
+            if entry_id not in source_summary_updates:
+                source_summary_updates[entry_id] = change["summary"]
+            elif change["summary"] not in source_summary_updates[entry_id]:
+                source_summary_updates[entry_id] = (
+                    source_summary_updates[entry_id] + "\n\n" + change["summary"]
+                )[:2000]
+            source_summaries[source_id] = source_summary_updates[entry_id]
+            summary = _entry_summary(source_summaries)
+            if legacy_summary:
+                summary = "旧版合并摘要（来源待复核）：{}\n\n{}".format(legacy_summary, summary)[:2000]
             entry_metadata = {
                 "entry_id": entry_id,
                 "owner": "auto",
@@ -492,19 +627,21 @@ class LearningContextSync:
                 "topic_id": change.get("topic_id"),
                 "topic_title": change.get("topic_title"),
                 "title": change["title"],
-                "summary": change["summary"],
+                "summary": summary or change["summary"],
+                "source_summaries": source_summaries,
             }
+            if legacy_summary:
+                entry_metadata["legacy_summary"] = legacy_summary
+            if support_state:
+                entry_metadata["support_state"] = support_state
             rendered = _render_entry(entry_metadata)
             if existing:
                 _remove_entry(memory_files, existing["relative_path"], entry_id)
             _append_entry(memory_files, relative, rendered)
             index[entry_id] = {"relative_path": relative, "metadata": entry_metadata}
 
-    def _remove_source(self, memory_files, source_id, user_managed_files):
-        managed = set(user_managed_files) if isinstance(user_managed_files, list) else set()
+    def _remove_source(self, memory_files, source_id):
         for relative, content in list(memory_files.items()):
-            if relative in managed:
-                continue
             for block in list(_entry_blocks(content)):
                 metadata = block["metadata"]
                 sources = metadata.get("source_headings", {})
@@ -513,6 +650,20 @@ class LearningContextSync:
                 updated = deepcopy(metadata)
                 updated["source_headings"].pop(source_id, None)
                 if updated["source_headings"]:
+                    source_summaries = updated.get("source_summaries")
+                    if isinstance(source_summaries, dict):
+                        source_summaries.pop(source_id, None)
+                        updated["source_summaries"] = source_summaries
+                        if source_summaries:
+                            updated["summary"] = _entry_summary(source_summaries)
+                        elif updated.get("summary"):
+                            updated["support_state"] = "needs_review"
+                    else:
+                        updated["support_state"] = "needs_review"
+                    _replace_entry(memory_files, relative, metadata["entry_id"], _render_entry(updated))
+                elif metadata.get("pinned"):
+                    updated["support_state"] = "source_removed"
+                    updated["source_summaries"] = {}
                     _replace_entry(memory_files, relative, metadata["entry_id"], _render_entry(updated))
                 else:
                     _remove_entry(memory_files, relative, metadata["entry_id"])
@@ -652,9 +803,7 @@ class LearningContextSync:
                 check=False,
             )
 
-    def _ensure_active_focus(self, memory_files, selected_ids, user_managed_files):
-        if "active.md" in set(user_managed_files or []):
-            return
+    def _ensure_active_focus(self, memory_files, selected_ids):
         supported = []
         selected = set(selected_ids)
         for relative, content in sorted(memory_files.items()):
@@ -662,9 +811,14 @@ class LearningContextSync:
                 continue
             for block in _entry_blocks(content):
                 metadata = block["metadata"]
-                if metadata.get("layer") != "topic":
+                if metadata.get("layer") != "topic" or metadata.get("support_state") in {
+                    "needs_review",
+                    "source_removed",
+                }:
                     continue
                 sources = metadata.get("source_headings", {})
+                if metadata.get("pinned") and not set(sources).issubset(selected):
+                    continue
                 selected_sources = {
                     source_id: headings
                     for source_id, headings in sources.items()
@@ -680,8 +834,10 @@ class LearningContextSync:
             if block["metadata"].get("entry_id") == "current-learning-focus"
         ]
         if not supported:
-            if active_entries:
+            if active_entries and not active_entries[0]["metadata"].get("pinned"):
                 _remove_entry(memory_files, "active.md", "current-learning-focus")
+            return
+        if active_entries and active_entries[0]["metadata"].get("pinned"):
             return
 
         topics = {}
@@ -834,7 +990,7 @@ class LearningContextSync:
         status.update(
             {
                 "state": "needs_manual_review",
-                "message": "拟更新的上下文层由你固定维护；请先恢复该层自动维护，再重试。原内容与处理基准均已保留。",
+                "message": "同步期间资料范围或上下文发生变化；为避免覆盖刚保存的内容，请重试。原内容与处理基准均已保留。",
                 "source_baselines": baselines,
             }
         )

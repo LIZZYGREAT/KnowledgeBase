@@ -22,11 +22,11 @@ function overview(): LearningContextOverview {
       exploration_directions: [],
       important_anchors: [],
     },
-    active: "# 当前方向\n\n持续学习。\n",
+    active: "<!-- learning-context-entry {\"entry_id\":\"current-direction\",\"owner\":\"auto\",\"source_headings\":{\"gem-note\":[\"Mechanism\"]},\"layer\":\"active\",\"title\":\"当前方向\",\"summary\":\"原始自动说明。\"} -->\n### 当前方向\n\n原始自动说明。\n<!-- /learning-context-entry -->\n",
     important: "",
     topics: [],
     status: { state: "not_synced", message: "尚未同步" },
-    user_managed_files: [],
+    manual_entries: [],
   };
 }
 
@@ -64,13 +64,23 @@ describe("学习进度上下文 page", () => {
       current = {
         ...current,
         active: markdown,
-        user_managed_files: ["active.md"],
+        manual_entries: [{
+          relative_path: "active.md",
+          entry_id: "current-direction",
+          title: "当前方向",
+          pinned: true,
+          removed: false,
+          support_state: null,
+        }],
       };
-      return { layer, markdown, user_managed: true };
+      return { layer, markdown, pinned_entry_ids: ["current-direction"] };
     });
-    vi.spyOn(api, "restoreAutomaticLearningContext").mockImplementation(async () => {
-      current = { ...current, user_managed_files: [] };
-      return { relative_path: "active.md", markdown: current.active, user_managed: false };
+    vi.spyOn(api, "restoreAutomaticLearningContext").mockImplementation(async (_layer, _topicId, entryId) => {
+      current = {
+        ...current,
+        manual_entries: current.manual_entries.filter((item) => item.entry_id !== entryId),
+      };
+      return { relative_path: "active.md", markdown: current.active, manual_entries: current.manual_entries };
     });
     const user = userEvent.setup();
     render(<LearningContextPage />);
@@ -78,19 +88,22 @@ describe("学习进度上下文 page", () => {
     await screen.findByText("当前方向");
     await user.click(screen.getByRole("button", { name: "编辑这一层" }));
     const editor = screen.getByLabelText("编辑学习上下文 Markdown");
-    fireEvent.change(editor, { target: { value: "# 人工方向\n\n保留我的说明。\n" } });
-    await user.click(screen.getByRole("button", { name: "保存并固定" }));
+    const edited = current.active.replace("原始自动说明。", "人工方向说明。");
+    fireEvent.change(editor, { target: { value: edited } });
+    await user.click(screen.getByRole("button", { name: "保存上下文" }));
 
     await waitFor(() => expect(api.saveLearningContextMemory).toHaveBeenCalledWith(
       "active",
-      "# 人工方向\n\n保留我的说明。\n",
+      edited,
     ));
-    expect(await screen.findByText("人工维护")).toBeTruthy();
-    expect(await screen.findByText("人工方向")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "恢复自动维护" }));
-    await waitFor(() => expect(api.restoreAutomaticLearningContext).toHaveBeenCalledWith("active", undefined));
-    expect(await screen.findByText("自动维护")).toBeTruthy();
-    expect(current.active).toBe("# 人工方向\n\n保留我的说明。\n");
+    expect(await screen.findByText("固定 1 条")).toBeTruthy();
+    expect(await screen.findByText("人工固定")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "解除固定：当前方向" }));
+    await waitFor(() => expect(api.restoreAutomaticLearningContext).toHaveBeenCalledWith(
+      "active", undefined, "current-direction", false,
+    ));
+    expect(await screen.findByText("自动同步")).toBeTruthy();
+    expect(current.active).toContain("人工方向说明。");
   });
 
   it("saves search preferences as search intent rather than mastery evidence", async () => {

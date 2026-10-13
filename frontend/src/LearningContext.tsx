@@ -178,12 +178,15 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     setSaving(true);
     setNotice("");
     try {
-      if (topicId) await saveLearningContextTopic(topicId, memoryText);
-      else await saveLearningContextMemory(selectedLayer as "active" | "important", memoryText);
+      const result = topicId
+        ? await saveLearningContextTopic(topicId, memoryText)
+        : await saveLearningContextMemory(selectedLayer as "active" | "important", memoryText);
       setMemoryEditing(false);
       setMemoryOriginal(memoryText);
       await refresh();
-      setNotice("上下文已保存并固定为人工维护内容。");
+      setNotice(result.pinned_entry_ids.length
+        ? `已保存；${result.pinned_entry_ids.length} 条修改过的自动条目已单独固定，其他条目仍会继续同步。`
+        : "已保存；手动说明会保留，其他自动条目仍会继续同步。");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "保存上下文失败");
     } finally {
@@ -191,14 +194,23 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     }
   }
 
-  async function restoreAutomatic() {
+  async function restoreAutomatic(entryId?: string, confirmSupport = false) {
     setSaving(true);
     setNotice("");
     try {
-      await restoreAutomaticLearningContext(topicId ? "topic" : selectedLayer as "active" | "important", topicId || undefined);
+      await restoreAutomaticLearningContext(
+        topicId ? "topic" : selectedLayer as "active" | "important",
+        topicId || undefined,
+        entryId,
+        confirmSupport,
+      );
       await refresh();
       setMemoryEditing(false);
-      setNotice("已恢复自动维护；现有内容已保留，后续同步可更新此层。");
+      setNotice(confirmSupport
+        ? "已确认剩余来源仍支持该条目；它已重新纳入推荐上下文。"
+        : entryId
+          ? "已解除这条目的固定；下次同步时可自动更新。"
+          : "已解除本层条目的固定；现有手动说明会保留，后续同步可更新自动条目。");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "恢复自动维护失败");
     } finally {
@@ -235,8 +247,12 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   if (loadError && !overview) return <div className="page-stack"><PageHeader eyebrow="LEARNING PROGRESS" title="学习进度" /><ErrorState message={loadError} retry={() => void refresh()} /></div>;
   if (!overview || !preferencesDraft) return null;
 
-  const managedFiles = overview.user_managed_files ?? [];
-  const isMemoryManaged = managedFiles.includes(memoryPath(selectedLayer));
+  const memoryEntries = overview.manual_entries.filter(
+    (entry) => entry.relative_path === memoryPath(selectedLayer),
+  );
+  const restorableEntries = memoryEntries.filter((entry) => entry.pinned || entry.removed);
+  const reviewEntries = memoryEntries.filter((entry) => entry.support_state === "needs_review");
+  const removedSourceEntries = memoryEntries.filter((entry) => entry.support_state === "source_removed");
   const sourceCount = includedIds.length;
   const topicLayers = overview.topics;
   const statusCopy = overview.status.message ?? (overview.status.state === "synced" ? "已同步" : "尚未同步");
@@ -319,7 +335,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
         <section className="learning-context-panel surface" aria-labelledby="learning-memory-title">
           <SectionHeading
             title="学习上下文"
-            detail="当前关注、重要知识和历史专题分层保存；编辑后该层由你管理。"
+            detail="当前关注、重要知识和历史专题分层保存；修改自动条目只会固定对应条目，其他内容继续同步。"
           />
           <div className="learning-memory-controls">
             <label className="field-label">
@@ -330,8 +346,61 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                 {topicLayers.map((topic: LearningContextTopic) => <option value={`topic:${topic.id}`} key={topic.id}>历史专题：{topic.title}</option>)}
               </select>
             </label>
-            <span className={`chip ${isMemoryManaged ? "chip-amber" : "chip-green"}`}>{isMemoryManaged ? "人工维护" : "自动维护"}</span>
+            <span className={`chip ${restorableEntries.length || reviewEntries.length || removedSourceEntries.length ? "chip-amber" : "chip-green"}`}>
+              {reviewEntries.length
+                ? `待核对 ${reviewEntries.length} 条`
+                : removedSourceEntries.length
+                  ? `来源已移除 ${removedSourceEntries.length} 条`
+                : restorableEntries.length
+                  ? `固定 ${memoryEntries.filter((entry) => entry.pinned).length} 条`
+                  : "自动同步"}
+            </span>
           </div>
+          <p className="learning-memory-preservation">
+            自动同步只更新带有自动条目标记的内容；其余 Markdown 仅作为页面内手动说明保留，不作为掌握证据。
+          </p>
+          {memoryEntries.length > 0 && (
+            <div className="learning-memory-entry-list" aria-label="人工条目状态">
+              {memoryEntries.map((entry) => (
+                <div className="learning-memory-entry-status" key={`${entry.relative_path}:${entry.entry_id}`}>
+                  <span>
+                    <strong>{entry.title}</strong>
+                    <small>{entry.removed
+                      ? "已从上下文移除"
+                      : entry.support_state === "source_removed"
+                        ? "来源已移除，人工内容已保留"
+                        : entry.support_state === "needs_review"
+                          ? "来源对应关系待核对，暂不用于推荐"
+                          : entry.pinned
+                            ? "人工固定"
+                            : "来源待核对"}</small>
+                  </span>
+                  {(entry.pinned || entry.removed) && !memoryEditing && (
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={saving}
+                      aria-label={entry.removed ? `允许自动补回：${entry.title}` : `解除固定：${entry.title}`}
+                      onClick={() => void restoreAutomatic(entry.entry_id)}
+                    >
+                      {entry.removed ? "允许自动补回" : "解除固定"}
+                    </button>
+                  )}
+                  {entry.support_state === "needs_review" && !memoryEditing && (
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={saving}
+                      aria-label={`确认剩余来源支持：${entry.title}`}
+                      onClick={() => void restoreAutomatic(entry.entry_id, true)}
+                    >
+                      确认剩余来源仍支持
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           {memoryLoading ? <div className="loading-state" role="status">正在读取上下文…</div> : (
             <>
               {memoryEditing ? (
@@ -347,14 +416,14 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
               <div className="learning-panel-actions">
                 {memoryEditing ? (
                   <>
-                    <button className="button button-primary" type="button" disabled={saving || !memoryDirty} onClick={() => void saveMemory()}>{saving ? "正在保存…" : "保存并固定"}</button>
+                    <button className="button button-primary" type="button" disabled={saving || !memoryDirty} onClick={() => void saveMemory()}>{saving ? "正在保存…" : "保存上下文"}</button>
                     <button className="button button-secondary" type="button" disabled={saving} onClick={() => { setMemoryText(memoryOriginal); setMemoryEditing(false); }}>取消</button>
                     {memoryDirty && <span className="learning-unsaved">上下文有未保存的修改</span>}
                   </>
                 ) : (
                   <>
                     <button className="button button-secondary" type="button" onClick={() => { setMemoryText(memoryOriginal); setMemoryEditing(true); }}>编辑这一层</button>
-                    {isMemoryManaged && <button className="text-button" type="button" disabled={saving} onClick={() => void restoreAutomatic()}>恢复自动维护</button>}
+                    {restorableEntries.length > 0 && <button className="text-button" type="button" disabled={saving} onClick={() => void restoreAutomatic()}>解除本层所有固定</button>}
                   </>
                 )}
               </div>

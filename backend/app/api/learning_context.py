@@ -91,8 +91,12 @@ async def save_learning_memory(layer: str, body: MemoryRequest, request: Request
 
 @router.post("/memory/{layer}/restore-automatic")
 async def restore_automatic_learning_memory(
-    layer: str, request: Request, topic_id: Optional[str] = None
+    layer: str,
+    request: Request,
+    topic_id: Optional[str] = None,
+    entry_id: Optional[str] = None,
+    confirm_support: bool = False,
 ):
     return request.app.state.learning_context_service.restore_automatic_memory(
-        layer, topic_id
+        layer, topic_id, entry_id, confirm_support
     )

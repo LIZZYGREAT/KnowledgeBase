@@ -31,6 +31,123 @@ _DEFAULT_PREFERENCES = {
 }
 
 
+def _paragraph_units(markdown: str) -> list[str]:
+    units = []
+    current = []
+    fence = None
+    for line in markdown.splitlines(keepends=True):
+        current.append(line)
+        fence_match = re.match(r"^\s*(```+|~~~+)", line)
+        if fence_match:
+            marker = fence_match.group(1)[:3]
+            if fence is None:
+                fence = marker
+            elif fence == marker:
+                fence = None
+        if not line.strip() and fence is None:
+            text = "".join(current)
+            if text.strip():
+                units.append(text)
+            current = []
+    if current:
+        units.append("".join(current))
+
+    # Keep headings with the paragraph they introduce so truncation cannot
+    # leave a dangling heading at the end of the recommendation context.
+    merged = []
+    pending_heading = ""
+    for unit in units:
+        if re.match(r"^\s{0,3}#{1,6}\s+[^\n]+\s*$", unit):
+            pending_heading += unit
+            continue
+        if pending_heading:
+            merged.append(pending_heading + unit)
+            pending_heading = ""
+        else:
+            merged.append(unit)
+    if pending_heading:
+        merged.append(pending_heading)
+    return merged
+
+
+def _complete_memory_units(markdown: str) -> list[str]:
+    from backend.app.services.learning_context_sync_entries import entry_blocks
+
+    units = []
+    cursor = 0
+    for block in entry_blocks(markdown):
+        units.extend(_paragraph_units(markdown[cursor:block["start"]]))
+        units.append(block["text"])
+        cursor = block["end"]
+    units.extend(_paragraph_units(markdown[cursor:]))
+    return units
+
+
+def _truncate_complete_markdown(markdown: str, max_chars: int) -> str:
+    if len(markdown) <= max_chars:
+        return markdown
+    remaining = max_chars
+    kept = []
+    for unit in _complete_memory_units(markdown):
+        if len(unit) > remaining:
+            break
+        kept.append(unit)
+        remaining -= len(unit)
+    return "".join(kept)
+
+
+def _selected_memory(markdown: str, selected_source_ids: set[str]) -> str:
+    from backend.app.services.learning_context_sync_entries import entry_blocks, render_entry
+
+    selected_blocks = []
+    for block in entry_blocks(markdown):
+        metadata = block["metadata"]
+        if metadata.get("support_state") in {"needs_review", "source_removed"}:
+            continue
+        source_headings = metadata.get("source_headings", {})
+        all_sources = set(source_headings)
+        supported_sources = all_sources & selected_source_ids
+        if not supported_sources:
+            continue
+        source_summaries = metadata.get("source_summaries")
+        if isinstance(source_summaries, dict):
+            supported_summaries = {
+                source_id: summary
+                for source_id, summary in source_summaries.items()
+                if source_id in supported_sources and isinstance(summary, str)
+            }
+            if not supported_summaries:
+                continue
+            if metadata.get("pinned") and (
+                supported_sources != all_sources
+                or set(source_summaries) != all_sources
+                or set(supported_summaries) != all_sources
+            ):
+                continue
+            updated = dict(metadata)
+            updated["source_headings"] = {
+                source_id: source_headings[source_id]
+                for source_id in sorted(supported_sources)
+            }
+            updated["source_summaries"] = supported_summaries
+            updated["summary"] = "\n\n".join(
+                "{}：{}".format(source_id, summary)
+                for source_id, summary in sorted(supported_summaries.items())
+            )[:2000]
+            selected_blocks.append(
+                render_entry(updated)
+                if supported_sources != all_sources or set(source_summaries) != all_sources
+                else block["text"]
+            )
+        elif supported_sources != all_sources:
+            # Legacy merged summaries cannot be attributed to a subset of their
+            # source notes, so exclude them until synchronization marks them for review.
+            continue
+        else:
+            selected_blocks.append(block["text"])
+    return "\n\n".join(selected_blocks)
+
+
 class LearningContextError(ValueError):
     """Invalid learning context input or unsafe local context path."""
 
@@ -160,18 +277,32 @@ class LearningContextService:
                 for item in self._match_topics(focus, topics)
             ]
 
-        raw_active = self._read_memory("active.md")
-        raw_important = self._read_memory("important.md") if include_important else ""
+        selected_source_ids = {
+            item["id"] for item in self._selected_source_summaries()
+        }
+        raw_active = _selected_memory(
+            self._read_memory("active.md"), selected_source_ids
+        )
+        raw_important = (
+            _selected_memory(self._read_memory("important.md"), selected_source_ids)
+            if include_important
+            else ""
+        )
         topic_reserve = max_chars // 2 if selected_topics else 0
-        active = raw_active[:max_chars - topic_reserve]
+        active = _truncate_complete_markdown(raw_active, max_chars - topic_reserve)
         remaining = max(0, max_chars - len(active))
-        important = raw_important[: min(remaining, max_chars // 4)]
+        important = _truncate_complete_markdown(
+            raw_important, min(remaining, max_chars // 4)
+        )
         remaining = max(0, max_chars - len(active) - len(important))
         bounded_topics = []
         for topic in selected_topics:
             if remaining == 0:
                 break
-            body = topic["markdown"][:remaining]
+            filtered = _selected_memory(topic["markdown"], selected_source_ids)
+            body = _truncate_complete_markdown(filtered, remaining)
+            if not body:
+                continue
             bounded_topics.append({**topic, "markdown": body})
             remaining -= len(body)
         return {
@@ -217,15 +348,15 @@ class LearningContextService:
                 for item in raw["included_sources"][:_MAX_RECOMMENDATION_SOURCES]
             ],
             "preferences": bounded_preferences,
-            "active": raw["active"][:max_chars],
-            "important": raw["important"][:max_chars],
+            "active": raw["active"],
+            "important": raw["important"],
             "topics": [
                 {
                     "id": item["id"],
                     "title": item["title"],
                     "aliases": item["aliases"][:12],
                     "keywords": item["keywords"][:12],
-                    "markdown": item["markdown"][:max_chars],
+                    "markdown": item["markdown"],
                 }
                 for item in raw["topics"][:_MAX_RECOMMENDATION_TOPICS]
             ],
@@ -233,37 +364,51 @@ class LearningContextService:
 
     def get_overview(self) -> dict[str, Any]:
         status = self._read_status()
+        internal_status_keys = {"user_managed_files", "manual_revision", "suppressed_entries"}
+        public_status = {
+            key: value for key, value in status.items() if key not in internal_status_keys
+        }
         return {
             "sources": self.get_sources(),
             "preferences": self.get_preferences(),
             "active": self._read_memory("active.md"),
             "important": self._read_memory("important.md"),
             "topics": self.list_topics(),
-            "status": status,
-            "user_managed_files": status.get("user_managed_files", []),
+            "status": public_status,
+            "manual_entries": self._manual_entry_statuses(status),
         }
 
     def save_memory(self, layer: str, markdown: str) -> dict[str, Any]:
         if layer not in {"active", "important"}:
             raise LearningContextError("Memory layer must be active or important")
-        self._save_user_memory("{}.md".format(layer), markdown)
+        pinned_entry_ids = self._save_user_memory("{}.md".format(layer), markdown)
         return {
             "layer": layer,
             "markdown": markdown,
-            "user_managed": True,
+            "pinned_entry_ids": pinned_entry_ids,
         }
 
     def save_topic(self, topic_id: str, markdown: str) -> dict[str, Any]:
         topic = self.read_topic(topic_id)
         relative = "topics/{}.md".format(topic["id"])
-        self._save_user_memory(relative, markdown)
+        pinned_entry_ids = self._save_user_memory(relative, markdown)
         return {
             **topic,
             "markdown": markdown,
-            "user_managed": True,
+            "pinned_entry_ids": pinned_entry_ids,
         }
 
-    def restore_automatic_memory(self, layer: str, topic_id: Optional[str] = None) -> dict[str, Any]:
+    def restore_automatic_memory(
+        self,
+        layer: str,
+        topic_id: Optional[str] = None,
+        entry_id: Optional[str] = None,
+        confirm_support: bool = False,
+    ) -> dict[str, Any]:
+        if not isinstance(confirm_support, bool):
+            raise LearningContextError("confirm_support must be a boolean")
+        if confirm_support and entry_id is None:
+            raise LearningContextError("A specific entry is required to confirm source support")
         if layer in {"active", "important"} and topic_id is None:
             relative = "{}.md".format(layer)
         elif layer == "topic" and topic_id is not None:
@@ -272,14 +417,109 @@ class LearningContextService:
         else:
             raise LearningContextError("Invalid memory layer")
         state = self._read_status()
-        managed = state.get("user_managed_files", [])
-        if isinstance(managed, list):
-            state["user_managed_files"] = [item for item in managed if item != relative]
+        from backend.app.services.learning_context_sync_entries import (
+            entry_blocks,
+            replace_entry,
+            render_entry,
+        )
+
+        original_content = self._read_memory(relative)
+        memory_files = {relative: original_content}
+        legacy_files = state.get("user_managed_files", [])
+        legacy_managed = isinstance(legacy_files, list) and relative in legacy_files
+        if entry_id is not None and legacy_managed:
+            for block in reversed(entry_blocks(memory_files[relative])):
+                metadata = dict(block["metadata"])
+                if not metadata.get("pinned"):
+                    metadata["pinned"] = True
+                    current_content = memory_files[relative]
+                    memory_files[relative] = (
+                        current_content[:block["start"]]
+                        + render_entry(metadata)
+                        + current_content[block["end"]:]
+                    )
+        if entry_id is not None:
+            if not isinstance(entry_id, str) or not _TOPIC_ID.fullmatch(entry_id):
+                raise LearningContextError("Invalid learning context entry ID")
+            block = next(
+                (
+                    item
+                    for item in entry_blocks(memory_files[relative])
+                    if item["metadata"].get("entry_id") == entry_id
+                ),
+                None,
+            )
+            if block is not None and confirm_support:
+                metadata = dict(block["metadata"])
+                if metadata.get("support_state") != "needs_review":
+                    raise LearningContextError("Only entries awaiting source review can be confirmed")
+                source_ids = set(metadata.get("source_headings", {}))
+                selected_ids = set(self._read_sources())
+                available_ids = {item["id"] for item in self.available_sources()}
+                if not source_ids or not source_ids.issubset(selected_ids & available_ids):
+                    raise LearningContextError(
+                        "All remaining supporting notes must be selected and available before confirmation"
+                    )
+                legacy_summary = metadata.get("legacy_summary") or metadata.get("summary")
+                if not isinstance(legacy_summary, str) or not legacy_summary.strip():
+                    raise LearningContextError("The entry has no summary to confirm")
+                metadata["source_summaries"] = {
+                    source_id: legacy_summary for source_id in sorted(source_ids)
+                }
+                metadata["summary"] = "\n\n".join(
+                    "{}：{}".format(source_id, legacy_summary)
+                    for source_id in sorted(source_ids)
+                )[:2000]
+                metadata.pop("legacy_summary", None)
+                metadata.pop("support_state", None)
+                replace_entry(memory_files, relative, entry_id, render_entry(metadata))
+            elif block is not None and block["metadata"].get("pinned"):
+                metadata = dict(block["metadata"])
+                metadata["pinned"] = False
+                replace_entry(memory_files, relative, entry_id, render_entry(metadata))
+            suppressed = state.get("suppressed_entries", [])
+            if not isinstance(suppressed, list):
+                suppressed = []
+            state["suppressed_entries"] = [
+                item
+                for item in suppressed
+                if not (
+                    isinstance(item, dict)
+                    and item.get("relative_path") == relative
+                    and item.get("entry_id") == entry_id
+                )
+            ]
+        else:
+            for block in entry_blocks(memory_files[relative]):
+                if block["metadata"].get("pinned"):
+                    metadata = dict(block["metadata"])
+                    metadata["pinned"] = False
+                    replace_entry(memory_files, relative, metadata["entry_id"], render_entry(metadata))
+            suppressed = state.get("suppressed_entries", [])
+            if not isinstance(suppressed, list):
+                suppressed = []
+            state["suppressed_entries"] = [
+                item
+                for item in suppressed
+                if not (isinstance(item, dict) and item.get("relative_path") == relative)
+            ]
+        if isinstance(legacy_files, list):
+            remaining_legacy_files = [item for item in legacy_files if item != relative]
+            if remaining_legacy_files:
+                state["user_managed_files"] = remaining_legacy_files
+            else:
+                state.pop("user_managed_files", None)
+        revision = state.get("manual_revision", 0)
+        state["manual_revision"] = (
+            revision if isinstance(revision, int) and not isinstance(revision, bool) else 0
+        ) + 1
+        if memory_files[relative] != original_content:
+            self._atomic_write(relative, memory_files[relative])
         self._write_status(state)
         return {
             "relative_path": relative,
-            "markdown": self._read_memory(relative),
-            "user_managed": False,
+            "markdown": memory_files[relative],
+            "manual_entries": self._manual_entry_statuses(state),
         }
 
     def list_topics(self) -> list[dict[str, Any]]:
@@ -369,20 +609,166 @@ class LearningContextService:
             json.dumps(value, ensure_ascii=False, indent=2) + "\n",
         )
 
-    def _save_user_memory(self, relative: str, markdown: str) -> None:
+    def _manual_entry_statuses(
+        self, status: Optional[dict[str, Any]] = None
+    ) -> list[dict[str, Any]]:
+        from backend.app.services.learning_context_sync_entries import entry_blocks
+
+        state = status if isinstance(status, dict) else self._read_status()
+        stored_legacy_files = state.get("user_managed_files", [])
+        legacy_files = {
+            item for item in stored_legacy_files if isinstance(item, str)
+        } if isinstance(stored_legacy_files, list) else set()
+        paths = ["active.md", "important.md"] + [
+            "topics/{}.md".format(topic["id"]) for topic in self.list_topics()
+        ]
+        entries = []
+        for relative in paths:
+            for block in entry_blocks(self._read_memory(relative)):
+                metadata = block["metadata"]
+                support_state = metadata.get("support_state")
+                pinned = bool(metadata.get("pinned")) or relative in legacy_files
+                if not pinned and support_state not in {"needs_review", "source_removed"}:
+                    continue
+                entries.append(
+                    {
+                        "relative_path": relative,
+                        "entry_id": metadata["entry_id"],
+                        "title": metadata.get("title", metadata["entry_id"]),
+                        "pinned": pinned,
+                        "removed": False,
+                        "support_state": support_state,
+                    }
+                )
+        suppressed = state.get("suppressed_entries", [])
+        if isinstance(suppressed, list):
+            for item in suppressed:
+                if (
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("relative_path"), str)
+                    or not isinstance(item.get("entry_id"), str)
+                ):
+                    continue
+                entries.append(
+                    {
+                        "relative_path": item["relative_path"],
+                        "entry_id": item["entry_id"],
+                        "title": item.get("title") or item["entry_id"],
+                        "pinned": False,
+                        "removed": True,
+                        "support_state": None,
+                    }
+                )
+        return entries
+
+    def _save_user_memory(self, relative: str, markdown: str) -> list[str]:
         if not isinstance(markdown, str) or len(markdown.encode("utf-8")) > _MAX_MEMORY_BYTES:
             raise LearningContextError("Markdown context must be text under 512 KB")
         if "\x00" in markdown:
             raise LearningContextError("Markdown context cannot contain NUL characters")
-        self._atomic_write(relative, markdown)
+        from backend.app.services.learning_context_sync_entries import (
+            ENTRY_END,
+            entry_blocks,
+            render_entry,
+            visible_entry_content,
+        )
+
         state = self._read_status()
-        managed = state.get("user_managed_files", [])
-        if not isinstance(managed, list):
-            managed = []
-        if relative not in managed:
-            managed.append(relative)
-        state["user_managed_files"] = sorted(set(managed))
+        legacy_files = state.get("user_managed_files", [])
+        pin_all = isinstance(legacy_files, list) and relative in legacy_files
+        original_blocks = entry_blocks(self._read_memory(relative))
+        original_by_id = {block["metadata"]["entry_id"]: block for block in original_blocks}
+        edited_blocks = entry_blocks(markdown)
+        edited_by_id = {block["metadata"]["entry_id"]: block for block in edited_blocks}
+        replacements = []
+        pinned_entry_ids = []
+        removed_entries = []
+
+        for entry_id, old_block in original_by_id.items():
+            edited = edited_by_id.get(entry_id)
+            if edited is None:
+                removed_entries.append(
+                    {
+                        "relative_path": relative,
+                        "entry_id": entry_id,
+                        "title": old_block["metadata"].get("title", entry_id),
+                    }
+                )
+                continue
+            metadata = dict(old_block["metadata"])
+            if pin_all or edited["text"] != old_block["text"] or metadata.get("pinned"):
+                edited_metadata = edited["metadata"]
+                title, summary, user_body = visible_entry_content(edited)
+                if edited_metadata.get("title") != old_block["metadata"].get("title"):
+                    title = edited_metadata.get("title")
+                if edited_metadata.get("summary") != old_block["metadata"].get("summary"):
+                    summary = edited_metadata.get("summary")
+                    body_heading = re.match(r"^###\s+.+?(?:\n|$)", user_body)
+                    user_body = (
+                        (body_heading.group(0) + "\n" if body_heading else "")
+                        + str(summary)
+                    )
+                if not isinstance(title, str) or not title.strip():
+                    title = metadata.get("title", entry_id)
+                if not isinstance(summary, str) or not summary.strip():
+                    summary = "人工固定的学习上下文。"
+                metadata["title"] = title.strip()[:200]
+                metadata["summary"] = summary.strip()[:2000]
+                metadata["user_body"] = user_body
+                metadata["pinned"] = True
+                replacements.append((edited["start"], edited["end"], render_entry(metadata)))
+                pinned_entry_ids.append(entry_id)
+
+        for block in edited_blocks:
+            if block["metadata"]["entry_id"] in original_by_id:
+                continue
+            user_marker = block["text"].replace(
+                block["text"].splitlines()[0],
+                "<!-- learning-context-user-note -->",
+                1,
+            ).replace(ENTRY_END, "<!-- /learning-context-user-note -->", 1)
+            replacements.append((block["start"], block["end"], user_marker))
+
+        saved = markdown
+        for start, end, replacement in sorted(replacements, reverse=True):
+            saved = saved[:start] + replacement + saved[end:]
+        self._atomic_write(relative, saved)
+
+        suppressed = state.get("suppressed_entries", [])
+        if not isinstance(suppressed, list):
+            suppressed = []
+        suppressed = [
+            item
+            for item in suppressed
+            if not (
+                isinstance(item, dict)
+                and item.get("relative_path") == relative
+                and item.get("entry_id") in edited_by_id
+            )
+        ]
+        suppressed.extend(
+            item
+            for item in removed_entries
+            if not any(
+                isinstance(existing, dict)
+                and existing.get("relative_path") == item["relative_path"]
+                and existing.get("entry_id") == item["entry_id"]
+                for existing in suppressed
+            )
+        )
+        state["suppressed_entries"] = suppressed
+        if isinstance(legacy_files, list):
+            remaining_legacy_files = [item for item in legacy_files if item != relative]
+            if remaining_legacy_files:
+                state["user_managed_files"] = remaining_legacy_files
+            else:
+                state.pop("user_managed_files", None)
+        revision = state.get("manual_revision", 0)
+        state["manual_revision"] = (
+            revision if isinstance(revision, int) and not isinstance(revision, bool) else 0
+        ) + 1
         self._write_status(state)
+        return pinned_entry_ids
 
     def _read_memory(self, relative: str) -> str:
         path = self._context_path(relative, must_exist=False)

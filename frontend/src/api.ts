@@ -1276,7 +1276,14 @@ export interface LearningContextOverview {
   important: string;
   topics: LearningContextTopic[];
   status: { state: string; message?: string; [key: string]: unknown };
-  user_managed_files: string[];
+  manual_entries: Array<{
+    relative_path: string;
+    entry_id: string;
+    title: string;
+    pinned: boolean;
+    removed: boolean;
+    support_state: string | null;
+  }>;
 }
 
 export function getLearningContext() {
@@ -1320,22 +1327,32 @@ export function getLearningContextTopic(topicId: string) {
 }
 
 export function saveLearningContextMemory(layer: "active" | "important", markdown: string) {
-  return request<{ layer: string; markdown: string; user_managed: boolean }>(
+  return request<{ layer: string; markdown: string; pinned_entry_ids: string[] }>(
     `/api/learning-context/memory/${layer}`,
     { method: "PUT", body: JSON.stringify({ markdown }) },
   );
 }
 
 export function saveLearningContextTopic(topicId: string, markdown: string) {
-  return request<LearningContextTopic & { markdown: string; user_managed: boolean }>(
+  return request<LearningContextTopic & { markdown: string; pinned_entry_ids: string[] }>(
     `/api/learning-context/topics/${encodeURIComponent(topicId)}`,
     { method: "PUT", body: JSON.stringify({ markdown }) },
   );
 }
 
-export function restoreAutomaticLearningContext(layer: "active" | "important" | "topic", topicId?: string) {
-  const query = topicId ? `?topic_id=${encodeURIComponent(topicId)}` : "";
-  return request<{ relative_path: string; markdown: string; user_managed: boolean }>(
+export function restoreAutomaticLearningContext(
+  layer: "active" | "important" | "topic",
+  topicId?: string,
+  entryId?: string,
+  confirmSupport = false,
+) {
+  const params = new URLSearchParams();
+  if (topicId) params.set("topic_id", topicId);
+  if (entryId) params.set("entry_id", entryId);
+  if (confirmSupport) params.set("confirm_support", "true");
+  const encoded = params.toString();
+  const query = encoded ? `?${encoded}` : "";
+  return request<{ relative_path: string; markdown: string; manual_entries: LearningContextOverview["manual_entries"] }>(
     `/api/learning-context/memory/${layer}/restore-automatic${query}`,
     { method: "POST" },
   );
