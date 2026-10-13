@@ -14,6 +14,7 @@ from backend.app.api.learning_context import (
     router,
     sync_learning_context,
 )
+from backend.app.api.research import list_profiles
 from backend.app.services.learning_context_service import LearningContextService
 from backend.app.services.learning_context_sync_entries import render_entry
 
@@ -215,9 +216,30 @@ def test_sync_endpoint_keeps_event_loop_responsive():
         sync=blocking_sync,
         get_overview=lambda: {"status": {"state": "synced"}},
     )
+    profile = SimpleNamespace(
+        id="continual-learning",
+        title="Continual Learning",
+        description=None,
+        enabled=True,
+        schedule=SimpleNamespace(mode="manual"),
+        search=SimpleNamespace(breadth="balanced"),
+        lenses=[SimpleNamespace(id="main", enabled=True)],
+        inbox=SimpleNamespace(max_new_candidates=10),
+    )
+    research_service = SimpleNamespace(
+        profile_registry=SimpleNamespace(profiles=[profile]),
+        profile_state_repository=SimpleNamespace(get=lambda _profile_id: None),
+        run_repository=SimpleNamespace(list_for_profile=lambda _profile_id, limit: []),
+        run_request_repository=SimpleNamespace(
+            count_pending_and_claimed=lambda _profile_id: (0, 0)
+        ),
+        candidate_repository=SimpleNamespace(count_new=lambda _profile_id: 0),
+    )
     request = SimpleNamespace(
         app=SimpleNamespace(
-            state=SimpleNamespace(learning_context_service=service)
+            state=SimpleNamespace(
+                learning_context_service=service, research_service=research_service
+            )
         )
     )
 
@@ -225,9 +247,10 @@ def test_sync_endpoint_keeps_event_loop_responsive():
         sync_task = asyncio.create_task(sync_learning_context(SyncRequest(), request))
         started_in_time = await asyncio.to_thread(started.wait, 1)
         overview = await get_learning_context(request)
+        profiles = await list_profiles(request)
         sync_still_running = not sync_finished.is_set()
         result = await sync_task
-        return started_in_time, overview, sync_still_running, result
+        return started_in_time, overview, profiles[0].id, sync_still_running, result
 
     try:
         result = loop.run_until_complete(exercise())
@@ -237,6 +260,7 @@ def test_sync_endpoint_keeps_event_loop_responsive():
     assert result == (
         True,
         {"status": {"state": "synced"}},
+        "continual-learning",
         True,
         {"state": "synced"},
     )

@@ -330,12 +330,14 @@ def test_manual_research_marks_fallback_when_learning_context_sync_fails(tmp_pat
     service.learning_context_service = context_reader
     profile = service.profile_registry.get("continual-learning")
 
-    run = service.run_profile(profile.id, trigger="manual")
+    request = service.queue_manual_run(profile.id)
+    run = service.manual_tick()
 
     assert run is not None and run.status == "success"
     assert context_reader.sync_calls == 1
     assert "使用上次保存的学习上下文" in run.error_summary
     assert runs.get(run.id).error_summary == run.error_summary
+    assert service.run_request_repository.get(request.id).status == "completed"
     connection.close()
 
 
