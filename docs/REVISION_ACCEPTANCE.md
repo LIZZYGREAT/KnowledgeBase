@@ -137,6 +137,14 @@ Profile Search 新增可选 `history_seed_year`、`max_provider_requests_per_run
 
 隔离验收覆盖的是该学习进度上下文纵向流程，不替代个人数据上的推荐质量判断或此前列出的其他浏览器回归项。部署主机的 Python 3.12 全量后端测试、真实 Provider/AI 调用、成本、定时服务和备份恢复仍需上线前按运维手册检查；没有据此声称真实推荐质量或生产就绪性已经达标。
 
+## Phase 15 第二轮修订 Stage A（2026-10-14）
+
+Stage A 实现提交：`3ad5738`。Terms 的个性化发现只读取用户纳入的正式笔记，空白名单保持为空；全库、PDF 与外部来源保留在单独选择的通用发现模式。运行历史记录模式，旧记录标为旧版。学习上下文按最新实质进展切换当前专题，旧专题保留且可按需查询；手动固定当前专题优先，用户可移至历史或恢复自动整理。`active.md` 的手写说明进入有界搜索上下文，但不作为掌握证据，且计入共享字符预算。README 开头的开发原则保留并补充与本行为一致的说明。
+
+Stage A 的学习上下文、API、Terms 与 Research Run 回归共 136 项通过、8 项 HTTPX 弃用警告；其后单独验证共享字符预算与“只选 GEM”两项，各 1 项通过。前端学习上下文和 Terms 发现专项 12 项通过，TypeScript 检查与 `git diff --check` 通过。新增场景覆盖空白名单与显式通用模式、仅使用所选 GEM、RL 新进展将 CL 移入历史、手动固定 CL 优先、无变化跳过分析，以及“比较 EWC 与 SI”可用于搜索但 SI 不被算作已掌握。
+
+Python 回归使用本机 Python 3.9，而项目要求 Python 3.12；本阶段未执行真实 Provider/DeepSeek、个人资料推荐质量或生产验收。Stage B–D 与最终全量检查仍待完成。
+
 ## Phase 15 修订复现基线（2026-10-13）
 
 按本轮修订方案读取 GitHub Actions 实际日志：运行 `38392976076`（基线代码 `93d7165`）为 635 通过、1 失败、3 警告；更早基线运行 `38359515724` 为 605 通过、1 失败、3 警告。两次均失败于 `backend/tests/test_knowledge_api.py::test_research_profile_controls_manual_queue_runs_and_candidate_actions`：API 测试临时仓库缺少 `tools/research.py`，但真实 lifespan worker 被启动并把请求从预期的 `pending` 改为 `failed`。这是测试隔离问题，基线中已存在，不是学习上下文改动引入。

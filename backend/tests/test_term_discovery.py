@@ -1251,6 +1251,49 @@ def test_personalized_terms_require_selected_notes_and_general_scope_is_explicit
     connection.close()
 
 
+def test_personalized_terms_analyzes_only_the_selected_gem_note(tmp_path):
+    for document_id, title in {
+        "gem": "Gradient Episodic Memory",
+        "ewc": "Elastic Weight Consolidation",
+    }.items():
+        _write_document(
+            tmp_path,
+            document_id,
+            title,
+            "{} constrains continual learning updates.".format(title),
+            domains=["machine-learning"],
+            topics=["continual-learning"],
+        )
+    context_service = LearningContextService(tmp_path)
+    context_service.set_sources(["gem"])
+    context_service.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    connection, service, _candidates, pdf_service, gateway = _service(
+        tmp_path,
+        output={"candidates": []},
+        learning_context_service=context_service,
+    )
+    service.update_settings(
+        TermDiscoverySettings(enabled_lanes=["concept"], focus_override="continual learning")
+    )
+
+    run = service.run(discovery_mode="personalized")
+
+    analyzed_source_ids = [
+        context["source"]["id"]
+        for task, context in gateway.calls
+        if task == "discover_terms"
+    ]
+    assert run.status == "success"
+    assert analyzed_source_ids == ["gem"]
+    assert pdf_service.calls == []
+    connection.close()
+
+
 def test_manual_terms_run_marks_fallback_when_context_sync_fails(tmp_path):
     context_service = LearningContextService(tmp_path)
     context_service.sync_if_stale = lambda: {
