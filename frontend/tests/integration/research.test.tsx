@@ -611,6 +611,59 @@ describe("论文推荐 workspace", () => {
     expect(screen.getByText("Stretch")).toBeTruthy();
   });
 
+  it("labels recommendation direction and links to its selected learning note", () => {
+    const openEntity = vi.fn();
+    const source = { id: "gem-sgd", title: "Elastic Weight Consolidation" };
+    const personalizedAnalysis = {
+      ...analysis,
+      recommendation_level: "extend" as const,
+      learning_context_sources: [source],
+    };
+    const item = { ...candidateListItem, analysis: personalizedAnalysis } as ResearchCandidateListItem;
+    const view = render(<ResearchCandidateCard
+      item={item}
+      profile={profile as ResearchProfile}
+      selected={false}
+      selectable={false}
+      busy={false}
+      onSelect={() => undefined}
+      onDetails={() => undefined}
+      onShortlist={() => undefined}
+      onDismiss={() => undefined}
+      onRestore={() => undefined}
+      onCreateNote={() => undefined}
+      onOpenEntity={openEntity}
+    />);
+
+    expect(screen.getByText("自然延伸")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Elastic Weight Consolidation ↗" }));
+    expect(openEntity).toHaveBeenCalledWith("/documents/gem-sgd");
+
+    view.unmount();
+    const openDrawerEntity = vi.fn();
+    const detail = {
+      ...candidateDetail,
+      analysis: {
+        ...candidateDetail.analysis,
+        analysis: personalizedAnalysis,
+      },
+    };
+    render(<ResearchCandidateDrawer
+      detail={detail}
+      profile={profile as ResearchProfile}
+      language="zh"
+      onLanguageChange={() => undefined}
+      noteBusy={false}
+      noteError=""
+      onClose={() => undefined}
+      onOpenEntity={openDrawerEntity}
+      onSaveSource={() => undefined}
+      onSaveNote={() => undefined}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Elastic Weight Consolidation ↗" }));
+    expect(openDrawerEntity).toHaveBeenCalledWith("/documents/gem-sgd");
+  });
+
   it.each(["card", "drawer"])("renders reviewed Markdown and math in the %s without injecting HTML", (surface) => {
     const reviewed = {
       summary_zh: "**审核重点** [论文链接](https://example.org/paper) `theta` 与 $x^2$。\n\n$$\ny = x^2\n$$\n\n<script>alert('unsafe')</script>",

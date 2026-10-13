@@ -177,6 +177,11 @@ class ResearchRelationAnalysisOutput(ResearchRelation):
     reason_zh: NonEmptyText
 
 
+class ResearchLearningContextSource(AIOutput):
+    id: Slug
+    title: NonEmptyText
+
+
 class ResearchCandidateAnalysisOutput(AIOutput):
     relevant: bool
     profile_relevance: float = Field(ge=0.0, le=1.0)
@@ -193,6 +198,10 @@ class ResearchCandidateAnalysisOutput(AIOutput):
     existing_relations: list[ResearchRelation] = Field(default_factory=list, max_length=12)
     suggested_collection: Optional[Slug] = None
     suggested_section: Optional[NonEmptyText] = None
+    recommendation_level: Optional[Literal["direct", "extend", "explore_basic"]] = None
+    learning_context_sources: list[ResearchLearningContextSource] = Field(
+        default_factory=list, max_length=3
+    )
     readiness: Optional[Literal["high", "medium", "low"]] = None
     known_prerequisites: list[NonEmptyText] = Field(default_factory=list, max_length=12)
     missing_prerequisites: list[NonEmptyText] = Field(default_factory=list, max_length=12)
@@ -205,6 +214,8 @@ class ResearchCandidateAnalysisAIOutput(ResearchCandidateAnalysisOutput):
     why_relevant_zh: NonEmptyText
     reading_reason_zh: NonEmptyText
     existing_relations: list[ResearchRelationAnalysisOutput] = Field(default_factory=list, max_length=12)
+    recommendation_level: Literal["direct", "extend", "explore_basic"]
+    learning_context_sources: list[ResearchLearningContextSource] = Field(max_length=3)
     readiness: Literal["high", "medium", "low"]
     known_prerequisites: list[NonEmptyText] = Field(max_length=12)
     missing_prerequisites: list[NonEmptyText] = Field(max_length=12)

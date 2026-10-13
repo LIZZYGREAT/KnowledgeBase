@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from copy import deepcopy
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,8 +63,8 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert first.analysis.why_relevant_zh == "这与正则化研究主题相符。"
     assert first.analysis.reading_reason_zh == "这可能有助于理解巩固方法。"
     assert first.analysis.existing_relations[0].reason_zh == "它扩展了置顶的 EWC 笔记。"
-    assert first.analysis_version == 8
-    assert first.prompt_version == "research-candidate-analysis-v8"
+    assert first.analysis_version == 9
+    assert first.prompt_version == "research-candidate-analysis-v9"
     assert [
         (relation.entity_type, relation.entity_id)
         for relation in first.analysis.existing_relations
@@ -215,6 +216,113 @@ def test_analysis_hash_uses_semantic_input_not_runtime_budgets_and_tracks_model(
         "research-candidate-analysis-test",
     )
     assert service.input_hash(work, profile, lens, pack) != original
+    connection.close()
+
+
+def test_research_analysis_includes_selected_learning_progress_and_invalidates_cache():
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    context = {
+        "included_source_count": 1,
+        "included_sources": [
+            {"id": "ewc-learning-note", "title": "EWC 笔记", "type": "learning-note"}
+        ],
+        "preferences": {
+            "fixed_direction": "持续学习",
+            "keywords": ["EWC"],
+            "exclude_keywords": ["RLHF"],
+            "exploration_directions": [],
+            "important_anchors": [],
+        },
+        "active": "当前在学习 EWC 的重要性估计。",
+        "important": "Fisher information",
+        "topics": [
+            {
+                "id": "continual-learning",
+                "title": "持续学习",
+                "aliases": ["continual learning"],
+                "keywords": ["EWC", "GEM"],
+                "markdown": "EWC uses Fisher information.",
+            }
+        ],
+    }
+
+    class ContextReader:
+        def get_recommendation_context(self, focus):
+            self.focus = focus
+            return deepcopy(context)
+
+    context_reader = ContextReader()
+    output = _analysis_output()
+    output["learning_context_sources"] = [
+        {"id": "ewc-learning-note", "title": "EWC 笔记"}
+    ]
+    client = MockDeepSeekClient({"research_candidate_analysis": output})
+    service = ResearchAnalysisService(
+        repository,
+        AIGateway(client),
+        learning_context_service=context_reader,
+    )
+    profile = _profile()
+
+    first = service.analyze(work, profile, profile.lenses[0], _context_pack())
+    context["active"] = "当前在学习 GEM 的梯度投影。"
+    second = service.analyze(work, profile, profile.lenses[0], _context_pack())
+
+    assert first is not None and second is not None
+    assert first.input_hash != second.input_hash
+    assert context_reader.focus.startswith("Continual Learning")
+    assert "Fisher" in context_reader.focus or "parameter" in context_reader.focus
+    assert first.input_context["learning_progress_context"]["included_sources"] == [
+        {"id": "ewc-learning-note", "title": "EWC 笔记", "type": "learning-note"}
+    ]
+    assert first.input_context["learning_progress_context"]["active"].startswith("当前在学习 EWC")
+    assert second.input_context["learning_progress_context"]["active"].startswith("当前在学习 GEM")
+    assert first.analysis.learning_context_sources[0].id == "ewc-learning-note"
+    assert client.calls == ["research_candidate_analysis", "research_candidate_analysis"]
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        {"id": "unselected-note", "title": "未选择的笔记"},
+        {"id": "ewc-learning-note", "title": "伪造标题"},
+    ],
+)
+def test_research_analysis_rejects_unselected_learning_source_reference(reference):
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+    output = _analysis_output()
+    output["learning_context_sources"] = [reference]
+
+    class ContextReader:
+        def get_recommendation_context(self, focus):
+            return {
+                "included_source_count": 1,
+                "included_sources": [
+                    {"id": "ewc-learning-note", "title": "EWC 笔记", "type": "learning-note"}
+                ],
+                "preferences": {},
+                "active": "",
+                "important": "",
+                "topics": [],
+            }
+
+    service = ResearchAnalysisService(
+        repository,
+        AIGateway(MockDeepSeekClient({"research_candidate_analysis": output})),
+        learning_context_service=ContextReader(),
+    )
+
+    with pytest.raises(AIResponseError, match="outside the selected context"):
+        service.analyze(_work(), _profile(), _profile().lenses[0], _context_pack())
+
+    assert connection.execute("SELECT COUNT(*) FROM research_work_analyses").fetchone()[0] == 0
     connection.close()
 
 
@@ -654,6 +762,8 @@ def _analysis_output():
         "summary_zh": "这篇论文研究参数重要性。",
         "why_relevant_zh": "这与正则化研究主题相符。",
         "reading_reason_zh": "这可能有助于理解巩固方法。",
+        "recommendation_level": "direct",
+        "learning_context_sources": [],
         "readiness": "high",
         "known_prerequisites": ["Fisher information"],
         "missing_prerequisites": [],

@@ -63,6 +63,7 @@ from backend.app.services.research_lock import GlobalResearchLock
 from backend.app.services.source_registry import SourceRegistry
 from backend.app.services.markdown_parser import parse_yaml
 from backend.app.services.research_history import research_history_context, historical_plan
+from backend.app.services.learning_context_service import LearningContextService
 
 
 MAX_ANALYSIS_BACKLOG_PER_RUN = 10
@@ -125,6 +126,7 @@ class ResearchService:
         stale_run_after: timedelta = timedelta(minutes=45),
         provider_failure_threshold: int = 3,
         term_candidate_service=None,
+        learning_context_service: Optional[LearningContextService] = None,
     ):
         if provider_failure_threshold < 1:
             raise ValueError("provider_failure_threshold must be positive")
@@ -138,6 +140,9 @@ class ResearchService:
         self.analysis_service = analysis_service
         self.candidate_service = candidate_service
         self.term_candidate_service = term_candidate_service
+        self.learning_context_service = learning_context_service or LearningContextService(
+            self.repository_root
+        )
         self.work_repository = ResearchRepository(connection)
         self.search_repository = ResearchSearchRepository(connection)
         self.run_repository = ResearchRunRepository(connection)
@@ -290,7 +295,11 @@ class ResearchService:
             catchup_days = profile.search.max_catchup_days
         timestamp = self._now() if now is None else _aware_utc(now, "now")
         with self.work_repository.write_transaction():
-            queries = self.query_builder.build(profile)
+            profile, learning_context = self._profile_with_learning_context(profile)
+            queries = self.query_builder.build(
+                profile,
+                personalized_queries=_research_query_overrides(profile, learning_context),
+            )
             if strategy == "from_now":
                 self.watermarks.skip_profile_to_now(profile, timestamp, queries)
             elif catchup_days is not None:
@@ -606,11 +615,13 @@ class ResearchService:
                 now,
             )
 
+        profile, learning_context = self._profile_with_learning_context(profile)
         queries = self.query_builder.build(
             profile,
             lens_overrides,
             additional_queries,
             additional_query_lens,
+            personalized_queries=_research_query_overrides(profile, learning_context),
         )
         queries = tuple(
             sorted(queries, key=lambda query: _LENS_PRIORITY_ORDER[query.priority])
@@ -707,6 +718,25 @@ class ResearchService:
                 profile.id, _parse_timestamp(finished.finished_at)
             )
         return finished
+
+    def _profile_with_learning_context(self, profile: ResearchProfile):
+        focus = "\n".join(
+            value
+            for value in (
+                profile.title,
+                profile.description or "",
+                *(lens.title for lens in profile.lenses if lens.enabled),
+                *(query for lens in profile.lenses if lens.enabled for query in lens.queries),
+            )
+            if value
+        )
+        context = self.learning_context_service.get_recommendation_context(focus)
+        excluded = list(profile.exclude_terms)
+        excluded.extend(context["preferences"]["exclude_keywords"])
+        updated_profile = profile.model_copy(
+            update={"exclude_terms": list(dict.fromkeys(excluded))}
+        )
+        return updated_profile, context
 
     def _run_search_streams(
         self,
@@ -1487,6 +1517,72 @@ class ResearchService:
         if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("Research clock must return a timezone-aware datetime")
         return value.astimezone(timezone.utc)
+
+
+def _research_query_overrides(profile: ResearchProfile, context: dict) -> dict[str, str]:
+    preferences = context.get("preferences", {})
+    learning_excluded = {
+        " ".join(value.casefold().split())
+        for value in preferences.get("exclude_keywords", [])
+    }
+    terms = [preferences.get("fixed_direction", "")]
+    terms.extend(preferences.get("keywords", []))
+    terms.extend(preferences.get("important_anchors", []))
+    terms.extend(_learning_context_search_phrases(context.get("active", "")))
+    for topic in context.get("topics", []):
+        terms.append(topic.get("title", ""))
+        terms.extend(topic.get("aliases", []))
+        terms.extend(topic.get("keywords", []))
+    terms.extend(_learning_context_search_phrases(context.get("important", "")))
+    terms.extend(preferences.get("exploration_directions", []))
+
+    personalized = {}
+    for lens in profile.lenses:
+        if not lens.enabled:
+            continue
+        excluded = learning_excluded | {
+            " ".join(value.casefold().split())
+            for value in (*profile.exclude_terms, *lens.exclude_terms)
+        }
+        selected = []
+        seen = set()
+        for raw in terms:
+            if not isinstance(raw, str):
+                continue
+            value = " ".join(raw.split())[:120]
+            normalized = " ".join(value.casefold().split())
+            if (
+                not value
+                or normalized in seen
+                or any(keyword in normalized for keyword in excluded)
+            ):
+                continue
+            seen.add(normalized)
+            selected.append(value)
+            if len(selected) >= 8:
+                break
+        if selected:
+            personalized[lens.id] = " ".join(selected)[:500]
+    return personalized
+
+
+def _learning_context_search_phrases(markdown: str) -> list[str]:
+    phrases = []
+    for raw in markdown.splitlines():
+        value = " ".join(raw.split())
+        if not value or value.startswith("<!--") or value.startswith("---"):
+            continue
+        if value.startswith("### "):
+            value = value[4:].strip()
+        elif value.startswith("#"):
+            continue
+        elif len(value) > 2 and value[:2] in {"- ", "* ", "+ "}:
+            value = value[2:].strip()
+        if value:
+            phrases.append(value[:120])
+        if len(phrases) >= 4:
+            break
+    return phrases
 
 
 def _effective_config(

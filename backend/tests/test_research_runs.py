@@ -41,6 +41,7 @@ from backend.app.services.term_candidate_service import TermCandidateService
 from backend.app.services.research_service import (
     MAX_ANALYSIS_BACKLOG_PER_RUN,
     ResearchService,
+    _research_query_overrides,
 )
 from backend.app.services.source_registry import SourceRegistry
 
@@ -66,6 +67,81 @@ def test_automatic_history_uses_independent_resumable_annual_windows(tmp_path):
     assert next_plan.slices[0].start_at.year == 2016
     assert next_plan.slices[0].end_at.year == 2017
     assert client.calls == ["research_candidate_analysis"]
+    connection.close()
+
+
+def test_learning_context_adds_search_stream_without_dropping_classic_history(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    profile = profile.model_copy(
+        update={
+            "search": profile.search.model_copy(update={"history_seed_year": 2017}),
+            "ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False}),
+        }
+    )
+
+    class ContextReader:
+        def get_recommendation_context(self, focus):
+            return {
+                "included_source_count": 1,
+                "included_sources": [
+                    {"id": "ewc-note", "title": "EWC note", "type": "learning-note"}
+                ],
+                "preferences": {
+                    "fixed_direction": "Continual Learning",
+                    "keywords": ["EWC", "GEM"],
+                    "exclude_keywords": ["RLHF"],
+                    "exploration_directions": ["Reinforcement Learning basics"],
+                    "important_anchors": ["Fisher information"],
+                },
+                "active": "### Synaptic Intelligence\n\nThis method protects important weights from forgetting.",
+                "important": "Fisher information",
+                "topics": [
+                    {
+                        "id": "continual-learning",
+                        "title": "持续学习",
+                        "aliases": ["continual learning"],
+                        "keywords": ["EWC", "GEM"],
+                        "markdown": "EWC and GEM.",
+                    }
+                ],
+            }
+
+    class QueryRecordingProvider(FakeProvider):
+        def __init__(self):
+            super().__init__([], name="arxiv")
+            self.requested = []
+
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.requested.append((query, start_at, end_at))
+            return super().search(query, start_at, end_at, cursor, limit)
+
+    provider = QueryRecordingProvider()
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    service.learning_context_service = ContextReader()
+    effective_profile, context = service._profile_with_learning_context(profile)
+    personalized = _research_query_overrides(effective_profile, context)
+    planned = service.query_builder.build(
+        effective_profile, personalized_queries=personalized
+    )
+
+    assert effective_profile.exclude_terms[-1] == "RLHF"
+    assert profile.exclude_terms == []
+    assert [query.text for query in planned[:-1]] == list(profile.lenses[0].queries)
+    assert "Continual Learning" in planned[-1].text
+    assert "Synaptic Intelligence" in planned[-1].text
+    assert "RLHF" not in planned[-1].text
+    assert planned[-1].profile_exclude_terms[-1] == "RLHF"
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    requested_queries = {query for query, _start, _end in provider.requested}
+    assert set(profile.lenses[0].queries) <= requested_queries
+    assert planned[-1].text in requested_queries
+    assert any(start.year < _NOW.year for _query, start, _end in provider.requested)
     connection.close()
 
 
@@ -2618,6 +2694,8 @@ def _analysis_output(relevant=True):
         "summary_zh": "这篇论文研究参数重要性。",
         "why_relevant_zh": "这与当前 Research Lens 相符。",
         "reading_reason_zh": "它可能补充有用的细节。",
+        "recommendation_level": "direct",
+        "learning_context_sources": [],
         "readiness": "high",
         "known_prerequisites": ["Fisher information"],
         "missing_prerequisites": [],

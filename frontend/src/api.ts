@@ -529,6 +529,7 @@ export interface ResearchWork {
   updated_at: string;
 }
 export interface ResearchRelation { entity_type: "document" | "term" | "source" | "collection"; entity_id: string; relation: "extends" | "alternative" | "contrasts" | "applies" | "reviews" | "related"; reason: string; reason_zh?: string | null }
+export interface ResearchLearningContextSource { id: string; title: string }
 export interface ResearchTermCandidateSuggestion {
   mention: string;
   term_type: TermDiscoveryLane;
@@ -558,6 +559,8 @@ export interface ResearchAnalysis {
   existing_relations: ResearchRelation[];
   suggested_collection?: string | null;
   suggested_section?: string | null;
+  recommendation_level?: "direct" | "extend" | "explore_basic" | null;
+  learning_context_sources?: ResearchLearningContextSource[];
   readiness?: "high" | "medium" | "low" | null;
   known_prerequisites?: string[];
   missing_prerequisites?: string[];
@@ -614,6 +617,14 @@ export interface ResearchAnalysisInputContext {
     breadth_policy?: string;
   };
   matched_lens?: Partial<ResearchLens>;
+  learning_progress_context?: {
+    included_source_count?: number;
+    included_sources?: Array<ResearchLearningContextSource & { type?: string }>;
+    preferences?: Record<string, string | string[]>;
+    active?: string;
+    important?: string;
+    topics?: Array<{ id: string; title: string; aliases: string[]; keywords: string[]; markdown: string }>;
+  };
   knowledge_context?: {
     focus_query?: string;
     cards?: Array<{

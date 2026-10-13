@@ -93,6 +93,9 @@
 .research-language-switch button { min-height: 25px; border: 0; border-radius: 5px; padding: 0 7px; color: #87958b; background: transparent; font-size: 12px; cursor: pointer; }
 .research-language-switch button[aria-pressed="true"] { color: #42684d; background: #eaf2eb; font-weight: 650; }
 .research-candidate-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.research-learning-sources { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 12px; color: #89958c; font-size: var(--text-xs); }
+.research-learning-sources > span { font-weight: 650; }
+.research-learning-sources .text-button { font-size: var(--text-xs); }
 .research-candidate-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .research-candidate-summary > p { max-width: 800px; margin: 0; color: #67776d; font-size: var(--text-sm); line-height: 1.7; }
 .research-explanation { min-width: 0; max-height: 14rem; overflow: auto; overflow-wrap: anywhere; }

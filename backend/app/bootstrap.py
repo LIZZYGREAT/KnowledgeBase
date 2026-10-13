@@ -15,6 +15,7 @@ from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.collection_service import CollectionService
 from backend.app.services.context_export_service import ContextExportService
 from backend.app.services.knowledge_read_service import KnowledgeReadService
+from backend.app.services.learning_context_service import LearningContextService
 from backend.app.services.research_analysis_service import ResearchAnalysisService
 from backend.app.services.research_candidate_service import ResearchCandidateService
 from backend.app.services.research_context_builder import ResearchContextBuilder
@@ -70,6 +71,7 @@ def build_research_components(
     knowledge = KnowledgeReadService(root, connection)
     collections = CollectionService(root, connection)
     context_export = ContextExportService(knowledge, connection)
+    learning_context = LearningContextService(root, gateway)
 
     provider_settings = registry.global_config.providers
     provider_options = {
@@ -95,7 +97,10 @@ def build_research_components(
         registry.global_config.analysis.max_context_entities,
     )
     analysis_service = ResearchAnalysisService(
-        work_repository, gateway, repository_root=root
+        work_repository,
+        gateway,
+        repository_root=root,
+        learning_context_service=learning_context,
     )
     source_registry = SourceRegistry.load(root / "knowledge" / "sources")
     research_service = ResearchService(
@@ -108,6 +113,7 @@ def build_research_components(
         candidate_service=candidate_service,
         source_registry=source_registry,
         term_candidate_service=term_candidate_service,
+        learning_context_service=learning_context,
     )
     return ResearchComponents(
         repository_root=root,

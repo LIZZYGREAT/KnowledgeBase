@@ -274,6 +274,8 @@ def test_research_analysis_prompt_limits_collection_suggestions_to_profile_conte
                 "summary_zh": "论文摘要。",
                 "why_relevant_zh": "这篇论文与主题无关。",
                 "reading_reason_zh": "无需采取行动。",
+                "recommendation_level": "extend",
+                "learning_context_sources": [],
                 "readiness": "medium",
                 "known_prerequisites": [],
                 "missing_prerequisites": ["Fisher information"],
@@ -286,7 +288,7 @@ def test_research_analysis_prompt_limits_collection_suggestions_to_profile_conte
         }
     )
 
-    AIGateway(client).run(
+    output = AIGateway(client).run(
         "research_candidate_analysis", {"profile": {"allowed_collection_ids": []}}
     )
 
@@ -300,6 +302,11 @@ def test_research_analysis_prompt_limits_collection_suggestions_to_profile_conte
         "If suggested_collection is null, suggested_section must also be null"
         in prompt
     )
+    assert "not evidence of mastery" in prompt
+    assert "explore_basic" in prompt
+    assert "Do not force a ratio" in prompt
+    assert output.recommendation_level == "extend"
+    assert output.learning_context_sources == []
     assert "Never invent a Collection id" in prompt
     assert (
         "existing_relations may reference only the exact (entity_type, entity_id) pairs"

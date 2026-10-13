@@ -45,6 +45,44 @@ def test_run_overrides_change_enabled_lenses_without_changing_profile():
     assert builder.build(profile)[0].lens_id == "regularization"
 
 
+def test_personalized_search_is_added_without_replacing_profile_history_queries():
+    profile = _profile()
+    builder = ResearchQueryBuilder()
+
+    queries = builder.build(
+        profile,
+        personalized_queries={"regularization": "Continual Learning EWC GEM"},
+    )
+
+    assert [query.text for query in queries] == [
+        "Elastic Weight Consolidation",
+        "parameter importance continual learning",
+        "Continual Learning EWC GEM",
+    ]
+    assert queries[:2] == builder.build(profile)
+    assert queries[-1].lens_id == "regularization"
+    assert queries[-1].priority == "high"
+    assert queries[-1].include_terms == ("fisher information", "regularization")
+    assert queries[-1].profile_exclude_terms == ("pure domain adaptation",)
+    assert profile.exclude_terms == ["pure domain adaptation"]
+
+
+def test_manual_additional_queries_remain_available_with_personalized_search():
+    profile = _profile()
+    queries = ResearchQueryBuilder().build(
+        profile,
+        additional_queries=("GEM gradient projection",),
+        personalized_queries={"regularization": "Continual Learning EWC"},
+    )
+
+    assert [query.text for query in queries] == [
+        "Elastic Weight Consolidation",
+        "parameter importance continual learning",
+        "Continual Learning EWC",
+        "GEM gradient projection",
+    ]
+
+
 def test_rejects_unknown_or_non_boolean_lens_overrides():
     builder = ResearchQueryBuilder()
     profile = _profile()

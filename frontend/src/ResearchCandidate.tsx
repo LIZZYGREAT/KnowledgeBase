@@ -28,6 +28,7 @@ export function ResearchCandidateCard({
   onCreateNote,
   onReviewTerms,
   onApprove,
+  onOpenEntity,
 }: {
   item: ResearchCandidateListItem;
   profile: ResearchProfile;
@@ -42,6 +43,7 @@ export function ResearchCandidateCard({
   onCreateNote: () => void;
   onReviewTerms?: () => void;
   onApprove?: () => Promise<void>;
+  onOpenEntity?: (path: string) => void;
 }) {
   const [language, setLanguage] = useState<ResearchLanguage>("zh");
   const [expanded, setExpanded] = useState(false);
@@ -64,7 +66,8 @@ export function ResearchCandidateCard({
       </div>
       <div className="research-card-tools"><ResearchLanguageToggle language={language} onChange={setLanguage} /><button className="text-button" onClick={() => onDetails(language, setLanguage)}>推荐理由 <span aria-hidden="true">↗</span></button></div>
     </div>
-    <div className="research-candidate-tags"><Chip tone={item.analysis.readiness === "low" ? "amber" : "green"}>{item.analysis.readiness === "low" ? "拓展阅读" : "优先阅读"}</Chip>{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
+    <div className="research-candidate-tags"><Chip tone={item.analysis.readiness === "low" ? "amber" : "green"}>{item.analysis.readiness === "low" ? "拓展阅读" : "优先阅读"}</Chip>{item.analysis.recommendation_level && <Chip tone={recommendationTone(item.analysis.recommendation_level)}>{recommendationLabel(item.analysis.recommendation_level)}</Chip>}{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
+    {(item.analysis.learning_context_sources?.length ?? 0) > 0 && <div className="research-learning-sources"><span>学习进度依据</span>{item.analysis.learning_context_sources?.map((source) => <button className="text-button" key={source.id} disabled={!onOpenEntity} onClick={() => { const path = entityPath("document", source.id); if (path) onOpenEntity?.(path); }}>{source.title} ↗</button>)}</div>}
     <div className="research-candidate-summary"><div className="research-explanation"><MarkdownContent content={summary} /></div>{chinese && !hasChineseAnalysis && <p className="subtle-copy research-translation-note">此历史候选暂无中文分析</p>}</div>
     <div className="research-candidate-insight-grid">
       <div><span>{chinese ? "推荐理由" : "Why shown"}</span><div className="research-explanation"><MarkdownContent content={relevance} /></div></div>
@@ -356,7 +359,7 @@ export function ResearchCandidateDrawer({
         </section>}
         <section className="research-detail-section"><h3>{chinese ? "论文简介与相关性" : "Why this paper"}</h3><MarkdownContent content={summary} onNavigate={onOpenEntity} /><MarkdownContent content={relevance} onNavigate={onOpenEntity} />{chinese && !hasChineseAnalysis && <p className="subtle-copy research-translation-note">此历史候选暂无中文分析</p>}</section>
         <section className="research-detail-section"><h3>{chinese ? "为什么值得读" : "Why read it"}</h3><MarkdownContent content={readingReason} onNavigate={onOpenEntity} /></section>
-        <section className="research-detail-section research-readiness-detail"><h3>Readiness</h3><DetailRow label="Readiness" value={analysis.analysis.readiness ?? "not available"} />{analysis.analysis.readiness === "low" && <Chip tone="amber">Stretch</Chip>}<div className="research-detail-markdown"><span>Why now</span><div className="research-explanation"><MarkdownContent content={analysis.analysis.why_now ?? "not available"} onNavigate={onOpenEntity} /></div></div><DetailRow label="Known prerequisites" value={(analysis.analysis.known_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Missing prerequisites" value={(analysis.analysis.missing_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Discovered 术语" value={String(detail.discovered_term_candidate_count ?? 0)} />{(detail.discovered_term_candidate_count ?? 0) > 0 && onReviewTerms && <button className="button button-secondary" onClick={onReviewTerms}>审阅 in 术语 →</button>}</section>
+        <section className="research-detail-section research-readiness-detail"><h3>Readiness</h3><DetailRow label="推荐类型" value={analysis.analysis.recommendation_level ? recommendationLabel(analysis.analysis.recommendation_level) : undefined} />{analysis.analysis.learning_context_sources?.length ? <div className="research-learning-sources"><span>学习进度依据</span>{analysis.analysis.learning_context_sources.map((source) => <button className="text-button" key={source.id} onClick={() => { const path = entityPath("document", source.id); if (path) onOpenEntity(path); }}>{source.title} ↗</button>)}</div> : null}<DetailRow label="Readiness" value={analysis.analysis.readiness ?? "not available"} />{analysis.analysis.readiness === "low" && <Chip tone="amber">Stretch</Chip>}<div className="research-detail-markdown"><span>Why now</span><div className="research-explanation"><MarkdownContent content={analysis.analysis.why_now ?? "not available"} onNavigate={onOpenEntity} /></div></div><DetailRow label="Known prerequisites" value={(analysis.analysis.known_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Missing prerequisites" value={(analysis.analysis.missing_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Discovered 术语" value={String(detail.discovered_term_candidate_count ?? 0)} />{(detail.discovered_term_candidate_count ?? 0) > 0 && onReviewTerms && <button className="button button-secondary" onClick={onReviewTerms}>审阅 in 术语 →</button>}</section>
         <section className="research-detail-section"><h3>Paper</h3><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Year" value={work.year == null ? undefined : String(work.year)} /><DetailRow label="Venue" value={work.venue} /><DetailRow label="Abstract" value={work.abstract} /></section>
         <section className="research-detail-section"><h3>论文推荐 focus</h3><DetailRow label="研究方向" value={profile.title} /><DetailRow label="检索主题" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} /></section>
         {(candidate.status === "new" || candidate.status === "shortlisted") && <section className="research-detail-section"><h3>收藏文献</h3><p className="subtle-copy">只保存论文引用，不创建笔记。</p><button className="button button-secondary" disabled={noteBusy || detail.conversion_blocker === "ambiguous_source"} onClick={onSaveSource}>收藏文献</button></section>}
@@ -524,6 +527,18 @@ function entityPath(type: string, id: string): string | null {
   if (type === "term") return `/terms/${encodeURIComponent(id)}`;
   if (type === "source") return `/sources/${encodeURIComponent(id)}`;
   return null;
+}
+
+function recommendationLabel(level: "direct" | "extend" | "explore_basic") {
+  return {
+    direct: "主方向",
+    extend: "自然延伸",
+    explore_basic: "基础探索",
+  }[level];
+}
+
+function recommendationTone(level: "direct" | "extend" | "explore_basic") {
+  return { direct: "green", extend: "blue", explore_basic: "amber" }[level];
 }
 
 export function statusLabel(status: string): string {

@@ -29,8 +29,10 @@ class ResearchQueryBuilder:
         lens_overrides: Optional[Mapping[str, bool]] = None,
         additional_queries: Sequence[str] = (),
         additional_query_lens: Optional[str] = None,
+        personalized_queries: Optional[Mapping[str, str]] = None,
     ) -> tuple[ResearchQuery, ...]:
         overrides = dict(lens_overrides or {})
+        personalized_queries = dict(personalized_queries or {})
         if any(
             not isinstance(lens_id, str) or not isinstance(enabled, bool)
             for lens_id, enabled in overrides.items()
@@ -42,13 +44,32 @@ class ResearchQueryBuilder:
             raise ValueError(
                 "Unknown Research Lens override(s): {}".format(", ".join(unknown_ids))
             )
+        unknown_query_ids = sorted(set(personalized_queries) - known_lens_ids)
+        if unknown_query_ids:
+            raise ValueError(
+                "Unknown personalized Research Lens query id(s): {}".format(
+                    ", ".join(unknown_query_ids)
+                )
+            )
+        if any(
+            not isinstance(lens_id, str)
+            or not isinstance(text, str)
+            or not text.strip()
+            for lens_id, text in personalized_queries.items()
+        ):
+            raise ValueError("Personalized Lens queries must be non-empty text")
         queries = []
         emitted_keys = set()
         for lens in profile.lenses:
             enabled = overrides.get(lens.id, lens.enabled)
             if not enabled:
                 continue
-            for text in lens.queries:
+            # Preserve the profile's established searches and add learning-driven
+            # terms as a separate stream. This keeps classic history searches alive.
+            lens_queries = lens.queries
+            if lens.id in personalized_queries:
+                lens_queries = (*lens_queries, personalized_queries[lens.id])
+            for text in lens_queries:
                 normalized_text = normalize_query(text)
                 if not normalized_text:
                     raise ValueError(

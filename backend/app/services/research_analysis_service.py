@@ -23,11 +23,12 @@ from backend.app.repositories.research_repository import ResearchRepository
 from backend.app.services.ai_client import AIProviderError, AIResponseError
 from backend.app.services.ai_gateway import AIGateway
 from backend.app.services.knowledge_state_service import KnowledgeStateService
+from backend.app.services.learning_context_service import LearningContextService
 from backend.app.services.term_registry import TermRegistry
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v8"
-RESEARCH_ANALYSIS_VERSION = 8
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v9"
+RESEARCH_ANALYSIS_VERSION = 9
 logger = logging.getLogger(__name__)
 
 
@@ -73,6 +74,7 @@ class ResearchAnalysisService:
         gateway: AIGateway,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         repository_root: Optional[Path] = None,
+        learning_context_service: Optional[LearningContextService] = None,
     ):
         self.repository = repository
         self.gateway = gateway
@@ -80,6 +82,11 @@ class ResearchAnalysisService:
         self.repository_root = (
             Path(repository_root).expanduser().resolve()
             if repository_root is not None
+            else None
+        )
+        self.learning_context_service = learning_context_service or (
+            LearningContextService(self.repository_root)
+            if self.repository_root is not None
             else None
         )
 
@@ -107,6 +114,9 @@ class ResearchAnalysisService:
         readiness_context, term_registry = self._readiness_input(
             work, profile, matched_lens, context_pack
         )
+        learning_progress_context = self._learning_progress_input(
+            work, profile, matched_lens
+        )
         return {
             "analysis_version": RESEARCH_ANALYSIS_VERSION,
             "prompt_version": RESEARCH_ANALYSIS_PROMPT_VERSION,
@@ -126,8 +136,40 @@ class ResearchAnalysisService:
             "matched_lens": matched_lens.model_dump(mode="json"),
             "knowledge_context": context_pack.model_dump(mode="json"),
             "readiness_context": readiness_context,
+            "learning_progress_context": learning_progress_context,
             "term_registry": term_registry,
         }
+
+    def _learning_progress_input(self, work, profile, matched_lens):
+        empty = {
+            "included_source_count": 0,
+            "included_sources": [],
+            "preferences": {
+                "fixed_direction": "",
+                "keywords": [],
+                "exclude_keywords": [],
+                "exploration_directions": [],
+                "important_anchors": [],
+            },
+            "active": "",
+            "important": "",
+            "topics": [],
+        }
+        if self.learning_context_service is None:
+            return empty
+        focus = "\n".join(
+            value
+            for value in (
+                profile.title,
+                profile.description or "",
+                matched_lens.title,
+                *matched_lens.queries,
+                work.title,
+                work.abstract or "",
+            )
+            if value
+        )
+        return self.learning_context_service.get_recommendation_context(focus)
 
     def _readiness_input(self, work, profile, matched_lens, context_pack):
         focus = [
@@ -216,7 +258,13 @@ class ResearchAnalysisService:
             return None
         if not isinstance(output, ResearchCandidateAnalysisAIOutput):
             raise AIResponseError("Research analysis returned an unexpected output model")
-        _validate_analysis_references(output, profile, matched_lens, context_pack)
+        _validate_analysis_references(
+            output,
+            profile,
+            matched_lens,
+            context_pack,
+            analysis_input["learning_progress_context"],
+        )
         output = output.model_copy(update={
             "term_candidates": _validated_term_candidates(output, work, self.repository_root)
         })
@@ -291,6 +339,7 @@ def _validate_analysis_references(
     profile: ResearchProfile,
     matched_lens: ResearchLens,
     context_pack: ResearchContextPack,
+    learning_progress_context: dict,
 ) -> None:
     profile_lenses = {lens.id for lens in profile.lenses}
     if any(lens_id not in profile_lenses for lens_id in output.matched_lenses):
@@ -308,6 +357,19 @@ def _validate_analysis_references(
         for relation in output.existing_relations
     ):
         raise AIResponseError("Research analysis referenced an entity outside its Context Pack")
+    selected_sources = {
+        (source["id"], source["title"])
+        for source in learning_progress_context.get("included_sources", [])
+    }
+    source_references = [
+        (source.id, source.title) for source in output.learning_context_sources
+    ]
+    if len(set(source_references)) != len(source_references) or any(
+        source not in selected_sources for source in source_references
+    ):
+        raise AIResponseError(
+            "Research analysis referenced a learning source outside the selected context"
+        )
 
     allowed_collections = set(profile.context.collections)
     if (

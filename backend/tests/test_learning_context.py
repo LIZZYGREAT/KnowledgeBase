@@ -166,6 +166,50 @@ def test_context_assembly_reads_only_relevant_layers_and_topics(tmp_path):
     assert "EWC、GEM 与 iCaRL" in result["topics"][0]["markdown"]
 
 
+def test_recommendation_context_is_bounded_and_tracks_only_selected_sources(tmp_path):
+    _document(tmp_path, "cl-note", "Continual Learning note")
+    service = LearningContextService(tmp_path)
+    service.set_sources(["cl-note"])
+    service.set_preferences(
+        {
+            "fixed_direction": "Continual Learning",
+            "keywords": ["EWC", "GEM"],
+            "exclude_keywords": ["RLHF"],
+            "exploration_directions": ["reinforcement learning basics"],
+            "important_anchors": ["Fisher information"],
+        }
+    )
+    context_root = tmp_path / "storage" / "learning-context"
+    (context_root / "topics").mkdir(parents=True)
+    (context_root / "active.md").write_text("# 当前方向\n\nEWC 与持续学习。\n", encoding="utf-8")
+    (context_root / "important.md").write_text("# 稳定锚点\n\nFisher information。\n", encoding="utf-8")
+    (context_root / "topics" / "continual-learning.md").write_text(
+        "# 持续学习\n\nEWC、GEM 与 iCaRL。\n", encoding="utf-8"
+    )
+    (context_root / "index.yaml").write_text(
+        "topics:\n"
+        "  - id: continual-learning\n"
+        "    title: 持续学习\n"
+        "    aliases: [continual learning]\n"
+        "    keywords: [EWC, GEM, iCaRL]\n",
+        encoding="utf-8",
+    )
+
+    result = service.get_recommendation_context("GEM continual learning", max_chars=800)
+
+    assert result["included_source_count"] == 1
+    assert result["included_sources"] == [
+        {"id": "cl-note", "title": "Continual Learning note", "type": "learning-note"}
+    ]
+    assert result["preferences"]["exclude_keywords"] == ["RLHF"]
+    assert result["active"]
+    assert result["important"]
+    assert [topic["id"] for topic in result["topics"]] == ["continual-learning"]
+    assert len(result["active"]) <= 800
+    assert len(result["important"]) <= 800
+    assert len(result["topics"][0]["markdown"]) <= 800
+
+
 def test_topic_ids_cannot_escape_context_storage(tmp_path):
     service = LearningContextService(tmp_path)
 

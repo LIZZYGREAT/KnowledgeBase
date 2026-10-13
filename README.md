@@ -22,6 +22,8 @@ KnowledgeBase 服务单用户个人科研学习，重点是 Terms 管理和**符
 
 完整条款见 [产品原则](docs/PRODUCT_PRINCIPLES.md)。
 
+Phase 15 adds a local Learning Context page and uses explicitly selected note content to guide Terms and Research recommendations. Research keeps each Profile's existing searches and annual classic-paper discovery, adds a separate search from selected learning topics and search preferences, and filters excluded keywords locally for that Run. Candidate cards identify a recommendation as **主方向**, **自然延伸**, or **基础探索**, explain its fit, and link cited learning notes. Search preferences, Profile Lens settings, pinned or retrieved context, activity, and PDF exposure do not establish mastery; formal Term status and Publisher controls remain unchanged. Learning Context files stay under ignored `storage/learning-context/` and are not committed. End-to-end validation and remaining user documentation are still in progress.
+
 ## Local setup
 
 Backend and knowledge checks (Python 3.12 or newer):

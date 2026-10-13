@@ -19,6 +19,9 @@ _SOURCE_TYPES = {"paper-note", "learning-note", "course-note"}
 _TOPIC_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _MAX_CANONICAL_BYTES = 2 * 1024 * 1024
 _MAX_MEMORY_BYTES = 512 * 1024
+_MAX_RECOMMENDATION_SOURCES = 20
+_MAX_RECOMMENDATION_TOPICS = 3
+_MAX_RECOMMENDATION_PREFERENCE_ITEMS = 12
 _DEFAULT_PREFERENCES = {
     "fixed_direction": "",
     "keywords": [],
@@ -178,6 +181,54 @@ class LearningContextService:
             "important": important,
             "topics": bounded_topics,
             "topic_index": topics,
+        }
+
+    def get_recommendation_context(
+        self, focus: str, max_chars: int = 8000
+    ) -> dict[str, Any]:
+        """Return a bounded, selected-source context for recommendation services."""
+        raw = self.get_context(
+            focus=focus,
+            include_important=True,
+            max_chars=max_chars,
+        )
+        preferences = raw["preferences"]
+        bounded_preferences = {
+            "fixed_direction": preferences["fixed_direction"][:300],
+        }
+        for field in (
+            "keywords",
+            "exclude_keywords",
+            "exploration_directions",
+            "important_anchors",
+        ):
+            bounded_preferences[field] = [
+                " ".join(value.split())[:160]
+                for value in preferences[field][:_MAX_RECOMMENDATION_PREFERENCE_ITEMS]
+            ]
+        return {
+            "included_source_count": len(raw["included_sources"]),
+            "included_sources": [
+                {
+                    "id": item["id"],
+                    "title": item["title"],
+                    "type": item["type"],
+                }
+                for item in raw["included_sources"][:_MAX_RECOMMENDATION_SOURCES]
+            ],
+            "preferences": bounded_preferences,
+            "active": raw["active"][:max_chars],
+            "important": raw["important"][:max_chars],
+            "topics": [
+                {
+                    "id": item["id"],
+                    "title": item["title"],
+                    "aliases": item["aliases"][:12],
+                    "keywords": item["keywords"][:12],
+                    "markdown": item["markdown"][:max_chars],
+                }
+                for item in raw["topics"][:_MAX_RECOMMENDATION_TOPICS]
+            ],
         }
 
     def get_overview(self) -> dict[str, Any]:
