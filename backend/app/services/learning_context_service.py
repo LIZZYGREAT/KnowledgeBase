@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import os
 import re
 import tempfile
@@ -76,6 +77,7 @@ class LearningContextService:
 
     def set_sources(self, included_document_ids: Iterable[str]) -> dict[str, Any]:
         ids = self._normalize_ids(included_document_ids, "included_document_ids")
+        previous = self._read_sources()
         available_by_id = {item["id"]: item for item in self.available_sources()}
         unknown = [item for item in ids if item not in available_by_id]
         if unknown:
@@ -85,6 +87,23 @@ class LearningContextService:
                 )
             )
         self._write_yaml("sources.yaml", {"included_document_ids": ids})
+        if ids != previous:
+            state = self._read_status()
+            added = [item for item in ids if item not in previous]
+            removed = [item for item in previous if item not in ids]
+            state.update(
+                {
+                    "state": "pending",
+                    "message": (
+                        "新增 {} 篇待分析".format(len(added))
+                        if added and not removed
+                        else "学习资料范围已更新，待同步"
+                    ),
+                    "pending_added_ids": added,
+                    "pending_removed_ids": removed,
+                }
+            )
+            self._write_status(state)
         return self.get_sources()
 
     def get_preferences(self) -> dict[str, Any]:
@@ -145,13 +164,54 @@ class LearningContextService:
         }
 
     def get_overview(self) -> dict[str, Any]:
+        status = self._read_status()
         return {
             "sources": self.get_sources(),
             "preferences": self.get_preferences(),
             "active": self._read_memory("active.md"),
             "important": self._read_memory("important.md"),
             "topics": self.list_topics(),
-            "status": self._read_status(),
+            "status": status,
+            "user_managed_files": status.get("user_managed_files", []),
+        }
+
+    def save_memory(self, layer: str, markdown: str) -> dict[str, Any]:
+        if layer not in {"active", "important"}:
+            raise LearningContextError("Memory layer must be active or important")
+        self._save_user_memory("{}.md".format(layer), markdown)
+        return {
+            "layer": layer,
+            "markdown": markdown,
+            "user_managed": True,
+        }
+
+    def save_topic(self, topic_id: str, markdown: str) -> dict[str, Any]:
+        topic = self.read_topic(topic_id)
+        relative = "topics/{}.md".format(topic["id"])
+        self._save_user_memory(relative, markdown)
+        return {
+            **topic,
+            "markdown": markdown,
+            "user_managed": True,
+        }
+
+    def restore_automatic_memory(self, layer: str, topic_id: Optional[str] = None) -> dict[str, Any]:
+        if layer in {"active", "important"} and topic_id is None:
+            relative = "{}.md".format(layer)
+        elif layer == "topic" and topic_id is not None:
+            self.read_topic(topic_id)
+            relative = "topics/{}.md".format(topic_id)
+        else:
+            raise LearningContextError("Invalid memory layer")
+        state = self._read_status()
+        managed = state.get("user_managed_files", [])
+        if isinstance(managed, list):
+            state["user_managed_files"] = [item for item in managed if item != relative]
+        self._write_status(state)
+        return {
+            "relative_path": relative,
+            "markdown": self._read_memory(relative),
+            "user_managed": False,
         }
 
     def list_topics(self) -> list[dict[str, Any]]:
@@ -229,6 +289,27 @@ class LearningContextService:
         if not isinstance(value, dict):
             return {"state": "failed", "message": "同步状态不可读取，可重试"}
         return value
+
+    def _write_status(self, value: dict[str, Any]) -> None:
+        self._atomic_write(
+            "state.json",
+            json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+        )
+
+    def _save_user_memory(self, relative: str, markdown: str) -> None:
+        if not isinstance(markdown, str) or len(markdown.encode("utf-8")) > _MAX_MEMORY_BYTES:
+            raise LearningContextError("Markdown context must be text under 512 KB")
+        if "\x00" in markdown:
+            raise LearningContextError("Markdown context cannot contain NUL characters")
+        self._atomic_write(relative, markdown)
+        state = self._read_status()
+        managed = state.get("user_managed_files", [])
+        if not isinstance(managed, list):
+            managed = []
+        if relative not in managed:
+            managed.append(relative)
+        state["user_managed_files"] = sorted(set(managed))
+        self._write_status(state)
 
     def _read_memory(self, relative: str) -> str:
         path = self._context_path(relative, must_exist=False)

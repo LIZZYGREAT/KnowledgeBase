@@ -1232,6 +1232,88 @@ export async function recordSearchClick(documentId: string) {
   });
 }
 
+export interface LearningContextSource {
+  id: string;
+  title: string;
+  type: "paper-note" | "learning-note" | "course-note";
+}
+
+export interface LearningContextTopic {
+  id: string;
+  title: string;
+  aliases: string[];
+  keywords: string[];
+  markdown?: string;
+}
+
+export interface LearningContextPreferences {
+  fixed_direction: string;
+  keywords: string[];
+  exclude_keywords: string[];
+  exploration_directions: string[];
+  important_anchors: string[];
+}
+
+export interface LearningContextOverview {
+  sources: {
+    included_document_ids: string[];
+    missing_document_ids: string[];
+    available_documents: LearningContextSource[];
+  };
+  preferences: LearningContextPreferences;
+  active: string;
+  important: string;
+  topics: LearningContextTopic[];
+  status: { state: string; message?: string; [key: string]: unknown };
+  user_managed_files: string[];
+}
+
+export function getLearningContext() {
+  return request<LearningContextOverview>("/api/learning-context");
+}
+
+export function setLearningContextSources(includedDocumentIds: string[]) {
+  return request<LearningContextOverview["sources"]>("/api/learning-context/sources", {
+    method: "PUT",
+    body: JSON.stringify({ included_document_ids: includedDocumentIds }),
+  });
+}
+
+export function setLearningContextPreferences(preferences: LearningContextPreferences) {
+  return request<LearningContextPreferences>("/api/learning-context/preferences", {
+    method: "PUT",
+    body: JSON.stringify(preferences),
+  });
+}
+
+export function getLearningContextTopic(topicId: string) {
+  return request<LearningContextTopic & { markdown: string }>(
+    `/api/learning-context/topics/${encodeURIComponent(topicId)}`,
+  );
+}
+
+export function saveLearningContextMemory(layer: "active" | "important", markdown: string) {
+  return request<{ layer: string; markdown: string; user_managed: boolean }>(
+    `/api/learning-context/memory/${layer}`,
+    { method: "PUT", body: JSON.stringify({ markdown }) },
+  );
+}
+
+export function saveLearningContextTopic(topicId: string, markdown: string) {
+  return request<LearningContextTopic & { markdown: string; user_managed: boolean }>(
+    `/api/learning-context/topics/${encodeURIComponent(topicId)}`,
+    { method: "PUT", body: JSON.stringify({ markdown }) },
+  );
+}
+
+export function restoreAutomaticLearningContext(layer: "active" | "important" | "topic", topicId?: string) {
+  const query = topicId ? `?topic_id=${encodeURIComponent(topicId)}` : "";
+  return request<{ relative_path: string; markdown: string; user_managed: boolean }>(
+    `/api/learning-context/memory/${layer}/restore-automatic${query}`,
+    { method: "POST" },
+  );
+}
+
 export async function recordDocumentOpen(documentId: string) {
   return request("/api/usage/document-open", {
     method: "POST",

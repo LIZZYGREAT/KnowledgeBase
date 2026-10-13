@@ -1,0 +1,49 @@
+.learning-context-page { --learning-gap: 16px; }
+.learning-context-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 17px; color: #819087; font-size: var(--text-sm); }
+.learning-context-status > div { display: flex; align-items: center; gap: 9px; color: #506458; }
+.learning-context-status strong { font-weight: 650; }
+.learning-status-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #91a59a; }
+.learning-status-synced { background: #4d9a69; box-shadow: 0 0 0 4px #4d9a6917; }
+.learning-status-pending, .learning-status-syncing { background: #d09b52; box-shadow: 0 0 0 4px #d09b5217; }
+.learning-status-failed { background: #c36e64; box-shadow: 0 0 0 4px #c36e6417; }
+.learning-context-management-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); align-items: start; gap: var(--learning-gap); }
+.learning-context-panel { display: grid; min-width: 0; gap: 14px; padding: 19px; }
+.learning-context-panel > .section-heading { align-items: flex-start; margin: 0; }
+.learning-source-search input { width: 100%; min-height: 38px; border: 1px solid #e1e8e2; border-radius: 7px; padding: 0 11px; color: #33463a; background: #fff; font-size: var(--text-base); }
+.learning-selection-actions, .learning-panel-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.learning-source-list { display: grid; max-height: 440px; gap: 6px; overflow: auto; overscroll-behavior: contain; }
+.learning-source-option { display: flex; min-width: 0; align-items: flex-start; gap: 10px; border: 1px solid #e9eee9; border-radius: 8px; padding: 10px; background: #fbfcfb; cursor: pointer; }
+.learning-source-option:has(input:checked) { border-color: #b9d4c1; background: #f4faf5; }
+.learning-source-option input { margin: 2px 0 0; accent-color: #31745a; }
+.learning-source-option > span { display: grid; min-width: 0; gap: 4px; }
+.learning-source-option strong { overflow-wrap: anywhere; color: #4e6256; font-size: var(--text-sm); font-weight: 600; line-height: 1.5; }
+.learning-source-option small { color: #97a39b; font-size: var(--text-xs); }
+.learning-missing-sources, .learning-unsaved { margin: 0; color: #9a7646; font-size: var(--text-xs); line-height: 1.5; }
+.learning-memory-controls { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
+.learning-memory-controls .field-label { flex: 1; min-width: 0; }
+.learning-memory-controls .field-label select { min-height: 38px; border: 1px solid #e1e8e2; border-radius: 7px; padding: 0 9px; color: #33463a; background: #fff; font-size: var(--text-base); }
+.learning-memory-preview { min-height: 210px; max-height: 520px; overflow: auto; border: 1px solid #e8eee9; border-radius: 8px; padding: 14px; background: #fcfdfc; }
+.learning-memory-preview .empty-state { min-height: 175px; }
+.learning-memory-preview .markdown-content { padding: 0; }
+.learning-memory-editor textarea, .learning-preference-list { width: 100%; min-height: 270px; resize: vertical; border: 1px solid #dfe8e1; border-radius: 8px; padding: 12px; color: #35473d; background: #fcfdfc; font: var(--text-sm)/1.7 "Cascadia Code", Consolas, monospace; tab-size: 2; }
+.learning-preferences-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.learning-direction-field { grid-column: 1 / -1; }
+.learning-preferences-grid .field-label > span { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.learning-preferences-grid .field-label small { color: #9ba69e; font-size: var(--text-xs); font-weight: 400; }
+.learning-preferences-grid .field-label input { min-height: 38px; border: 1px solid #e1e8e2; border-radius: 7px; padding: 0 11px; color: #33463a; background: #fff; font-size: var(--text-base); }
+.learning-preference-list { min-height: 90px; font-family: inherit; }
+.learning-context-page .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+
+@media (max-width: 880px) {
+  .learning-context-management-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 600px) {
+  .learning-context-status { align-items: flex-start; flex-direction: column; }
+  .learning-context-panel { padding: 15px; }
+  .learning-preferences-grid { grid-template-columns: minmax(0, 1fr); }
+  .learning-direction-field { grid-column: auto; }
+  .learning-memory-controls { align-items: flex-start; flex-direction: column; }
+  .learning-memory-controls .field-label { width: 100%; }
+  .learning-context-page .page-header { flex-direction: column; }
+}

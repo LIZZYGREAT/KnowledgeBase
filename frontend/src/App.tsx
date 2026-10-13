@@ -4,6 +4,7 @@ import { LoadingState } from "./ui";
 import { navigateWithGuards, type NavigationGuard, type RegisterBeforeNavigate } from "./navigation";
 
 const HomePage = lazy(() => import("./Pages").then((module) => ({ default: module.HomePage })));
+const LearningContextPage = lazy(() => import("./LearningContext").then((module) => ({ default: module.LearningContextPage })));
 const SearchPage = lazy(() => import("./Pages").then((module) => ({ default: module.SearchPage })));
 const LibraryPage = lazy(() => import("./Pages").then((module) => ({ default: module.LibraryPage })));
 const TermsPage = lazy(() => import("./Pages").then((module) => ({ default: module.TermsPage })));
@@ -58,6 +59,7 @@ interface NavigationGroup {
 const navigationGroups: NavigationGroup[] = [
   { label: "主要任务", items: [
     { route: "/", title: "首页", translation: "下一步学习", icon: "⌂" },
+    { route: "/learning-context", title: "学习进度", translation: "资料与上下文", icon: "◉" },
     { route: "/terms", title: "术语", translation: "发现与管理", icon: "Aa", badge: "terms" as const },
     { route: "/research", title: "论文推荐", translation: "研究发现", icon: "⌕", badge: "research" as const },
   ] },
@@ -334,6 +336,8 @@ export default function App() {
     page = <Suspense fallback={<LoadingState />}><TopicsPage onOpen={openEntity} /></Suspense>;
   } else if (route.path === "/research") {
     page = <Suspense fallback={<LoadingState />}><ResearchPage navigate={navigate} /></Suspense>;
+  } else if (route.path === "/learning-context") {
+    page = <Suspense fallback={<LoadingState />}><LearningContextPage registerBeforeNavigate={registerBeforeNavigate} /></Suspense>;
   } else if (route.path === "/review") {
     page = <Suspense fallback={<LoadingState />}><ReviewPage onOpen={openEntity} navigate={navigate} /></Suspense>;
   } else if (route.path === "/help") {

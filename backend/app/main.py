@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from backend.app.api.ai import router as ai_router
+from backend.app.api.learning_context import router as learning_context_router
 from backend.app.api.knowledge import router as knowledge_router
 from backend.app.api.research import router as research_router
 from backend.app.api.terms import router as terms_router
@@ -65,6 +66,7 @@ from backend.app.services.presentation_annotation_service import (
     PresentationAnnotationService,
 )
 from backend.app.services.ui_summary_service import UiSummaryService
+from backend.app.services.learning_context_service import LearningContextService
 from backend.app.middleware import install_api_timing
 from backend.app.services.manual_research_worker import ManualResearchWorker
 
@@ -158,6 +160,7 @@ async def lifespan(application: FastAPI):
         ui_summary_service = UiSummaryService(
             connection, research_service.profile_registry.profiles
         )
+        learning_context_service = LearningContextService(repository_root)
         research_conversion_service = ResearchConversionService(
             repository_root,
             connection,
@@ -197,6 +200,7 @@ async def lifespan(application: FastAPI):
         application.state.publisher = publisher
         application.state.research_service = research_service
         application.state.ui_summary_service = ui_summary_service
+        application.state.learning_context_service = learning_context_service
         application.state.research_conversion_service = research_conversion_service
         try:
             result = research_conversion_service.reconcile_pending_links()
@@ -233,6 +237,7 @@ app.include_router(knowledge_router)
 app.include_router(runtime_router)
 app.include_router(ai_router)
 app.include_router(research_router)
+app.include_router(learning_context_router)
 
 
 def _error_response(status_code: int, error: Exception) -> JSONResponse:

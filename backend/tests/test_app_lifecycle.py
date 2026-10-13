@@ -75,6 +75,7 @@ def test_application_initializes_phase_services_from_configured_paths(
             assert app.state.research_service.profile_registry.get("continual-learning") is not None
             assert app.state.usage_service.connection is app.state.runtime_connection
             assert app.state.ui_summary_service.connection is app.state.runtime_connection
+            assert app.state.learning_context_service.repository_root == repository.resolve()
             assert app.state.runtime_connection.execute("SELECT 1").fetchone()[0] == 1
 
     asyncio.run(inspect_application())
