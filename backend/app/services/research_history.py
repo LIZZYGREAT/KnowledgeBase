@@ -16,9 +16,10 @@ from backend.app.services.collection_registry import CollectionRegistry
 class ResearchHistoryContext:
     anchor_year: Optional[int]
     approved_ids: tuple[str, ...]
+    selected_note_ids: tuple[str, ...] = ()
 
 
-def research_history_context(root, profile, sources):
+def research_history_context(root, profile, sources, selected_note_ids=()):
     years = []
     pinned_documents = set(profile.context.documents)
     pinned_terms = set()
@@ -67,12 +68,80 @@ def research_history_context(root, profile, sources):
                 and _has_content(body)
                 and (metadata.id in pinned_terms or _matches(metadata.title + "\n" + body, phrases))):
             approved_ids.add("term:" + metadata.id)
-    # The explicit study stage wins. Bibliographic dates are only a conservative
-    # fallback; a recent review attached to a classic Note cannot move it forward.
+    selected_ids, selected_note_years = _selected_note_history_evidence(
+        root, sources, selected_note_ids
+    )
+    # The explicit study stage wins. A selected note can independently seed the
+    # historical query window, but does not enter the formal approval scope.
     anchor = profile.search.history_seed_year
-    if anchor is None and years:
-        anchor = min(years)
-    return ResearchHistoryContext(anchor, tuple(sorted(approved_ids)))
+    if anchor is None and (years or selected_note_years):
+        anchor = min(years + selected_note_years)
+    return ResearchHistoryContext(
+        anchor,
+        tuple(sorted(approved_ids)),
+        tuple(sorted(selected_ids)),
+    )
+
+
+def _selected_note_history_evidence(root, sources, selected_note_ids):
+    documents_root = root / "knowledge" / "documents"
+    selected_ids = set()
+    years = []
+    for document_id in selected_note_ids:
+        if not isinstance(document_id, str) or not re.fullmatch(
+            r"[a-z0-9]+(?:-[a-z0-9]+)*", document_id
+        ):
+            continue
+        path = next(
+            (
+                documents_root / directory / (document_id + ".md")
+                for directory in ("papers", "learning", "courses")
+                if (documents_root / directory / (document_id + ".md")).is_file()
+            ),
+            None,
+        )
+        if path is None or path.is_symlink():
+            continue
+        try:
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(documents_root.resolve(strict=True)):
+                continue
+            content = path.read_text(encoding="utf-8")
+            parsed = parse_markdown(content)
+            metadata = DocumentMetadata.model_validate(parsed.frontmatter)
+            if metadata.id != document_id or metadata.type not in {
+                "paper-note",
+                "learning-note",
+                "course-note",
+            }:
+                continue
+            body = _body(content, parsed)
+            if not _has_content(body):
+                continue
+        except (OSError, UnicodeError, ValueError, TypeError):
+            continue
+
+        selected_ids.add(document_id)
+        linked_years = [
+            source.year
+            for source_id in metadata.sources
+            if (source := sources.get(source_id)) is not None
+            and source.year is not None
+        ]
+        years.extend(linked_years or _citation_years(body))
+    return selected_ids, years
+
+
+def _citation_years(body):
+    for line in body.splitlines()[:80]:
+        if not line.lstrip().startswith(">"):
+            continue
+        if not re.search(r"论文|paper|citation", line, re.IGNORECASE):
+            continue
+        matches = re.findall(r"\b(?:19|20)\d{2}\b", line)
+        if matches:
+            return [int(matches[0])]
+    return []
 
 
 def research_anchor_year(root, profile, sources):

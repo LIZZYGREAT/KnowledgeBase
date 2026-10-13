@@ -27,8 +27,8 @@ from backend.app.services.learning_context_service import LearningContextService
 from backend.app.services.term_registry import TermRegistry
 
 
-RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v9"
-RESEARCH_ANALYSIS_VERSION = 9
+RESEARCH_ANALYSIS_PROMPT_VERSION = "research-candidate-analysis-v10"
+RESEARCH_ANALYSIS_VERSION = 10
 logger = logging.getLogger(__name__)
 
 
@@ -96,9 +96,16 @@ class ResearchAnalysisService:
         profile: ResearchProfile,
         matched_lens: ResearchLens,
         context_pack: ResearchContextPack,
+        exploration_direction: Optional[str] = None,
     ) -> str:
         return _hash_analysis_input(
-            self.build_analysis_input(work, profile, matched_lens, context_pack)
+            self.build_analysis_input(
+                work,
+                profile,
+                matched_lens,
+                context_pack,
+                exploration_direction=exploration_direction,
+            )
         )
 
     def build_analysis_input(
@@ -107,6 +114,7 @@ class ResearchAnalysisService:
         profile: ResearchProfile,
         matched_lens: ResearchLens,
         context_pack: ResearchContextPack,
+        exploration_direction: Optional[str] = None,
     ) -> dict:
         """Return the exact semantic payload sent to the Research analysis model."""
         _validate_lens(profile, matched_lens)
@@ -137,6 +145,14 @@ class ResearchAnalysisService:
             "knowledge_context": context_pack.model_dump(mode="json"),
             "readiness_context": readiness_context,
             "learning_progress_context": learning_progress_context,
+            "query_scope": (
+                {
+                    "kind": "explicit_exploration",
+                    "direction": exploration_direction,
+                }
+                if exploration_direction
+                else {"kind": "profile"}
+            ),
             "term_registry": term_registry,
         }
 
@@ -236,12 +252,17 @@ class ResearchAnalysisService:
         context_pack: ResearchContextPack,
         circuit_breaker: Optional[ResearchAnalysisCircuitBreaker] = None,
         on_attempt: Optional[Callable[[], None]] = None,
+        exploration_direction: Optional[str] = None,
     ) -> Optional[ResearchWorkAnalysisRecord]:
         if not profile.ai_analysis.enabled:
             return None
 
         analysis_input = self.build_analysis_input(
-            work, profile, matched_lens, context_pack
+            work,
+            profile,
+            matched_lens,
+            context_pack,
+            exploration_direction=exploration_direction,
         )
         input_hash = _hash_analysis_input(analysis_input)
         cached = self.repository.get_analysis(work.id, profile.id, input_hash)

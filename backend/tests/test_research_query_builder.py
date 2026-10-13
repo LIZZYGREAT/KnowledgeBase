@@ -64,6 +64,43 @@ def test_personalized_search_is_added_without_replacing_profile_history_queries(
     assert queries[-1].priority == "high"
     assert queries[-1].include_terms == ("fisher information", "regularization")
     assert queries[-1].profile_exclude_terms == ("pure domain adaptation",)
+
+
+def test_learning_queries_stay_independent_and_exploration_drops_lens_includes():
+    profile = _profile()
+    foundations = profile.lenses[1].model_copy(
+        update={
+            "id": "foundations",
+            "title": "Foundations",
+            "enabled": True,
+            "queries": ["reinforcement learning fundamentals"],
+            "include_terms": ["reinforcement learning"],
+        }
+    )
+    profile = profile.model_copy(update={"lenses": [profile.lenses[0], foundations]})
+
+    queries = ResearchQueryBuilder().build(
+        profile,
+        personalized_queries={
+            "regularization": [
+                "Continual Learning Elastic Weight Consolidation",
+                "Continual Learning Fisher Information",
+            ]
+        },
+        exploration_queries={"foundations": ["Reinforcement Learning basics"]},
+    )
+
+    assert [query.text for query in queries[:2]] == list(profile.lenses[0].queries)
+    assert [query.text for query in queries[2:4]] == [
+        "Continual Learning Elastic Weight Consolidation",
+        "Continual Learning Fisher Information",
+    ]
+    exploration = queries[-1]
+    assert exploration.text == "Reinforcement Learning basics"
+    assert exploration.lens_id == "foundations"
+    assert exploration.is_exploration is True
+    assert exploration.exploration_direction == exploration.text
+    assert exploration.include_terms == ()
     assert profile.exclude_terms == ["pure domain adaptation"]
 
 

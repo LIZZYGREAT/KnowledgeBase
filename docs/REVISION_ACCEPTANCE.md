@@ -162,3 +162,9 @@ API 队列测试现在注入空闲 Worker；Worker 执行本身仍由独立的 `
 Terms 在用户选择正式笔记后，仅把白名单中的笔记送入学习语料分析；取消选择或来源暂不可用时不会回退扫描其他笔记。首次选择为空时，独立的通用 Terms 工作流仍可扫描全库，但其内容不会因此成为学习进度证据。现有 PDF 抽取保持独立通道，不作为掌握依据。重复过滤除了专门章节标题，也会核对来源筛选后的学习上下文正文和规范 Term 别名；忽略一级、二级宽泛标题。Terms 分析版本升至 3，使原分析缓存按新规则重新计算。
 
 `backend/tests/test_learning_context.py`、`backend/tests/test_learning_context_api.py` 与 `backend/tests/test_term_discovery.py` 专项结果：59 项通过，7 项 HTTPX API 弃用警告，另有 pytest-asyncio fixture loop scope 配置警告。新增验收确认选择 ID 透传、未选课程笔记不会进入个性化文档分析、上下文正文/别名可去重、宽泛一级/二级标题不代表掌握。测试使用本机 Python 3.9 依赖；Python 3.12 CI 尚未重跑，未调用真实 Provider/DeepSeek。私有修订方案未纳入提交。
+
+## Phase 15 Stage C2 修订记录（2026-10-13）
+
+Research 保留 Profile 原查询和历史年度窗口，并将个性化查询拆为少量短查询，只路由到语义相容的 Lens；跨方向基础方向只有在用户显式配置时才形成独立查询，不混入主方向，也不继承对应 Lens 的 include terms。`explore_basic` 必须来自该显式查询，通过高/中准备度且无缺失前置条件的确定性准入，并限制为每 Profile 每 UTC 日最多一篇。被用户选中的未审核笔记可按关联 Source 年份或正文引用年份独立启动历史搜索，但 `approved_ids` 与 Review 状态保持不变。Research 分析版本升至 10，缓存按新的查询范围重新计算。
+
+`backend/tests/test_research_query_builder.py`、`test_research_screening.py`、`test_research_candidate.py`、`test_research_analysis_service.py`、`test_research_runs.py`、`test_research_history.py`、`test_research_api.py`、`test_research_watermark.py` 与 `test_research_quality_cases.py` 专项结果：163 项通过。覆盖实际 Provider 收到的分 Lens 短查询、独立基础探索、Lens include terms 隔离、探索推荐的基础性/准备度/每日准入，以及未审核已选笔记只扩展历史检索而不进入批准范围。测试使用本机 Python 3.9 依赖；pytest 提示 fixture loop scope 配置未来默认值将变化。Python 3.12 CI 尚未重跑，未调用真实 Provider/DeepSeek。私有修订方案未纳入提交。

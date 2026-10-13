@@ -4,6 +4,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
+import re
 import uuid
 
 from backend.app.domain.research import ResearchLens, ResearchProfile
@@ -52,7 +53,11 @@ from backend.app.services.research_providers.base import (
     ResearchProviderError,
 )
 from backend.app.services.research_screening import ResearchScreeningService
-from backend.app.services.research_query_builder import ResearchQuery, ResearchQueryBuilder
+from backend.app.services.research_query_builder import (
+    ResearchQuery,
+    ResearchQueryBuilder,
+    normalize_query,
+)
 from backend.app.services.research_watermark import (
     ResearchSearchPlan,
     ResearchSearchSlice,
@@ -296,9 +301,13 @@ class ResearchService:
         timestamp = self._now() if now is None else _aware_utc(now, "now")
         with self.work_repository.write_transaction():
             profile, learning_context = self._profile_with_learning_context(profile)
+            personalized_queries, exploration_queries = _research_query_overrides(
+                profile, learning_context
+            )
             queries = self.query_builder.build(
                 profile,
-                personalized_queries=_research_query_overrides(profile, learning_context),
+                personalized_queries=personalized_queries,
+                exploration_queries=exploration_queries,
             )
             if strategy == "from_now":
                 self.watermarks.skip_profile_to_now(profile, timestamp, queries)
@@ -616,12 +625,16 @@ class ResearchService:
             )
 
         profile, learning_context = self._profile_with_learning_context(profile)
+        personalized_queries, exploration_queries = _research_query_overrides(
+            profile, learning_context
+        )
         queries = self.query_builder.build(
             profile,
             lens_overrides,
             additional_queries,
             additional_query_lens,
-            personalized_queries=_research_query_overrides(profile, learning_context),
+            personalized_queries=personalized_queries,
+            exploration_queries=exploration_queries,
         )
         queries = tuple(
             sorted(queries, key=lambda query: _LENS_PRIORITY_ORDER[query.priority])
@@ -678,12 +691,20 @@ class ResearchService:
         errors: list[str] = []
         warnings: list[str] = []
         terminal_status: Optional[ResearchRunStatus] = None
+        selected_note_ids = [
+            item["id"]
+            for item in learning_context.get("included_sources", [])
+            if isinstance(item, dict)
+            and item.get("type") in {"paper-note", "learning-note", "course-note"}
+            and isinstance(item.get("id"), str)
+        ]
 
         try:
             terminal_status = self._run_search_streams(
                 run,
                 profile,
                 queries,
+                selected_note_ids,
                 now,
                 manual_range,
                 execution_resume_strategy,
@@ -743,6 +764,7 @@ class ResearchService:
         run: ResearchRunRecord,
         profile: ResearchProfile,
         queries: Sequence[ResearchQuery],
+        selected_note_ids: Sequence[str],
         now: datetime,
         manual_range: Optional[tuple[datetime, datetime]],
         resume_strategy: ResumeStrategy,
@@ -761,7 +783,12 @@ class ResearchService:
         streams = []
         stream_order = 0
         history_context = (
-            research_history_context(self.repository_root, profile, self.screening.sources)
+            research_history_context(
+                self.repository_root,
+                profile,
+                self.screening.sources,
+                selected_note_ids=selected_note_ids,
+            )
             if (run.trigger == "scheduled" or manual_incremental) and manual_range is None else None
         )
         anchor = history_context.anchor_year if history_context else None
@@ -1266,7 +1293,11 @@ class ResearchService:
             keywords=(candidate.query.text,),
         )
         analysis_hash = self.analysis_service.input_hash(
-            work, profile, candidate.lens, context_pack
+            work,
+            profile,
+            candidate.lens,
+            context_pack,
+            exploration_direction=candidate.query.exploration_direction,
         )
         analysis = self.work_repository.get_analysis(
             work.id, profile.id, analysis_hash
@@ -1297,6 +1328,7 @@ class ResearchService:
                     context_pack,
                     circuit_breaker=analysis_breaker,
                     on_attempt=record_analysis_attempt,
+                    exploration_direction=candidate.query.exploration_direction,
                 )
             except AIGatewayError as error:
                 errors.append("DeepSeek: {}".format(str(error)[:240]))
@@ -1310,7 +1342,10 @@ class ResearchService:
             return True, None
 
         generated = self.candidate_service.generate(
-            analysis, profile, candidate.lens
+            analysis,
+            profile,
+            candidate.lens,
+            exploration_direction=candidate.query.exploration_direction,
         )
         if generated.outcome == "inbox_full":
             errors.append("Inbox capacity reached before the candidate could be saved")
@@ -1318,6 +1353,11 @@ class ResearchService:
         if generated.outcome == "budget_reached":
             warnings.append("Daily recommendation exposure budget reached; analyzed Works remain saved for a later Run.")
             return False, "success"
+        if generated.outcome == "explore_budget_reached":
+            warnings.append(
+                "The daily foundational exploration recommendation was already used."
+            )
+            return True, None
         if generated.outcome in {"created", "existing"}:
             self._store_research_term_candidates(analysis, work, warnings)
         if generated.outcome == "created":
@@ -1519,70 +1559,317 @@ class ResearchService:
         return value.astimezone(timezone.utc)
 
 
-def _research_query_overrides(profile: ResearchProfile, context: dict) -> dict[str, str]:
-    preferences = context.get("preferences", {})
-    learning_excluded = {
-        " ".join(value.casefold().split())
-        for value in preferences.get("exclude_keywords", [])
-    }
-    terms = [preferences.get("fixed_direction", "")]
-    terms.extend(preferences.get("keywords", []))
-    terms.extend(preferences.get("important_anchors", []))
-    terms.extend(_learning_context_search_phrases(context.get("active", "")))
-    for topic in context.get("topics", []):
-        terms.append(topic.get("title", ""))
-        terms.extend(topic.get("aliases", []))
-        terms.extend(topic.get("keywords", []))
-    terms.extend(_learning_context_search_phrases(context.get("important", "")))
-    terms.extend(preferences.get("exploration_directions", []))
+_RESEARCH_QUERY_STOPWORDS = {
+    "a", "an", "and", "approach", "approaches", "basic", "basics",
+    "for", "from", "in", "introduction", "learning", "method", "methods",
+    "of", "on", "overview", "research", "the", "to", "with", "continual",
+}
+_MAX_PERSONALIZED_RESEARCH_QUERIES = 4
+_MAX_PERSONALIZED_QUERIES_PER_LENS = 2
 
-    personalized = {}
-    for lens in profile.lenses:
-        if not lens.enabled:
+
+def _research_query_overrides(
+    profile: ResearchProfile, context: dict
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Build short main-direction queries and a separate explicit exploration stream."""
+    preferences = context.get("preferences", {})
+    if not isinstance(preferences, dict):
+        preferences = {}
+    raw_topics = context.get("topics", [])
+    topics = (
+        [item for item in raw_topics if isinstance(item, dict)]
+        if isinstance(raw_topics, list)
+        else []
+    )
+    fixed_direction = _clean_research_phrase(preferences.get("fixed_direction", ""))
+    primary_direction = fixed_direction or next(
+        (
+            _clean_research_phrase(topic.get("title", ""))
+            for topic in topics
+            if _clean_research_phrase(topic.get("title", ""))
+        ),
+        profile.title,
+    )
+    preference_exclusions = [
+        value
+        for value in preferences.get("exclude_keywords", [])
+        if isinstance(value, str)
+    ]
+
+    candidates: list[tuple[str, str]] = []
+    seen_candidates = set()
+
+    def add_candidate(value, evidence=""):
+        phrase = _clean_research_phrase(value)
+        if not phrase:
+            return
+        key = normalize_query(phrase)
+        if key in seen_candidates:
+            return
+        seen_candidates.add(key)
+        candidates.append((phrase, evidence[:2000] if isinstance(evidence, str) else ""))
+
+    for value in _research_context_values(preferences.get("keywords"), 8):
+        add_candidate(value)
+    for heading, body in _learning_context_sections(context.get("active", "")):
+        add_candidate(heading, body)
+    for topic in topics[:3]:
+        topic_markdown = topic.get("markdown", "")
+        topic_body = "\n".join(
+            body for _heading, body in _learning_context_sections(topic_markdown)
+        )
+        for value in (
+            *_research_context_values(topic.get("aliases"), 12),
+            *_research_context_values(topic.get("keywords"), 12),
+        ):
+            add_candidate(value, topic_body)
+        for heading, body in _learning_context_sections(topic_markdown):
+            add_candidate(heading, body)
+    for value in _research_context_values(preferences.get("important_anchors"), 8):
+        add_candidate(value)
+    for heading, body in _learning_context_sections(context.get("important", "")):
+        add_candidate(heading, body)
+
+    enabled_lenses = [lens for lens in profile.lenses if lens.enabled]
+    profile_queries = {
+        lens.id: {normalize_query(query) for query in lens.queries}
+        for lens in enabled_lenses
+    }
+    personalized: dict[str, list[str]] = {}
+    for phrase, evidence in candidates:
+        scored = [
+            (score, lens, anchor)
+            for lens in enabled_lenses
+            for score, anchor in [_research_lens_match(lens, phrase, evidence)]
+            if score > 0
+        ]
+        if not scored:
             continue
-        excluded = learning_excluded | {
-            " ".join(value.casefold().split())
-            for value in (*profile.exclude_terms, *lens.exclude_terms)
-        }
-        selected = []
-        seen = set()
-        for raw in terms:
-            if not isinstance(raw, str):
-                continue
-            value = " ".join(raw.split())[:120]
-            normalized = " ".join(value.casefold().split())
+        best_score = max(item[0] for item in scored)
+        best = [item for item in scored if item[0] == best_score]
+        if len(best) != 1:
+            # Ambiguous concepts stay covered by the Profile's existing searches.
+            continue
+        _score, lens, anchor = best[0]
+        query = _compose_personalized_query(primary_direction, phrase, anchor)
+        if not query or _research_query_is_excluded(
+            query,
+            (*profile.exclude_terms, *lens.exclude_terms, *preference_exclusions),
+        ):
+            continue
+        normalized = normalize_query(query)
+        if normalized in profile_queries[lens.id]:
+            continue
+        selected = personalized.setdefault(lens.id, [])
+        if normalized in {normalize_query(item) for item in selected}:
+            continue
+        if len(selected) >= _MAX_PERSONALIZED_QUERIES_PER_LENS:
+            continue
+        if sum(len(items) for items in personalized.values()) >= _MAX_PERSONALIZED_RESEARCH_QUERIES:
+            break
+        selected.append(query)
+
+    exploration: dict[str, list[str]] = {}
+    exploration_directions = _research_context_values(
+        preferences.get("exploration_directions"), 8
+    )
+    if primary_direction and exploration_directions:
+        for raw_direction in exploration_directions:
+            direction = _clean_research_phrase(raw_direction)
             if (
-                not value
-                or normalized in seen
-                or any(keyword in normalized for keyword in excluded)
+                not direction
+                or normalize_query(direction) == normalize_query(primary_direction)
+                or _research_query_is_excluded(
+                    direction, (*profile.exclude_terms, *preference_exclusions)
+                )
             ):
                 continue
-            seen.add(normalized)
-            selected.append(value)
-            if len(selected) >= 8:
-                break
-        if selected:
-            personalized[lens.id] = " ".join(selected)[:500]
-    return personalized
-
-
-def _learning_context_search_phrases(markdown: str) -> list[str]:
-    phrases = []
-    for raw in markdown.splitlines():
-        value = " ".join(raw.split())
-        if not value or value.startswith("<!--") or value.startswith("---"):
-            continue
-        if value.startswith("### "):
-            value = value[4:].strip()
-        elif value.startswith("#"):
-            continue
-        elif len(value) > 2 and value[:2] in {"- ", "* ", "+ "}:
-            value = value[2:].strip()
-        if value:
-            phrases.append(value[:120])
-        if len(phrases) >= 4:
+            matches = []
+            for lens in enabled_lenses:
+                if _research_query_is_excluded(direction, lens.exclude_terms):
+                    continue
+                score = _research_exploration_lens_match(lens, direction)
+                if score > 0:
+                    matches.append((score, lens))
+            if not matches:
+                continue
+            best_score = max(item[0] for item in matches)
+            best = [item for item in matches if item[0] == best_score]
+            if len(best) != 1:
+                continue
+            lens = best[0][1]
+            query = _short_research_query(direction)
+            if not query or _research_query_is_excluded(
+                query, (*profile.exclude_terms, *lens.exclude_terms, *preference_exclusions)
+            ):
+                continue
+            if normalize_query(query) in profile_queries[lens.id]:
+                continue
+            exploration[lens.id] = [query]
             break
-    return phrases
+
+    return personalized, exploration
+
+
+def _learning_context_sections(markdown: str) -> list[tuple[str, str]]:
+    if not isinstance(markdown, str):
+        return []
+    sections = []
+    title = None
+    body = []
+    in_code = False
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("```", "~~~")):
+            in_code = not in_code
+            continue
+        if in_code or line.startswith("<!--"):
+            continue
+        match = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if match:
+            if title is not None:
+                sections.append((title, "\n".join(body).strip()))
+            title = match.group(2).strip() if len(match.group(1)) >= 3 else None
+            body = []
+        elif title is not None:
+            body.append(line)
+    if title is not None:
+        sections.append((title, "\n".join(body).strip()))
+    return [(heading, text) for heading, text in sections if heading]
+
+
+def _research_lens_match(lens, phrase: str, evidence: str) -> tuple[int, str]:
+    variants = [phrase]
+    variants.extend(
+        alias.strip()
+        for alias in re.findall(r"\(([^()]*)\)", phrase)
+        if alias.strip()
+    )
+    base = re.sub(r"\s*\([^()]*\)", " ", phrase).strip()
+    if base and base not in variants:
+        variants.append(base)
+    lens_phrases = [lens.title, *lens.queries, *lens.include_terms]
+    for variant in variants:
+        normalized = normalize_query(variant)
+        if not normalized:
+            continue
+        if any(_contains_query_phrase(normalize_query(item), normalized) for item in lens_phrases):
+            return 100 + len(_research_tokens(normalized)), ""
+
+    candidate_tokens = set(_research_tokens(phrase)) - _RESEARCH_QUERY_STOPWORDS
+    evidence_tokens = set(_research_tokens(evidence)) - _RESEARCH_QUERY_STOPWORDS
+    if len(candidate_tokens) < 2 and not evidence_tokens:
+        return 0, ""
+    best_score = 0
+    best_anchor = ""
+    for lens_phrase in lens_phrases:
+        phrase_tokens = _research_tokens(lens_phrase)
+        meaningful = set(phrase_tokens) - _RESEARCH_QUERY_STOPWORDS
+        direct = len(candidate_tokens & meaningful)
+        related = len(evidence_tokens & meaningful)
+        score = direct * 8 + related * 2
+        anchor = _research_anchor(lens_phrase, evidence_tokens)
+        if score > best_score or (
+            score == best_score
+            and len(_research_tokens(best_anchor)) < len(_research_tokens(anchor))
+        ):
+            best_score = score
+            best_anchor = anchor
+    return best_score, best_anchor
+
+
+def _research_exploration_lens_match(lens, direction: str) -> int:
+    direction_normalized = normalize_query(direction)
+    phrases = [lens.title, *lens.queries, *lens.include_terms]
+    if any(
+        _contains_query_phrase(normalize_query(phrase), direction_normalized)
+        for phrase in phrases
+    ):
+        return 100 + len(_research_tokens(direction))
+    direction_tokens = set(_research_tokens(direction)) - _RESEARCH_QUERY_STOPWORDS
+    return max(
+        (
+            len(direction_tokens & (set(_research_tokens(phrase)) - _RESEARCH_QUERY_STOPWORDS)) * 8
+            for phrase in phrases
+        ),
+        default=0,
+    )
+
+
+def _research_anchor(phrase: str, evidence_tokens: set[str]) -> str:
+    tokens = [
+        token
+        for token in _research_tokens(phrase)
+        if token not in _RESEARCH_QUERY_STOPWORDS
+    ]
+    if len(tokens) <= 2:
+        return " ".join(tokens)
+    for index, token in enumerate(tokens):
+        if token in evidence_tokens:
+            start = max(0, min(index, len(tokens) - 2) - 1)
+            return " ".join(tokens[start : start + 2])
+    return " ".join(tokens[:2])
+
+
+def _research_tokens(value: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+|[\u3400-\u9fff]+", normalize_query(value))
+
+
+def _research_context_values(value, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value[:limit] if isinstance(item, str)]
+
+
+def _contains_query_phrase(text: str, phrase: str) -> bool:
+    if not text or not phrase:
+        return False
+    return " {} ".format(phrase) in " {} ".format(text)
+
+
+def _compose_personalized_query(direction: str, phrase: str, anchor: str) -> str:
+    parts = []
+    for value in (
+        direction,
+        re.sub(r"\s*\([^()]*\)", " ", phrase).strip(),
+        anchor,
+    ):
+        cleaned = _clean_research_phrase(value)
+        if not cleaned:
+            continue
+        normalized = normalize_query(cleaned)
+        if any(
+            _contains_query_phrase(normalize_query(existing), normalized)
+            or _contains_query_phrase(normalized, normalize_query(existing))
+            for existing in parts
+        ):
+            continue
+        parts.append(cleaned)
+    return _short_research_query(" ".join(parts))
+
+
+def _clean_research_phrase(value) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())[:120]
+
+
+def _short_research_query(value: str) -> str:
+    words = value.split()
+    if len(words) > 8:
+        value = " ".join(words[:8])
+    if len(value) > 120:
+        value = value[:120].rsplit(" ", 1)[0]
+    return value.strip()
+
+
+def _research_query_is_excluded(value: str, excluded_terms: Sequence[str]) -> bool:
+    normalized = normalize_query(value)
+    return any(
+        _contains_query_phrase(normalized, normalize_query(term))
+        for term in excluded_terms
+        if isinstance(term, str) and normalize_query(term)
+    )
 
 
 def _effective_config(

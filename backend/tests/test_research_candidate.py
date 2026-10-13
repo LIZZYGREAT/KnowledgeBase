@@ -69,6 +69,84 @@ def test_stretch_budget_is_independent_of_total_exposure_budget():
     connection.close()
 
 
+def test_explore_basic_requires_its_explicit_query_and_has_one_daily_slot():
+    connection = connect_database(":memory:")
+    service = ResearchCandidateService(
+        ResearchCandidateRepository(connection), clock=_clock
+    )
+    profile = _profile()
+
+    def exploration_analysis(work_id, readiness="medium", missing=()):
+        analysis = _analysis(work_id)
+        return analysis.model_copy(
+            update={
+                "analysis": analysis.analysis.model_copy(
+                    update={
+                        "recommendation_level": "explore_basic",
+                        "readiness": readiness,
+                        "missing_prerequisites": list(missing),
+                    }
+                )
+            }
+        )
+
+    without_query = exploration_analysis("explore-no-query")
+    _persist_work_and_analysis(connection, _work(without_query.work_id), without_query)
+    assert service.generate(without_query, profile, profile.lenses[0]).outcome == "filtered"
+
+    wrong_level = _analysis("explore-wrong-level")
+    _persist_work_and_analysis(connection, _work(wrong_level.work_id), wrong_level)
+    assert service.generate(
+        wrong_level,
+        profile,
+        profile.lenses[0],
+        exploration_direction="Reinforcement Learning basics",
+    ).outcome == "filtered"
+
+    first = exploration_analysis("explore-first")
+    _persist_work_and_analysis(connection, _work(first.work_id), first)
+    created = service.generate(
+        first,
+        profile,
+        profile.lenses[0],
+        exploration_direction="Reinforcement Learning basics",
+    )
+    assert created.outcome == "created"
+    service.dismiss(created.candidate.id, "not_interested")
+
+    second = exploration_analysis("explore-second")
+    _persist_work_and_analysis(connection, _work(second.work_id), second)
+    assert service.generate(
+        second,
+        profile,
+        profile.lenses[0],
+        exploration_direction="Reinforcement Learning basics",
+    ).outcome == "explore_budget_reached"
+
+    difficult = exploration_analysis("explore-difficult", readiness="low")
+    _persist_work_and_analysis(connection, _work(difficult.work_id), difficult)
+    assert service.generate(
+        difficult,
+        profile,
+        profile.lenses[0],
+        exploration_direction="Reinforcement Learning basics",
+    ).outcome == "filtered"
+
+    incomplete = exploration_analysis(
+        "explore-prerequisite-gap", readiness="medium", missing=("Calculus",)
+    )
+    _persist_work_and_analysis(
+        connection, _work(incomplete.work_id), incomplete
+    )
+    assert service.generate(
+        incomplete,
+        profile,
+        profile.lenses[0],
+        exploration_direction="Reinforcement Learning basics",
+    ).outcome == "filtered"
+    connection.close()
+
+
 def test_duplicate_abstract_suppresses_exposure_but_distinct_contribution_remains():
     connection = connect_database(":memory:")
     service = ResearchCandidateService(ResearchCandidateRepository(connection), clock=_clock)

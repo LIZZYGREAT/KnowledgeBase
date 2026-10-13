@@ -19,7 +19,15 @@ from backend.app.repositories.research_candidate_repository import (
 
 @dataclass(frozen=True)
 class CandidateGenerationResult:
-    outcome: Literal["created", "existing", "filtered", "inbox_full", "budget_reached", "stretch_budget_reached"]
+    outcome: Literal[
+        "created",
+        "existing",
+        "filtered",
+        "inbox_full",
+        "budget_reached",
+        "stretch_budget_reached",
+        "explore_budget_reached",
+    ]
     candidate: Optional[ResearchCandidateRecord] = None
 
 
@@ -48,11 +56,16 @@ class ResearchCandidateService:
         analysis: ResearchWorkAnalysisRecord,
         profile: ResearchProfile,
         matched_lens: ResearchLens,
+        exploration_direction: Optional[str] = None,
     ) -> CandidateGenerationResult:
         with self.repository.transactions.write_transaction():
-            return self._generate(analysis, profile, matched_lens)
+            return self._generate(
+                analysis, profile, matched_lens, exploration_direction
+            )
 
-    def _generate(self, analysis, profile, matched_lens):
+    def _generate(
+        self, analysis, profile, matched_lens, exploration_direction=None
+    ):
         _validate_profile_analysis(profile, matched_lens, analysis)
         if analysis.outcome == "filtered":
             return CandidateGenerationResult("filtered")
@@ -65,6 +78,16 @@ class ResearchCandidateService:
         output = analysis.analysis
         if output.profile_relevance < profile.search.min_profile_relevance or output.novelty_to_library < profile.search.min_information_gain:
             return CandidateGenerationResult("filtered")
+        if exploration_direction and output.recommendation_level != "explore_basic":
+            return CandidateGenerationResult("filtered")
+        if output.recommendation_level == "explore_basic":
+            if not exploration_direction:
+                return CandidateGenerationResult("filtered")
+            if (
+                output.readiness not in {"high", "medium"}
+                or output.missing_prerequisites
+            ):
+                return CandidateGenerationResult("filtered")
         work_row = self.repository.connection.execute("SELECT abstract FROM research_works WHERE id=?", (analysis.work_id,)).fetchone()
         abstract = " ".join((work_row["abstract"] or "").casefold().split()) if work_row else ""
         if len(abstract) >= 200:
@@ -79,6 +102,11 @@ class ResearchCandidateService:
             return CandidateGenerationResult("budget_reached")
         if output.readiness == "low" and counts["stretch"] >= profile.search.max_stretch_per_day:
             return CandidateGenerationResult("stretch_budget_reached")
+        if (
+            output.recommendation_level == "explore_basic"
+            and counts["explore_basic"] >= 1
+        ):
+            return CandidateGenerationResult("explore_budget_reached")
         candidate = ResearchCandidateRecord(
             id=uuid.uuid4().hex,
             work_id=analysis.work_id,
@@ -105,12 +133,17 @@ class ResearchCandidateService:
         # Count exposures across all decisions so rejecting cards cannot refill today's budget.
         counts = self.repository.connection.execute(
             """SELECT COUNT(*) AS total,
-                      SUM(CASE WHEN json_extract(a.analysis_json, '$.readiness')='low' THEN 1 ELSE 0 END) AS stretch
+                      SUM(CASE WHEN json_extract(a.analysis_json, '$.readiness')='low' THEN 1 ELSE 0 END) AS stretch,
+                      SUM(CASE WHEN json_extract(a.analysis_json, '$.recommendation_level')='explore_basic' THEN 1 ELSE 0 END) AS explore_basic
                FROM research_candidates c JOIN research_work_analyses a ON a.id=c.analysis_id
                WHERE c.profile_id=? AND c.created_at >= ?""",
             (profile.id, now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()),
         ).fetchone()
-        return {"total": counts["total"], "stretch": counts["stretch"] or 0}
+        return {
+            "total": counts["total"],
+            "stretch": counts["stretch"] or 0,
+            "explore_basic": counts["explore_basic"] or 0,
+        }
 
     def shortlist(
         self, candidate_id: str, user_note: Optional[str] = None

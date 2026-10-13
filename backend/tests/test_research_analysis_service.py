@@ -63,8 +63,8 @@ def test_research_analysis_is_structured_cached_and_profile_scoped():
     assert first.analysis.why_relevant_zh == "这与正则化研究主题相符。"
     assert first.analysis.reading_reason_zh == "这可能有助于理解巩固方法。"
     assert first.analysis.existing_relations[0].reason_zh == "它扩展了置顶的 EWC 笔记。"
-    assert first.analysis_version == 9
-    assert first.prompt_version == "research-candidate-analysis-v9"
+    assert first.analysis_version == 10
+    assert first.prompt_version == "research-candidate-analysis-v10"
     assert [
         (relation.entity_type, relation.entity_id)
         for relation in first.analysis.existing_relations
@@ -183,6 +183,24 @@ def test_analysis_hash_uses_semantic_input_not_runtime_budgets_and_tracks_model(
     lens = profile.lenses[0]
     pack = _context_pack()
     original = service.input_hash(work, profile, lens, pack)
+    exploration_input = service.build_analysis_input(
+        work,
+        profile,
+        lens,
+        pack,
+        exploration_direction="Reinforcement Learning basics",
+    )
+    assert exploration_input["query_scope"] == {
+        "kind": "explicit_exploration",
+        "direction": "Reinforcement Learning basics",
+    }
+    assert service.input_hash(
+        work,
+        profile,
+        lens,
+        pack,
+        exploration_direction="Reinforcement Learning basics",
+    ) != original
 
     runtime_only_change = profile.model_copy(
         update={

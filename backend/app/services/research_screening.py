@@ -58,14 +58,7 @@ class ResearchScreeningService:
         if query.lens_id not in {lens.id for lens in profile.lenses}:
             raise ValueError("Research Query references an unknown Lens")
         lens = next(lens for lens in profile.lenses if lens.id == query.lens_id)
-        if (
-            query.priority != lens.priority
-            or query.lens_title != lens.title
-            or query.include_terms != tuple(lens.include_terms)
-            or query.exclude_terms != tuple(lens.exclude_terms)
-            or query.profile_exclude_terms != tuple(profile.exclude_terms)
-        ):
-            raise ValueError("Research Query Lens settings do not match the Profile")
+        _validate_query_lens_settings(profile, query, lens)
 
         start_at, end_at = validate_search_request("screen", search_slice.start_at, search_slice.end_at)
         now_utc = _as_utc(now, "now")
@@ -140,14 +133,7 @@ class ResearchScreeningService:
         if query.lens_id not in {lens.id for lens in profile.lenses}:
             raise ValueError("Research Query references an unknown Lens")
         lens = next(lens for lens in profile.lenses if lens.id == query.lens_id)
-        if (
-            query.priority != lens.priority
-            or query.lens_title != lens.title
-            or query.include_terms != tuple(lens.include_terms)
-            or query.exclude_terms != tuple(lens.exclude_terms)
-            or query.profile_exclude_terms != tuple(profile.exclude_terms)
-        ):
-            raise ValueError("Research Query Lens settings do not match the Profile")
+        _validate_query_lens_settings(profile, query, lens)
 
         searchable_text = normalize_title(
             "{} {}".format(work.title, work.abstract or "")
@@ -173,6 +159,25 @@ class ResearchScreeningService:
             metadata_warnings=tuple(dict.fromkeys(warnings)),
             pre_rank=None,
         )
+
+
+def _validate_query_lens_settings(profile, query, lens):
+    expected_include_terms = (
+        () if query.is_exploration else tuple(lens.include_terms)
+    )
+    if (
+        query.priority != lens.priority
+        or query.lens_title != lens.title
+        or query.include_terms != expected_include_terms
+        or query.exclude_terms != tuple(lens.exclude_terms)
+        or query.profile_exclude_terms != tuple(profile.exclude_terms)
+        or (query.is_exploration and not query.exploration_direction)
+        or (
+            not query.is_exploration
+            and query.exploration_direction is not None
+        )
+    ):
+        raise ValueError("Research Query Lens settings do not match the Profile")
 
 def _pre_rank(
     work: ResearchWorkRecord,

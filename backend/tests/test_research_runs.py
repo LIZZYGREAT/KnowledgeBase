@@ -75,8 +75,26 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
     profile = _profile()
     profile = profile.model_copy(
         update={
-            "search": profile.search.model_copy(update={"history_seed_year": 2017}),
             "ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False}),
+            "lenses": [
+                profile.lenses[0].model_copy(
+                    update={
+                        "queries": [
+                            "Elastic Weight Consolidation",
+                            "parameter importance continual learning",
+                        ]
+                    }
+                ),
+                profile.lenses[0].model_copy(
+                    update={
+                        "id": "replay",
+                        "title": "Replay",
+                        "priority": "medium",
+                        "queries": ["experience replay"],
+                        "include_terms": ["replay"],
+                    }
+                ),
+            ],
         }
     )
 
@@ -94,7 +112,12 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
                     "exploration_directions": ["Reinforcement Learning basics"],
                     "important_anchors": ["Fisher information"],
                 },
-                "active": "### Synaptic Intelligence\n\nThis method protects important weights from forgetting.",
+                "active": "### Elastic Weight Consolidation (EWC)\n"
+                "EWC uses Fisher information to estimate important parameters.\n\n"
+                "### Synaptic Intelligence\n"
+                "This method estimates parameter importance to reduce forgetting.\n\n"
+                "### iCaRL\n"
+                "iCaRL uses exemplar replay to preserve examples across tasks.",
                 "important": "Fisher information",
                 "topics": [
                     {
@@ -117,31 +140,154 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
             return super().search(query, start_at, end_at, cursor, limit)
 
     provider = QueryRecordingProvider()
-    service, _runs, _search, _client = _service(
+    service, _runs, search, _client = _service(
         tmp_path, connection, provider, profile=profile
+    )
+    selected_note = (
+        service.repository_root
+        / "knowledge"
+        / "documents"
+        / "learning"
+        / "ewc-note.md"
+    )
+    selected_note.parent.mkdir(parents=True, exist_ok=True)
+    selected_note.write_text(
+        "---\nschema_version: 1\nid: ewc-note\n"
+        "title: Selected EWC note\ntype: learning-note\n"
+        "domains: []\ntopics: []\ntags: []\nsources: []\n"
+        "review:\n  human:\n    status: unreviewed\n"
+        "maintenance:\n  status: current\n---\n"
+        "> Paper: Elastic Weight Consolidation, NeurIPS 2017\n\n"
+        "This selected note studies parameter importance and forgetting.\n",
+        encoding="utf-8",
     )
     service.learning_context_service = ContextReader()
     effective_profile, context = service._profile_with_learning_context(profile)
-    personalized = _research_query_overrides(effective_profile, context)
+    personalized, exploration = _research_query_overrides(effective_profile, context)
     planned = service.query_builder.build(
-        effective_profile, personalized_queries=personalized
+        effective_profile,
+        personalized_queries=personalized,
+        exploration_queries=exploration,
     )
 
     assert effective_profile.exclude_terms[-1] == "RLHF"
     assert profile.exclude_terms == []
-    assert [query.text for query in planned[:-1]] == list(profile.lenses[0].queries)
-    assert "Continual Learning" in planned[-1].text
-    assert "Synaptic Intelligence" in planned[-1].text
-    assert "RLHF" not in planned[-1].text
-    assert planned[-1].profile_exclude_terms[-1] == "RLHF"
+    profile_query_texts = {
+        text for lens in profile.lenses for text in lens.queries
+    }
+    assert profile_query_texts <= {query.text for query in planned}
+    personal_queries = [
+        query for query in planned if query.text not in profile_query_texts
+    ]
+    assert len(personal_queries) == 3
+    by_text = {query.text: query for query in personal_queries}
+    assert "Continual Learning Elastic Weight Consolidation" in by_text
+    assert "Continual Learning Synaptic Intelligence parameter importance" in by_text
+    assert "Continual Learning iCaRL experience replay" in by_text
+    assert by_text["Continual Learning Elastic Weight Consolidation"].lens_id == "regularization"
+    assert by_text["Continual Learning Synaptic Intelligence parameter importance"].lens_id == "regularization"
+    assert by_text["Continual Learning iCaRL experience replay"].lens_id == "replay"
+    assert all(len(query.text.split()) <= 8 for query in personal_queries)
+    assert all("Reinforcement Learning" not in query.text for query in planned)
+    assert all("RLHF" not in query.text for query in planned)
+    assert all("RLHF" in query.profile_exclude_terms for query in personal_queries)
+    assert not exploration
 
     run = service.run_profile(profile.id)
 
     assert run is not None and run.status == "success"
     requested_queries = {query for query, _start, _end in provider.requested}
-    assert set(profile.lenses[0].queries) <= requested_queries
-    assert planned[-1].text in requested_queries
-    assert any(start.year < _NOW.year for _query, start, _end in provider.requested)
+    assert profile_query_texts <= requested_queries
+    assert {query.text for query in personal_queries} <= requested_queries
+    personal_texts = {query.text for query in personal_queries}
+    assert any(
+        query in personal_texts and start.year <= 2015
+        for query, start, _end in provider.requested
+    )
+    personal_query = next(query for query in personal_queries if "Elastic Weight Consolidation" in query.text)
+    scope = search.history_scope(
+        profile.id,
+        personal_query.lens_id,
+        "arxiv",
+        "history:" + personal_query.query_key,
+    )
+    assert scope["approved_ids"] == []
+    assert any(start.year == 2015 for _query, start, _end in provider.requested)
+    connection.close()
+
+
+def test_explicit_exploration_reaches_provider_as_its_own_query(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile()
+    foundations = profile.lenses[0].model_copy(
+        update={
+            "id": "foundations",
+            "title": "Foundations",
+            "priority": "low",
+            "queries": ["reinforcement learning fundamentals"],
+            "include_terms": ["fisher information"],
+        }
+    )
+    profile = profile.model_copy(
+        update={
+            "lenses": [profile.lenses[0], foundations],
+            "ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False}),
+        }
+    )
+
+    class ContextReader:
+        def get_recommendation_context(self, focus):
+            return {
+                "included_source_count": 1,
+                "included_sources": [
+                    {"id": "learning-note", "title": "Selected note", "type": "learning-note"}
+                ],
+                "preferences": {
+                    "fixed_direction": "Continual Learning",
+                    "keywords": [],
+                    "exclude_keywords": [],
+                    "exploration_directions": ["Reinforcement Learning basics"],
+                    "important_anchors": [],
+                },
+                "active": "",
+                "important": "",
+                "topics": [],
+            }
+
+    class QueryRecordingProvider(FakeProvider):
+        def __init__(self):
+            super().__init__([], name="arxiv")
+            self.requested = []
+
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.requested.append(query)
+            return super().search(query, start_at, end_at, cursor, limit)
+
+    provider = QueryRecordingProvider()
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    service.learning_context_service = ContextReader()
+    effective_profile, context = service._profile_with_learning_context(profile)
+    personalized, exploration = _research_query_overrides(effective_profile, context)
+    assert personalized == {}
+    assert exploration == {"foundations": ["Reinforcement Learning basics"]}
+
+    planned = service.query_builder.build(
+        effective_profile,
+        personalized_queries=personalized,
+        exploration_queries=exploration,
+    )
+    exploration_query = next(query for query in planned if query.is_exploration)
+    assert exploration_query.text == "Reinforcement Learning basics"
+    assert exploration_query.include_terms == ()
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert "Reinforcement Learning basics" in provider.requested
+    assert "Continual Learning Reinforcement Learning basics" not in provider.requested
+    assert set(profile.lenses[0].queries) <= set(provider.requested)
     connection.close()
 
 
