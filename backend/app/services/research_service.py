@@ -341,6 +341,13 @@ class ResearchService:
 
     def tick(self) -> Optional[ResearchRunRecord]:
         """Run one queued manual request, otherwise one most-overdue scheduled Profile."""
+        return self._tick(manual_only=False)
+
+    def manual_tick(self) -> Optional[ResearchRunRecord]:
+        """Consume only the durable manual queue, using the shared pipeline and lock."""
+        return self._tick(manual_only=True)
+
+    def _tick(self, manual_only: bool) -> Optional[ResearchRunRecord]:
         if not self.global_lock.try_acquire():
             return None
         try:
@@ -377,6 +384,8 @@ class ResearchService:
                 self.run_request_repository.finish(request.id, status, self._now())
                 return run
 
+            if manual_only:
+                return None
             profile = self._most_overdue_profile(now)
             if profile is None:
                 return None

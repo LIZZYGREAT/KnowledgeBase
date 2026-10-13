@@ -1276,6 +1276,15 @@ export function queueResearchRun(profileId: string, body: QueueResearchRunInput)
   );
 }
 
+export interface ManualResearchRequest {
+  request: { id: string; status: "pending" | "claimed" | "completed" | "failed"; created_at: string; claimed_at: string | null };
+  run: ResearchRun | null;
+}
+
+export function listManualResearchRequests(profileId: string) {
+  return request<ManualResearchRequest[]>(`/api/research/profiles/${encodeURIComponent(profileId)}/requests`);
+}
+
 export function listResearchCandidates(filters: {
   profile_id?: string; status?: ResearchCandidateStatus; lens?: string; work_id?: string; sort?: ResearchSort; offset?: number; limit?: number;
 }) {

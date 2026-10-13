@@ -33,7 +33,7 @@ describe("Research workspace", () => {
     view.rerender(<ResearchProfilePanel summary={profileSummary} detail={{ ...profileDetail, profile: profile as ResearchProfile, history_anchor_year: null }} onRefresh={() => undefined} onQueued={() => undefined} onEditDefaults={edit} />);
     expect(screen.getByText(/缺少研究阶段锚点/)).toBeTruthy();
   });
-  it("prefills Search Now with the uncovered years after lowering the history seed", () => {
+  it("prefills 立即检索 with the uncovered years after lowering the history seed", () => {
     expect(historySeedBackfillRange(2017, 2012)).toEqual({ start: "2010-01-01", end: "2014-12-31" });
     expect(historySeedBackfillRange(2017, 2017)).toBeNull();
 
@@ -86,6 +86,7 @@ describe("Research workspace", () => {
     vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
     mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
+      if (path.endsWith("/requests")) return jsonResponse([]);
       if (path === "/api/collections?status=active") return jsonResponse([{ id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, node_count: 1, entity_count: 0, document_count: 0 }]);
       if (path === "/api/terms/fisher-information") return jsonResponse({ id: "fisher-information", title: "Fisher Information" });
       if (path === "/api/sources/published-paper") return jsonResponse({ id: "published-paper", title: "Published Paper" });
@@ -265,11 +266,11 @@ describe("Research workspace", () => {
 
   it("queues a manual run without executing it in the page request", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Search Now" }));
+    fireEvent.click(await screen.findByRole("button", { name: "立即检索" }));
     fireEvent.change(screen.getByLabelText(/额外检索词/), { target: { value: "dynamic fisher continual learning" } });
-    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始检索" }));
 
-    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
+    expect(await screen.findByText("检索请求已提交。")).toBeTruthy();
     expect(await screen.findByText("1 manual search queued")).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(call).toBeTruthy();
@@ -912,13 +913,13 @@ describe("Research workspace", () => {
     const expectedStart = start.toISOString();
     const expectedEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Search Now" }));
+    fireEvent.click(await screen.findByRole("button", { name: "立即检索" }));
     fireEvent.change(screen.getByLabelText("时间范围"), { target: { value: "custom" } });
     fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: startDate } });
     fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: endDate } });
-    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始检索" }));
 
-    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
+    expect(await screen.findByText("检索请求已提交。")).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(call).toBeTruthy();
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
@@ -935,15 +936,15 @@ describe("Research workspace", () => {
       },
     };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Search Now" }));
+    fireEvent.click(await screen.findByRole("button", { name: "立即检索" }));
     fireEvent.change(screen.getByLabelText(/额外检索词/), { target: { value: "replay distillation" } });
     fireEvent.click(screen.getByText("高级搜索选项"));
 
     expect(screen.getByLabelText("额外检索词应用到")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("从上次自动检索进度继续"));
     expect(screen.getByText("从自动检索尚未覆盖的位置继续查到现在。这次手动搜索不会改变自动检索的进度。")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
-    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "开始检索" }));
+    expect(await screen.findByText("检索请求已提交。")).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
       lenses: ["regularization", "replay"],
@@ -966,10 +967,10 @@ describe("Research workspace", () => {
     expect(await screen.findByText(
       "AI 分析已关闭。系统仍会收集论文，但不会向 DeepSeek 发送论文或知识库内容，也不会生成推荐候选。重新开启后，系统会逐步处理之前收集但尚未分析的论文。",
     )).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "立即检索" }).hasAttribute("disabled")).toBe(false);
   });
 
-  it("explains when all default Lenses are disabled but keeps temporary Search Now available", async () => {
+  it("explains when all default Lenses are disabled but keeps temporary 立即检索 available", async () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: {
@@ -982,8 +983,8 @@ describe("Research workspace", () => {
     expect(await screen.findByText(
       "No active default Focus · 自动发现当前不会执行",
     )).toBeTruthy();
-    expect(screen.getByText("Search Now 仍可临时选择 Research Focus。")).toBeTruthy();
-    const searchButton = screen.getByRole("button", { name: "Search Now" });
+    expect(screen.getByText("立即检索 仍可临时选择 Research Focus。")).toBeTruthy();
+    const searchButton = screen.getByRole("button", { name: "立即检索" });
     expect(searchButton.hasAttribute("disabled")).toBe(false);
     fireEvent.click(searchButton);
 
@@ -1005,9 +1006,9 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(await screen.findByText(
-      "Profile disabled · 启用 Profile 后才能运行 Search Now。",
+      "Profile disabled · 启用 Profile 后才能运行 立即检索。",
     )).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "立即检索" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("keeps manual search available while automatic research is paused", async () => {
@@ -1021,11 +1022,11 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(await screen.findByText(/自动检索已暂停至 .*。手动搜索仍可使用。/)).toBeTruthy();
-    const searchButton = screen.getByRole("button", { name: "Search Now" });
+    const searchButton = screen.getByRole("button", { name: "立即检索" });
     expect(searchButton.hasAttribute("disabled")).toBe(false);
     fireEvent.click(searchButton);
-    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
-    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "开始检索" }));
+    expect(await screen.findByText("检索请求已提交。")).toBeTruthy();
   });
 
   it("explains both resume policies and keeps advanced catch-up settings inline", () => {
@@ -1066,8 +1067,8 @@ describe("Research workspace", () => {
     />);
 
     expect(screen.queryByRole("button", { name: "Resume", exact: true })).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Resume Research" })).toHaveLength(1);
-    const resumeButton = screen.getByRole("button", { name: "Resume Research" });
+    expect(screen.getAllByRole("button", { name: "恢复自动检索" })).toHaveLength(1);
+    const resumeButton = screen.getByRole("button", { name: "恢复自动检索" });
     fireEvent.click(resumeButton);
     await waitFor(() => expect(mockFetch.mock.calls.filter(([input, init]) => String(input) === "/api/research/profiles/continual-learning/resume" && init?.method === "POST")).toHaveLength(1));
     const catchUpCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/resume" && init?.method === "POST");
@@ -1090,9 +1091,9 @@ describe("Research workspace", () => {
 
     expect(await screen.findByText("Inbox Full")).toBeTruthy();
     expect(screen.getByText("Inbox Full").parentElement?.textContent).toContain(
-      "Inbox Full · 处理候选后才能运行 Search Now。",
+      "Inbox Full · 处理候选后才能运行 立即检索。",
     );
-    expect(screen.getByRole("button", { name: "Search Now" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "立即检索" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("uses the local calendar date as the Pause date minimum", () => {
@@ -1105,7 +1106,7 @@ describe("Research workspace", () => {
       onQueued={() => undefined}
       onEditDefaults={() => undefined}
     />);
-    fireEvent.click(screen.getByRole("button", { name: "Pause automatic research" }));
+    fireEvent.click(screen.getByRole("button", { name: "暂停自动检索" }));
 
     const now = new Date();
     const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -1262,8 +1263,8 @@ describe("Research workspace", () => {
       expect((screen.getByLabelText("结束日期") as HTMLInputElement).value).toBe("2014-12-31");
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "加入搜索队列" }));
-    expect(await screen.findByText("搜索已加入队列。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "开始检索" }));
+    expect(await screen.findByText("检索请求已提交。")).toBeTruthy();
     const queuedCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     const localBoundary = (year: number, month: number, day: number) => {
       const boundary = new Date(0);
@@ -1278,13 +1279,13 @@ describe("Research workspace", () => {
     await waitFor(() => {
       expect(mockFetch.mock.calls.filter(([input, init]) => String(input) === "/api/research/profiles/continual-learning" && init?.method !== "POST").length).toBeGreaterThanOrEqual(3);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Search Now" }));
+    fireEvent.click(screen.getByRole("button", { name: "立即检索" }));
     fireEvent.change(screen.getByLabelText("时间范围"), { target: { value: "last_30_days" } });
     expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("last_30_days");
 
     fireEvent.change(screen.getByLabelText("Research Profile"), { target: { value: "other-profile" } });
     expect(await screen.findByRole("heading", { name: "Other Profile" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Search Now" }));
+    fireEvent.click(screen.getByRole("button", { name: "立即检索" }));
     expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("last_30_days");
     expect(screen.queryByLabelText("开始日期")).toBeNull();
   });
@@ -1340,7 +1341,7 @@ describe("Research workspace", () => {
     };
     responseProfileSummary = { ...profileSummary, enabled: false };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Edit Defaults" }));
+    fireEvent.click(await screen.findByRole("button", { name: "研究方向设置" }));
     fireEvent.click(await screen.findByLabelText("Enable Research Profile"));
     fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
 
@@ -1372,6 +1373,7 @@ describe("Research workspace", () => {
     const sourceDraft = { id: "source-draft-1", entity_type: "source", entity_id: "research-paper", content: "schema_version: 1\nid: research-paper\ntype: paper\ntitle: My preserved title\nauthors: [Ada]\nyear: 2017\n", revision: 3, base_git_revision: "abc", base_content_hash: "hash", created_at: "2026-10-01", updated_at: "2026-10-01" };
     mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
+      if (path.endsWith("/requests")) return jsonResponse([]);
       if (path.endsWith("/candidate-1/review")) return jsonResponse({ ...candidate, review_revision: 1 });
       if (path.endsWith("/candidate-1/save-source")) return jsonResponse({ action, draft_id: sourceDraft.id, source_id: sourceDraft.entity_id, candidate });
       if (path === "/api/drafts/source-draft-1") return jsonResponse(sourceDraft);

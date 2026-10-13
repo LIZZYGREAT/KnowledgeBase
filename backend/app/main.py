@@ -66,6 +66,7 @@ from backend.app.services.presentation_annotation_service import (
 )
 from backend.app.services.ui_summary_service import UiSummaryService
 from backend.app.middleware import install_api_timing
+from backend.app.services.manual_research_worker import ManualResearchWorker
 
 
 @asynccontextmanager
@@ -84,6 +85,7 @@ async def lifespan(application: FastAPI):
         database_path = repository_root / database_path
 
     connection = connect_database(database_path)
+    manual_worker = None
     try:
         git_manager = GitManager(repository_root)
         draft_service = DraftService(DraftRepository(connection))
@@ -206,8 +208,18 @@ async def lifespan(application: FastAPI):
             logging.getLogger(__name__).exception(
                 "Research conversion reconciliation failed during startup"
             )
+        manual_worker = ManualResearchWorker(
+            repository_root, database_path,
+            lambda: connection.execute(
+                "SELECT 1 FROM research_run_requests WHERE status IN ('pending', 'claimed') LIMIT 1"
+            ).fetchone() is not None,
+        )
+        application.state.manual_research_worker = manual_worker
+        manual_worker.start()
         yield
     finally:
+        if manual_worker is not None:
+            await manual_worker.stop()
         connection.close()
 
 

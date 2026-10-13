@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { Chip, formatDate } from "./ui";
 import { errorMessage } from "./errors";
+import { ResearchManualStatus } from "./ResearchManualStatus";
 
 function localDateInputValue(value: Date) {
   const year = value.getFullYear();
@@ -37,6 +38,8 @@ export function ResearchProfilePanel({
   onRefresh,
   onQueued,
   onEditDefaults,
+  onResults,
+  onRun,
   initialManualHistoryRange,
   onManualHistoryRangeOpened,
 }: {
@@ -45,6 +48,8 @@ export function ResearchProfilePanel({
   onRefresh: () => void;
   onQueued: () => void;
   onEditDefaults: () => void;
+  onResults?: () => void;
+  onRun?: (id: string) => void;
   initialManualHistoryRange?: { start: string; end: string } | null;
   onManualHistoryRangeOpened?: () => void;
 }) {
@@ -62,6 +67,7 @@ export function ResearchProfilePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [requestRefresh, setRequestRefresh] = useState(0);
   const [selectedLenses, setSelectedLenses] = useState<string[]>([]);
   const [additionalQueryLens, setAdditionalQueryLens] = useState("");
   const [breadth, setBreadth] = useState<ResearchBreadth>(profile.search.breadth);
@@ -216,6 +222,7 @@ export function ResearchProfilePanel({
     };
     try {
       await queueResearchRun(profile.id, input);
+      setRequestRefresh((value) => value + 1);
       onQueued();
       setSearchOpen(false);
     } catch (reason) {
@@ -235,6 +242,7 @@ export function ResearchProfilePanel({
   const capacityPercent = summary.inbox.capacity === 0 ? 100 : Math.min(100, summary.inbox.new_count / summary.inbox.capacity * 100);
 
   return <section className="surface research-profile-panel">
+    <ResearchManualStatus profileId={profile.id} refreshKey={requestRefresh} aiEnabled={profile.ai_analysis.enabled} onComplete={onRefresh} onResults={onResults} onRun={onRun} />
     <div className="research-profile-heading">
       <div>
         <div className="research-status-line">
@@ -250,16 +258,16 @@ export function ResearchProfilePanel({
         <small>{detail.latest_run ? `最近运行 ${formatDate(detail.latest_run.started_at)} · ${detail.latest_run.status}` : "尚无运行记录"}</small>
       </div>
       <div className="research-profile-actions">
-        <button className="button button-secondary" type="button" onClick={onEditDefaults}>Edit Defaults</button>
-        {!isPaused && <button className="button button-secondary" disabled={busy || !summary.enabled} onClick={() => setPauseOpen((open) => !open)}>Pause automatic research</button>}
-        <button className="button button-primary" disabled={!canSearch} onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "Close Search" : "Search Now"}</button>
+        <button className="button button-secondary" type="button" onClick={onEditDefaults}>研究方向设置</button>
+        {!isPaused && <button className="button button-secondary" disabled={busy || !summary.enabled} onClick={() => setPauseOpen((open) => !open)}>暂停自动检索</button>}
+        <button className="button button-primary" disabled={busy || !canSearch} onClick={() => setSearchOpen((open) => !open)}>{searchOpen ? "收起检索" : "立即检索"}</button>
       </div>
     </div>
 
-    {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 Search Now。</p>}
+    {!summary.enabled && <p className="research-search-block-note" role="status">Profile disabled · 启用 Profile 后才能运行 立即检索。</p>}
     {isPaused && <p className="research-search-block-note" role="status">自动检索已暂停至 {formatDate(pausedUntil)}。手动搜索仍可使用。</p>}
     {!profile.ai_analysis.enabled && <p className="research-search-block-note" role="status">AI 分析已关闭。系统仍会收集论文，但不会向 DeepSeek 发送论文或知识库内容，也不会生成推荐候选。重新开启后，系统会逐步处理之前收集但尚未分析的论文。</p>}
-    {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">Search Now 仍可临时选择 Research Focus。</p>}
+    {!hasActiveDefaultLens && <p className="research-search-block-note" role="status">立即检索 仍可临时选择 Research Focus。</p>}
 
     {isPaused && <section className="research-resume-bar" aria-labelledby="research-resume-heading">
       <h3 id="research-resume-heading">恢复 Research</h3>
@@ -271,12 +279,12 @@ export function ResearchProfilePanel({
       </div>
       <div className="research-resume-footer">
         {resumeStrategy === "catch_up" && <details className="research-advanced-settings research-resume-advanced"><summary>高级选项</summary><label className="field-label">自定义追赶天数<input aria-label="自定义追赶天数" type="number" min="1" max="3650" value={catchupDays} onChange={(event) => setCatchupDays(event.target.value)} /><span className="field-hint">留空时使用 Profile 配置的 {profile.search.max_catchup_days} 天。</span></label></details>}
-        <button className="button button-primary" disabled={busy} onClick={() => void resume()}>Resume Research</button>
+        <button className="button button-primary" disabled={busy} onClick={() => void resume()}>恢复自动检索</button>
       </div>
     </section>}
 
     {pauseOpen && <div className="research-pause-options">
-      <strong>Pause automatic research</strong>
+      <strong>暂停自动检索</strong>
       <div className="research-inline-actions">
         {[1, 3, 7].map((days) => <button className="button button-secondary" key={days} disabled={busy} onClick={() => void pause(days)}>{days} 天</button>)}
       </div>
@@ -286,7 +294,7 @@ export function ResearchProfilePanel({
     <div className="research-inbox-meter">
       <div className="research-meter-copy"><div><strong>Inbox</strong><span>{summary.inbox.new_count} / {summary.inbox.capacity}</span></div><small>{summary.inbox.remaining} 个新候选名额</small></div>
       <div className="research-meter-track" role="progressbar" aria-label="Inbox 使用量" aria-valuemin={0} aria-valuemax={summary.inbox.capacity} aria-valuenow={summary.inbox.new_count}><span style={{ width: `${capacityPercent}%` }} /></div>
-      {summary.inbox.remaining === 0 && profile.ai_analysis.enabled && <p className="research-capacity-note" role="status"><strong>Inbox Full</strong> · 处理候选后才能运行 Search Now。</p>}
+      {summary.inbox.remaining === 0 && profile.ai_analysis.enabled && <p className="research-capacity-note" role="status"><strong>Inbox Full</strong> · 处理候选后才能运行 立即检索。</p>}
     </div>
     {(summary.manual_queue.pending > 0 || summary.manual_queue.claimed > 0) && <p className="research-search-block-note" role="status">
       {summary.manual_queue.pending > 0 && `${summary.manual_queue.pending} manual ${summary.manual_queue.pending === 1 ? "search" : "searches"} queued`}
@@ -310,7 +318,7 @@ export function ResearchProfilePanel({
         {queries.split(/\r?\n/).some((query) => query.trim()) && selectedLenses.length > 1 && <label className="field-label">额外检索词应用到<select aria-label="额外检索词应用到" value={additionalQueryLens} onChange={(event) => setAdditionalQueryLens(event.target.value)}><option value="">自动选择优先级最高的 Research Focus</option>{profile.lenses.filter((lens) => selectedLenses.includes(lens.id)).map((lens) => <option key={lens.id} value={lens.id}>{lens.title} · {lens.priority}</option>)}</select><span className="field-hint">默认使用本次所选 Research Focus 中优先级最高的一项，并沿用该主题的筛选规则。</span></label>}
       </details>
       {error && <p className="error-copy" role="alert">{error}</p>}
-      <div className="research-search-footer"><span>搜索会在后台排队执行，完成后结果会出现在 Inbox。</span><button className="button button-primary" disabled={busy || !selectedLenses.length}>{busy ? "正在排队…" : "加入搜索队列"}</button></div>
+      <div className="research-search-footer"><span>搜索会在后台排队执行，完成后结果会出现在待看论文。</span><button className="button button-primary" disabled={busy || !selectedLenses.length}>{busy ? "正在提交…" : "开始检索"}</button></div>
     </form>}
     {error && !searchOpen && <p className="error-copy research-inline-error" role="alert">{error}</p>}
     {notice && <p className="notice research-inline-notice" role="status">{notice}</p>}

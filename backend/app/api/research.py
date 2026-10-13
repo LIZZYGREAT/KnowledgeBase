@@ -170,7 +170,34 @@ async def queue_manual_run(
             override["manual_range"] = [start.isoformat(), end.isoformat()]
 
     queued = service.queue_manual_run(profile_id, override)
+    worker = getattr(request.app.state, "manual_research_worker", None)
+    if worker is not None:
+        worker.notify()
     return {"request_id": queued.id, "status": queued.status}
+
+
+def _manual_request_view(service, record):
+    row = service.connection.execute(
+        "SELECT id FROM research_runs WHERE request_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
+        (record.id,),
+    ).fetchone()
+    return {"request": record, "run": service.run_repository.get(row["id"]) if row else None}
+
+
+@router.get("/requests/{request_id}")
+async def get_manual_request(request_id: str, request: Request):
+    service = request.app.state.research_service
+    record = service.run_request_repository.get(request_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="检索任务不存在")
+    return _manual_request_view(service, record)
+
+
+@router.get("/profiles/{profile_id}/requests")
+async def list_manual_requests(profile_id: str, request: Request):
+    service = request.app.state.research_service
+    _require_profile(service, profile_id)
+    return [_manual_request_view(service, record) for record in service.run_request_repository.list_for_profile(profile_id, limit=20)]
 
 
 @router.get("/runs", response_model=ResearchRunListView)

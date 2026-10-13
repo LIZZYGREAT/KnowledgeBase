@@ -117,6 +117,12 @@ def test_research_profile_controls_and_manual_search_api_are_runtime_only(tmp_pa
                 },
             )
             assert queued.status_code == 202, queued.json()
+            request_id = queued.json()["request_id"]
+            state = (await client.get("/api/research/requests/" + request_id)).json()
+            assert state["request"]["status"] == "pending" and state["run"] is None
+            assert (await client.get("/api/research/requests/missing")).status_code == 404
+            states = (await client.get("/api/research/profiles/continual-learning/requests")).json()
+            assert states[0]["request"]["id"] == request_id
             request = service.run_request_repository.get(queued.json()["request_id"])
             assert request is not None and request.status == "pending"
             assert request.override["breadth"] == "explore"

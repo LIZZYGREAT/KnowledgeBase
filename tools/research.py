@@ -60,6 +60,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     tick = commands.add_parser("tick", help="process one queued or due Research Run")
     _add_runtime_arguments(tick)
 
+    manual_tick = commands.add_parser("manual-tick", help="process only one queued manual request")
+    _add_runtime_arguments(manual_tick)
+
     run = commands.add_parser(
         "run", help="diagnostically run one Research Profile directly"
     )
@@ -87,7 +90,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return _status(root, _resolve_database(root, args.database))
     if args.command == "reconcile":
         return _reconcile(root, _resolve_database(root, args.database))
-    if args.command in {"tick", "run"}:
+    if args.command in {"tick", "manual-tick", "run"}:
         return _execute(root, _resolve_database(root, args.database), args)
     return 2
 
@@ -214,6 +217,13 @@ def _execute(root: Path, database_path: Path, args) -> int:
         connection = connect_database(database_path)
         components = build_research_components(root, connection)
         service = components.research_service
+        if args.command == "manual-tick":
+            run = service.manual_tick()
+            if run is None:
+                print("No available manual request (queue empty or lock busy).")
+                return 0
+            _print_run("Research manual tick", run)
+            return int(run.status in {"failed", "interrupted"})
         if args.command == "tick":
             run = service.tick()
             if run is not None:
