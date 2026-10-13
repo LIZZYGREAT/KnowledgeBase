@@ -1631,6 +1631,20 @@ def _research_query_overrides(
 
     for value in _research_context_values(preferences.get("keywords"), 8):
         add_candidate(value)
+    user_direction = context.get("user_direction", "")
+    if isinstance(user_direction, str) and user_direction.strip():
+        selected_evidence = "\n".join(
+            [context.get("active", ""), context.get("important", "")]
+            + [
+                item.get("markdown", "")
+                for item in topics
+                if isinstance(item.get("markdown", ""), str)
+            ]
+        )
+        for line in re.split(r"[\r\n]+|(?<=[。！？.!?])\s+", user_direction):
+            phrase = re.sub(r"^\s{0,3}(?:#{1,6}\s+|[-*+]\s+)", "", line).strip()
+            if phrase:
+                add_candidate(phrase, selected_evidence)
     for heading, body in _learning_context_sections(context.get("active", "")):
         add_candidate(heading, body)
     for topic in topics[:3]:

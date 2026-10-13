@@ -90,10 +90,23 @@ def _truncate_complete_markdown(markdown: str, max_chars: int) -> str:
     kept = []
     for unit in _complete_memory_units(markdown):
         if len(unit) > remaining:
-            break
+            continue
         kept.append(unit)
         remaining -= len(unit)
     return "".join(kept)
+
+
+def _manual_markdown(markdown: str) -> str:
+    """Return user-authored text outside auto-managed entry markers."""
+    from backend.app.services.learning_context_sync_entries import entry_blocks
+
+    parts = []
+    cursor = 0
+    for block in entry_blocks(markdown):
+        parts.append(markdown[cursor:block["start"]])
+        cursor = block["end"]
+    parts.append(markdown[cursor:])
+    return "\n\n".join(part.strip() for part in parts if part.strip())
 
 
 def _selected_memory(markdown: str, selected_source_ids: set[str]) -> str:
@@ -339,18 +352,26 @@ class LearningContextService:
         raw_active = _selected_memory(
             self._read_memory("active.md"), selected_source_ids
         )
+        user_direction = _manual_markdown(self._read_memory("active.md"))[:1000]
         raw_important = (
             _selected_memory(self._read_memory("important.md"), selected_source_ids)
             if include_important
             else ""
         )
-        topic_reserve = max_chars // 2 if selected_topics else 0
-        active = _truncate_complete_markdown(raw_active, max_chars - topic_reserve)
-        remaining = max(0, max_chars - len(active))
+        direction_budget = min(len(user_direction), max_chars // 8)
+        user_direction = user_direction[:direction_budget]
+        remaining_context_chars = max(0, max_chars - direction_budget)
+        topic_reserve = remaining_context_chars // 2 if selected_topics else 0
+        active = _truncate_complete_markdown(
+            raw_active, remaining_context_chars - topic_reserve
+        )
+        remaining = max(0, remaining_context_chars - len(active))
         important = _truncate_complete_markdown(
             raw_important, min(remaining, max_chars // 4)
         )
-        remaining = max(0, max_chars - len(active) - len(important))
+        remaining = max(
+            0, remaining_context_chars - len(active) - len(important)
+        )
         bounded_topics = []
         for topic in selected_topics:
             if remaining == 0:
@@ -367,6 +388,7 @@ class LearningContextService:
             "preferences": preferences,
             "active": active,
             "important": important,
+            "user_direction": user_direction,
             "topics": bounded_topics,
             "topic_index": topics,
         }
@@ -407,6 +429,7 @@ class LearningContextService:
             "preferences": bounded_preferences,
             "active": raw["active"],
             "important": raw["important"],
+            "user_direction": raw["user_direction"],
             "topics": [
                 {
                     "id": item["id"],
@@ -585,6 +608,12 @@ class LearningContextService:
             raise LearningContextError("index.yaml must contain a topics list")
         listed = []
         seen: set[str] = set()
+        active_topic_ids = index.get("active_topic_ids", [])
+        active_topic_ids = (
+            set(value for value in active_topic_ids if isinstance(value, str))
+            if isinstance(active_topic_ids, list)
+            else set()
+        )
         for item in index.get("topics", []):
             if not isinstance(item, dict):
                 continue
@@ -595,12 +624,17 @@ class LearningContextService:
             if topic_id in seen or not isinstance(title, str) or not title.strip():
                 continue
             seen.add(topic_id)
+            manual_status = item.get("manual_status")
             listed.append(
                 {
                     "id": topic_id,
                     "title": title.strip(),
                     "aliases": self._clean_text_list(item.get("aliases", []), "aliases"),
                     "keywords": self._clean_text_list(item.get("keywords", []), "keywords"),
+                    "is_active": topic_id in active_topic_ids,
+                    "manual_status": manual_status
+                    if manual_status in {"current", "history"}
+                    else None,
                 }
             )
         return listed
@@ -615,6 +649,66 @@ class LearningContextService:
                     "markdown": self._read_memory("topics/{}.md".format(topic_id)),
                 }
         raise LookupError("Learning topic '{}' does not exist".format(topic_id))
+
+    def set_topic_status(self, topic_id: str, status: str) -> dict[str, Any]:
+        if not isinstance(topic_id, str) or not _TOPIC_ID.fullmatch(topic_id):
+            raise LearningContextError("Invalid topic ID")
+        if status not in {"current", "history", "automatic"}:
+            raise LearningContextError("Topic status must be current, history, or automatic")
+
+        index = self._read_yaml("index.yaml", {"topics": []})
+        if not isinstance(index, dict) or not isinstance(index.get("topics", []), list):
+            raise LearningContextError("index.yaml must contain a topics list")
+        topics = [dict(item) for item in index["topics"] if isinstance(item, dict)]
+        topic = next((item for item in topics if item.get("id") == topic_id), None)
+        if topic is None:
+            raise LookupError("Learning topic '{}' does not exist".format(topic_id))
+
+        previous_manual_status = topic.get("manual_status")
+        if status == "automatic":
+            topic.pop("manual_status", None)
+        else:
+            topic["manual_status"] = status
+        active_ids = index.get("active_topic_ids", [])
+        active_ids = (
+            [value for value in active_ids if isinstance(value, str)]
+            if isinstance(active_ids, list)
+            else []
+        )
+        active_ids = [value for value in active_ids if value != topic_id]
+        if status == "current":
+            pinned_current_count = sum(
+                item.get("manual_status") == "current" for item in topics
+            )
+            if pinned_current_count > 3:
+                if previous_manual_status is None:
+                    topic.pop("manual_status", None)
+                else:
+                    topic["manual_status"] = previous_manual_status
+                raise LearningContextError("最多可固定 3 个当前方向")
+            active_ids.insert(0, topic_id)
+        elif status == "automatic":
+            active_ids.append(topic_id)
+        index["active_topic_ids"] = active_ids[:3]
+        index["topics"] = topics
+
+        from backend.app.services.learning_context_sync import LearningContextSync
+
+        sync = LearningContextSync(self)
+        memory_files = sync._read_memory_files()
+        sync._ensure_active_focus(
+            memory_files, self._read_sources(), index["active_topic_ids"]
+        )
+        updates = {
+            relative: content
+            for relative, content in memory_files.items()
+            if content != self._read_memory(relative)
+        }
+        updates["index.yaml"] = yaml.safe_dump(
+            index, allow_unicode=True, sort_keys=False
+        )
+        sync._commit_files(updates)
+        return self.read_topic(topic_id)
 
     def _selected_source_summaries(self) -> list[dict[str, str]]:
         selected = set(self._read_sources())
@@ -634,7 +728,7 @@ class LearningContextService:
                 *topic["aliases"],
                 *topic["keywords"],
             ]
-            topic_tokens = set(_tokens(" ".join(values)))
+            topic_tokens = set(_tokens(" ".join(values))) - {"learning"}
             overlap = len(tokens & topic_tokens)
             if overlap:
                 scored.append((-overlap, topic["id"], topic))

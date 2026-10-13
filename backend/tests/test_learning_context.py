@@ -252,7 +252,8 @@ def test_recommendation_context_is_bounded_and_tracks_only_selected_sources(tmp_
     context_root = tmp_path / "storage" / "learning-context"
     (context_root / "topics").mkdir(parents=True)
     (context_root / "active.md").write_text(
-        _memory_entry("current-focus", "active", "当前方向", "EWC 与持续学习。"),
+        "接下来比较 EWC 与 SI。\n\n"
+        + _memory_entry("current-focus", "active", "当前方向", "EWC 与持续学习。"),
         encoding="utf-8",
     )
     (context_root / "important.md").write_text(
@@ -283,10 +284,14 @@ def test_recommendation_context_is_bounded_and_tracks_only_selected_sources(tmp_
     assert result["preferences"]["exclude_keywords"] == ["RLHF"]
     assert result["active"]
     assert result["important"]
+    assert "接下来比较 EWC 与 SI" in result["user_direction"]
     assert [topic["id"] for topic in result["topics"]] == ["continual-learning"]
     assert len(result["active"]) <= 1200
     assert len(result["important"]) <= 1200
     assert len(result["topics"][0]["markdown"]) <= 1200
+    assert len(result["user_direction"]) + len(result["active"]) + len(result["important"]) + sum(
+        len(topic["markdown"]) for topic in result["topics"]
+    ) <= 1200
 
 
 def test_topic_ids_cannot_escape_context_storage(tmp_path):
@@ -510,6 +515,133 @@ def test_editing_one_entry_pins_only_that_entry_and_keeps_manual_notes(tmp_path)
     assert "Latest projection summary." in service.read_topic("continual-learning")["markdown"]
 
 
+def test_new_selected_topic_becomes_current_and_previous_topic_remains_searchable(tmp_path):
+    _sync_repo(tmp_path)
+    rl_note = _document(tmp_path, "rl-note", "Reinforcement Learning Introduction")
+    rl_note.write_text(
+        rl_note.read_text(encoding="utf-8")
+        + "\n## Policy Learning\n\nReinforcement learning optimizes policies from reward signals.\n",
+        encoding="utf-8",
+    )
+    rl_change = {
+        "outcome": "knowledge_changed",
+        "changes": [
+            {
+                "entry_id": "rl-policy-learning",
+                "action": "upsert",
+                "title": "策略学习",
+                "summary": "强化学习根据奖励信号优化策略。",
+                "layer": "topic",
+                "topic_id": "reinforcement-learning",
+                "topic_title": "强化学习",
+                "rationale": "来源章节解释了策略优化。",
+            }
+        ],
+    }
+    gateway = FakeLearningGateway(_topic_change(), rl_change)
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+
+    service.set_sources(["gem-note", "rl-note"])
+    result = service.sync()
+
+    index = service._read_yaml("index.yaml", {})
+    assert result["state"] == "synced"
+    assert index["active_topic_ids"] == ["reinforcement-learning"]
+    assert "强化学习" in service.get_overview()["active"]
+    assert "GEM" not in service.get_overview()["active"]
+    assert service.read_topic("continual-learning")["markdown"]
+    historical_context = service.get_context(focus="continual learning")
+    assert [item["id"] for item in historical_context["topics"]] == [
+        "continual-learning"
+    ]
+
+
+def test_manually_fixed_topic_stays_current_and_can_be_moved_to_history(tmp_path):
+    _sync_repo(tmp_path)
+    rl_note = _document(tmp_path, "rl-note", "Reinforcement Learning Introduction")
+    rl_note.write_text(
+        rl_note.read_text(encoding="utf-8")
+        + "\n## Policy Learning\n\nReinforcement learning optimizes policies from reward signals.\n",
+        encoding="utf-8",
+    )
+    rl_change = {
+        "outcome": "knowledge_changed",
+        "changes": [
+            {
+                "entry_id": "rl-policy-learning",
+                "action": "upsert",
+                "title": "策略学习",
+                "summary": "强化学习根据奖励信号优化策略。",
+                "layer": "topic",
+                "topic_id": "reinforcement-learning",
+                "topic_title": "强化学习",
+                "rationale": "来源章节解释了策略优化。",
+            }
+        ],
+    }
+    service = LearningContextService(
+        tmp_path, FakeLearningGateway(_topic_change(), rl_change)
+    )
+    service.set_sources(["gem-note"])
+    service.sync()
+    service.set_topic_status("continual-learning", "current")
+
+    service.set_sources(["gem-note", "rl-note"])
+    service.sync()
+
+    assert service._read_yaml("index.yaml", {})["active_topic_ids"] == [
+        "continual-learning",
+        "reinforcement-learning",
+    ]
+    assert "强化学习" in service.get_overview()["active"]
+    service.set_topic_status("continual-learning", "history")
+    assert service._read_yaml("index.yaml", {})["active_topic_ids"] == [
+        "reinforcement-learning"
+    ]
+    assert "强化学习" in service.get_overview()["active"]
+    assert service.list_topics()[0]["manual_status"] == "history"
+
+
+def test_manual_active_notes_are_search_intent_but_not_mastery(tmp_path):
+    _sync_repo(tmp_path)
+    service = LearningContextService(tmp_path)
+    service.set_sources(["gem-note"])
+    service._atomic_write(
+        "active.md",
+        "比较 EWC 与 SI，下一步希望了解 SI。\n\n"
+        + render_entry(
+            {
+                "entry_id": "ewc-knowledge",
+                "owner": "auto",
+                "source_headings": {"gem-note": ["Elastic Weight Consolidation"]},
+                "source_summaries": {"gem-note": "EWC constrains important gradients."},
+                "layer": "active",
+                "title": "EWC",
+                "summary": "EWC constrains important gradients.",
+            }
+        ),
+    )
+
+    context = service.get_recommendation_context("continual learning")
+
+    assert "比较 EWC 与 SI" in context["user_direction"]
+    assert "比较 EWC 与 SI" not in context["active"]
+    from backend.app.services.term_discovery_service import _covered_by_learning_context
+
+    assert not _covered_by_learning_context(
+        "SI",
+        {
+            "active": context["active"],
+            "important": context["important"],
+            "topics": context["topics"],
+            "covered_term_headings": [],
+            "user_direction": context["user_direction"],
+        },
+    )
+
+
 def test_unpublished_source_evidence_is_removed_and_legacy_shared_summary_is_flagged(tmp_path):
     _sync_repo(tmp_path)
     _document(tmp_path, "other-note", "Other Note")
@@ -568,6 +700,12 @@ def test_context_truncation_keeps_complete_paragraphs_and_entry_markers():
     assert bounded == "# Context\n\nA complete first paragraph.\n\n"
     assert "learning-context-entry" not in bounded
     assert "later paragraph" not in bounded
+
+
+def test_context_truncation_skips_an_oversize_early_entry_and_keeps_later_progress():
+    markdown = "An older oversized entry.\n\nRL\n"
+
+    assert _truncate_complete_markdown(markdown, 3) == "RL\n"
 
 
 def test_legacy_layer_freeze_migrates_to_entry_pins_on_next_sync(tmp_path):

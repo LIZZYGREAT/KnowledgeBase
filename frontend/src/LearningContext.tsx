@@ -8,6 +8,7 @@ import {
   syncLearningContext,
   setLearningContextPreferences,
   setLearningContextSources,
+  setLearningContextTopicStatus,
   type LearningContextOverview,
   type LearningContextPreferences,
   type LearningContextTopic,
@@ -227,6 +228,26 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     }
   }
 
+  async function changeTopicStatus(status: "current" | "history" | "automatic") {
+    if (!topicId) return;
+    setSaving(true);
+    setNotice("");
+    try {
+      await setLearningContextTopicStatus(topicId, status);
+      await refresh();
+      setNotice(status === "current"
+        ? "已将专题固定为当前方向。"
+        : status === "history"
+          ? "已将专题移至历史；内容仍可按需检索。"
+          : "已恢复专题的自动整理。"
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "更新专题状态失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function restoreAutomatic(entryId?: string, confirmSupport = false) {
     setSaving(true);
     setNotice("");
@@ -296,6 +317,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   const removedSourceEntries = memoryEntries.filter((entry) => entry.support_state === "source_removed");
   const sourceCount = includedIds.length;
   const topicLayers = overview.topics;
+  const selectedTopic = topicLayers.find((topic) => topic.id === topicId);
   const statusCopy = overview.status.message ?? (overview.status.state === "synced" ? "已同步" : "尚未同步");
 
   return (
@@ -384,7 +406,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
               <select value={selectedLayer} onChange={(event) => changeMemoryLayer(event.target.value as MemoryLayer)}>
                 <option value="active">当前关注</option>
                 <option value="important">重要知识</option>
-                {topicLayers.map((topic: LearningContextTopic) => <option value={`topic:${topic.id}`} key={topic.id}>历史专题：{topic.title}</option>)}
+                {topicLayers.map((topic: LearningContextTopic) => <option value={`topic:${topic.id}`} key={topic.id}>{topic.is_active ? "当前专题" : "历史专题"}：{topic.title}</option>)}
               </select>
             </label>
             <span className={`chip ${restorableEntries.length || reviewEntries.length || removedSourceEntries.length ? "chip-amber" : "chip-green"}`}>
@@ -397,8 +419,15 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                   : "自动同步"}
             </span>
           </div>
+          {selectedTopic && (
+            <div className="learning-topic-actions" aria-label="专题方向管理">
+              {!selectedTopic.is_active && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryDirty} onClick={() => void changeTopicStatus("current")}>设为当前方向</button>}
+              {selectedTopic.is_active && selectedTopic.manual_status !== "history" && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryDirty} onClick={() => void changeTopicStatus("history")}>移至历史</button>}
+              {selectedTopic.manual_status === "current" || selectedTopic.manual_status === "history" ? <button className="text-button" type="button" disabled={saving || syncing || memoryDirty} onClick={() => void changeTopicStatus("automatic")}>恢复自动整理</button> : selectedTopic.is_active ? <button className="text-button" type="button" disabled={saving || syncing || memoryDirty} onClick={() => void changeTopicStatus("current")}>固定为当前方向</button> : null}
+            </div>
+          )}
           <p className="learning-memory-preservation">
-            自动同步只更新带有自动条目标记的内容；其余 Markdown 仅作为页面内手动说明保留，不作为掌握证据。
+            当前关注里的手写说明会补充搜索方向，但不会作为已掌握知识；重要知识与历史专题中的手写说明只作为个人备注。自动同步只更新带有自动条目标记的内容。
           </p>
           {memoryEntries.length > 0 && (
             <div className="learning-memory-entry-list" aria-label="人工条目状态">

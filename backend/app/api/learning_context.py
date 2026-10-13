@@ -1,7 +1,7 @@
 """User-managed Learning Context API."""
 
 import asyncio
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
@@ -25,6 +25,10 @@ class PreferencesRequest(LearningContextRequest):
 
 class MemoryRequest(LearningContextRequest):
     markdown: StrictStr
+
+
+class TopicStatusRequest(LearningContextRequest):
+    status: Literal["current", "history", "automatic"]
 
 
 class SyncRequest(LearningContextRequest):
@@ -79,6 +83,15 @@ async def list_learning_topics(request: Request):
 @router.get("/topics/{topic_id}")
 async def get_learning_topic(topic_id: str, request: Request):
     return request.app.state.learning_context_service.read_topic(topic_id)
+
+
+@router.put("/topics/{topic_id}/status")
+async def set_learning_topic_status(
+    topic_id: str, body: TopicStatusRequest, request: Request
+):
+    return request.app.state.learning_context_service.set_topic_status(
+        topic_id, body.status
+    )
 
 
 @router.put("/topics/{topic_id}")

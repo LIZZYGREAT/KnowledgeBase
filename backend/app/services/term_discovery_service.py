@@ -149,9 +149,19 @@ class TermDiscoveryService:
             raise LookupError("Term Discovery Run '{}' does not exist".format(run_id))
         return run
 
-    def run(self, trigger: str = "manual") -> TermDiscoveryRun:
+    def run(
+        self, trigger: str = "manual", discovery_mode: Optional[str] = None
+    ) -> TermDiscoveryRun:
         if trigger not in {"manual", "scheduled"}:
             raise ValueError("Term Discovery trigger must be manual or scheduled")
+        if discovery_mode is None:
+            discovery_mode = (
+                "general"
+                if trigger == "scheduled" or self.learning_context is None
+                else "personalized"
+            )
+        if discovery_mode not in {"personalized", "general"}:
+            raise ValueError("Term Discovery mode must be personalized or general")
         started_at = self._now()
         run_id = uuid.uuid4().hex
         if not self._lock.try_acquire():
@@ -167,9 +177,10 @@ class TermDiscoveryService:
                 0,
                 [],
                 "Another Term Discovery Run is already active",
+                discovery_mode,
             )
         try:
-            return self._run_locked(trigger, started_at, run_id)
+            return self._run_locked(trigger, started_at, run_id, discovery_mode)
         except Exception as error:
             return self._finish_run(
                 run_id,
@@ -183,6 +194,7 @@ class TermDiscoveryService:
                 0,
                 [],
                 str(error)[:500],
+                discovery_mode,
             )
         finally:
             self._lock.release()
@@ -248,7 +260,7 @@ class TermDiscoveryService:
                     focus_snapshot,
                     focus_hash,
                     registry,
-                    _selected_document_scope(learning_context),
+                    _selected_document_scope(learning_context, "general"),
                 )
             )
         has_external = False
@@ -262,10 +274,12 @@ class TermDiscoveryService:
             ) and state.open_count < GLOBAL_OPEN_CAPACITY
         if not has_pdf and not has_note and not has_external:
             return None
-        return self.run(trigger="scheduled")
+        # Enabling the scheduled discovery worker is the explicit opt-in for
+        # broad library discovery. Manual runs default to selected learning notes.
+        return self.run(trigger="scheduled", discovery_mode="general")
 
     def _run_locked(
-        self, trigger: str, started_at: str, run_id: str
+        self, trigger: str, started_at: str, run_id: str, discovery_mode: str
     ) -> TermDiscoveryRun:
         settings = self.repository.get_settings()
         open_count = self.repository.open_candidate_count()
@@ -288,6 +302,7 @@ class TermDiscoveryService:
                 0,
                 [],
                 None,
+                discovery_mode,
             )
         if not enabled_lanes:
             return self._finish_run(
@@ -302,6 +317,7 @@ class TermDiscoveryService:
                 0,
                 [],
                 None,
+                discovery_mode,
             )
 
         open_by_lane = self.repository.open_candidate_count_by_lane()
@@ -327,6 +343,7 @@ class TermDiscoveryService:
                 0,
                 [],
                 None,
+                discovery_mode,
             )
 
         allocated_budgets = dict(budgets)
@@ -346,10 +363,14 @@ class TermDiscoveryService:
         explicit_focus = _term_focus_seed(
             base_focus,
             preferences,
-            [item["title"] for item in learning_context["topics"]],
+            [
+                *(item["title"] for item in learning_context["topics"]),
+                learning_context["user_direction"],
+            ],
             settings.focus_override,
         )
         snapshot = self.knowledge_state.build_snapshot(explicit_focus)
+        snapshot["discovery_mode"] = discovery_mode
         focus = _discovery_focus(explicit_focus, snapshot, settings.focus_override)
         learning_context["current_focus"] = focus[:20]
         snapshot["effective_focus"] = focus[:20]
@@ -371,15 +392,19 @@ class TermDiscoveryService:
         source_registry = SourceRegistry.load(
             self.repository_root / "knowledge" / "sources"
         )
-        sources = _select_sources(
-            source_registry,
-            settings.source_preferences,
-            focus,
-            self.repository_root,
-            self.repository,
-            self.pdf_corpus_service,
-            enabled_lanes,
-            focus_hash,
+        sources = (
+            _select_sources(
+                source_registry,
+                settings.source_preferences,
+                focus,
+                self.repository_root,
+                self.repository,
+                self.pdf_corpus_service,
+                enabled_lanes,
+                focus_hash,
+            )
+            if discovery_mode == "general"
+            else []
         )
         documents = _select_documents(
             self.repository_root,
@@ -389,7 +414,7 @@ class TermDiscoveryService:
             snapshot,
             focus_hash,
             registry,
-            _selected_document_scope(learning_context),
+            _selected_document_scope(learning_context, discovery_mode),
         )
         self.repository.retain_vocabulary_sources(
             {
@@ -482,7 +507,8 @@ class TermDiscoveryService:
         )
         external_query = _external_query(focus)
         if (
-            settings.external_enabled
+            discovery_mode == "general"
+            and settings.external_enabled
             and external_lanes
             and external_query
             and self.repository.open_candidate_count() < GLOBAL_OPEN_CAPACITY
@@ -548,6 +574,7 @@ class TermDiscoveryService:
             created_count,
             items,
             "; ".join(errors[:6]) or None,
+            discovery_mode,
         )
 
     def _process_additional_corpora(
@@ -912,6 +939,7 @@ class TermDiscoveryService:
                 "preferences": preferences,
                 "active": "",
                 "important": "",
+                "user_direction": "",
                 "topics": [],
             }
         else:
@@ -939,6 +967,7 @@ class TermDiscoveryService:
             ),
             "active": raw.get("active", "")[:MAX_TERM_LEARNING_CONTEXT_CHARS],
             "important": raw.get("important", "")[:MAX_TERM_LEARNING_CONTEXT_CHARS],
+            "user_direction": raw.get("user_direction", "")[:1000],
             "topics": [
                 {
                     "id": item["id"],
@@ -985,7 +1014,10 @@ class TermDiscoveryService:
         candidate_count,
         items,
         error_summary,
+        discovery_mode="general",
     ) -> TermDiscoveryRun:
+        snapshot = dict(snapshot) if isinstance(snapshot, dict) else {}
+        snapshot.setdefault("discovery_mode", discovery_mode)
         run = TermDiscoveryRun(
             id=run_id,
             trigger=trigger,
@@ -1295,16 +1327,20 @@ def _learning_context_body_text(markdown: str) -> str:
     return "\n".join(lines)
 
 
-def _selected_document_scope(learning_context: dict) -> Optional[set[str]]:
+def _selected_document_scope(
+    learning_context: dict, discovery_mode: str = "personalized"
+) -> Optional[set[str]]:
+    if discovery_mode == "general":
+        return None
     selected_source_ids = learning_context.get("selected_source_ids")
     if not isinstance(selected_source_ids, list):
-        return None
+        return set()
     selected = {
         source_id
         for source_id in selected_source_ids
         if isinstance(source_id, str) and source_id.strip()
     }
-    return selected or None
+    return selected
 
 
 def _discovery_focus(

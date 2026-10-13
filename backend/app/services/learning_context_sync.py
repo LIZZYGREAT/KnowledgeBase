@@ -196,6 +196,7 @@ class LearningContextSync:
 
         pending_baselines: dict[str, dict[str, Any]] = {}
         source_results: list[dict[str, Any]] = []
+        progressed_topic_ids: list[str] = []
         analyzed_count = 0
         skipped_count = 0
         try:
@@ -265,6 +266,7 @@ class LearningContextSync:
                             allowed_entry_ids,
                             source_heading_updates,
                             source_summary_updates,
+                            progressed_topic_ids,
                         )
                 outcome = (
                     "knowledge_changed"
@@ -310,10 +312,10 @@ class LearningContextSync:
                 self._remove_source(memory_files, removed_id)
                 baselines.pop(removed_id, None)
 
-            self._ensure_active_focus(
-                memory_files,
-                selected,
+            topic_index, active_topic_ids = self._updated_topic_index(
+                memory_files, progressed_topic_ids
             )
+            self._ensure_active_focus(memory_files, selected, active_topic_ids)
 
             baselines.update(pending_baselines)
             updates = {
@@ -343,7 +345,6 @@ class LearningContextSync:
                 }
             )
             state_after.pop("last_error_type", None)
-            topic_index = self._updated_topic_index(memory_files)
             if topic_index is not None:
                 updates["index.yaml"] = topic_index
             if self.service._read_sources() != selected:
@@ -539,6 +540,7 @@ class LearningContextSync:
         allowed_entry_ids,
         source_heading_updates,
         source_summary_updates,
+        progressed_topic_ids=None,
     ):
         suppressed_ids = {
             item.get("entry_id")
@@ -585,6 +587,14 @@ class LearningContextSync:
                 continue
 
             relative = _layer_path(change["layer"], change.get("topic_id"))
+            topic_id = change.get("topic_id")
+            if (
+                change["layer"] == "topic"
+                and isinstance(topic_id, str)
+                and isinstance(progressed_topic_ids, list)
+                and topic_id not in progressed_topic_ids
+            ):
+                progressed_topic_ids.append(topic_id)
             if entry_id in suppressed_ids:
                 continue
             if existing and existing["metadata"].get("pinned"):
@@ -811,7 +821,7 @@ class LearningContextSync:
                 check=False,
             )
 
-    def _ensure_active_focus(self, memory_files, selected_ids):
+    def _ensure_active_focus(self, memory_files, selected_ids, active_topic_ids=None):
         supported = []
         selected = set(selected_ids)
         for relative, content in sorted(memory_files.items()):
@@ -849,23 +859,44 @@ class LearningContextSync:
             return
 
         topics = {}
-        source_headings = {}
         for metadata, sources in supported:
             topic_id = metadata.get("topic_id")
             title = metadata.get("topic_title")
             if not isinstance(topic_id, str) or not isinstance(title, str):
                 continue
-            topic = topics.setdefault(topic_id, {"title": title, "entries": []})
+            topic = topics.setdefault(
+                topic_id, {"title": title, "entries": [], "source_headings": {}}
+            )
             topic["entries"].append(metadata.get("title", ""))
             for source_id, headings in sources.items():
-                current = source_headings.setdefault(source_id, [])
+                current = topic["source_headings"].setdefault(source_id, [])
                 current.extend(headings if isinstance(headings, list) else [])
         if not topics:
             return
 
+        selected_topic_ids = (
+            list(active_topic_ids)
+            if isinstance(active_topic_ids, list)
+            else list(topics)
+        )
+        topics = {
+            topic_id: topics[topic_id]
+            for topic_id in selected_topic_ids
+            if topic_id in topics
+        }
+        if not topics:
+            if active_entries and not active_entries[0]["metadata"].get("pinned"):
+                _remove_entry(memory_files, "active.md", "current-learning-focus")
+            return
+
+        source_headings = {}
+        for topic in topics.values():
+            for source_id, headings in topic["source_headings"].items():
+                source_headings.setdefault(source_id, []).extend(headings)
+
         topic_labels = []
         details = []
-        for topic_id in sorted(topics):
+        for topic_id in topics:
             topic = topics[topic_id]
             topic_labels.append(topic["title"])
             entries = list(dict.fromkeys(item for item in topic["entries"] if item))
@@ -891,14 +922,16 @@ class LearningContextSync:
         else:
             _append_entry(memory_files, "active.md", rendered)
 
-    def _updated_topic_index(self, memory_files):
+    def _updated_topic_index(self, memory_files, progressed_topic_ids=None):
         try:
             index = self.service._read_yaml("index.yaml", {"topics": []})
             if not isinstance(index, dict) or not isinstance(index.get("topics", []), list):
                 raise LearningContextError("index.yaml must contain a topics list")
+            original_index = deepcopy(index)
             topics = [dict(item) for item in index.get("topics", []) if isinstance(item, dict)]
             by_id = {item.get("id"): item for item in topics if isinstance(item.get("id"), str)}
             discovered = {}
+            selected_ids = set(self.service._read_sources())
             source_titles = {
                 item["id"]: item["title"]
                 for item in self.service._selected_source_summaries()
@@ -911,7 +944,15 @@ class LearningContextSync:
                     metadata = block["metadata"]
                     topic_id = metadata.get("topic_id")
                     topic_title = metadata.get("topic_title")
-                    if metadata.get("layer") == "topic" and topic_id == topic_file_id and topic_title:
+                    source_headings = metadata.get("source_headings", {})
+                    if (
+                        metadata.get("layer") == "topic"
+                        and topic_id == topic_file_id
+                        and isinstance(topic_title, str)
+                        and metadata.get("support_state") not in {"needs_review", "source_removed"}
+                        and isinstance(source_headings, dict)
+                        and set(source_headings) & selected_ids
+                    ):
                         item = discovered.setdefault(
                             topic_id,
                             {"title": topic_title, "aliases": [], "keywords": []},
@@ -919,17 +960,18 @@ class LearningContextSync:
                         item["aliases"].append(metadata.get("title", ""))
                         item["keywords"].extend(
                             heading
-                            for values in metadata.get("source_headings", {}).values()
+                            for source_id, values in source_headings.items()
+                            if source_id in selected_ids
                             if isinstance(values, list)
                             for heading in values
                             if isinstance(heading, str)
                         )
                         item["keywords"].extend(
                             source_titles[source_id]
-                            for source_id in metadata.get("source_headings", {})
+                            for source_id in source_headings
+                            if source_id in selected_ids
                             if source_id in source_titles
                         )
-            changed = False
             for topic_id, derived in discovered.items():
                 topic = by_id.get(topic_id)
                 if topic is None:
@@ -941,7 +983,7 @@ class LearningContextSync:
                     }
                     topics.append(topic)
                     by_id[topic_id] = topic
-                    changed = True
+                topic["title"] = derived["title"]
                 aliases = _merge_index_values(
                     topic.get("aliases", []),
                     [topic_id.replace("-", " "), *_TOPIC_BILINGUAL_NAMES.get(topic_id, ())],
@@ -959,13 +1001,74 @@ class LearningContextSync:
                 if topic.get("aliases") != aliases or topic.get("keywords") != keywords:
                     topic["aliases"] = aliases
                     topic["keywords"] = keywords
-                    changed = True
-            if not changed:
-                return None
+
+            old_active = index.get("active_topic_ids", [])
+            old_active = (
+                [topic_id for topic_id in old_active if isinstance(topic_id, str)]
+                if isinstance(old_active, list)
+                else []
+            )
+            if not old_active:
+                old_active = self._legacy_active_topic_ids(memory_files, discovered)
+            progressed = []
+            for topic_id in progressed_topic_ids or []:
+                if (
+                    isinstance(topic_id, str)
+                    and topic_id in discovered
+                    and topic_id not in progressed
+                ):
+                    progressed.append(topic_id)
+            manually_current = [
+                topic["id"]
+                for topic in topics
+                if topic.get("manual_status") == "current"
+                and topic.get("id") in discovered
+            ]
+            if progressed:
+                active_candidates = [*manually_current, *progressed]
+            else:
+                active_candidates = [*manually_current, *old_active]
+            active_topic_ids = []
+            for topic_id in active_candidates:
+                topic = by_id.get(topic_id)
+                if (
+                    topic_id not in discovered
+                    or topic is None
+                    or topic.get("manual_status") == "history"
+                    or topic_id in active_topic_ids
+                ):
+                    continue
+                active_topic_ids.append(topic_id)
+                if len(active_topic_ids) >= 3:
+                    break
+            index["active_topic_ids"] = active_topic_ids
             index["topics"] = topics
-            return yaml.safe_dump(index, allow_unicode=True, sort_keys=False)
+            rendered = yaml.safe_dump(index, allow_unicode=True, sort_keys=False)
+            original_rendered = yaml.safe_dump(
+                original_index, allow_unicode=True, sort_keys=False
+            )
+            return (rendered if rendered != original_rendered else None), active_topic_ids
         except Exception as error:
             raise LearningContextError("Could not update the learning topic index") from error
+
+    @staticmethod
+    def _legacy_active_topic_ids(memory_files, discovered):
+        active = memory_files.get("active.md", "")
+        focus = next(
+            (
+                block["metadata"].get("title", "")
+                for block in _entry_blocks(active)
+                if block["metadata"].get("entry_id") == "current-learning-focus"
+            ),
+            "",
+        )
+        focus = focus.removeprefix("当前关注：")
+        names = [item.strip() for item in re.split(r"[、,，]", focus) if item.strip()]
+        by_title = {
+            values["title"].casefold(): topic_id for topic_id, values in discovered.items()
+        }
+        matched = [by_title[name.casefold()] for name in names if name.casefold() in by_title]
+        return matched or list(discovered)
 
     def _commit_files(self, updates):
         previous = {}

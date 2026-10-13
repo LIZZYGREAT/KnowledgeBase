@@ -60,7 +60,7 @@ describe("发现术语 panel", () => {
     render(<TermDiscoveryPanel />);
     await screen.findByRole("heading", { name: "发现术语" });
     expect(screen.getByText("高级设置").closest("details")?.open).toBe(false);
-    await userEvent.click(screen.getByRole("button", { name: "立即发现" }));
+    await userEvent.click(screen.getByRole("button", { name: "按学习进度发现" }));
     expect((await screen.findByRole("status")).textContent).toContain("发现失败");
   });
 
@@ -70,11 +70,20 @@ describe("发现术语 panel", () => {
 
     expect(await screen.findByRole("heading", { name: "发现术语" })).not.toBeNull();
     expect(screen.getByText("2 / 12")).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "立即发现" }));
+    await user.click(screen.getByRole("button", { name: "按学习进度发现" }));
 
-    await waitFor(() => expect(api.runTermDiscovery).toHaveBeenCalledWith());
+    await waitFor(() => expect(api.runTermDiscovery).toHaveBeenCalledWith("personalized"));
     const status = await screen.findByRole("status");
     expect(status.textContent).toContain("新增 2 个待处理术语");
+  });
+
+  it("requires an explicit selection for general full-library discovery", async () => {
+    const user = userEvent.setup();
+    render(<TermDiscoveryPanel />);
+
+    await user.click(await screen.findByRole("button", { name: "通用发现（全库）" }));
+
+    await waitFor(() => expect(api.runTermDiscovery).toHaveBeenCalledWith("general"));
   });
 
   it("localizes discovery history statuses, counts, outcomes, and readiness", async () => {
@@ -104,6 +113,7 @@ describe("发现术语 panel", () => {
 
     expect(await screen.findByText("1 次运行")).not.toBeNull();
     expect(screen.getByText("部分完成")).not.toBeNull();
+    expect(screen.getByText("旧版运行")).not.toBeNull();
     const runSummary = screen.getByText("新增 2 个");
     expect(runSummary).not.toBeNull();
     const runDetails = runSummary.closest("details") as HTMLDetailsElement;

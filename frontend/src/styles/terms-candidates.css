@@ -91,6 +91,7 @@
 .term-discovery-panel { display: grid; gap: 14px; }
 .term-discovery-overview, .term-discovery-settings, .term-discovery-history { display: grid; gap: 15px; padding: 17px; }
 .term-discovery-overview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.term-discovery-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
 .term-discovery-overview-heading h2 { margin: 5px 0; color: #405449; font-size: var(--text-xl); }
 .term-discovery-overview-heading p, .term-discovery-last-run { margin: 0; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.5; }
 .term-discovery-capacity-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
@@ -123,6 +124,9 @@
 .term-discovery-result > div { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; color: #405449; font-size: var(--text-sm); }
 .term-discovery-result p { margin: 0; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.45; }
 .term-discovery-result small { color: var(--text-subtle); font-size: var(--text-xs); }
+@media (max-width: 740px) {
+  .term-discovery-overview-heading { flex-direction: column; }
+}
 .term-discovery-result blockquote { margin: 1px 0 0; color: var(--text-subtle); font-size: var(--text-xs); line-height: 1.5; }
 .term-discovery-empty { margin: 0; color: var(--text-subtle); font-size: var(--text-sm); }
 

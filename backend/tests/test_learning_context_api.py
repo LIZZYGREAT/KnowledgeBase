@@ -182,6 +182,55 @@ def test_api_edits_only_an_indexed_topic(tmp_path):
     )
 
 
+def test_api_sets_topic_as_current_and_archived(tmp_path):
+    _document(tmp_path)
+    context_root = tmp_path / "storage" / "learning-context"
+    (context_root / "topics").mkdir(parents=True)
+    (context_root / "sources.yaml").write_text(
+        "included_document_ids:\n  - gem-note\n", encoding="utf-8"
+    )
+    (context_root / "index.yaml").write_text(
+        "topics:\n  - id: continual-learning\n    title: 持续学习\n",
+        encoding="utf-8",
+    )
+    (context_root / "topics" / "continual-learning.md").write_text(
+        render_entry(
+            {
+                "entry_id": "gem-topic",
+                "owner": "auto",
+                "source_headings": {"gem-note": ["Mechanism"]},
+                "layer": "topic",
+                "topic_id": "continual-learning",
+                "topic_title": "持续学习",
+                "title": "GEM 梯度投影",
+                "summary": "GEM 通过梯度投影保护旧任务。",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with _client(tmp_path) as client:
+        current = client.put(
+            "/api/learning-context/topics/continual-learning/status",
+            json={"status": "current"},
+        )
+        history = client.put(
+            "/api/learning-context/topics/continual-learning/status",
+            json={"status": "history"},
+        )
+        invalid = client.put(
+            "/api/learning-context/topics/continual-learning/status",
+            json={"status": "mastered"},
+        )
+
+    assert current.status_code == 200
+    assert current.json()["is_active"] is True
+    assert current.json()["manual_status"] == "current"
+    assert history.status_code == 200
+    assert history.json()["is_active"] is False
+    assert history.json()["manual_status"] == "history"
+    assert invalid.status_code == 422
+
+
 def test_api_manual_sync_dry_run_only_reports_local_changes(tmp_path):
     _document(tmp_path)
     with _client(tmp_path) as client:

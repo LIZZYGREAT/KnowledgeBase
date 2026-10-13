@@ -69,6 +69,8 @@ export interface TermDiscoveryRunItem {
   created_at: string;
 }
 
+export type TermDiscoveryMode = "personalized" | "general";
+
 export interface TermDiscoveryRun {
   id: string;
   trigger: "manual" | "scheduled";
@@ -790,11 +792,17 @@ export function updateTermDiscoverySettings(settings: TermDiscoverySettings) {
   });
 }
 
-export function runTermDiscovery(trigger: "manual" | "scheduled" = "manual") {
-  return request<TermDiscoveryRun>(`/api/terms/discovery/run?trigger=${trigger}`, {
+export function runTermDiscovery(
+  discoveryMode: TermDiscoveryMode = "personalized",
+  trigger: "manual" | "scheduled" = "manual",
+) {
+  return request<TermDiscoveryRun>(
+    `/api/terms/discovery/run?trigger=${trigger}&discovery_mode=${discoveryMode}`,
+    {
     method: "POST",
     workloadChanged: true,
-  });
+    },
+  );
 }
 
 export function listTermDiscoveryRuns(limit = 20) {
@@ -1254,6 +1262,8 @@ export interface LearningContextTopic {
   title: string;
   aliases: string[];
   keywords: string[];
+  is_active?: boolean;
+  manual_status?: "current" | "history" | null;
   markdown?: string;
 }
 
@@ -1323,6 +1333,16 @@ export function setLearningContextPreferences(preferences: LearningContextPrefer
 export function getLearningContextTopic(topicId: string) {
   return request<LearningContextTopic & { markdown: string }>(
     `/api/learning-context/topics/${encodeURIComponent(topicId)}`,
+  );
+}
+
+export function setLearningContextTopicStatus(
+  topicId: string,
+  status: "current" | "history" | "automatic",
+) {
+  return request<LearningContextTopic & { markdown: string }>(
+    `/api/learning-context/topics/${encodeURIComponent(topicId)}/status`,
+    { method: "PUT", body: JSON.stringify({ status }) },
   );
 }
 

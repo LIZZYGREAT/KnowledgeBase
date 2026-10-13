@@ -6,6 +6,7 @@ import {
   updateTermDiscoverySettings,
   type TermDiscoveryLane,
   type TermDiscoveryRun,
+  type TermDiscoveryMode,
   type TermDiscoverySettings,
   type TermDiscoveryState,
 } from "../api";
@@ -120,7 +121,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
     }
   }
 
-  async function runNow() {
+  async function runNow(discoveryMode: TermDiscoveryMode) {
     if (busy) return;
     setBusy(true);
     setError("");
@@ -130,7 +131,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
         const settings = { ...draft, source_preferences: sourceText.split(",").map((item) => item.trim()).filter(Boolean), focus_override: draft.focus_override?.trim() || null };
         if (JSON.stringify(settings) !== JSON.stringify(state.settings)) await updateTermDiscoverySettings(settings);
       }
-      const run = await runTermDiscovery();
+      const run = await runTermDiscovery(discoveryMode);
       const [nextState, nextRuns] = await Promise.all([
         getTermDiscoveryState(),
         listTermDiscoveryRuns(20),
@@ -139,7 +140,8 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
       setDraft(nextState.settings);
       setRuns(nextRuns);
       setSourceText(nextState.settings.source_preferences.join(", "));
-      setNotice(run.status === "failed" ? "发现失败，请查看发现记录中的原因。" : `${run.status === "partial" ? "部分完成。" : "发现完成。"}${run.candidate_count ? `本次新增 ${run.candidate_count} 个待处理术语。` : "本次没有新增术语，可调整发现范围后再试。"}`);
+      const modeLabel = discoveryMode === "general" ? "通用发现" : "按学习进度发现";
+      setNotice(run.status === "failed" ? `${modeLabel}失败，请查看发现记录中的原因。` : `${modeLabel}${run.status === "partial" ? "部分完成。" : "完成。"}${run.candidate_count ? `本次新增 ${run.candidate_count} 个待处理术语。` : "本次没有新增术语，可调整发现范围后再试。"}`);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -155,8 +157,11 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
     <section className="term-discovery-panel" aria-label="发现术语">
       <div className="term-discovery-overview surface">
         <div className="term-discovery-overview-heading">
-          <div><span className="section-kicker">发现适合当前学习方向的术语</span><h2>发现术语</h2><p>从本地 PDF、笔记和可选的外部摘要中挑选少量适合当前学习进度的术语。</p></div>
-          <button className="button button-primary" type="button" disabled={busy} onClick={() => void runNow()}>{busy ? "正在运行…" : "立即发现"}</button>
+          <div><span className="section-kicker">发现适合当前学习方向的术语</span><h2>发现术语</h2><p>按学习进度运行时只分析手动纳入的正式笔记；未选择笔记时不会扫描其他笔记、PDF 或外部摘要。通用发现会读取全库，并可使用已启用的 PDF 与外部来源。</p></div>
+          <div className="term-discovery-actions">
+            <button className="button button-primary" type="button" disabled={busy} onClick={() => void runNow("personalized")}>{busy ? "正在运行…" : "按学习进度发现"}</button>
+            <button className="button button-secondary" type="button" disabled={busy} onClick={() => void runNow("general")}>{busy ? "正在运行…" : "通用发现（全库）"}</button>
+          </div>
         </div>
         <div className="term-discovery-capacity-grid">
           <div><span>待处理术语</span><strong>{state.open_count} / {state.global_capacity}</strong></div>
@@ -194,7 +199,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
       <section className="term-discovery-history surface" aria-label="发现术语发现记录">
         <div className="section-heading"><div><h3>发现记录</h3><p>拓展建议保留在运行结果中，不会占用待处理列表。</p></div><span className="count-label">{runs.length} 次运行</span></div>
         {runs.length ? <div className="term-discovery-run-list">{runs.map((run) => <details className="term-discovery-run" key={run.id}>
-          <summary><span><Chip tone={run.status === "success" ? "green" : run.status === "partial" ? "amber" : "neutral"}>{RUN_STATUS_LABELS[run.status]}</Chip> {new Date(run.started_at).toLocaleString()}</span><strong>新增 {run.candidate_count} 个</strong></summary>
+          <summary><span><Chip tone={run.status === "success" ? "green" : run.status === "partial" ? "amber" : "neutral"}>{RUN_STATUS_LABELS[run.status]}</Chip><Chip>{run.snapshot.discovery_mode === "general" ? "通用发现" : run.snapshot.discovery_mode === "personalized" ? "学习进度" : "旧版运行"}</Chip> {new Date(run.started_at).toLocaleString()}</span><strong>新增 {run.candidate_count} 个</strong></summary>
           <div className="term-discovery-run-detail">
             <p>预算：概念 {run.lane_budgets.concept ?? 0} · 命名实体 {run.lane_budgets.entity ?? 0} · 专业词汇 {run.lane_budgets.vocabulary ?? 0}</p>
             <p>模型建议 {Object.values(run.raw_counts).reduce((sum, value) => sum + value, 0)} · 过滤 {Object.values(run.filtered_counts).reduce((sum, value) => sum + value, 0)}</p>

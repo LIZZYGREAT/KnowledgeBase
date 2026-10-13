@@ -169,6 +169,15 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
         personalized_queries=personalized,
         exploration_queries=exploration,
     )
+    manual_context = {**context, "user_direction": "比较 EWC 与 SI"}
+    manual_personalized, manual_exploration = _research_query_overrides(
+        effective_profile, manual_context
+    )
+    manual_planned = service.query_builder.build(
+        effective_profile,
+        personalized_queries=manual_personalized,
+        exploration_queries=manual_exploration,
+    )
 
     assert effective_profile.exclude_terms[-1] == "RLHF"
     assert profile.exclude_terms == []
@@ -176,6 +185,7 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
         text for lens in profile.lenses for text in lens.queries
     }
     assert profile_query_texts <= {query.text for query in planned}
+    assert any("SI" in query.text for query in manual_planned)
     personal_queries = [
         query for query in planned if query.text not in profile_query_texts
     ]

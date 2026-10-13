@@ -42,9 +42,11 @@ async def update_term_discovery_settings(
 
 @router.post("/discovery/run", response_model=TermDiscoveryRun)
 async def run_term_discovery(
-    request: Request, trigger: Literal["manual", "scheduled"] = "manual"
+    request: Request,
+    trigger: Literal["manual", "scheduled"] = "manual",
+    discovery_mode: Literal["personalized", "general"] = "personalized",
 ):
-    return request.app.state.term_discovery_service.run(trigger)
+    return request.app.state.term_discovery_service.run(trigger, discovery_mode)
 
 
 @router.get("/discovery/runs", response_model=list[TermDiscoveryRun])

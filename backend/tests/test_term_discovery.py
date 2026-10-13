@@ -57,7 +57,7 @@ def test_inbox_full_skips_snapshot_pdf_extraction_and_ai(tmp_path):
     run = service.run()
 
     assert run.status == "skipped_capacity"
-    assert run.snapshot == {}
+    assert run.snapshot == {"discovery_mode": "general"}
     assert pdf_service.calls == []
     assert gateway.calls == []
     assert run.candidate_count == 0
@@ -995,6 +995,14 @@ def test_recent_note_focus_does_not_change_term_mastery(tmp_path):
 
 
 def test_selected_learning_context_guides_terms_without_unselected_course_pollution(tmp_path):
+    selected_note_text = (
+        "Learning without Forgetting uses distillation to preserve prior-task behavior. "
+        "Elastic Weight Consolidation protects important parameters. "
+        "iCaRL combines exemplar replay with representation learning. "
+        "Gradient Episodic Memory constrains updates using past-task gradients. "
+        "Synaptic Intelligence estimates parameter importance over time. "
+        "RLHF uses feedback from human preferences.\n"
+    )
     selected_notes = {
         "lwf": "Learning without Forgetting",
         "ewc": "Elastic Weight Consolidation",
@@ -1006,7 +1014,7 @@ def test_selected_learning_context_guides_terms_without_unselected_course_pollut
             tmp_path,
             document_id,
             title,
-            "{} is a continual learning method.".format(title),
+            selected_note_text,
             domains=["machine-learning"],
             topics=["continual-learning"],
         )
@@ -1155,7 +1163,7 @@ def test_selected_learning_context_guides_terms_without_unselected_course_pollut
     source_call = next(
         context
         for task, context in gateway.calls
-        if task == "discover_terms" and context["source"]["id"] == "source-alpha"
+        if task == "discover_terms" and context["source"]["id"] in selected_notes
     )
     assert run.status == "success"
     assert "ethernet" in [item.casefold() for item in run.snapshot["focus"]["recent_topics"]]
@@ -1184,9 +1192,62 @@ def test_selected_learning_context_guides_terms_without_unselected_course_pollut
     }
     assert document_context_ids <= set(selected_notes)
     assert "ethernet-course" not in document_context_ids
+    assert "source-alpha" not in {
+        context["source"]["id"]
+        for task, context in gateway.calls
+        if task == "discover_terms"
+    }
     assert [item.display_name for item in candidate_service.list_candidates("pending")] == [
         "Synaptic Intelligence"
     ]
+    connection.close()
+
+
+def test_personalized_terms_require_selected_notes_and_general_scope_is_explicit(tmp_path):
+    course_path = tmp_path / "knowledge" / "documents" / "courses" / "ethernet-course.md"
+    course_path.parent.mkdir(parents=True, exist_ok=True)
+    course_path.write_text(
+        "---\nschema_version: 1\nid: ethernet-course\n"
+        "title: Ethernet in Physical Networks\ntype: course-note\n"
+        "domains: [computer-networking]\ntopics: [ethernet]\n---\n"
+        "# Ethernet\nEthernet frames connect devices in a local network.\n",
+        encoding="utf-8",
+    )
+    context_service = LearningContextService(tmp_path)
+    context_service.set_sources([])
+    context_service.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    connection, service, _candidates, pdf_service, gateway = _service(
+        tmp_path,
+        learning_context_service=context_service,
+    )
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"],
+            focus_override="continual learning Ethernet",
+        )
+    )
+
+    personalized = service.run(discovery_mode="personalized")
+
+    assert personalized.status == "success"
+    assert personalized.snapshot["discovery_mode"] == "personalized"
+    assert gateway.calls == []
+    assert pdf_service.calls == []
+
+    general = service.run(discovery_mode="general")
+    general_document_ids = {
+        context["source"]["id"]
+        for task, context in gateway.calls
+        if task == "discover_terms"
+    }
+    assert general.snapshot["discovery_mode"] == "general"
+    assert "ethernet-course" in general_document_ids
+    assert "source-alpha" in general_document_ids
     connection.close()
 
 
@@ -1231,6 +1292,11 @@ def test_learning_context_coverage_uses_specific_section_and_body_terms():
     assert _covered_by_learning_context("EWC", context)
     assert not _covered_by_learning_context("Continual Learning", context)
     assert not _covered_by_learning_context("Replay", context)
+    direction_only = {
+        **context,
+        "user_direction": "希望下一步学习 Synaptic Intelligence (SI)。",
+    }
+    assert not _covered_by_learning_context("SI", direction_only)
 
 
 def test_term_discovery_api_exposes_settings_and_run_history(tmp_path):
@@ -1269,9 +1335,17 @@ def test_term_discovery_api_exposes_settings_and_run_history(tmp_path):
         run = client.post("/api/terms/discovery/run?trigger=manual")
         assert run.status_code == 200, run.json()
         assert run.json()["status"] == "success"
+        assert run.json()["snapshot"]["discovery_mode"] == "personalized"
+        general = client.post(
+            "/api/terms/discovery/run?trigger=manual&discovery_mode=general"
+        )
+        assert general.status_code == 200, general.json()
+        assert general.json()["snapshot"]["discovery_mode"] == "general"
         history = client.get("/api/terms/discovery/runs")
         assert history.status_code == 200
-        assert history.json()[0]["id"] == run.json()["id"]
+        histories_by_id = {item["id"]: item for item in history.json()}
+        assert histories_by_id[run.json()["id"]]["snapshot"]["discovery_mode"] == "personalized"
+        assert histories_by_id[general.json()["id"]]["snapshot"]["discovery_mode"] == "general"
 
 
 def test_semantic_existing_suggestion_is_allowed_when_literal_is_unresolved(tmp_path):

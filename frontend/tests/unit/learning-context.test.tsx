@@ -129,7 +129,7 @@ describe("学习进度上下文 page", () => {
       exploration_directions: [],
       important_anchors: [],
     }));
-    expect(screen.getByText(/不会作为已掌握知识/)).toBeTruthy();
+    expect(screen.getByText("搜索偏好已保存，不会作为已掌握知识。")).toBeTruthy();
     expect(current.sources.included_document_ids).toEqual([]);
   });
 
@@ -151,6 +151,7 @@ describe("学习进度上下文 page", () => {
     render(<LearningContextPage />);
 
     await user.click(await screen.findByRole("button", { name: "编辑这一层" }));
+    expect(screen.getByText(/手写说明会补充搜索方向，但不会作为已掌握知识/)).toBeTruthy();
     const editor = screen.getByLabelText("编辑学习上下文 Markdown");
     fireEvent.change(editor, { target: { value: "尚未保存的说明" } });
     const layerPicker = screen.getByLabelText("查看层级");
@@ -163,6 +164,43 @@ describe("学习进度上下文 page", () => {
       "尚未保存的说明",
     );
     expect(api.getLearningContextTopic).not.toHaveBeenCalled();
+  });
+
+  it("lets the user set an indexed topic as the current direction", async () => {
+    let current = overview();
+    current.topics = [{
+      id: "continual-learning",
+      title: "持续学习",
+      aliases: [],
+      keywords: [],
+      is_active: false,
+      manual_status: null,
+    }];
+    vi.spyOn(api, "getLearningContext").mockImplementation(async () => structuredClone(current));
+    vi.spyOn(api, "getLearningContextTopic").mockResolvedValue({
+      ...current.topics[0],
+      markdown: "### GEM",
+    });
+    vi.spyOn(api, "setLearningContextTopicStatus").mockImplementation(async (topicId, status) => {
+      current = {
+        ...current,
+        topics: current.topics.map((topic) => topic.id === topicId
+          ? { ...topic, is_active: status === "current", manual_status: status === "automatic" ? null : status }
+          : topic),
+      };
+      return { ...current.topics[0], markdown: "### GEM" };
+    });
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    await user.selectOptions(await screen.findByLabelText("查看层级"), "topic:continual-learning");
+    await user.click(await screen.findByRole("button", { name: "设为当前方向" }));
+
+    await waitFor(() => expect(api.setLearningContextTopicStatus).toHaveBeenCalledWith(
+      "continual-learning",
+      "current",
+    ));
+    expect(await screen.findByText("已将专题固定为当前方向。")).toBeTruthy();
   });
 
   it("runs learning context sync only after the user presses its explicit action", async () => {
