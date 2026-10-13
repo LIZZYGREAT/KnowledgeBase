@@ -5,7 +5,7 @@ import * as api from "../../src/api";
 import { LibraryPage } from "../../src/pages/BrowsePages";
 import type { LibraryDocumentState, LibrarySourceState } from "../../src/api";
 
-describe("Library tabs and Import", () => {
+describe("资料库 tabs and 导入", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/library");
     vi.spyOn(api, "listLibraryDocumentStates").mockResolvedValue([]);
@@ -23,14 +23,14 @@ describe("Library tabs and Import", () => {
     vi.restoreAllMocks();
   });
 
-  it("opens the Import tab directly and stages selected Markdown files", async () => {
+  it("opens the 导入 tab directly and stages selected Markdown files", async () => {
     window.history.replaceState({}, "", "/library?tab=import");
     render(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} />);
 
-    expect((await screen.findByRole("tab", { name: "Import" })).getAttribute("aria-selected")).toBe("true");
-    expect(within(screen.getByRole("tab", { name: /Documents/ })).queryByText("0")).toBeNull();
-    expect(within(screen.getByRole("tab", { name: /Sources/ })).queryByText("0")).toBeNull();
-    expect(await screen.findByRole("heading", { name: "Import Review" })).toBeTruthy();
+    expect((await screen.findByRole("tab", { name: "导入" })).getAttribute("aria-selected")).toBe("true");
+    expect(within(screen.getByRole("tab", { name: /笔记/ })).queryByText("0")).toBeNull();
+    expect(within(screen.getByRole("tab", { name: /文献/ })).queryByText("0")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "导入审阅" })).toBeTruthy();
     expect(api.listLibraryDocumentStates).not.toHaveBeenCalled();
     expect(api.listLibrarySourceStates).not.toHaveBeenCalled();
     const file = new File(["# Imported note"], "note.md", { type: "text/markdown" });
@@ -58,11 +58,11 @@ describe("Library tabs and Import", () => {
     render(<LibraryPage onOpen={vi.fn()} navigate={navigate} />);
 
     expect(await screen.findByText("尚未分析")).toBeTruthy();
-    expect(within(screen.getByRole("tab", { name: /Documents/ })).getByText("1")).toBeTruthy();
+    expect(within(screen.getByRole("tab", { name: /笔记/ })).getByText("1")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "分析术语" }));
-    expect(await screen.findByRole("dialog", { name: "分析 正式笔记" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "分析正式笔记" })).toBeTruthy();
     expect(api.analyzeDocumentTerms).not.toHaveBeenCalled();
-    await user.click(screen.getByLabelText("我同意将以上 正式笔记 内容和所需 术语库 上下文发送给 DeepSeek。"));
+    await user.click(screen.getByLabelText("我同意将以上正式笔记内容和所需术语库上下文发送给 DeepSeek。"));
     await user.click(screen.getByRole("button", { name: "同意并分析" }));
     await waitFor(() => expect(api.analyzeDocumentTerms).toHaveBeenCalledWith(document.id));
     expect(await screen.findByText("已分析")).toBeTruthy();
@@ -89,20 +89,20 @@ describe("Library tabs and Import", () => {
     render(<LibraryPage onOpen={vi.fn()} navigate={navigate} />);
 
     await user.click(await screen.findByRole("button", { name: "分析术语" }));
-    await user.click(screen.getByLabelText("我同意将以上 正式笔记 内容和所需 术语库 上下文发送给 DeepSeek。"));
+    await user.click(screen.getByLabelText("我同意将以上正式笔记内容和所需术语库上下文发送给 DeepSeek。"));
     await user.click(screen.getByRole("button", { name: "同意并分析" }));
 
-    expect(await screen.findByRole("dialog", { name: "分析 正式笔记" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "分析正式笔记" })).toBeTruthy();
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "请求连接中断，结果尚待确认。不会自动重发模型请求。");
-    expect(await screen.findByText(/分析状态已更新为 已分析/)).toBeTruthy();
-    expect(screen.getByText(/当前有 1 条 候选 关联这篇 笔记/)).toBeTruthy();
+    expect(await screen.findByText(/分析状态已更新为已分析/)).toBeTruthy();
+    expect(screen.getByText(/当前有 1 条候选关联这篇笔记/)).toBeTruthy();
     expect(analyze).toHaveBeenCalledTimes(1);
     expect(api.getDocumentTermAnalysis).toHaveBeenCalledTimes(2);
     expect(api.listTermCandidates).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "重新核查只读状态" }));
     await waitFor(() => expect(api.getDocumentTermAnalysis).toHaveBeenCalledTimes(3));
-    await user.click(screen.getByRole("button", { name: "查看 待处理" }));
+    await user.click(screen.getByRole("button", { name: "查看待处理" }));
     expect(navigate).toHaveBeenCalledWith("/terms?tab=candidates&document_id=note-one");
     expect(analyze).toHaveBeenCalledTimes(1);
   });
@@ -119,9 +119,9 @@ describe("Library tabs and Import", () => {
     render(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     await user.click(await screen.findByRole("button", { name: "分析术语" }));
-    await user.click(screen.getByLabelText("我同意将以上 正式笔记 内容和所需 术语库 上下文发送给 DeepSeek。"));
+    await user.click(screen.getByLabelText("我同意将以上正式笔记内容和所需术语库上下文发送给 DeepSeek。"));
     await user.click(screen.getByRole("button", { name: "同意并分析" }));
-    expect(await screen.findByText(/正在请求 DeepSeek 分析这篇 笔记/)).toBeTruthy();
+    expect(await screen.findByText(/正在请求 DeepSeek 分析这篇笔记/)).toBeTruthy();
     expect(screen.getByText(/已等待 0 秒。分析可能需要一段时间，请勿重复提交。/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Analyzing…" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "取消" }) as HTMLButtonElement).disabled).toBe(true);
@@ -134,9 +134,9 @@ describe("Library tabs and Import", () => {
     expect(analysis).toHaveBeenCalledTimes(1);
   });
 
-  it("shows Source PDF extraction and discovery usability with linked 术语", async () => {
+  it("shows 文献 PDF extraction and discovery usability with linked 术语", async () => {
     const source: LibrarySourceState = {
-      id: "source-one", title: "Source One", entity_type: "source",
+      id: "source-one", title: "文献 One", entity_type: "source",
       metadata: { type: "paper", attachments: { local_pdf: "storage://papers/source-one.pdf" } },
       pdf_attached: true, extraction_status: "ready", discovery_usable: true, error_message: null,
       related_terms: [{ id: "term-one", title: "术语 One", entity_type: "term", metadata: { type: "concept", depth: "stub" } }],
@@ -147,31 +147,31 @@ describe("Library tabs and Import", () => {
     const onOpen = vi.fn();
     render(<LibraryPage onOpen={onOpen} navigate={vi.fn()} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: /Sources/ }));
+    await userEvent.click(await screen.findByRole("tab", { name: /文献/ }));
     expect(sourcesRequest).toHaveBeenCalledTimes(1);
     expect(detailRequest).not.toHaveBeenCalled();
     expect(corpusRequest).not.toHaveBeenCalled();
     expect(await screen.findByText("PDF attached")).toBeTruthy();
-    expect(within(screen.getByRole("tab", { name: /Sources/ })).getByText("1")).toBeTruthy();
+    expect(within(screen.getByRole("tab", { name: /文献/ })).getByText("1")).toBeTruthy();
     expect(await screen.findByText("Ready")).toBeTruthy();
     expect(screen.getByText("Usable")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "术语 One" }));
     expect(onOpen).toHaveBeenCalledWith("term", "term-one");
   });
 
-  it("updates the navigable URL for each Library tab", async () => {
+  it("updates the navigable URL for each 资料库 tab", async () => {
     const navigate = vi.fn();
     render(<LibraryPage onOpen={vi.fn()} navigate={navigate} />);
 
-    await userEvent.click(await screen.findByRole("tab", { name: /Sources/ }));
+    await userEvent.click(await screen.findByRole("tab", { name: /文献/ }));
     expect(navigate).toHaveBeenLastCalledWith("/library?tab=sources");
-    await userEvent.click(screen.getByRole("tab", { name: "Import" }));
+    await userEvent.click(screen.getByRole("tab", { name: "导入" }));
     expect(navigate).toHaveBeenLastCalledWith("/library?tab=import");
-    await userEvent.click(screen.getByRole("tab", { name: /Documents/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /笔记/ }));
     expect(navigate).toHaveBeenLastCalledWith("/library");
   });
 
-  it("loads only the selected Library tab and reuses its batch result", async () => {
+  it("loads only the selected 资料库 tab and reuses its batch result", async () => {
     let resolveDocuments!: (value: LibraryDocumentState[]) => void;
     let resolveSources!: (value: LibrarySourceState[]) => void;
     const documentsRequest = vi.mocked(api.listLibraryDocumentStates).mockImplementation(
@@ -182,15 +182,15 @@ describe("Library tabs and Import", () => {
     );
     const view = render(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} activeTab="documents" />);
 
-    const documentsTab = screen.getByRole("tab", { name: /Documents/ });
-    const sourcesTab = screen.getByRole("tab", { name: /Sources/ });
+    const documentsTab = screen.getByRole("tab", { name: /笔记/ });
+    const sourcesTab = screen.getByRole("tab", { name: /文献/ });
     expect(within(documentsTab).queryByText("0")).toBeNull();
     expect(within(sourcesTab).queryByText("0")).toBeNull();
     expect(documentsRequest).toHaveBeenCalledTimes(1);
     expect(sourcesRequest).not.toHaveBeenCalled();
 
     resolveDocuments([]);
-    await screen.findByText("Library 还是空的");
+    await screen.findByText("资料库还是空的");
     expect(within(documentsTab).getByText("0")).toBeTruthy();
     expect(within(sourcesTab).queryByText("0")).toBeNull();
 
@@ -202,7 +202,7 @@ describe("Library tabs and Import", () => {
     expect(within(sourcesTab).getByText("0")).toBeTruthy();
 
     view.rerender(<LibraryPage onOpen={vi.fn()} navigate={vi.fn()} activeTab="documents" />);
-    await screen.findByText("Library 还是空的");
+    await screen.findByText("资料库还是空的");
     expect(documentsRequest).toHaveBeenCalledTimes(1);
   });
 });

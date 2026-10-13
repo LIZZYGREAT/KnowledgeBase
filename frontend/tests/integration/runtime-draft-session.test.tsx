@@ -35,12 +35,12 @@ function sessionOptions(entityId = "session-note") {
     entityType: "document" as const,
     entityId,
     enabled: true,
-    initialContent: `Canonical ${entityId}`,
+    initialContent: `正式版本 ${entityId}`,
     initialContentReady: true,
   };
 }
 
-describe("Runtime Draft session", () => {
+describe("编辑会话", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.listDrafts.mockResolvedValue([]);
@@ -54,18 +54,18 @@ describe("Runtime Draft session", () => {
     api.discardDraft.mockResolvedValue({ deleted: true });
   });
 
-  it("seeds a clean session from Canonical and acquires a Draft on demand", async () => {
+  it("seeds a clean session from 正式版本 and acquires a 未发布修改 on demand", async () => {
     const { result } = renderHook(() => useRuntimeDraftSession(sessionOptions()));
     await waitFor(() => expect(result.current.state).toBe("clean"));
-    expect(result.current.content).toBe("Canonical session-note");
+    expect(result.current.content).toBe("正式版本 session-note");
 
     let acquired: Draft | undefined;
     await act(async () => {
       acquired = await result.current.acquireDraft();
     });
 
-    expect(api.createDraft).toHaveBeenCalledWith("document", "session-note", "Canonical session-note");
-    expect(acquired?.content).toBe("Canonical session-note");
+    expect(api.createDraft).toHaveBeenCalledWith("document", "session-note", "正式版本 session-note");
+    expect(acquired?.content).toBe("正式版本 session-note");
     expect(result.current.state).toBe("saved");
   });
 
@@ -127,8 +127,8 @@ describe("Runtime Draft session", () => {
     expect(result.current.state).toBe("saved");
   });
 
-  it("rejects Discard while a Draft save is in flight", async () => {
-    const existing = makeDraft("Saved content");
+  it("rejects Discard while a 未发布修改 save is in flight", async () => {
+    const existing = makeDraft("已保存 content");
     let resolveUpdate!: (draft: Draft) => void;
     api.listDrafts.mockResolvedValue([existing]);
     api.updateDraft.mockImplementationOnce(() => new Promise<Draft>((resolve) => {
@@ -153,8 +153,8 @@ describe("Runtime Draft session", () => {
     });
   });
 
-  it("rejects Discard during a Runtime Draft conflict", async () => {
-    const existing = makeDraft("Saved content");
+  it("rejects Discard during a 已保存的修改 conflict", async () => {
+    const existing = makeDraft("已保存 content");
     api.listDrafts.mockResolvedValue([existing]);
     api.updateDraft.mockRejectedValueOnce(Object.assign(new Error("revision changed"), {
       status: 409,
@@ -170,12 +170,12 @@ describe("Runtime Draft session", () => {
     });
     expect(result.current.state).toBe("runtime-conflict");
 
-    await expect(result.current.discard()).rejects.toThrow("请先处理 Runtime Draft 冲突");
+    await expect(result.current.discard()).rejects.toThrow("请先处理已保存的修改冲突");
     expect(api.discardDraft).not.toHaveBeenCalled();
   });
 
-  it("allows Discard after a Draft is saved", async () => {
-    const saved = makeDraft("Saved content");
+  it("allows Discard after a 未发布修改 is saved", async () => {
+    const saved = makeDraft("已保存 content");
     api.listDrafts.mockResolvedValue([saved]);
     const { result } = renderHook(() => useRuntimeDraftSession(sessionOptions()));
     await waitFor(() => expect(result.current.state).toBe("saved"));
@@ -186,7 +186,7 @@ describe("Runtime Draft session", () => {
     expect(result.current.state).toBe("clean");
   });
 
-  it("cannot delete another session Draft when creation collides in flight", async () => {
+  it("cannot delete another session 未发布修改 when creation collides in flight", async () => {
     const remoteDraft = makeDraft("Other session content");
     let resolveCreate!: (result: { draft: Draft; created: boolean }) => void;
     api.createDraft.mockImplementationOnce(() => new Promise((resolve) => {
@@ -207,7 +207,7 @@ describe("Runtime Draft session", () => {
 
     await act(async () => {
       resolveCreate({ draft: remoteDraft, created: false });
-      await expect(pendingSave).rejects.toThrow("另一个会话已为此内容创建了不同的 Draft");
+      await expect(pendingSave).rejects.toThrow("另一个会话已为此内容创建了不同的未发布修改");
     });
     expect(result.current.state).toBe("runtime-conflict");
     expect(api.discardDraft).not.toHaveBeenCalledWith(remoteDraft.id, remoteDraft.revision);
@@ -262,7 +262,7 @@ describe("Runtime Draft session", () => {
     expect(result.current.runtimeConflict).toBeNull();
   });
 
-  it("ignores Draft loads from an Entity session that has already been replaced", async () => {
+  it("ignores 未发布修改 loads from an Entity session that has already been replaced", async () => {
     let resolveFirst!: (drafts: Draft[]) => void;
     let resolveSecond!: (drafts: Draft[]) => void;
     api.listDrafts
@@ -282,7 +282,7 @@ describe("Runtime Draft session", () => {
     });
     await waitFor(() => expect(result.current.state).toBe("clean"));
 
-    expect(result.current.content).toBe("Canonical second-note");
+    expect(result.current.content).toBe("正式版本 second-note");
     expect(result.current.draft).toBeNull();
   });
 
@@ -314,7 +314,7 @@ describe("Runtime Draft session", () => {
       await pendingSave;
     });
 
-    expect(result.current.content).toBe("Canonical second-note");
+    expect(result.current.content).toBe("正式版本 second-note");
     expect(result.current.draft).toBeNull();
     expect(result.current.state).toBe("clean");
   });

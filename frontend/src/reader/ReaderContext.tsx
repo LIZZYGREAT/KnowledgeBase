@@ -31,13 +31,13 @@ export function CollectionReaderContext({
   };
 
   return (
-    <section className="collection-reader-context surface" aria-label="Collection 阅读位置">
+    <section className="collection-reader-context surface" aria-label="专题阅读位置">
       <div className="collection-reader-breadcrumbs">
         {navigation ? <>
           <span className="collection-reader-title">{navigation.collection_title}</span>
           {navigation.breadcrumbs.map((crumb, index) => <span className="collection-reader-crumb" key={`${crumb}:${index}`}>› {crumb}</span>)}
           <span className="collection-reader-current">› {currentTitle}</span>
-        </> : loading ? <span>正在读取 Collection 位置…</span> : <span role="alert">{error || "Collection 位置暂不可用。"}</span>}
+        </> : loading ? <span>正在读取专题位置…</span> : <span role="alert">{error || "专题位置暂不可用。"}</span>}
       </div>
       <div className="collection-reader-controls">
         {navigation?.previous ? <button className="button button-secondary" onClick={() => openEntity(navigation.previous!.entity_type, navigation.previous!.entity_id)}>← {navigation.previous.title}</button> : <span />}
@@ -86,10 +86,10 @@ export function ContextExportPanel({ targetType, targetId }: { targetType: "docu
   return <ContextCard className="context-export-card" title="Context Export" detail="为研究任务导出有信任边界的知识包">
     <div className="context-export-controls">
       <label>Trust<select value={trust} onChange={(event) => setTrust(event.target.value as ContextTrust)}><option value="raw">Raw</option><option value="reviewed">Reviewed</option><option value="verified">Verified</option></select></label>
-      <label>Purpose<select value={purpose} onChange={(event) => setPurpose(event.target.value as ContextPurpose)}><option value="research">Research</option><option value="teaching">Teaching</option><option value="evidence">Evidence</option></select></label>
+      <label>Purpose<select value={purpose} onChange={(event) => setPurpose(event.target.value as ContextPurpose)}><option value="research">论文推荐</option><option value="teaching">Teaching</option><option value="evidence">Evidence</option></select></label>
       <button className="button button-secondary" disabled={busy} onClick={() => void createExport()}>{busy ? "正在导出…" : "生成 Context"}</button>
     </div>
-    <p className="trust-note">Verified 是基于人工审批与 Source 元数据的临时追溯筛选，不代表每条 Evidence 都经过逐条核验。</p>
+    <p className="trust-note">Verified 是基于人工审批与文献元数据的临时追溯筛选，不代表每条 Evidence 都经过逐条核验。</p>
     {error && <p className="error-copy" role="alert">{error}</p>}
     {result && <div className="context-export-result"><div className="context-export-result-heading"><small>{result.trust} · {result.purpose}</small><button className="text-button" onClick={() => void copyExport()}>{copied ? "已复制" : "复制 JSON"}</button></div><pre>{JSON.stringify(result, null, 2)}</pre></div>}
   </ContextCard>;

@@ -56,21 +56,22 @@ interface NavigationGroup {
 }
 
 const navigationGroups: NavigationGroup[] = [
-  { label: "CORE", items: [
-    { route: "/", title: "Home", translation: "首页", icon: "⌂" },
-    { route: "/terms", title: "Terms", translation: "术语", icon: "Aa", badge: "terms" as const },
-    { route: "/research", title: "Research", translation: "研究发现", icon: "⌕", badge: "research" as const },
+  { label: "主要任务", items: [
+    { route: "/", title: "首页", translation: "下一步学习", icon: "⌂" },
+    { route: "/terms", title: "术语", translation: "发现与管理", icon: "Aa", badge: "terms" as const },
+    { route: "/research", title: "论文推荐", translation: "研究发现", icon: "⌕", badge: "research" as const },
   ] },
-  { label: "KNOWLEDGE", items: [
-    { route: "/library", title: "Library", translation: "资料库", icon: "▤" },
-    { route: "/search", title: "Search", translation: "搜索", icon: "⌕" },
-    { route: "/topics", title: "Topics", translation: "主题", icon: "✳" },
+  { label: "知识整理", items: [
+    { route: "/explorer", title: "专题整理", translation: "组织笔记、术语与文献", icon: "▥" },
+    { route: "/library", title: "资料库", translation: "笔记与文献", icon: "▤" },
+    { route: "/search", title: "搜索", translation: "查找已收录内容", icon: "⌕" },
+    { route: "/topics", title: "分类", translation: "主题", icon: "✳" },
   ] },
-  { label: "MAINTENANCE", items: [
-    { route: "/review", title: "Review", translation: "审阅", icon: "✓", badge: "review" as const },
+  { label: "维护", items: [
+    { route: "/review", title: "审阅", translation: "维护与修改", icon: "✓", badge: "review" as const },
   ] },
   { label: "", items: [
-    { route: "/help", title: "Help", translation: "帮助", icon: "?" },
+    { route: "/help", title: "帮助", translation: "帮助", icon: "?" },
   ] },
 ];
 const navigation = navigationGroups.flatMap((group) => group.items);
@@ -273,8 +274,8 @@ export default function App() {
     ? route.entityType === "term" ? "/terms" : "/library"
     : navigation.find((item) => item.route === route.path)?.route ?? (route.path === "/explorer" ? "/explorer" : "/");
   const pageTitle = route.kind === "reader"
-    ? route.entityType === "document" ? "Document" : route.entityType === "term" ? "Term" : "Source"
-    : route.kind === "new-note" ? "New Note" : route.path === "/explorer" ? "Explorer" : navigation.find((item) => item.route === activeNav)?.title ?? "Home";
+    ? route.entityType === "document" ? "笔记" : route.entityType === "term" ? "术语" : "文献"
+    : route.kind === "new-note" ? "New 笔记" : route.path === "/explorer" ? "专题整理" : navigation.find((item) => item.route === activeNav)?.title ?? "首页";
 
   const openEntity = useCallback((
     type: EntityType,
@@ -358,7 +359,7 @@ export default function App() {
         {contentWorkspace && <button className="sidebar-rail-toggle" aria-label={sidebarPeek ? "收起导航" : "展开导航"} aria-expanded={sidebarPinned || sidebarPeek} onClick={() => setSidebarPeek((open) => !open)}>{sidebarPeek ? "‹" : "›"}</button>}
         <button className="brand" onClick={() => navigate("/")} aria-label="KnowledgeBase 首页">
           <span className="brand-mark">K</span>
-          <span className="brand-copy"><strong>KnowledgeBase</strong><small>REFERENCE HUB</small></span>
+          <span className="brand-copy"><strong>KnowledgeBase</strong><small>个人学习与科研助手</small></span>
         </button>
 
         <nav className="main-navigation" aria-label="主导航">
@@ -383,8 +384,8 @@ export default function App() {
 
         <div className="sidebar-bottom">
           {contentWorkspace && <button className="sidebar-pin-button" aria-pressed={sidebarPinned} onClick={toggleSidebarPin}>{sidebarPinned ? "取消固定侧栏" : "固定侧栏"}</button>}
-          <div className="privacy-badge"><span className="privacy-icon">◈</span><span><strong>本地知识库</strong><small>Canonical · Markdown + YAML</small></span></div>
-          <div className="sidebar-version"><span className="connection-dot" /> Private workspace <span>v1</span></div>
+          <div className="privacy-badge"><span className="privacy-icon">◈</span><span><strong>本地知识库</strong><small>正式版本 · Markdown + YAML</small></span></div>
+          <div className="sidebar-version"><span className="connection-dot" /> 个人工作区 <span>v1</span></div>
         </div>
       </aside>
 
@@ -403,7 +404,7 @@ export default function App() {
         <div className="page-container" key={route.kind === "reader" ? "reader-workspace" : `${route.kind}:${route.path}:${route.path === "/library" || route.path === "/terms" ? "" : location.search}`}>
           {page}
         </div>
-        <footer className="main-footer"><span>KnowledgeBase</span><span>Canonical knowledge stays in Markdown and YAML.</span></footer>
+        <footer className="main-footer"><span>KnowledgeBase</span><span>正式知识保存在 Markdown 与 YAML 中。</span></footer>
       </main>
     </div>
   );

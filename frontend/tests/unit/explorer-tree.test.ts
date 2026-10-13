@@ -17,7 +17,7 @@ const nodes = [
       { id: "fisher-node", kind: "entity", entity_type: "term", entity_id: "fisher-information", title: "Fisher Information" },
     ],
   },
-  { id: "history-node", kind: "entity", entity_type: "document", entity_id: "history", title: "History" },
+  { id: "history-node", kind: "entity", entity_type: "document", entity_id: "history", title: "处理记录" },
 ];
 
 test("tree filtering keeps matching entities and their containing sections", () => {
@@ -27,14 +27,14 @@ test("tree filtering keeps matching entities and their containing sections", () 
   assert.deepEqual(filtered[0].children.map((node) => node.id), ["fisher-node"]);
 });
 
-test("collection reader URLs retain encoded Collection context", () => {
+test("collection reader URLs retain encoded 专题 context", () => {
   assert.equal(
     collectionEntityUrl("document", "ewc review", "continual learning"),
     "/documents/ewc%20review?collection=continual%20learning",
   );
 });
 
-test("Explorer preferences recover safely and clamp the saved width", () => {
+test("专题整理 preferences recover safely and clamp the saved width", () => {
   assert.deepEqual(restoreExplorerPreferences("not-json"), {
     collectionId: "",
     expandedSections: null,

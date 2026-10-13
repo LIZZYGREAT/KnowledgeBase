@@ -9,7 +9,7 @@ const collections = [
   { id: "third", position: 2 },
 ];
 
-test("moves Collections up and down and assigns explicit positions", () => {
+test("moves 专题 up and down and assigns explicit positions", () => {
   const movedUp = moveCollectionInOrder(collections, "second", "up");
   assert.deepEqual(movedUp.map(({ id, position }) => [id, position]), [["second", 0], ["first", 1], ["third", 2]]);
   assert.deepEqual(changedCollectionPositions(collections, movedUp).map(({ id }) => id), ["second", "first"]);
@@ -18,7 +18,7 @@ test("moves Collections up and down and assigns explicit positions", () => {
   assert.deepEqual(movedDown.map(({ id, position }) => [id, position]), [["first", 0], ["third", 1], ["second", 2]]);
 });
 
-test("does not reorder a missing Collection or move past list boundaries", () => {
+test("does not reorder a missing 专题 or move past list boundaries", () => {
   assert.equal(moveCollectionInOrder(collections, "missing", "up"), collections);
   assert.equal(moveCollectionInOrder(collections, "first", "up"), collections);
   assert.equal(moveCollectionInOrder(collections, "third", "down"), collections);

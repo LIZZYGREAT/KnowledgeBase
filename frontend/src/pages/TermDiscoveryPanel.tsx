@@ -83,7 +83,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
       setState(nextState);
       setDraft(nextState.settings);
       setSourceText(nextState.settings.source_preferences.join(", "));
-      setNotice("发现术语 设置已保存。");
+      setNotice("发现术语设置已保存。");
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -118,7 +118,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
     }
   }
 
-  if (loading) return <LoadingState label="正在读取 发现术语 状态…" />;
+  if (loading) return <LoadingState label="正在读取发现术语状态…" />;
   if (error && !state) return <ErrorState message={error} retry={() => { setLoading(true); void refresh().catch((reason: unknown) => setError(errorMessage(reason))).finally(() => setLoading(false)); }} />;
   if (!state || !draft) return null;
 
@@ -126,7 +126,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
     <section className="term-discovery-panel" aria-label="发现术语">
       <div className="term-discovery-overview surface">
         <div className="term-discovery-overview-heading">
-          <div><span className="section-kicker">发现适合当前学习方向的术语</span><h2>发现术语</h2><p>从本地 PDF、笔记 和可选的外部摘要中挑选少量适合当前学习进度的 术语。</p></div>
+          <div><span className="section-kicker">发现适合当前学习方向的术语</span><h2>发现术语</h2><p>从本地 PDF、笔记和可选的外部摘要中挑选少量适合当前学习进度的术语。</p></div>
           <button className="button button-primary" type="button" disabled={busy} onClick={() => void runNow()}>{busy ? "正在运行…" : "立即发现"}</button>
         </div>
         <div className="term-discovery-capacity-grid">
@@ -136,7 +136,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
       </div>
 
       <form className="term-discovery-settings surface" onSubmit={(event) => void saveSettings(event)}>
-        <div className="section-heading"><div><h3>发现设置</h3><p>检索主题 优先复用 研究方向；这里只保存少量运行偏好。</p></div><button className="button button-secondary" type="submit" disabled={busy}>{busy ? "正在保存…" : "保存设置"}</button></div>
+        <div className="section-heading"><div><h3>发现设置</h3><p>检索主题优先复用研究方向；这里只保存少量运行偏好。</p></div><button className="button button-secondary" type="submit" disabled={busy}>{busy ? "正在保存…" : "保存设置"}</button></div>
         <div className="term-discovery-lanes">
           {LANES.map((lane) => <label className="term-discovery-lane" key={lane.id}>
             <input type="checkbox" checked={draft.enabled_lanes.includes(lane.id)} onChange={() => toggleLane(lane.id)} />
@@ -148,12 +148,12 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
         {LANES.map((lane) => <label className="field-label" key={lane.id}>{lane.title}容量（待处理 {state.lane_open[lane.id] ?? 0}）<input type="number" min={1} max={12} value={draft.lane_capacities[lane.id]} onChange={(event) => setDraft((current) => current ? { ...current, lane_capacities: { ...current.lane_capacities, [lane.id]: Number(event.target.value) } } : current)} aria-label={`${lane.title} capacity`} /></label>)}
         <div className="term-discovery-setting-fields">
           <label className="field-label">每日新增上限<input type="number" min={1} max={12} value={draft.daily_max_new} onChange={(event) => setDraft((current) => current ? { ...current, daily_max_new: Number(event.target.value) } : current)} /></label>
-          <label className="field-label">自定义研究方向（可选）<input value={draft.focus_override ?? ""} maxLength={500} onChange={(event) => setDraft((current) => current ? { ...current, focus_override: event.target.value || null } : current)} placeholder="沿用 研究方向 的方向" /></label>
-          <label className="field-label">优先 文献标识（逗号分隔）<input value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="例如 source-alpha, source-beta" /></label>
+          <label className="field-label">自定义研究方向（可选）<input value={draft.focus_override ?? ""} maxLength={500} onChange={(event) => setDraft((current) => current ? { ...current, focus_override: event.target.value || null } : current)} placeholder="沿用研究方向的方向" /></label>
+          <label className="field-label">优先文献标识（逗号分隔）<input value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="例如 source-alpha, source-beta" /></label>
         </div>
         <label className="term-discovery-external-setting">
           <input type="checkbox" checked={draft.external_enabled} onChange={(event) => setDraft((current) => current ? { ...current, external_enabled: event.target.checked } : current)} />
-          <span><strong>启用 Wikipedia 外部发现</strong><small>开启后，每次手动或定时运行最多发送一次 检索主题 查询并读取两条摘要；检索主题 查询会发给 Wikipedia，摘要会交给 AI 分析。只用于 概念 和 命名实体。</small></span>
+          <span><strong>启用 Wikipedia 外部发现</strong><small>开启后，每次手动或定时运行最多发送一次检索主题查询并读取两条摘要；检索主题查询会发给 Wikipedia，摘要会交给 AI 分析。只用于概念和命名实体。</small></span>
         </label>
         </details>
       </form>
@@ -162,8 +162,8 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
       {notice && navigate && <button className="button button-secondary" onClick={() => navigate("/terms?tab=candidates")}>查看待处理术语</button>}
       {error && <p className="error-copy" role="alert">{error}</p>}
 
-      <section className="term-discovery-history surface" aria-label="发现术语 发现记录">
-        <div className="section-heading"><div><h3>发现记录</h3><p>拓展建议保留在运行结果中，不会占用 待处理列表。</p></div><span className="count-label">{runs.length} runs</span></div>
+      <section className="term-discovery-history surface" aria-label="发现术语发现记录">
+        <div className="section-heading"><div><h3>发现记录</h3><p>拓展建议保留在运行结果中，不会占用待处理列表。</p></div><span className="count-label">{runs.length} runs</span></div>
         {runs.length ? <div className="term-discovery-run-list">{runs.map((run) => <details className="term-discovery-run" key={run.id}>
           <summary><span><Chip tone={run.status === "success" ? "green" : run.status === "partial" ? "amber" : "neutral"}>{run.status.replaceAll("_", " ")}</Chip> {new Date(run.started_at).toLocaleString()}</span><strong>{run.candidate_count} new</strong></summary>
           <div className="term-discovery-run-detail">
@@ -177,7 +177,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
               {item.rationale && <blockquote>{item.context_excerpt}</blockquote>}
             </article>)}
           </div>
-        </details>)}</div> : <p className="term-discovery-empty">还没有运行记录。选择需要的术语类别 后，可手动运行一次。</p>}
+        </details>)}</div> : <p className="term-discovery-empty">还没有运行记录。选择需要的术语类别后，可手动运行一次。</p>}
       </section>
     </section>
   );

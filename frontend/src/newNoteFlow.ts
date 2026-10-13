@@ -2,7 +2,7 @@ import { entityWorkspaceUrl } from "./workspaceRoute";
 
 export function makeDocumentId(title: string, suffix: string): string {
   const normalizedSuffix = String(suffix ?? "").toLocaleLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12);
-  if (!normalizedSuffix) throw new Error("A unique suffix is required to create a Document ID.");
+  if (!normalizedSuffix) throw new Error("A unique suffix is required to create a 笔记 ID.");
   const prefix = String(title ?? "")
     .normalize("NFKD")
     .toLocaleLowerCase()

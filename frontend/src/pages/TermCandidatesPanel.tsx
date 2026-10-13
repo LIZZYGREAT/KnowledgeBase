@@ -291,7 +291,7 @@ export function TermCandidatesPanel({
             <option value="">全部类别</option><option value="concept">概念</option><option value="entity">命名实体</option><option value="vocabulary">专业词汇</option>
           </select></label>
           <label className="field-label compact-field">匹配<select value={resolutionFilter} onChange={(event) => setResolutionFilter(event.target.value as ResolutionFilter)}>
-            <option value="all">已有条目 与 新条目</option><option value="existing">已有条目</option><option value="new">新条目</option>
+            <option value="all">已有条目与新条目</option><option value="existing">已有条目</option><option value="new">新条目</option>
           </select></label>
         </div>
       </div>
@@ -317,7 +317,7 @@ export function TermCandidatesPanel({
             const canCreateTerm = candidate.evidence.some((item) => !item.origin_rejected);
             const candidateIntent = candidate.discovery_assessment?.why_now.trim()
               || candidate.evidence.find((item) => item.rationale?.trim())?.rationale
-              || "等待人工审核的 术语 候选。";
+              || "等待人工审核的术语候选。";
             const evidenceContent = <div className="term-candidate-evidence-list">
               {candidate.evidence.map((item) => (
                 <section className={`term-candidate-evidence ${item.origin_rejected ? "rejected" : ""}`} key={item.id}>
@@ -366,14 +366,14 @@ export function TermCandidatesPanel({
                       <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id} onClick={() => void runAction(candidate.id, () => acceptTermCandidate(candidate.id, candidate.suggested_term_id!))}>关联已有术语</button>
                       <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => openTermPicker(candidate, event.currentTarget)}>选择其他术语</button>
                     </> : <>
-                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建 未发布的术语修改 需要至少一个未拒绝的候选来源" : undefined} onClick={(event) => startCreate(candidate, event.currentTarget)}>收录为新术语</button>
+                      <button className="button button-primary" type="button" disabled={busyCandidateId === candidate.id || !canCreateTerm} title={!canCreateTerm ? "创建未发布的术语修改需要至少一个未拒绝的候选来源" : undefined} onClick={(event) => startCreate(candidate, event.currentTarget)}>收录为新术语</button>
                       <button className="button button-secondary" type="button" disabled={busyCandidateId === candidate.id} onClick={(event) => openTermPicker(candidate, event.currentTarget)}>关联已有术语</button>
                     </>}
                     <button className="button button-danger" type="button" disabled={busyCandidateId === candidate.id || batchBusy} onClick={() => void runAction(candidate.id, () => rejectTermCandidate(candidate.id, { scope: "global" }))}>不再推荐</button>
                     <button className="button button-quiet term-candidate-delete" type="button" disabled={busyCandidateId === candidate.id || batchBusy} onClick={() => askToDelete([candidate])}>暂时移除</button>
                   </>}
                 </footer>
-                {reviewDrafts[candidate.id] && <div className="term-candidate-review-anchor" ref={reviewRefFor(candidate.id)} tabIndex={-1} aria-label={`${candidate.display_name} 的 未发布的术语修改 编辑区`}>
+                {reviewDrafts[candidate.id] && <div className="term-candidate-review-anchor" ref={reviewRefFor(candidate.id)} tabIndex={-1} aria-label={`${candidate.display_name} 的未发布的术语修改编辑区`}>
                   <TermCandidateReview candidate={candidate} seed={reviewDrafts[candidate.id]} onClose={() => returnFromReview(candidate.id)} onDone={(warnings = []) => { setNotice("操作已完成。"); setPublishWarnings(warnings); returnFromReview(candidate.id); resource.retry(); }} />
                 </div>}
                 {candidate.discovery_assessment && <details className="term-candidate-readiness">
@@ -389,18 +389,18 @@ export function TermCandidatesPanel({
             );
           })}
         </div>
-      ) : <EmptyState title="没有符合条件的候选词" description="分析 正式笔记 后，新发现的词会出现在这里，等待人工确认。" />}
+      ) : <EmptyState title="没有符合条件的候选词" description="分析正式笔记后，新发现的词会出现在这里，等待人工确认。" />}
 
       {pickerCandidate && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyCandidateId) setPickerCandidate(null); }}>
         <section className="explorer-modal term-picker-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-candidate-picker-title">
-          <div className="section-heading"><div><h2 id="term-candidate-picker-title">为“{pickerCandidate.display_name}”选择已有 术语</h2><p>搜索 术语库 后选中一个 术语，建立候选词关系。</p></div><button className="button button-quiet" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>关闭</button></div>
-          <label className="field-label">搜索 术语<input ref={pickerSearchRef} value={termQuery} onChange={(event) => setTermQuery(event.target.value)} placeholder="标题、ID 或别名" /></label>
-          <div className="term-picker-list" role="listbox" aria-label="术语库 搜索结果">
+          <div className="section-heading"><div><h2 id="term-candidate-picker-title">为“{pickerCandidate.display_name}”选择已有术语</h2><p>搜索术语库后选中一个术语，建立候选词关系。</p></div><button className="button button-quiet" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>关闭</button></div>
+          <label className="field-label">搜索术语<input ref={pickerSearchRef} value={termQuery} onChange={(event) => setTermQuery(event.target.value)} placeholder="标题、ID 或别名" /></label>
+          <div className="term-picker-list" role="listbox" aria-label="术语库搜索结果">
             {pickerTerms.map((term) => <button type="button" role="option" aria-selected={selectedTermId === term.id} className={selectedTermId === term.id ? "selected" : ""} key={term.id} onClick={() => setSelectedTermId(term.id)}><strong>{term.title}</strong><small>{termTypeLabel(readString(term.metadata.type) || "concept")} · {term.id}</small></button>)}
-            {!pickerTerms.length && <p className="subtle-copy">没有找到匹配的 术语。</p>}
+            {!pickerTerms.length && <p className="subtle-copy">没有找到匹配的术语。</p>}
           </div>
           {actionErrors[pickerCandidate.id] && <p className="error-copy" role="alert">{actionErrors[pickerCandidate.id]}</p>}
-          <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>取消</button><button className="button button-primary" type="button" disabled={!selectedTermId || Boolean(busyCandidateId)} onClick={() => void linkCandidateToSelectedTerm()}>{busyCandidateId === pickerCandidate.id ? "正在保存…" : "链接到所选 术语"}</button></div>
+          <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={Boolean(busyCandidateId)} onClick={() => setPickerCandidate(null)}>取消</button><button className="button button-primary" type="button" disabled={!selectedTermId || Boolean(busyCandidateId)} onClick={() => void linkCandidateToSelectedTerm()}>{busyCandidateId === pickerCandidate.id ? "正在保存…" : "链接到所选术语"}</button></div>
         </section>
       </div>}
 

@@ -49,7 +49,7 @@ export function useWorkspaceEditorController({
   const [sourceError, setSourceError] = useState("");
   const [proposalError, setProposalError] = useState("");
   const [proposalNotice, setProposalNotice] = useState(
-    proposalGeneratedOnLoad ? "已生成建议，等待 Apply to Draft。" : "",
+    proposalGeneratedOnLoad ? "已生成建议，等待采用建议。" : "",
   );
   const [proposalListLoaded, setProposalListLoaded] = useState(false);
   const [proposalBusy, setProposalBusy] = useState(false);
@@ -135,12 +135,12 @@ export function useWorkspaceEditorController({
       const targets: Array<{ id: string; entityType: Draft["entity_type"]; label: string }> = [{
         id: currentDraft.id,
         entityType: currentDraft.entity_type,
-        label: currentDraft.entity_type === "document" ? "Document" : currentDraft.entity_type,
+        label: currentDraft.entity_type === "document" ? "笔记" : currentDraft.entity_type,
       }];
       if (batchCollectionId) {
         const collectionDraft = (await listDrafts("collection", batchCollectionId))[0];
-        if (!collectionDraft) throw new Error("找不到此 Collection 的 Draft；请返回 Explorer 检查目录变更。");
-        targets.push({ id: collectionDraft.id, entityType: collectionDraft.entity_type, label: "Collection" });
+        if (!collectionDraft) throw new Error("找不到此专题的未发布修改；请返回专题整理检查目录变更。");
+        targets.push({ id: collectionDraft.id, entityType: collectionDraft.entity_type, label: "专题" });
       }
       const relatedIds = new Set(targets.map((target) => target.id));
       for (const draftId of additionalDraftIds) {
@@ -150,7 +150,7 @@ export function useWorkspaceEditorController({
         targets.push({
           id: relatedDraft.id,
           entityType: relatedDraft.entity_type,
-          label: relatedDraft.entity_type === "source" ? "Source" : relatedDraft.entity_type,
+          label: relatedDraft.entity_type === "source" ? "文献" : relatedDraft.entity_type,
         });
       }
       const comparisons = await Promise.all(targets.map((target) => compareDraft(target.id)));
@@ -168,7 +168,7 @@ export function useWorkspaceEditorController({
       const reviewed = targets.map((target, index) => {
         const comparison = comparisons[index];
         const preflight = preflightByDraftId.get(comparison.draft.id);
-        if (!preflight) throw new Error("批量预检未返回所有 Draft 的结果，请重新检查发布审阅。");
+        if (!preflight) throw new Error("批量预检未返回所有未发布修改的结果，请重新检查发布审阅。");
         return {
           label: target.label,
           entityType: target.entityType,
@@ -246,21 +246,21 @@ export function useWorkspaceEditorController({
   async function discardCurrentDraft() {
     const ensureDiscardAllowed = () => {
       if (["saving", "runtime-conflict", "canonical-conflict"].includes(saveStateRef.current)) {
-        throw new Error("请等待保存完成或先处理冲突，再丢弃 Draft。");
+        throw new Error("请等待保存完成或先处理冲突，再丢弃未发布修改。");
       }
     };
     try {
       ensureDiscardAllowed();
       if (!window.confirm(batchCollectionId
-        ? "丢弃这篇笔记 Draft 并从 Collection Draft 移除它的引用？此前的 Collection 修改会保留。"
-        : "丢弃尚未发布的修改？运行时 Draft 会被删除。")) return;
+        ? "丢弃这篇笔记未发布修改并从待确认的专题修改移除它的引用？此前的专题修改会保留。"
+        : "丢弃尚未发布的修改？运行时未发布修改会被删除。")) return;
       const relatedCollectionDraft = batchCollectionId
         ? (await listDrafts("collection", batchCollectionId))[0]
         : null;
       if (relatedCollectionDraft) {
         const comparison = await compareDraft(relatedCollectionDraft.id);
         if (comparison.canonical_changed) {
-          throw new Error("Collection Canonical 已变化。请先检查 Collection Draft 冲突，再丢弃新笔记。");
+          throw new Error("专题正式版本已变化。请先检查待确认的专题修改冲突，再丢弃新笔记。");
         }
         const canonicalCollection = await getCollection(batchCollectionId!);
         const currentCollection = parseCollectionDraft(comparison.draft.content, canonicalCollection);
@@ -298,7 +298,7 @@ export function useWorkspaceEditorController({
         item.preflight.valid && !item.preflight.conflict && !item.comparison.canonical_changed
       )) throw new Error("请先完成并检查发布审阅，再确认发布。");
       const currentReview = publishReview.find((item) => item.comparison.draft.id === draft?.id);
-      if (!currentReview) throw new Error("当前 Draft 不在本次发布审阅中，请重新检查。");
+      if (!currentReview) throw new Error("当前未发布修改不在本次发布审阅中，请重新检查。");
       const relatedDrafts = publishReview
         .filter((item) => item.comparison.draft.id !== currentReview.comparison.draft.id)
         .map((item) => ({
@@ -306,7 +306,7 @@ export function useWorkspaceEditorController({
           expected_revision: item.draftRevision,
         }));
       const result = await workspaceDraft.publish(currentReview.draftRevision, relatedDrafts);
-      if (!result) throw new Error("还没有可发布的 Draft 变化。");
+      if (!result) throw new Error("还没有可发布的未发布修改变化。");
       setActiveDrawer(null);
       await refreshProposals();
       if (batchCollectionId || additionalDraftIds.length) {
@@ -373,7 +373,7 @@ export function useWorkspaceEditorController({
       await workspaceDraft.applyProposalToDraft(proposalId);
       setProposalNotice("");
       await refreshProposals();
-      setProposalError("候选已写入 Draft；发布前仍可继续编辑和检查。");
+      setProposalError("候选已写入未发布修改；发布前仍可继续编辑和检查。");
     } catch (error) {
       setProposalError(errorMessage(error));
     } finally {

@@ -65,14 +65,14 @@ export function LibraryPage({ onOpen, navigate, activeTab }: { onOpen: SelectEnt
 
   return (
     <div className="page-stack">
-      <PageHeader eyebrow="CORPUS MANAGEMENT" title="Library" description="管理 Agent 可使用的知识输入、笔记和来源文献。" />
+      <PageHeader eyebrow="CORPUS MANAGEMENT" title="资料库" description="管理 Agent 可使用的知识输入、笔记和来源文献。" />
       <div className="library-toolbar">
-        <div className="segmented-control" role="tablist" aria-label="Library 类型">
-          <button role="tab" aria-selected={selectedTab === "documents"} className={selectedTab === "documents" ? "active" : ""} onClick={() => selectTab("documents")}>Documents {documentCount !== undefined && <span>{documentCount}</span>}</button>
-          <button role="tab" aria-selected={selectedTab === "sources"} className={selectedTab === "sources" ? "active" : ""} onClick={() => selectTab("sources")}>Sources {sourceCount !== undefined && <span>{sourceCount}</span>}</button>
-          <button role="tab" aria-selected={selectedTab === "import"} className={selectedTab === "import" ? "active" : ""} onClick={() => selectTab("import")}>Import</button>
+        <div className="segmented-control" role="tablist" aria-label="资料库类型">
+          <button role="tab" aria-selected={selectedTab === "documents"} className={selectedTab === "documents" ? "active" : ""} onClick={() => selectTab("documents")}>笔记 {documentCount !== undefined && <span>{documentCount}</span>}</button>
+          <button role="tab" aria-selected={selectedTab === "sources"} className={selectedTab === "sources" ? "active" : ""} onClick={() => selectTab("sources")}>文献 {sourceCount !== undefined && <span>{sourceCount}</span>}</button>
+          <button role="tab" aria-selected={selectedTab === "import"} className={selectedTab === "import" ? "active" : ""} onClick={() => selectTab("import")}>导入</button>
         </div>
-        {selectedTab === "documents" && <label className="field-label compact-field">Document type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">Paper notes</option><option value="learning-note">Learning notes</option><option value="course-note">Course notes</option></select></label>}
+        {selectedTab === "documents" && <label className="field-label compact-field">笔记 type<select value={documentType} onChange={(event) => setDocumentType(event.target.value)}><option value="">所有类型</option><option value="paper-note">论文笔记</option><option value="learning-note">学习笔记</option><option value="course-note">课程笔记</option></select></label>}
       </div>
       {selectedTab === "import" ? <ImportReviewPanel navigate={navigate} /> : selectedTab === "documents" ? documentResource.error ? <ErrorState message={documentResource.error} retry={documentResource.retry} /> : documentResource.loading ? <LoadingState /> : <LibraryDocumentsPanel documents={visible} onOpen={onOpen} navigate={navigate} onAnalysisComplete={documentResource.retry} /> : sourceResource.error ? <ErrorState message={sourceResource.error} retry={sourceResource.retry} /> : sourceResource.loading ? <LoadingState /> : <LibrarySourcesPanel sources={sources} onOpen={onOpen} />}
     </div>
@@ -194,7 +194,7 @@ export function TermsPage({
       });
       setMergeDialogOpen(false);
       setSelectedTermIds([]);
-      setMergeNotice(`已将 ${result.loser_term_ids.length} 个 术语 合并到 ${result.final_title}。${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`);
+      setMergeNotice(`已将 ${result.loser_term_ids.length} 个术语合并到 ${result.final_title}。${result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}`);
       resource.retry();
     } catch (reason) {
       setMergeError(errorMessage(reason));
@@ -206,7 +206,7 @@ export function TermsPage({
   return (
     <div className="page-stack">
       <PageHeader eyebrow="管理术语" title="术语" description="浏览并维护可链接、可复用的知识节点。" />
-      <div className="term-page-tabs segmented-control" role="tablist" aria-label="术语 页面">
+      <div className="term-page-tabs segmented-control" role="tablist" aria-label="术语页面">
         <button type="button" role="tab" aria-selected={activeTab === "registry"} className={activeTab === "registry" ? "active" : ""} onClick={() => selectTab("registry")}>术语库</button>
         <button type="button" role="tab" aria-selected={activeTab === "candidates"} className={activeTab === "candidates" ? "active" : ""} onClick={() => selectTab("candidates")}>待处理</button>
         <button type="button" role="tab" aria-selected={activeTab === "discovery"} className={activeTab === "discovery" ? "active" : ""} onClick={() => selectTab("discovery")}>发现术语</button>
@@ -219,16 +219,16 @@ export function TermsPage({
       ) : <>
       <div className="library-toolbar term-registry-toolbar">
         <div className="term-registry-filters">
-          <label className="field-label compact-field term-registry-search">搜索术语<input aria-label="搜索 术语" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="标题、ID 或别名" /></label>
+          <label className="field-label compact-field term-registry-search">搜索术语<input aria-label="搜索术语" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="标题、ID 或别名" /></label>
           <div className="filter-pair">
-          <label className="field-label compact-field">类别<select value={termType} onChange={(event) => setTermType(event.target.value as TermType | "")}><option value="">全部 术语</option><option value="concept">概念</option><option value="entity">命名实体</option><option value="vocabulary">专业词汇</option></select></label>
+          <label className="field-label compact-field">类别<select value={termType} onChange={(event) => setTermType(event.target.value as TermType | "")}><option value="">全部术语</option><option value="concept">概念</option><option value="entity">命名实体</option><option value="vocabulary">专业词汇</option></select></label>
           <label className="field-label compact-field">深度<select value={depth} onChange={(event) => setDepth(event.target.value)}><option value="">所有深度</option><option value="stub">基础速览</option><option value="standard">标准理解</option><option value="deep">系统深入</option></select></label>
-            {domains.length > 0 && <label className="field-label compact-field">领域<select aria-label="按 领域 筛选" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}><option value="">所有 领域</option>{domains.map((domain) => <option value={domain.id} key={domain.id}>{domain.title}</option>)}</select></label>}
-            {topics.length > 0 && <label className="field-label compact-field">主题<select aria-label="按 主题 筛选" value={topicFilter} onChange={(event) => setTopicFilter(event.target.value)}><option value="">所有 主题</option>{topics.map((topic) => <option value={topic.id} key={topic.id}>{topic.title}</option>)}</select></label>}
+            {domains.length > 0 && <label className="field-label compact-field">领域<select aria-label="按领域筛选" value={domainFilter} onChange={(event) => setDomainFilter(event.target.value)}><option value="">所有领域</option>{domains.map((domain) => <option value={domain.id} key={domain.id}>{domain.title}</option>)}</select></label>}
+            {topics.length > 0 && <label className="field-label compact-field">主题<select aria-label="按主题筛选" value={topicFilter} onChange={(event) => setTopicFilter(event.target.value)}><option value="">所有主题</option>{topics.map((topic) => <option value={topic.id} key={topic.id}>{topic.title}</option>)}</select></label>}
           </div>
         </div>
         <div className="term-registry-actions">
-          <span className="count-label">{visible.length} 个 术语</span>
+          <span className="count-label">{visible.length} 个术语</span>
           <button className="button button-secondary" type="button" disabled={selectedTermIds.length < 2 || mergeBusy} onClick={openMergeDialog}>合并所选 {selectedTermIds.length ? `(${selectedTermIds.length})` : ""}</button>
         </div>
       </div>
@@ -247,10 +247,10 @@ export function TermsPage({
             </article>
           ))}
         </div>
-      ) : <EmptyState title="还没有 术语" description="发布概念或词汇条目后，就可以在这里按类别和深度浏览。" />}
+      ) : <EmptyState title="还没有术语" description="发布概念或词汇条目后，就可以在这里按类别和深度浏览。" />}
       {mergeDialogOpen && <div className="explorer-modal-backdrop term-merge-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !mergeBusy) setMergeDialogOpen(false); }}>
         <section className="explorer-modal term-merge-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-merge-title">
-          <div className="section-heading"><div><h2 id="term-merge-title">合并 术语</h2><p>选择保留项并预览最终标题与别名。</p></div><button className="text-button" type="button" disabled={mergeBusy} onClick={() => setMergeDialogOpen(false)}>关闭</button></div>
+          <div className="section-heading"><div><h2 id="term-merge-title">合并术语</h2><p>选择保留项并预览最终标题与别名。</p></div><button className="text-button" type="button" disabled={mergeBusy} onClick={() => setMergeDialogOpen(false)}>关闭</button></div>
           <div className="term-merge-body">
             <label className="field-label">保留的 Survivor<select value={mergeSurvivorId} onChange={(event) => { const next = terms.find((term) => term.id === event.target.value); setMergeSurvivorId(event.target.value); setMergeFinalTitle(next?.title ?? ""); setMergeFinalType(""); setMergeFinalDepth(""); setConfirmedBodiesNotMerged(false); }}>
               {selectedTermIds.map((id) => { const term = terms.find((item) => item.id === id); return <option key={id} value={id}>{term?.title ?? id}</option>; })}
@@ -261,7 +261,7 @@ export function TermsPage({
               {mergePreviewLoading ? <span role="status">正在更新预览…</span> : mergePreviewError ? <p className="error-copy" role="alert">{mergePreviewError}</p> : mergePreview?.aliases.length ? <ul>{mergePreview.aliases.map((alias) => <li key={alias}>{alias}</li>)}</ul> : <span>无别名</span>}
             </section>
             {mergePreview && <section className="term-merge-metadata-preview" aria-label="合并 metadata 预览">
-              <strong>所选 术语 的类型与深度</strong>
+              <strong>所选术语的类型与深度</strong>
               <ul>{mergePreview.selected_terms.map((term) => <li key={term.id}><span>{term.title}</span><span>{termTypeLabel(term.type)} · {termDepthLabel(term.depth)}</span></li>)}</ul>
               {mergePreview.type_conflict ? <label className="field-label">最终类型<select value={mergeFinalType} onChange={(event) => setMergeFinalType(event.target.value as TermType | "")}><option value="">选择类型</option>{Array.from(new Set(mergePreview.selected_terms.map((term) => term.type))).map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label> : <p>类型无冲突，保留 Survivor 的 {titleCase(mergePreview.selected_terms.find((term) => term.id === mergeSurvivorId)?.type ?? "concept")}。</p>}
               {mergePreview.depth_conflict ? <label className="field-label">最终深度<select value={mergeFinalDepth} onChange={(event) => setMergeFinalDepth(event.target.value as "stub" | "standard" | "deep" | "")}><option value="">选择深度</option>{Array.from(new Set(mergePreview.selected_terms.map((term) => term.depth))).map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label> : <p>深度无冲突，保留 Survivor 的 {termDepthLabel(mergePreview.selected_terms.find((term) => term.id === mergeSurvivorId)?.depth ?? "stub")}。</p>}
@@ -318,7 +318,7 @@ export function TopicsPage({ onOpen }: { onOpen: SelectEntity }) {
   };
   return (
     <div className="page-stack">
-      <PageHeader eyebrow="KNOWLEDGE MAP" title="Topics" description="从 领域 进入 主题，再查看其中的 Documents、术语 与 Sources。" />
+      <PageHeader eyebrow="知识整理 MAP" title="分类" description="从领域进入主题，再查看其中的笔记、术语与文献。" />
       {resource.error ? <ErrorState message={resource.error} retry={resource.retry} /> : resource.loading || !data ? <LoadingState /> : (
         <div className="topic-layout">
           <aside className="surface taxonomy-panel">
@@ -330,15 +330,15 @@ export function TopicsPage({ onOpen }: { onOpen: SelectEntity }) {
             {domainTopics.map((topic) => (
               <button key={topic.id} className={selectedTopic === topic.id ? "taxonomy-choice selected" : "taxonomy-choice"} onClick={() => setSelectedTopic(topic.id)}><span>{topic.title}</span><span>{all.filter((entity) => readList(entity.metadata, "topics").includes(topic.id)).length}</span></button>
             ))}
-            {!domainTopics.length && <p className="subtle-copy">这个领域还没有关联 主题。</p>}
+            {!domainTopics.length && <p className="subtle-copy">这个领域还没有关联主题。</p>}
           </aside>
           <section className="topic-content">
-            <div className="topic-breadcrumb"><button onClick={() => { setSelectedDomain(""); setSelectedTopic(""); }}>Topics</button>{selectedDomain && <><span>/</span><button onClick={() => setSelectedTopic("")}>{data.domains.find((item) => item.id === selectedDomain)?.title ?? selectedDomain}</button></>}{selectedTopic && <><span>/</span><strong>{data.topics.find((item) => item.id === selectedTopic)?.title ?? selectedTopic}</strong></>}</div>
+            <div className="topic-breadcrumb"><button onClick={() => { setSelectedDomain(""); setSelectedTopic(""); }}>分类</button>{selectedDomain && <><span>/</span><button onClick={() => setSelectedTopic("")}>{data.domains.find((item) => item.id === selectedDomain)?.title ?? selectedDomain}</button></>}{selectedTopic && <><span>/</span><strong>{data.topics.find((item) => item.id === selectedTopic)?.title ?? selectedTopic}</strong></>}</div>
             {selectedTopic ? <div className="topic-groups">
               {(["document", "term", "source"] as const).map((type) => (
-                <section className="surface topic-group" key={type}><SectionHeading title={type === "document" ? "Documents" : type === "term" ? "术语" : "Sources"} detail={`${grouped[type].length} 项`} /><EntityList entities={grouped[type]} onOpen={(entity) => onOpen(entity.entity_type, entity.id)} /></section>
+                <section className="surface topic-group" key={type}><SectionHeading title={type === "document" ? "笔记" : type === "term" ? "术语" : "文献"} detail={`${grouped[type].length} 项`} /><EntityList entities={grouped[type]} onOpen={(entity) => onOpen(entity.entity_type, entity.id)} /></section>
               ))}
-            </div> : <div className="topic-welcome surface"><span className="topic-mark">✳</span><h2>{selectedDomain ? data.domains.find((item) => item.id === selectedDomain)?.title : "选择一个领域或主题"}</h2><p>左侧分类展示知识库已定义的 领域 与 主题。选中 主题 后，可以继续浏览相关的笔记、术语和来源。</p><div className="topic-counts"><span><strong>{grouped.document.length}</strong> Documents</span><span><strong>{grouped.term.length}</strong> 术语</span><span><strong>{grouped.source.length}</strong> Sources</span></div></div>}
+            </div> : <div className="topic-welcome surface"><span className="topic-mark">✳</span><h2>{selectedDomain ? data.domains.find((item) => item.id === selectedDomain)?.title : "选择一个领域或主题"}</h2><p>左侧分类展示知识库已定义的领域与主题。选中主题后，可以继续浏览相关的笔记、术语和来源。</p><div className="topic-counts"><span><strong>{grouped.document.length}</strong> 笔记</span><span><strong>{grouped.term.length}</strong> 术语</span><span><strong>{grouped.source.length}</strong> 文献</span></div></div>}
           </section>
         </div>
       )}

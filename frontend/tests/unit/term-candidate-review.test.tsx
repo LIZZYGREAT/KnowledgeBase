@@ -128,7 +128,7 @@ test("reopening the review reads the selected depth from the saved 未发布修�
   expect((reopenedSelector as HTMLSelectElement).value).toBe("deep");
 });
 
-test("an unhandled Proposal blocks depth changes until it is adopted or discarded", async () => {
+test("an unhandled AI 建议 blocks depth changes until it is adopted or discarded", async () => {
   const proposal = makeProposal();
   api.listProposals.mockResolvedValue([proposal]);
   renderReview();
@@ -162,7 +162,7 @@ test("repairs only current 未发布修改 H3 numbering without AI and then allo
   await waitFor(() => expect((screen.getByRole("button", { name: /修正 H3 编号/ }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "修正 H3 编号（3 处）" }));
 
-  expect(await screen.findByText("已只修正 3 个 H3 标题编号；解释正文保持不变，未发布修改 已保存，可检查后发布。")).toBeTruthy();
+  expect(await screen.findByText("已只修正 3 个 H3 标题编号；解释正文保持不变，未发布修改已保存，可检查后发布。")).toBeTruthy();
   expect(state.content).toContain("### 1. Meaning\n\nChinese body stays exact.");
   expect(state.content).toContain("### 2. Example\n\nExample body stays exact.");
   expect(state.content).toContain("## 二、English Explanation\n\n### 1. Meaning\n\nEnglish body stays exact.");
@@ -238,7 +238,7 @@ test("reuses a matching cached proposal and compares the old body with the unado
   api.listProposals.mockResolvedValue([proposal]);
   renderReview(vi.fn(), makeSeed());
 
-  expect(await screen.findByText(/已载入与当前编辑内容 匹配的建议/)).toBeTruthy();
+  expect(await screen.findByText(/已载入与当前编辑内容匹配的建议/)).toBeTruthy();
   const oldBody = screen.getByRole("region", { name: "当前编辑原文" });
   const newBody = screen.getByRole("region", { name: "尚未采用的双语重写建议" });
   expect(oldBody.textContent).toContain("Experience Replay retains examples.");
@@ -248,7 +248,7 @@ test("reuses a matching cached proposal and compares the old body with the unado
   expect(newBody.querySelector("h1")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "重新生成双语解释" }));
-  await waitFor(() => expect(screen.getByText(/已复用与当前编辑内容 内容匹配的双语建议/)).toBeTruthy());
+  await waitFor(() => expect(screen.getByText(/已复用与当前编辑内容内容匹配的双语建议/)).toBeTruthy());
   expect(requestCandidateTermDraftProposal).not.toHaveBeenCalled();
   expect(requestTermRewrite).not.toHaveBeenCalled();
 });
@@ -259,13 +259,13 @@ test("shows an initial bilingual proposal without an empty comparison column", a
   api.listProposals.mockResolvedValue([makeProposal()]);
   renderReview(vi.fn(), makeSeed(blankContent));
 
-  expect(await screen.findByText("初次生成：当前编辑内容 没有原文。")).toBeTruthy();
+  expect(await screen.findByText("初次生成：当前编辑内容没有原文。")).toBeTruthy();
   expect(screen.getByRole("region", { name: "尚未采用的双语重写建议" }).textContent).toContain("Suggested Chinese explanation.");
   expect(screen.getByRole("region", { name: "尚未采用的双语重写建议" }).textContent).toContain("Suggested English explanation.");
   expect(screen.queryByRole("region", { name: "当前编辑原文" })).toBeNull();
 });
 
-test("does not offer an older single-language rewrite as a bilingual Proposal", async () => {
+test("does not offer an older single-language rewrite as a bilingual AI 建议", async () => {
   const singleLanguageProposal = makeProposal();
   singleLanguageProposal.payload.task = "rewrite_term_language";
   api.listProposals.mockResolvedValue([singleLanguageProposal]);
@@ -278,7 +278,7 @@ test("does not offer an older single-language rewrite as a bilingual Proposal", 
   await waitFor(() => expect(requestCandidateTermDraftProposal).toHaveBeenCalledWith("d", "candidate-1"));
 });
 
-test("adoption only updates the 未发布修改 and keeps Publish as a separate human action", async () => {
+test("adoption only updates the 未发布修改 and keeps 确认保存 as a separate human action", async () => {
   const proposal = makeProposal();
   api.listProposals.mockResolvedValue([proposal]);
   renderReview();

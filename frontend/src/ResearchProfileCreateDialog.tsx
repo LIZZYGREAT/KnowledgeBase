@@ -36,19 +36,19 @@ export function ResearchProfileCreateDialog({
         ? uniqueCopyProfileId(sourceProfile.id, profiles)
         : uniqueProfileId(normalizedTitle, profiles);
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalizedId)) {
-      setError("Profile ID 只能使用小写字母、数字和连字符。");
+      setError("研究方向 ID 只能使用小写字母、数字和连字符。");
       return;
     }
     if (profiles.some((profile) => profile.id === normalizedId)) {
-      setError("该 Profile ID 已存在，请选择其他 ID。");
+      setError("该研究方向 ID 已存在，请选择其他 ID。");
       return;
     }
     if (!normalizedTitle) {
-      setError("Profile title 不能为空。");
+      setError("研究方向 title 不能为空。");
       return;
     }
     if (!sourceProfile && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(lensId.trim())) {
-      setError("Initial Lens ID 只能使用小写字母、数字和连字符。");
+      setError("Initial 检索主题 ID 只能使用小写字母、数字和连字符。");
       return;
     }
     if (!sourceProfile && !initialQuery.trim()) {
@@ -98,23 +98,23 @@ export function ResearchProfileCreateDialog({
     <section className="research-dismiss-dialog research-profile-create-dialog" role="dialog" aria-modal="true" aria-labelledby="research-profile-create-title">
       <header>
         <p className="eyebrow">{sourceProfile ? "DUPLICATE PROFILE" : "NEW PROFILE"}</p>
-        <h2 id="research-profile-create-title">{sourceProfile ? "Duplicate Research Profile" : "New Research Profile"}</h2>
-        <p>先填写名称和研究主题，再检查 Defaults；通过审查并发布后，Profile 才会进入列表。</p>
+        <h2 id="research-profile-create-title">{sourceProfile ? "Duplicate 研究方向" : "New 研究方向"}</h2>
+        <p>先填写名称和研究主题，再检查 Defaults；通过审查并发布后，研究方向才会进入列表。</p>
       </header>
       <form onSubmit={(event) => void submit(event)}>
         {error && <p className="error-copy" role="alert">{error}</p>}
-        {sourceProfile && <label className="field-label">Profile ID<input aria-label="New Profile ID" value={profileIdManuallyEdited ? id : uniqueCopyProfileId(sourceProfile.id, profiles)} onChange={(event) => { setId(event.target.value); setProfileIdManuallyEdited(true); }} placeholder="e.g. llm-agents" autoFocus /></label>}
-        <label className="field-label">Profile name<input aria-label="New Profile title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus={!sourceProfile} /></label>
-        <label className="field-label">Description<textarea aria-label="New Profile description" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-        {sourceProfile ? <p className="field-hint">复制现有 Defaults；下一步可检查并调整。</p> : <label className="field-label">Research focus<textarea aria-label="Initial Query" rows={3} value={initialQuery} onChange={(event) => setInitialQuery(event.target.value)} placeholder="e.g. regularization continual learning" /></label>}
+        {sourceProfile && <label className="field-label">研究方向 ID<input aria-label="新建研究方向 ID" value={profileIdManuallyEdited ? id : uniqueCopyProfileId(sourceProfile.id, profiles)} onChange={(event) => { setId(event.target.value); setProfileIdManuallyEdited(true); }} placeholder="e.g. llm-agents" autoFocus /></label>}
+        <label className="field-label">研究方向 name<input aria-label="新建研究方向 title" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus={!sourceProfile} /></label>
+        <label className="field-label">Description<textarea aria-label="新建研究方向 description" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+        {sourceProfile ? <p className="field-hint">复制现有 Defaults；下一步可检查并调整。</p> : <label className="field-label">论文推荐 focus<textarea aria-label="Initial Query" rows={3} value={initialQuery} onChange={(event) => setInitialQuery(event.target.value)} placeholder="e.g. regularization continual learning" /></label>}
         {!sourceProfile && <details className="research-advanced-settings">
           <summary>Advanced identifiers</summary>
-          <label className="field-label">Profile ID<input aria-label="New Profile ID" value={profileIdManuallyEdited ? id : uniqueProfileId(title, profiles)} onChange={(event) => { setId(event.target.value); setProfileIdManuallyEdited(true); }} placeholder="e.g. llm-agents" /><span className="field-hint">默认根据名称生成；重名时自动追加序号。</span></label>
-          <label className="field-label">Initial Lens ID<input aria-label="Initial Lens ID" value={lensId} onChange={(event) => setLensId(event.target.value)} /></label>
+          <label className="field-label">研究方向 ID<input aria-label="新建研究方向 ID" value={profileIdManuallyEdited ? id : uniqueProfileId(title, profiles)} onChange={(event) => { setId(event.target.value); setProfileIdManuallyEdited(true); }} placeholder="e.g. llm-agents" /><span className="field-hint">默认根据名称生成；重名时自动追加序号。</span></label>
+          <label className="field-label">Initial 检索主题 ID<input aria-label="Initial 检索主题 ID" value={lensId} onChange={(event) => setLensId(event.target.value)} /></label>
         </details>}
         <footer className="research-dialog-actions">
-          <button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button>
-          <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Creating Research Profile…" : "Create Research Profile"}</button>
+          <button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>取消</button>
+          <button className="button button-primary" type="submit" disabled={busy}>{busy ? "Creating 研究方向…" : "Create 研究方向"}</button>
         </footer>
       </form>
     </section>

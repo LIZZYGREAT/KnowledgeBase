@@ -13,7 +13,7 @@ export function addEntityReference(
   nodeId = createNodeId("entity"),
 ): DraftCollection {
   if (containsEntity(collection.nodes, entityType, entityId)) {
-    throw new Error(`${entityType} '${entityId}' is already in this Collection.`);
+    throw new Error(`${entityType} '${entityId}' is already in this 专题.`);
   }
   const node: CollectionNode = {
     id: nodeId,
@@ -34,24 +34,24 @@ export function moveCollectionNode(
 ): DraftCollection {
   if (nodeId === beforeNodeId) return collection;
   const found = findNode(collection.nodes, nodeId);
-  if (!found) throw new Error(`Collection node '${nodeId}' does not exist.`);
+  if (!found) throw new Error(`专题 node '${nodeId}' does not exist.`);
   if (parentSectionId === nodeId || (parentSectionId && found.node.kind === "section" && containsNode(found.node.children, parentSectionId))) {
-    throw new Error("A Section cannot be moved into itself or one of its descendants.");
+    throw new Error("A 分组 cannot be moved into itself or one of its descendants.");
   }
 
   const remaining = removeNode(collection.nodes, nodeId).nodes;
   const moved = found.node;
   const parentDepth = parentSectionId ? sectionDepth(remaining, parentSectionId) : 0;
-  if (parentSectionId && parentDepth === null) throw new Error(`Section '${parentSectionId}' does not exist.`);
+  if (parentSectionId && parentDepth === null) throw new Error(`分组 '${parentSectionId}' does not exist.`);
   if (moved.kind === "section" && parentDepth !== null && parentDepth + sectionHeight(moved) > 2) {
-    throw new Error("Collection sections may be nested at most 2 levels deep.");
+    throw new Error("专题 sections may be nested at most 2 levels deep.");
   }
   return updateChildren({ ...collection, nodes: remaining }, parentSectionId, (children) => insertBefore(children, moved, beforeNodeId));
 }
 
 export function removeCollectionNode(collection: DraftCollection, nodeId: string): DraftCollection {
   const result = removeNode(collection.nodes, nodeId);
-  if (!result.found) throw new Error(`Collection node '${nodeId}' does not exist.`);
+  if (!result.found) throw new Error(`专题 node '${nodeId}' does not exist.`);
   return { ...collection, nodes: result.nodes };
 }
 
@@ -62,21 +62,21 @@ export function addCollectionSection(
   nodeId = createNodeId("section"),
 ): DraftCollection {
   const depth = parentSectionId ? sectionDepth(collection.nodes, parentSectionId) : 0;
-  if (parentSectionId && depth === null) throw new Error(`Section '${parentSectionId}' does not exist.`);
-  if (depth !== null && depth >= 2) throw new Error("Collection sections may be nested at most 2 levels deep.");
+  if (parentSectionId && depth === null) throw new Error(`分组 '${parentSectionId}' does not exist.`);
+  if (depth !== null && depth >= 2) throw new Error("专题 sections may be nested at most 2 levels deep.");
   const section: CollectionNode = { id: nodeId, kind: "section", title, children: [] };
   return updateChildren(collection, parentSectionId, (children) => [...children, section]);
 }
 
 export function renameCollectionSection(collection: DraftCollection, sectionId: string, title: string): DraftCollection {
   const result = renameInChildren(collection.nodes, sectionId, title);
-  if (!result.found) throw new Error(`Section '${sectionId}' does not exist.`);
+  if (!result.found) throw new Error(`分组 '${sectionId}' does not exist.`);
   return { ...collection, nodes: result.nodes };
 }
 
 export function moveCollectionSibling(collection: DraftCollection, nodeId: string, direction: number): DraftCollection {
   const found = findNode(collection.nodes, nodeId);
-  if (!found) throw new Error(`Collection node '${nodeId}' does not exist.`);
+  if (!found) throw new Error(`专题 node '${nodeId}' does not exist.`);
   return updateChildren(collection, found.parentSectionId, (children) => {
     const index = children.findIndex((node) => node.id === nodeId);
     const target = Math.max(0, Math.min(children.length - 1, index + direction));
@@ -96,7 +96,7 @@ export function deleteCollectionSection(collection: DraftCollection, sectionId: 
       if (node.kind === "section" && node.id === sectionId) {
         found = true;
         if (node.children.length && !promoteChildren) {
-          throw new Error("A Section with content must promote its children before deletion.");
+          throw new Error("A 分组 with content must promote its children before deletion.");
         }
         result.push(...(promoteChildren ? node.children : []));
       } else if (node.kind === "section") {
@@ -108,7 +108,7 @@ export function deleteCollectionSection(collection: DraftCollection, sectionId: 
     return result;
   }
   const nodes = removeFrom(collection.nodes);
-  if (!found) throw new Error(`Section '${sectionId}' does not exist.`);
+  if (!found) throw new Error(`分组 '${sectionId}' does not exist.`);
   return { ...collection, nodes };
 }
 
@@ -155,7 +155,7 @@ function updateChildren(
     });
   }
   const nodes = visit(collection.nodes);
-  if (!found) throw new Error(`Section '${parentSectionId}' does not exist.`);
+  if (!found) throw new Error(`分组 '${parentSectionId}' does not exist.`);
   return { ...collection, nodes };
 }
 

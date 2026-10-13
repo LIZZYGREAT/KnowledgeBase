@@ -42,11 +42,11 @@ export function WorkspaceShell({
   }, [explorerOpen]);
 
   return <section className="workspace-shell" aria-label={`${entityLabels[type]}工作区`} data-entity-id={id}>
-    <button className="button button-secondary workspace-explorer-toggle" type="button" aria-controls="workspace-explorer-pane" aria-expanded={explorerOpen} aria-label={explorerOpen ? "关闭 Knowledge Explorer" : "打开 Knowledge Explorer"} onClick={() => setExplorerOpen((open) => !open)}>
-      <span aria-hidden="true">⌘</span> Explorer
+    <button className="button button-secondary workspace-explorer-toggle" type="button" aria-controls="workspace-explorer-pane" aria-expanded={explorerOpen} aria-label={explorerOpen ? "收起专题整理" : "打开专题整理"} onClick={() => setExplorerOpen((open) => !open)}>
+      <span aria-hidden="true">⌘</span> 专题整理
     </button>
-    {explorerOpen && <button className="workspace-explorer-scrim" type="button" aria-label="关闭 Explorer" onClick={() => setExplorerOpen(false)} />}
-    {explorerOpen && <aside className="workspace-explorer-pane" id="workspace-explorer-pane" aria-label="Knowledge Explorer">{explorer}</aside>}
+    {explorerOpen && <button className="workspace-explorer-scrim" type="button" aria-label="关闭专题整理" onClick={() => setExplorerOpen(false)} />}
+    {explorerOpen && <aside className="workspace-explorer-pane" id="workspace-explorer-pane" aria-label="专题整理">{explorer}</aside>}
     <main className="workspace-document-pane">{children}</main>
   </section>;
 }

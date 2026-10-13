@@ -34,25 +34,25 @@ export function ExplorerPage(props: ExplorerPageProps) {
   const layoutStyle = { "--explorer-width": `${panelWidth}px` } as CSSProperties;  return (
     <div className={embedded ? "explorer-embedded" : "page-stack"}>
       {!embedded && <PageHeader
-        eyebrow="BROWSE CANONICAL KNOWLEDGE"
-        title="Knowledge Explorer"
-        description="按 Collection 阅读有序知识路径，也可以查看全部、未归档和最近打开的笔记。"
+        eyebrow="BROWSE CANONICAL 知识整理"
+        title="专题整理"
+        description="按专题阅读有序知识路径，也可以查看全部、未归档和最近打开的笔记。"
       />}
       <div className={`explorer-layout ${embedded ? "explorer-layout-embedded" : ""}`} style={layoutStyle}>
-        <aside className="explorer-sidebar surface" aria-label="Knowledge Explorer navigation">
+        <aside className="explorer-sidebar surface" aria-label="专题整理 navigation">
           <div className="explorer-sidebar-header">
-            <span className="eyebrow">COLLECTION</span>
+            <span className="eyebrow">专题</span>
             <div className="explorer-sidebar-header-actions">
               {collectionsResource.error ? <button className="text-button" onClick={collectionsResource.retry}>重试</button> : null}
-              {!readOnly && <button className="text-button" onClick={openCreateCollection}>New Collection</button>}
+              {!readOnly && <button className="text-button" onClick={openCreateCollection}>新建专题</button>}
             </div>
           </div>
-          {collectionsResource.loading ? <LoadingState label="正在读取 Collections…" /> : collectionsResource.error ? (
+          {collectionsResource.loading ? <LoadingState label="正在读取专题…" /> : collectionsResource.error ? (
             <ErrorState message={collectionsResource.error} retry={collectionsResource.retry} />
           ) : <label className="explorer-select-label">
-            <span className="visually-hidden">选择 Collection</span>
+            <span className="visually-hidden">选择专题</span>
             <select
-              aria-label="选择 Collection"
+              aria-label="选择专题"
               value={selectedCollectionId}
               disabled={readOnly}
               onChange={(event) => {
@@ -71,25 +71,25 @@ export function ExplorerPage(props: ExplorerPageProps) {
                 setView("collection");
               }}
             >
-              <option value="">选择 Collection</option>
-              {collections.map((item) => <option key={item.id} value={item.id}>{item.title}{item.status === "archived" ? " · Archived" : ""}</option>)}
+              <option value="">选择专题</option>
+              {collections.map((item) => <option key={item.id} value={item.id}>{item.title}{item.status === "archived" ? " · 已归档" : ""}</option>)}
             </select>
           </label>}
-          {!readOnly && !collectionsResource.loading && !collectionsResource.error && <div className="explorer-collection-order-actions" aria-label="调整 Collection 顺序">
-            <button className="button button-quiet" type="button" aria-label="上移此 Collection 并暂存排序" title="上移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "error" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) <= 0} onClick={() => void moveSelectedCollection("up")}>↑ 上移</button>
-            <button className="button button-quiet" type="button" aria-label="下移此 Collection 并暂存排序" title="下移并暂存排序 Draft" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "error" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) < 0 || collections.findIndex((item) => item.id === selectedCollectionId) >= collections.length - 1} onClick={() => void moveSelectedCollection("down")}>↓ 下移</button>
+          {!readOnly && !collectionsResource.loading && !collectionsResource.error && <div className="explorer-collection-order-actions" aria-label="调整专题顺序">
+            <button className="button button-quiet" type="button" aria-label="上移此专题并暂存排序" title="上移并暂存排序未发布修改" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "error" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) <= 0} onClick={() => void moveSelectedCollection("up")}>↑ 上移</button>
+            <button className="button button-quiet" type="button" aria-label="下移此专题并暂存排序" title="下移并暂存排序未发布修改" disabled={busy || organizationDraftsLoading || collectionDraft.status === "loading" || collectionDraft.status === "error" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict" || !selectedCollectionId || collections.findIndex((item) => item.id === selectedCollectionId) < 0 || collections.findIndex((item) => item.id === selectedCollectionId) >= collections.length - 1} onClick={() => void moveSelectedCollection("down")}>↓ 下移</button>
             {collectionDraft.collection && <button className="button button-quiet" type="button" disabled={busy || collectionDraft.status === "loading" || collectionDraft.status === "runtime-conflict" || collectionDraft.status === "canonical-conflict"} onClick={openMetadataDialog}>编辑详情</button>}
           </div>}
           {orderingError && <p className="error-copy" role="alert">{orderingError}</p>}
           {orderingNotice && <p role="status">{orderingNotice}</p>}
           {organizationOrderDrafts.length > 0 && <div className="explorer-organization-order-pending" role="status">
-            <span>{organizationOrderDrafts.length} 个未发布的 Collection 排序修改</span>
-            {!readOnly && <button className="button button-primary" type="button" disabled={busy || organizationDraftsLoading} onClick={() => void publishOrganizationChanges()}>{busy ? "正在发布…" : "Publish Organization Changes"}</button>}
+            <span>{organizationOrderDrafts.length} 个未发布的专题排序修改</span>
+            {!readOnly && <button className="button button-primary" type="button" disabled={busy || organizationDraftsLoading} onClick={() => void publishOrganizationChanges()}>{busy ? "正在发布…" : "保存排序更改"}</button>}
           </div>}
 
           <label className="explorer-filter">
             <span aria-hidden="true">⌕</span>
-            <input value={treeFilter} onChange={(event) => setTreeFilter(event.target.value)} placeholder="Filter tree…" aria-label="Filter Collection tree" />
+            <input value={treeFilter} onChange={(event) => setTreeFilter(event.target.value)} placeholder="筛选专题目录…" aria-label="筛选专题目录" />
           </label>
 
           <div className="explorer-tree-scroll">
@@ -117,21 +117,21 @@ export function ExplorerPage(props: ExplorerPageProps) {
               onDeleteSection={deleteSection}
               onNewNoteHere={(sectionId, sectionTitle) => startNewNoteHere(sectionId, sectionTitle)}
             />}
-            {!collectionResource.loading && !selectedCollectionId && <EmptyState title="还没有 Collection" description="发布的 Collection 会显示在这里。" />}
+            {!collectionResource.loading && !selectedCollectionId && <EmptyState title="还没有专题" description="发布的专题会显示在这里。" />}
           </div>
 
           <nav className="explorer-virtual-views" aria-label="Virtual views">
             <span className="eyebrow">VIRTUAL VIEWS</span>
-            <VirtualViewButton active={view === "all"} onClick={() => setView("all")} icon="▤" label="All Documents" />
-            <VirtualViewButton active={view === "unfiled"} onClick={() => setView("unfiled")} icon="○" label="Unfiled" />
-            <VirtualViewButton active={view === "recent"} onClick={() => setView("recent")} icon="◷" label="Recent" />
+            <VirtualViewButton active={view === "all"} onClick={() => setView("all")} icon="▤" label="所有笔记" />
+            <VirtualViewButton active={view === "unfiled"} onClick={() => setView("unfiled")} icon="○" label="未归入专题" />
+            <VirtualViewButton active={view === "recent"} onClick={() => setView("recent")} icon="◷" label="最近打开" />
           </nav>
         </aside>
 
         <div
           className="explorer-resizer"
           role="separator"
-          aria-label="调整 Explorer 宽度"
+          aria-label="调整专题整理宽度"
           aria-orientation="vertical"
           aria-valuemin={220}
           aria-valuemax={420}
@@ -215,9 +215,9 @@ export function ExplorerPage(props: ExplorerPageProps) {
       />}
       {!readOnly && copyingEntity && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCopyEntity(); }}>
         <section className="explorer-modal surface" role="dialog" aria-modal="true" aria-labelledby="copy-reference-title">
-          <div className="section-heading"><div><h2 id="copy-reference-title">Copy to Collection</h2><p>{copyingEntity.title}</p></div><button className="text-button" onClick={closeCopyEntity}>关闭</button></div>
-          <label className="field-label">目标 Collection<select value={copyTargetId} onChange={(event) => selectCopyTarget(event.target.value)}>
-            <option value="">选择 Active Collection</option>
+          <div className="section-heading"><div><h2 id="copy-reference-title">复制到专题</h2><p>{copyingEntity.title}</p></div><button className="text-button" onClick={closeCopyEntity}>关闭</button></div>
+          <label className="field-label">目标专题<select value={copyTargetId} onChange={(event) => selectCopyTarget(event.target.value)}>
+            <option value="">选择已启用专题</option>
             {collections.filter((item) => item.status === "active" && item.id !== displayedCollection?.id).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
           </select></label>
           {copyError && <p className="error-copy" role="alert">{copyError}</p>}

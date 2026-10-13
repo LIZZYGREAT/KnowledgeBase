@@ -125,7 +125,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
         if (!active || activeCollectionIdRef.current !== currentCanonical.id) return;
         setComparison(result);
         if (result.canonical_changed) {
-          setRuntimeError("Canonical Collection 已变化。请先检查并恢复 Draft 冲突。");
+          setRuntimeError("正式版本专题已变化。请先检查并恢复未发布修改冲突。");
         }
       })
       .catch((reason: unknown) => {
@@ -201,7 +201,7 @@ export function useCollectionDraft(canonical: Collection | null): CollectionDraf
 
   const reloadCanonical = useCallback(async () => {
     const currentCanonical = canonicalRef.current;
-    if (!currentCanonical) throw new Error("当前没有可载入的 Canonical Collection。");
+    if (!currentCanonical) throw new Error("当前没有可载入的正式版本专题。");
     await discardRuntimeDraft();
     const latestCanonical = await getCollection(currentCanonical.id);
     if (activeCollectionIdRef.current !== currentCanonical.id) return;

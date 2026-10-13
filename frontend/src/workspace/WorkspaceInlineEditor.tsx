@@ -190,7 +190,7 @@ function InlineBlockInput({
         spellCheck={false}
         aria-label={`Markdown 区块 ${index + 1}`}
       /></label>
-    <div className="workspace-inline-preview"><span className="workspace-inline-preview-label">Preview</span><Suspense fallback={<p className="subtle-copy">正在生成预览…</p>}><MarkdownContent content={value} onNavigate={onNavigate} /></Suspense></div>
+    <div className="workspace-inline-preview"><span className="workspace-inline-preview-label">预览</span><Suspense fallback={<p className="subtle-copy">正在生成预览…</p>}><MarkdownContent content={value} onNavigate={onNavigate} /></Suspense></div>
     <div className="workspace-inline-actions"><span>Ctrl/Cmd + Enter 完成 · Esc 还原</span><button className="button button-primary" type="button" disabled={disabled} onClick={onDone}>完成区块</button></div>
   </section>;
 }

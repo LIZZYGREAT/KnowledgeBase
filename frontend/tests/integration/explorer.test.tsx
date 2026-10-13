@@ -94,7 +94,7 @@ function installApiBehavior() {
   api.listDrafts.mockImplementation(async (type: string, id: string) => drafts.filter((draft) => draft.entity_type === type && draft.entity_id === id));
   api.getDraft.mockImplementation(async (id: string) => {
     const draft = drafts.find((item) => item.id === id);
-    if (!draft) throw Object.assign(new Error("Draft not found"), { status: 404 });
+    if (!draft) throw Object.assign(new Error("未发布修改 not found"), { status: 404 });
     return { ...draft };
   });
   api.createDraft.mockImplementation(async (type: Draft["entity_type"], id: string, content: string) => {
@@ -104,7 +104,7 @@ function installApiBehavior() {
   });
   api.updateDraft.mockImplementation(async (id: string, content: string, revision: number) => {
     const draft = drafts.find((item) => item.id === id);
-    if (!draft) throw new Error("Draft not found");
+    if (!draft) throw new Error("未发布修改 not found");
     Object.assign(draft, { content, revision: revision + 1 });
     return { ...draft };
   });
@@ -113,7 +113,7 @@ function installApiBehavior() {
   });
   api.compareDraft.mockImplementation(async (id: string) => {
     const draft = drafts.find((item) => item.id === id);
-    if (!draft) throw new Error("Draft not found");
+    if (!draft) throw new Error("未发布修改 not found");
     return {
       draft: { ...draft },
       base_content: canonical ? serializeCollectionDraft(collectionToDraft(canonical)) : "",
@@ -174,9 +174,9 @@ function RouteHarness() {
   return <>{routeMarker}<WorkspacePage type="document" id={id} navigate={setPath} collectionId={activeCollectionId} batchCollectionId={batchCollectionId} /></>;
 }
 
-describe("Explorer React integration", () => {
+describe("专题整理 React integration", () => {
   beforeEach(() => {
-    canonical = makeCollection([{ id: "section-notes", kind: "section", title: "Notes", children: [] }]);
+    canonical = makeCollection([{ id: "section-notes", kind: "section", title: "笔记", children: [] }]);
     drafts = [];
     draftSequence = 0;
     collectionConflict = false;
@@ -185,7 +185,7 @@ describe("Explorer React integration", () => {
     installApiBehavior();
   });
 
-  it("drags an existing Document into a Collection, autosaves its Draft, and publishes it", async () => {
+  it("drags an existing 笔记 into a 专题, autosaves its 未发布修改, and publishes it", async () => {
     const user = userEvent.setup();
     const guards = new Set<NavigationGuard>();
     const navigate = vi.fn();
@@ -198,7 +198,7 @@ describe("Explorer React integration", () => {
     const editStructure = await screen.findByRole("button", { name: "编辑结构" });
     await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
     await user.click(editStructure);
-    await user.click(screen.getByRole("button", { name: /All Documents/ }));
+    await user.click(screen.getByRole("button", { name: /所有笔记/ }));
 
     const row = (await screen.findByText("Orphan note")).closest(".explorer-virtual-row");
     expect(row).not.toBeNull();
@@ -221,7 +221,7 @@ describe("Explorer React integration", () => {
     expect(navigate).toHaveBeenCalledWith("/documents/orphan-note");
     expect(api.createDraft.mock.calls[0][0]).toBe("collection");
     expect(api.createDraft.mock.calls[0][2]).toContain("orphan-note");
-    await user.click(await screen.findByRole("button", { name: "Publish" }));
+    await user.click(await screen.findByRole("button", { name: "确认保存" }));
     await screen.findByRole("heading", { name: "发布变更" });
     await user.click(screen.getByRole("button", { name: "确认发布" }));
     await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledOnce());
@@ -236,7 +236,7 @@ describe("Explorer React integration", () => {
     canonical = makeCollection([{
       id: "section-notes",
       kind: "section",
-      title: "Notes",
+      title: "笔记",
       children: [{
         id: "entity-orphan-note",
         kind: "entity",
@@ -252,46 +252,46 @@ describe("Explorer React integration", () => {
     api.getCollection.mockImplementation(async (id: string) => id === targetId
       ? makeCollection([], targetId, "Target Path", 1)
       : ({ ...canonical, nodes: structuredClone(canonical.nodes) }));
-    api.createDraft.mockRejectedValueOnce(new Error("Target Collection is unavailable"));
+    api.createDraft.mockRejectedValueOnce(new Error("Target 专题 is unavailable"));
 
     renderExplorer();
     await screen.findByRole("heading", { name: "Study Path" });
     const editStructure = await screen.findByRole("button", { name: "编辑结构" });
     await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
     await user.click(editStructure);
-    await user.click(await screen.findByRole("button", { name: "复制 Orphan note 到其他 Collection" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "目标 Collection" }), targetId);
+    await user.click(await screen.findByRole("button", { name: "复制 Orphan note 到其他专题" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "目标专题" }), targetId);
     await user.click(screen.getByRole("button", { name: "复制引用" }));
-    await within(screen.getByRole("dialog", { name: "Copy to Collection" })).findByRole("alert");
-    expect(screen.getByRole("alert").textContent).toContain("Target Collection is unavailable");
-    expect(screen.queryByText("Target Collection is unavailable")).toBeTruthy();
+    await within(screen.getByRole("dialog", { name: "复制到专题" })).findByRole("alert");
+    expect(screen.getByRole("alert").textContent).toContain("Target 专题 is unavailable");
+    expect(screen.queryByText("Target 专题 is unavailable")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "复制引用" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Copy to Collection" })).toBeNull());
-    expect((await screen.findByRole("status")).textContent).toContain("已将“Orphan note”复制到 Target Path 的 Collection Draft。");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "复制到专题" })).toBeNull());
+    expect((await screen.findByRole("status")).textContent).toContain("已将“Orphan note”复制到 Target Path 的待确认的专题修改。");
     expect(api.createDraft).toHaveBeenCalledTimes(2);
   });
 
-  it("recovers a conflicted Collection Draft by discarding it and reloading Canonical", async () => {
+  it("recovers a conflicted 待确认的专题修改 by discarding it and reloading 正式版本", async () => {
     const staleDraft = makeDraft("collection", collectionId, `id: ${collectionId}\ntitle: Stale\nnodes: []\n`);
     drafts.push(staleDraft);
     collectionConflict = true;
     renderExplorer();
 
-    await screen.findByRole("heading", { name: "解决 Collection 冲突" });
-    await userEvent.setup().click(screen.getByRole("button", { name: "放弃 Draft 并载入 Canonical" }));
+    await screen.findByRole("heading", { name: "解决专题冲突" });
+    await userEvent.setup().click(screen.getByRole("button", { name: "放弃未发布修改并载入正式版本" }));
     await waitFor(() => expect(api.discardDraft).toHaveBeenCalledWith(staleDraft.id, staleDraft.revision));
     expect(await screen.findByRole("heading", { name: "Study Path" })).toBeTruthy();
   });
 
-  it("separates Collection Runtime Draft conflicts and keeps local YAML using the latest revision", async () => {
+  it("separates 专题已保存的修改 conflicts and keeps local YAML using the latest revision", async () => {
     const user = userEvent.setup();
     const existing = makeDraft("collection", collectionId, serializeCollectionDraft(collectionToDraft(canonical)));
     drafts.push(existing);
     const otherTabContent = `id: ${collectionId}\ntitle: Other tab\nnodes: []\n`;
     api.updateDraft.mockImplementationOnce(async () => {
       Object.assign(existing, { content: otherTabContent, revision: 2 });
-      throw Object.assign(new Error("Draft revision changed"), {
+      throw Object.assign(new Error("编辑版本 changed"), {
         status: 409,
         code: "draft_revision_conflict",
         expected_revision: 1,
@@ -303,7 +303,7 @@ describe("Explorer React integration", () => {
     const editStructure = await screen.findByRole("button", { name: "编辑结构" });
     await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
     await user.click(editStructure);
-    await user.click(screen.getByRole("button", { name: /All Documents/ }));
+    await user.click(screen.getByRole("button", { name: /所有笔记/ }));
     const row = (await screen.findByText("Orphan note")).closest(".explorer-virtual-row");
     const values = new Map<string, string>();
     const dataTransfer = {
@@ -314,7 +314,7 @@ describe("Explorer React integration", () => {
     fireEvent.dragStart(row!, { dataTransfer });
     fireEvent.drop(screen.getByRole("tree"), { dataTransfer });
 
-    await screen.findByRole("heading", { name: "Collection Draft 内容冲突" });
+    await screen.findByRole("heading", { name: "待确认的专题修改内容冲突" });
     expect(screen.getByText(/Other tab/)).toBeTruthy();
     expect(api.compareDraft).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "保留本地并保存" }));
@@ -324,10 +324,10 @@ describe("Explorer React integration", () => {
       expect.stringContaining("orphan-note"),
       2,
     ));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Collection Draft 内容冲突" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "待确认的专题修改内容冲突" })).toBeNull());
   });
 
-  it("reviews Collection YAML before publishing and binds confirmation to the reviewed revision", async () => {
+  it("reviews 专题 YAML before publishing and binds confirmation to the reviewed revision", async () => {
     const user = userEvent.setup();
     const collectionDraft = makeDraft("collection", collectionId, [
       "schema_version: 1",
@@ -351,19 +351,19 @@ describe("Explorer React integration", () => {
     api.publishDraftsBatch.mockImplementationOnce(async (expectations: Array<{ draft_id: string; expected_revision: number }>) => {
       const expected = expectations[0];
       if (expected.expected_revision !== collectionDraft.revision) {
-        throw Object.assign(new Error("Draft changed after review."), { status: 409 });
+        throw Object.assign(new Error("未发布修改 changed after review."), { status: 409 });
       }
       return { results: [], commit_revision: "reviewed-revision", warnings: [] };
     });
     const { container } = renderExplorer();
 
-    await user.click(await screen.findByRole("button", { name: "Publish" }));
+    await user.click(await screen.findByRole("button", { name: "确认保存" }));
     await screen.findByRole("heading", { name: "发布变更" });
-    expect(await screen.findByText(/Collection 变化：Study Path：标题、描述、状态、排序位置、分区结构、Entity 引用/)).toBeTruthy();
+    expect(await screen.findByText(/专题变化：Study Path：标题、描述、状态、排序位置、分区结构、Entity 引用/)).toBeTruthy();
     const showDiff = screen.getByRole("button", { name: "查看完整差异" });
     await user.click(showDiff);
     expect(container.querySelector(".publish-full-diff")?.textContent).toContain("section-reading");
-    expect(screen.getByText(/Draft revision 5/)).toBeTruthy();
+    expect(screen.getByText(/编辑版本 5/)).toBeTruthy();
 
     collectionDraft.revision = 6;
     collectionDraft.content = collectionDraft.content.replace("Reviewed description", "Changed after review");
@@ -372,17 +372,17 @@ describe("Explorer React integration", () => {
     expect(api.publishDraftsBatch).toHaveBeenNthCalledWith(1, [{ draft_id: collectionDraft.id, expected_revision: 5 }]);
 
     await user.click(screen.getByRole("button", { name: "重新检查" }));
-    await waitFor(() => expect(screen.getByText(/Draft revision 6/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/编辑版本 6/)).toBeTruthy());
     await user.click(screen.getByRole("button", { name: "确认发布" }));
 
     await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledTimes(2));
     expect(api.publishDraftsBatch).toHaveBeenNthCalledWith(2, [{ draft_id: collectionDraft.id, expected_revision: 6 }]);
   });
 
-  it("keeps Collection reorders in position Drafts until one organization publish", async () => {
+  it("keeps 专题 reorders in position 未发布修改 until one organization publish", async () => {
     const user = userEvent.setup();
     const canonicalById = new Map<string, Collection>([
-      [collectionId, makeCollection([{ id: "section-notes", kind: "section", title: "Notes", children: [] }])],
+      [collectionId, makeCollection([{ id: "section-notes", kind: "section", title: "笔记", children: [] }])],
       ["middle-path", makeCollection([], "middle-path", "Middle Path", 1)],
       ["last-path", makeCollection([], "last-path", "Last Path", 2)],
     ]);
@@ -394,7 +394,7 @@ describe("Explorer React integration", () => {
       : []);
     api.getCollection.mockImplementation(async (id: string) => {
       const item = canonicalById.get(id);
-      if (!item) throw new Error("Collection not found");
+      if (!item) throw new Error("专题 not found");
       return { ...item, nodes: structuredClone(item.nodes) };
     });
     api.publishDraftsBatch.mockImplementation(async (expectations: Array<{ draft_id: string; expected_revision: number }>) => {
@@ -409,18 +409,18 @@ describe("Explorer React integration", () => {
     renderExplorer();
 
     await screen.findByRole("heading", { name: "Study Path" });
-    const moveDown = await screen.findByRole("button", { name: "下移此 Collection 并暂存排序" });
+    const moveDown = await screen.findByRole("button", { name: "下移此专题并暂存排序" });
     await waitFor(() => expect((moveDown as HTMLButtonElement).disabled).toBe(false));
     await user.click(moveDown);
-    await screen.findByText("2 个未发布的 Collection 排序修改");
-    await waitFor(() => expect((screen.getByRole("button", { name: "下移此 Collection 并暂存排序" }) as HTMLButtonElement).disabled).toBe(false));
-    await user.click(screen.getByRole("button", { name: "下移此 Collection 并暂存排序" }));
-    await screen.findByText("3 个未发布的 Collection 排序修改");
+    await screen.findByText("2 个未发布的专题排序修改");
+    await waitFor(() => expect((screen.getByRole("button", { name: "下移此专题并暂存排序" }) as HTMLButtonElement).disabled).toBe(false));
+    await user.click(screen.getByRole("button", { name: "下移此专题并暂存排序" }));
+    await screen.findByText("3 个未发布的专题排序修改");
 
     expect(api.publishDraftsBatch).not.toHaveBeenCalled();
     expect(drafts.filter((draft) => draft.entity_type === "collection")).toHaveLength(3);
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Publish Organization Changes" }));
+    expect(screen.queryByRole("button", { name: "确认保存" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "保存排序更改" }));
 
     await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledOnce());
     const submitted = api.publishDraftsBatch.mock.calls[0][0] as Array<{ draft_id: string; expected_revision: number }>;
@@ -429,22 +429,22 @@ describe("Explorer React integration", () => {
       const draft = drafts.find((item) => item.id === expected.draft_id)!;
       expect(expected.expected_revision).toBe(draft.revision);
     }
-    await waitFor(() => expect(screen.queryByText(/个未发布的 Collection 排序修改/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/个未发布的专题排序修改/)).toBeNull());
   });
 
-  it("creates a note inside a Collection and batch-publishes both Drafts in one Publisher call", async () => {
+  it("creates a note inside a 专题 and batch-publishes both 未发布修改 in one 保存服务 call", async () => {
     const user = userEvent.setup();
     render(<RouteHarness />);
     await screen.findByRole("heading", { name: "Study Path" });
     const editStructure = await screen.findByRole("button", { name: "编辑结构" });
     await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
     await user.click(editStructure);
-    await user.click(screen.getByRole("button", { name: "在 Notes 中新建笔记" }));
+    await user.click(screen.getByRole("button", { name: "在 笔记 中新建笔记" }));
     await user.type(screen.getByRole("textbox", { name: "笔记标题" }), "Nested note");
-    await user.click(screen.getByRole("button", { name: "创建 Draft 并编辑" }));
+    await user.click(screen.getByRole("button", { name: "创建未发布修改并编辑" }));
 
     await screen.findByRole("heading", { name: "Nested note" });
-    await screen.findByRole("region", { name: "Collection 阅读位置" });
+    await screen.findByRole("region", { name: "专题阅读位置" });
     await waitFor(() => {
       const route = new URL(screen.getByTestId("current-route").textContent!, window.location.origin);
       expect(route.searchParams.get("collection")).toBe(collectionId);
@@ -452,17 +452,17 @@ describe("Explorer React integration", () => {
     });
     expect(screen.queryByRole("button", { name: "编辑结构" })).toBeNull();
     expect(screen.queryByRole("button", { name: "编辑名称与描述" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "New Collection" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "在 Notes 中新建笔记" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "打开 Knowledge Explorer" }));
+    expect(screen.queryByRole("button", { name: "新建专题" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "在 笔记 中新建笔记" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "打开专题整理" }));
     const tree = await screen.findByRole("tree");
-    const notesSection = within(tree).getByRole("button", { name: /Notes/ });
+    const notesSection = within(tree).getByRole("button", { name: /笔记/ });
     const updateCount = api.updateDraft.mock.calls.length;
     await user.click(notesSection);
     expect(api.updateDraft).toHaveBeenCalledTimes(updateCount);
 
-    await user.click(screen.getByRole("button", { name: "Publish All" }));
-    const batchPublish = await screen.findByRole("button", { name: "Publish All · 一个 Git 提交" });
+    await user.click(screen.getByRole("button", { name: "确认保存 All" }));
+    const batchPublish = await screen.findByRole("button", { name: "确认保存全部" });
     await waitFor(() => expect((batchPublish as HTMLButtonElement).disabled).toBe(false));
     await user.click(batchPublish);
 
@@ -478,7 +478,7 @@ describe("Explorer React integration", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "编辑结构" })).toBeTruthy());
   });
 
-  it("discards a new note while preserving earlier Collection Draft changes", async () => {
+  it("discards a new note while preserving earlier 待确认的专题修改 changes", async () => {
     const user = userEvent.setup();
     const previousCollectionDraft = makeDraft(
       "collection",
@@ -486,7 +486,7 @@ describe("Explorer React integration", () => {
       "schema_version: 1\nid: study-path\ntitle: Study Path\n"
         + "description: Previously edited description\nstatus: active\nposition: 0\n"
         + "nodes:\n  - id: section-notes\n    kind: section\n"
-        + "    title: Renamed Notes\n    children: []\n",
+        + "    title: Renamed 笔记\n    children: []\n",
     );
     drafts.push(previousCollectionDraft);
     const confirmation = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -496,9 +496,9 @@ describe("Explorer React integration", () => {
     const editStructure = await screen.findByRole("button", { name: "编辑结构" });
     await waitFor(() => expect((editStructure as HTMLButtonElement).disabled).toBe(false));
     await user.click(editStructure);
-    await user.click(screen.getByRole("button", { name: "在 Renamed Notes 中新建笔记" }));
+    await user.click(screen.getByRole("button", { name: "在 Renamed 笔记 中新建笔记" }));
     await user.type(screen.getByRole("textbox", { name: "笔记标题" }), "Temporary note");
-    await user.click(screen.getByRole("button", { name: "创建 Draft 并编辑" }));
+    await user.click(screen.getByRole("button", { name: "创建未发布修改并编辑" }));
     await screen.findByRole("heading", { name: "Temporary note" });
     const createdDocumentDraft = drafts.find((draft) => draft.entity_type === "document" && draft.entity_id === createdNoteId);
     expect(createdDocumentDraft).toBeTruthy();
@@ -511,12 +511,12 @@ describe("Explorer React integration", () => {
     expect(preservedCollectionDraft?.revision).toBe(3);
     expect(parse(preservedCollectionDraft!.content)).toMatchObject({
       description: "Previously edited description",
-      nodes: [{ id: "section-notes", title: "Renamed Notes", children: [] }],
+      nodes: [{ id: "section-notes", title: "Renamed 笔记", children: [] }],
     });
     expect(preservedCollectionDraft?.content).not.toContain(createdNoteId);
     expect(api.discardDraft).toHaveBeenCalledWith(createdDocumentDraft!.id, createdDocumentDraft!.revision);
     expect(api.discardDraft).not.toHaveBeenCalledWith(previousCollectionDraft.id, expect.any(Number));
-    expect(confirmation).toHaveBeenCalledWith(expect.stringContaining("此前的 Collection 修改会保留"));
+    expect(confirmation).toHaveBeenCalledWith(expect.stringContaining("此前的专题修改会保留"));
     confirmation.mockRestore();
   });
 });

@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceMetadataDrawer } from "../../src/workspace/WorkspaceMetadataDrawer";
 
-describe("Document metadata drawer", () => {
+describe("笔记 metadata drawer", () => {
   it("syncs normalized taxonomy lists while retaining raw input and closes by backdrop", () => {
     const onFrontmatterListUpdate = vi.fn();
     const onFrontmatterUpdate = vi.fn();
@@ -26,7 +26,7 @@ describe("Document metadata drawer", () => {
         "---",
         "# Continual Learning",
       ].join("\n")}
-      sourceEntries={[{ id: "source-1", title: "Source One", entity_type: "source", metadata: {} }]}
+      sourceEntries={[{ id: "source-1", title: "文献 One", entity_type: "source", metadata: {} }]}
       sourceError=""
       canonicalEvidenceCount={0}
       onFrontmatterUpdate={onFrontmatterUpdate}
@@ -38,7 +38,7 @@ describe("Document metadata drawer", () => {
     />);
 
     const domains = screen.getByLabelText("Domains") as HTMLInputElement;
-    const topics = screen.getByLabelText("Topics") as HTMLInputElement;
+    const topics = screen.getByLabelText("分类") as HTMLInputElement;
     const tags = screen.getByLabelText("Tags") as HTMLInputElement;
     expect(domains.value).toBe("artificial-intelligence");
     expect(topics.value).toBe("machine-learning");
@@ -47,7 +47,7 @@ describe("Document metadata drawer", () => {
     expect(screen.getByText("关联来源与引用")).toBeTruthy();
     expect(screen.getByText("当前引用")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "保存草稿" })).toBeNull();
-    expect((screen.getByRole("checkbox", { name: /Source One/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: /文献 One/ }) as HTMLInputElement).checked).toBe(true);
 
     fireEvent.focus(domains);
     fireEvent.change(domains, { target: { value: "artificial-intelligence," } });

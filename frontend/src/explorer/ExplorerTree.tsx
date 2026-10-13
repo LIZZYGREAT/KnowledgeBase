@@ -34,7 +34,7 @@ export function CollectionTree(props: CollectionTreeProps) {
     onDrop={(event) => { if (editMode) onDrop(event, null); }}
   >
     {nodes.map((node) => node.kind === "section" ? <SectionTreeNode key={node.id} node={node} collectionId={collectionId} expandedSections={expandedSections} filter={filter} props={props} /> : <EntityTreeNode key={node.id} node={node} props={props} parentSectionId={null} />)}
-    {!nodes.length && <li className="explorer-tree-empty" onDragOver={(event) => { if (editMode) event.preventDefault(); }} onDrop={(event) => { if (editMode) onDrop(event, null); }}>{filter ? "没有匹配项目" : editMode ? "拖放知识条目到这里，或使用 Add Existing。" : "这个 Collection 还没有内容。"}</li>}
+    {!nodes.length && <li className="explorer-tree-empty" onDragOver={(event) => { if (editMode) event.preventDefault(); }} onDrop={(event) => { if (editMode) onDrop(event, null); }}>{filter ? "没有匹配项目" : editMode ? "拖放知识条目到这里，或使用加入已有内容。" : "这个专题还没有内容。"}</li>}
   </ul>;
 }
 
@@ -70,13 +70,13 @@ function SectionTreeNode({
         <small>{countEntities(node.children)}</small>
       </button>
       {editMode && <div className="explorer-node-actions">
-        <button title="Add existing Entity" aria-label={`在 ${node.title} 中添加已有 Entity`} onClick={() => props.onAddExisting(node.id)}>⊕</button>
-        <button title="New Note Here" aria-label={`在 ${node.title} 中新建笔记`} onClick={() => props.onNewNoteHere(node.id, node.title)}>N</button>
-        <button title="Add nested Section" aria-label={`在 ${node.title} 中新建 Section`} onClick={() => props.onNewSection(node.id)}>＋</button>
+        <button title="加入 existing Entity" aria-label={`在 ${node.title} 中添加已有 Entity`} onClick={() => props.onAddExisting(node.id)}>⊕</button>
+        <button title="在此新建笔记" aria-label={`在 ${node.title} 中新建笔记`} onClick={() => props.onNewNoteHere(node.id, node.title)}>N</button>
+        <button title="加入 nested 分组" aria-label={`在 ${node.title} 中新建分组`} onClick={() => props.onNewSection(node.id)}>＋</button>
         <button title="Move up" aria-label={`上移 ${node.title}`} onClick={() => props.onMoveSibling(node.id, -1)}>↑</button>
         <button title="Move down" aria-label={`下移 ${node.title}`} onClick={() => props.onMoveSibling(node.id, 1)}>↓</button>
-        <button title="Rename Section" aria-label={`重命名 ${node.title}`} onClick={() => props.onRenameSection(node)}>✎</button>
-        <button title="Delete Section" aria-label={`删除 ${node.title}`} onClick={() => props.onDeleteSection(node)}>×</button>
+        <button title="Rename 分组" aria-label={`重命名 ${node.title}`} onClick={() => props.onRenameSection(node)}>✎</button>
+        <button title="Delete 分组" aria-label={`删除 ${node.title}`} onClick={() => props.onDeleteSection(node)}>×</button>
       </div>}
     </div>
     {expanded && <ul
@@ -122,8 +122,8 @@ function EntityTreeNode({
       <div className="explorer-node-actions">
         {node.entity_type === "document" && <button title={props.canUpdateProgress(node) ? progressLabel : "发布此引用后即可跟踪阅读进度"} aria-label={`${progressLabel}：${node.title}`} disabled={!props.canUpdateProgress(node)} onClick={() => props.onProgress(node)}>{node.progress === "done" ? "↻" : node.progress === "reading" ? "✓" : "◷"}</button>}
         {editMode && <>
-          <button title="Copy to Collection" aria-label={`复制 ${node.title} 到其他 Collection`} onClick={() => props.onCopy(node)}>⧉</button>
-          <button title="Remove reference" aria-label={`从 Collection 移除 ${node.title}`} onClick={() => props.onRemove(node)}>×</button>
+          <button title="复制到专题" aria-label={`复制 ${node.title} 到其他专题`} onClick={() => props.onCopy(node)}>⧉</button>
+          <button title="Remove reference" aria-label={`从专题移除 ${node.title}`} onClick={() => props.onRemove(node)}>×</button>
         </>}
       </div>
     </div>

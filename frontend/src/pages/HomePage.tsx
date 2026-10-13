@@ -39,12 +39,13 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
   const papers = (recommendations.data?.candidates ?? []).filter((item, index, all) => all.findIndex((other) => other.work.id === item.work.id) === index).slice(0, 2);
   const terms = pendingCandidates.filter((candidate) => candidate.evidence.some((item) => !item.origin_rejected && Boolean(item.context_excerpt?.trim())) && Boolean(candidate.discovery_assessment?.why_now || candidate.evidence.find((item) => !item.origin_rejected)?.rationale)).slice(0, Math.max(0, 3 - papers.length));
   async function findNext() {
-    const profile = researchProfiles.find((item) => item.enabled && !(item.paused_until && Date.parse(item.paused_until) > Date.now()) && item.inbox.remaining > 0);
-    if (!profile) { setFindingFeedback({ type: "status", message: "请先设置或恢复一个研究方向，或处理已满的 Inbox。" }); return; }
+    const profile = researchProfiles.find((item) => item.enabled && item.enabled_lens_ids.length && item.inbox.remaining > 0)
+      ?? researchProfiles.find((item) => item.enabled && item.enabled_lens_ids.length);
+    if (!profile) { setFindingFeedback({ type: "status", message: "请先启用一个研究方向，并选择检索主题。" }); return; }
     setFinding(true); setFindingFeedback(null);
     try {
       await queueResearchRun(profile.id, { lenses: profile.enabled_lens_ids, date_range: { mode: "incremental" } });
-      setFindingFeedback({ type: "status", message: "寻找下一步已加入研究队列，可在 Research 查看结果。" });
+      setFindingFeedback({ type: "status", message: "检索请求已提交，可查看真实执行状态。" });
     }
     catch (reason) { setFindingFeedback({ type: "error", message: reason instanceof Error ? reason.message : "请求失败，请重试。" }); }
     finally { setFinding(false); }
@@ -72,12 +73,19 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
   return (
     <div className="page-stack dashboard-page">
       <header className="dashboard-heading">
-        <div><p className="eyebrow">KNOWLEDGE DASHBOARD</p><h1>下一步值得学习什么。</h1><p>从已审核知识出发，查看有来源、有理由的论文与 Term 建议。</p></div>
+        <div><p className="eyebrow">个人学习与科研助手</p><h1>下一步值得学习什么。</h1><p>管理术语、发现论文；笔记主要在 Obsidian 阅读与撰写。</p></div>
         <button className="dashboard-search-link" type="button" onClick={() => navigate("/search")}>搜索知识库 <span aria-hidden="true">⌕</span></button>
       </header>
 
+      <nav className="dashboard-primary-actions home-task-actions" aria-label="常用任务">
+        <button className="button button-secondary" onClick={() => navigate("/terms")}>查看术语库</button>
+        <button className="button button-primary" onClick={() => navigate("/terms?tab=candidates")}>待处理术语 · {summary.terms_pending}</button>
+        <button className="button button-secondary" onClick={() => navigate("/terms?tab=discovery")}>发现术语</button>
+        <button className="button button-secondary" onClick={() => navigate("/research")}>论文推荐 · {summary.research_new}</button>
+      </nav>
+
       <section className="dashboard-featured surface" aria-labelledby="featured-knowledge-title">
-        <div className="section-heading"><div><h2 id="featured-knowledge-title">下一步值得了解</h2><p>少量有依据的知识建议，由你决定是否接受。</p></div><div className="home-featured-actions"><button type="button" className="button button-primary" disabled={finding} onClick={() => void findNext()}>{finding ? "正在加入队列…" : "寻找下一步"}</button>{findingFeedback && <p className={findingFeedback.type === "error" ? "home-finding-feedback error" : "home-finding-feedback"} role={findingFeedback.type === "error" ? "alert" : "status"}>{findingFeedback.message}</p>}</div></div>
+        <div className="section-heading"><div><h2 id="featured-knowledge-title">下一步值得了解</h2><p>少量有依据的知识建议，由你决定是否接受。</p></div><div className="home-featured-actions"><button type="button" className="button button-primary" disabled={finding} onClick={() => void findNext()}>{finding ? "正在提交检索…" : "立即查找论文"}</button>{findingFeedback && <p className={findingFeedback.type === "error" ? "home-finding-feedback error" : "home-finding-feedback"} role={findingFeedback.type === "error" ? "alert" : "status"}>{findingFeedback.message}</p>}</div></div>
         {recommendations.loading && <p>正在读取论文建议…</p>}
         {recommendations.error && <p className="home-recommendation-error" role="alert">论文建议读取失败。<button type="button" className="button button-secondary" onClick={recommendations.retry}>重试</button></p>}
         <div className="dashboard-featured-grid">
@@ -89,54 +97,56 @@ export function HomePage({ onOpen, navigate }: { onOpen: SelectEntity; navigate:
             <div className="home-recommendation-card-actions"><button type="button" className="button button-secondary" onClick={() => navigate(`/research?work_id=${encodeURIComponent(item.work.id)}`)}>查看并审核论文</button></div>
           </article>)}
           {terms.map((candidate) => <article key={candidate.id}>
-            <Chip>Term 建议</Chip>
+            <Chip>术语建议</Chip>
             <h3>{candidate.display_name}</h3>
             <RecommendationReason content={candidate.discovery_assessment?.why_now || candidate.evidence.find((item) => !item.origin_rejected)?.rationale || ""} />
             <p className="home-recommendation-sources"><strong>来源</strong> {candidate.evidence.filter((item) => !item.origin_rejected).map((item) => item.origin_title || item.origin_id).slice(0, 2).join(" · ") || "暂无来源信息"}</p>
-            <div className="home-recommendation-card-actions"><button type="button" className="button button-secondary" onClick={() => navigate("/terms?tab=candidates")}>查看并审核 Term</button></div>
+            <div className="home-recommendation-card-actions"><button type="button" className="button button-secondary" onClick={() => navigate("/terms?tab=candidates")}>查看并审核术语</button></div>
           </article>)}
         </div>
-        {!recommendations.loading && !papers.length && !terms.length && <p>暂时没有合适的精选建议。继续维护已审核知识，或按需寻找下一步。</p>}
-        <div className="dashboard-featured-footer"><button type="button" className="button button-quiet" onClick={() => navigate("/research")}>完整论文列表</button><button type="button" className="button button-quiet" onClick={() => navigate("/terms?tab=candidates")}>完整 Term 列表</button></div>
+        {!recommendations.loading && !papers.length && !terms.length && <p>暂时没有合适的精选建议。继续维护已审核知识，或按需立即查找论文。</p>}
+        <div className="dashboard-featured-footer"><button type="button" className="button button-quiet" onClick={() => navigate("/research")}>完整论文列表</button><button type="button" className="button button-quiet" onClick={() => navigate("/terms?tab=candidates")}>完整术语列表</button></div>
       </section>
 
       <section className="dashboard-workload surface" aria-labelledby="dashboard-workload-title">
         <div className="section-heading"><div><h2 id="dashboard-workload-title">现在有什么要处理？</h2><p>优先显示需要你作出判断的事项。</p></div><button className="text-button" type="button" onClick={() => navigate("/new-note")}>新建笔记</button></div>
         <div className="dashboard-workload-grid">
-          <WorkloadCard title="Term Candidates" value={`${termDiscovery.open_count} / ${termDiscovery.global_capacity}`} detail={`${summary.terms_pending} 待审阅 · ${summary.term_drafts} 个 Term Draft`} onClick={() => navigate("/terms?tab=candidates")} />
-          <WorkloadCard title="Term Drafts" value={summary.term_drafts} detail="等待继续编辑或发布" onClick={() => navigate("/terms?tab=candidates")} />
-          <WorkloadCard title="Research Inbox" value={`${summary.research_new} / ${summary.research_capacity}`} detail={`${summary.research_profiles} 个 Research Profile`} onClick={() => navigate("/research")} />
-          <WorkloadCard title="Pending Imports" value={summary.pending_imports} detail="等待检查并创建 Draft" onClick={() => navigate("/library?tab=import")} />
-          <WorkloadCard title="Maintenance" value={summary.maintenance} detail="审阅、修订与过期标注" onClick={() => navigate("/review")} />
+          <WorkloadCard title="待处理术语" value={`${termDiscovery.open_count} / ${termDiscovery.global_capacity}`} detail={`${summary.terms_pending} 待审阅 · ${summary.term_drafts} 个术语未发布修改`} onClick={() => navigate("/terms?tab=candidates")} />
+          <WorkloadCard title="待看论文" value={`${summary.research_new} / ${summary.research_capacity}`} detail={`${summary.research_profiles} 个研究方向`} onClick={() => navigate("/research")} />
         </div>
-        <div className="dashboard-primary-actions"><button className="button button-primary" type="button" onClick={() => navigate("/terms?tab=candidates")}>Review Terms</button><button className="button button-secondary" type="button" onClick={() => navigate("/research")}>Open Research</button></div>
+        <details><summary>其他待处理事项</summary><div className="dashboard-workload-grid">
+          <WorkloadCard title="编辑中的术语" value={summary.term_drafts} detail="等待继续编辑或发布" onClick={() => navigate("/terms?tab=candidates")} />
+          <WorkloadCard title="待检查导入" value={summary.pending_imports} detail="等待检查并创建未发布修改" onClick={() => navigate("/library?tab=import")} />
+          <WorkloadCard title="维护提醒" value={summary.maintenance} detail="审阅、修订与过期标注" onClick={() => navigate("/review")} />
+        </div></details>
+        <div className="dashboard-primary-actions"><button className="button button-primary" type="button" onClick={() => navigate("/terms?tab=candidates")}>审阅术语</button><button className="button button-secondary" type="button" onClick={() => navigate("/research")}>打开论文推荐</button></div>
       </section>
 
-      <div className="dashboard-lower-grid">
+      <details><summary>学习与运行详情</summary><div className="dashboard-lower-grid">
         <section className="dashboard-panel surface" aria-labelledby="learning-context-title">
-          <div className="section-heading"><div><h2 id="learning-context-title">Learning Context</h2><p>最近一次 Term Discovery 使用的知识状态快照。</p></div><Chip>{termDiscovery.last_run ? `更新于 ${formatDate(termDiscovery.last_run.started_at)}` : "尚无快照"}</Chip></div>
+          <div className="section-heading"><div><h2 id="learning-context-title">学习信息</h2><p>最近一次发现术语使用的知识状态快照。</p></div><Chip>{termDiscovery.last_run ? `更新于 ${formatDate(termDiscovery.last_run.started_at)}` : "尚无快照"}</Chip></div>
           <div className="learning-context-grid">
-            <ContextList title="Current Focus" items={focusItems} empty="完成一次 Discovery 后显示当前 Focus。" />
-            <ContextList title="Established" items={established} empty="尚无已建立的 Term。" />
+            <ContextList title="当前学习方向" items={focusItems} empty="完成一次发现术语后显示当前检索主题。" />
+            <ContextList title="已审核知识" items={established} empty="尚无已建立的术语。" />
             <ContextList title="关注线索" items={learning} empty="暂无历史关注线索。" />
-            <ContextList title="Core Gaps" items={coreGaps} empty="当前没有待审阅的 Core Gap。" />
+            <ContextList title="待补充知识" items={coreGaps} empty="当前没有待审阅的 Core Gap。" />
           </div>
         </section>
 
         <section className="dashboard-panel surface" aria-labelledby="agent-status-title">
-          <div className="section-heading"><div><h2 id="agent-status-title">Agent Status</h2><p>自动发现与研究任务的最近状态。</p></div><button className="text-button" type="button" onClick={() => navigate("/terms?tab=discovery")}>打开 Discovery</button></div>
+          <div className="section-heading"><div><h2 id="agent-status-title">任务运行状态</h2><p>自动发现与研究任务的最近状态。</p></div><button className="text-button" type="button" onClick={() => navigate("/terms?tab=discovery")}>打开发现术语</button></div>
           <div className="agent-status-list">
             {TERM_LANES.map((lane) => <AgentStatusRow key={lane.id} title={lane.title} state={termLaneState(lane.id, termDiscovery)} lastResult={termLaneResult(lane.id, termDiscovery)} />)}
-            <AgentStatusRow title="Research" state={researchAgentState(researchProfiles)} lastResult={researchAgentResult(researchProfiles)} onOpen={() => navigate("/research")} />
+            <AgentStatusRow title="论文推荐" state={researchAgentState(researchProfiles)} lastResult={researchAgentResult(researchProfiles)} onOpen={() => navigate("/research")} />
           </div>
         </section>
-      </div>
+      </div></details>
 
       <section className="dashboard-panel dashboard-recent surface" aria-labelledby="recent-activity-title">
-        <div className="section-heading"><div><h2 id="recent-activity-title">Recent Activity</h2><p>最近阅读与最近修改，位于工作台下方。</p></div><button className="text-button" type="button" onClick={() => navigate("/library")}>打开 Library</button></div>
+        <div className="section-heading"><div><h2 id="recent-activity-title">最近活动</h2><p>最近阅读与最近修改，位于工作台下方。</p></div><button className="text-button" type="button" onClick={() => navigate("/library")}>打开资料库</button></div>
         <div className="recent-activity-grid">
           <div><h3>最近阅读</h3>{recentlyViewed.loading ? <p className="subtle-copy">加载中…</p> : recentlyViewed.error ? <button className="text-button" type="button" onClick={recentlyViewed.retry}>加载失败，重试</button> : recentlyViewed.data?.length ? <div className="entity-list compact-list">{recentlyViewed.data.map((entry) => <EntityRow key={entry.entity_id} title={entry.title} detail={`${entry.view_count} 次阅读 · ${formatDate(entry.last_viewed_at)}`} onClick={() => onOpen("document", entry.entity_id)} />)}</div> : <EmptyState title="还没有阅读记录" description="打开一篇笔记后，最近阅读会显示在这里。" />}</div>
-          <div><h3>最近修改</h3>{recentlyModified.loading ? <p className="subtle-copy">加载中…</p> : recentlyModified.error ? <button className="text-button" type="button" onClick={recentlyModified.retry}>加载失败，重试</button> : recentlyModified.data?.length ? <div className="entity-list compact-list">{recentlyModified.data.map((entity) => <EntityRow key={entity.id} title={entity.title} detail={`修改于 ${formatDate(entity.modified_at)}`} onClick={() => onOpen("document", entity.id)} />)}</div> : <EmptyState title="暂无最近修改" description="发布后的 Document 会显示在这里。" />}</div>
+          <div><h3>最近修改</h3>{recentlyModified.loading ? <p className="subtle-copy">加载中…</p> : recentlyModified.error ? <button className="text-button" type="button" onClick={recentlyModified.retry}>加载失败，重试</button> : recentlyModified.data?.length ? <div className="entity-list compact-list">{recentlyModified.data.map((entity) => <EntityRow key={entity.id} title={entity.title} detail={`修改于 ${formatDate(entity.modified_at)}`} onClick={() => onOpen("document", entity.id)} />)}</div> : <EmptyState title="暂无最近修改" description="发布后的笔记会显示在这里。" />}</div>
         </div>
       </section>
     </div>
@@ -171,9 +181,9 @@ function RecommendationReason({ content }: { content: string }) {
 }
 
 const TERM_LANES: Array<{ id: TermDiscoveryLane; title: string }> = [
-  { id: "concept", title: "Concept Discovery" },
-  { id: "entity", title: "Entity Discovery" },
-  { id: "vocabulary", title: "Vocabulary Discovery" },
+  { id: "concept", title: "概念发现" },
+  { id: "entity", title: "命名实体发现" },
+  { id: "vocabulary", title: "词汇发现" },
 ];
 
 function WorkloadCard({ title, value, detail, onClick }: { title: string; value: string | number; detail: string; onClick: () => void }) {
@@ -205,7 +215,7 @@ function researchAgentState(profiles: ResearchProfileSummary[]) {
   if (!profiles.length) return "not configured";
   const activeProfiles = profiles.filter((profile) => profile.enabled && !(profile.paused_until && Date.parse(profile.paused_until) > Date.now()));
   if (!activeProfiles.length) return "paused";
-  if (activeProfiles.every((profile) => profile.inbox.remaining <= 0)) return "paused · Inbox full";
+  if (activeProfiles.every((profile) => profile.inbox.remaining <= 0)) return "paused · 待看论文 full";
   return "ready";
 }
 
@@ -224,7 +234,7 @@ function runStatusLabel(status: string) {
     skipped_capacity: "skipped · capacity reached",
     skipped_paused: "paused",
     skipped_disabled: "paused · disabled",
-    skipped_inbox_full: "skipped · Inbox full",
+    skipped_inbox_full: "skipped · 待看论文 full",
     capacity_reached: "capacity reached",
   };
   return labels[status] ?? status.replaceAll("_", " ");

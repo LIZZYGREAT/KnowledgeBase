@@ -30,7 +30,7 @@ function makeDraft(type: EntityType, id: string): Draft {
     entity_id: id,
     base_git_revision: "base-revision",
     base_content_hash: "base-hash",
-    content: `Draft content for ${type}`,
+    content: `未发布修改 content for ${type}`,
     revision: 1,
     created_at: "2026-10-06T00:00:00Z",
     updated_at: "2026-10-06T00:00:00Z",
@@ -66,7 +66,7 @@ function WorkspaceDraftHarness({ type, id }: { type: EntityType; id: string }) {
     <output data-testid="published-revision">{workspace.publishedRevision}</output>
     <output data-testid="published-outcome">{workspace.publishedOutcome?.commitRevision ?? ""}</output>
     <button type="button" disabled={workspace.loading} onClick={() => void workspace.publish(workspace.draft?.revision ?? 1)}>
-      Publish
+      确认保存
     </button>
   </>;
 }
@@ -104,7 +104,7 @@ describe("useWorkspaceDraft first publish", () => {
       expect(screen.getByTestId("load-error").textContent).toBe("");
       expect(screen.getByTestId("draft").textContent).toBe(draft.id);
 
-      await user.click(screen.getByRole("button", { name: "Publish" }));
+      await user.click(screen.getByRole("button", { name: "确认保存" }));
 
       await waitFor(() => expect(screen.getByTestId("published-outcome").textContent).toBe(`commit-${type}`));
       expect(api.getEntity).toHaveBeenCalledTimes(2);
@@ -118,14 +118,14 @@ describe("useWorkspaceDraft first publish", () => {
     },
   );
 
-  it("keeps Publish successful and clears the initial 404 when canonical hydration fails", async () => {
+  it("keeps 确认保存 successful and clears the initial 404 when canonical hydration fails", async () => {
     const user = userEvent.setup();
     const type = "document";
     const id = "new-document";
     const draft = makeDraft(type, id);
     api.getEntity
       .mockRejectedValueOnce(notFound())
-      .mockRejectedValueOnce(new Error("Canonical index temporarily unavailable"));
+      .mockRejectedValueOnce(new Error("正式版本 index temporarily unavailable"));
     api.listDrafts.mockResolvedValue([draft]);
     api.publishDraft.mockResolvedValue({
       draft_id: draft.id,
@@ -137,7 +137,7 @@ describe("useWorkspaceDraft first publish", () => {
 
     render(<WorkspaceDraftHarness type={type} id={id} />);
     await waitFor(() => expect(screen.getByTestId("loading").textContent).toBe("false"));
-    await user.click(screen.getByRole("button", { name: "Publish" }));
+    await user.click(screen.getByRole("button", { name: "确认保存" }));
 
     await waitFor(() => expect(screen.getByTestId("published-outcome").textContent).toBe("commit-success"));
     expect(screen.getByTestId("published-revision").textContent).toBe("commit-success");

@@ -16,7 +16,7 @@ function collection(id, nodes = []) {
   return { schema_version: 1, id, title: id, description: null, status: "active", position: 0, nodes };
 }
 
-test("virtual-view additions create references without changing the source Collection", () => {
+test("virtual-view additions create references without changing the source 专题", () => {
   const source = collection("reading");
   const updated = addEntityReference(source, "document", "ewc", "EWC", null, null, "ewc-ref");
   assert.equal(source.nodes.length, 0);
@@ -28,7 +28,7 @@ test("virtual-view additions create references without changing the source Colle
   ]);
 });
 
-test("a Collection move reorders or reparents a node without duplicating it", () => {
+test("a 专题 move reorders or reparents a node without duplicating it", () => {
   const source = collection("reading", [
     { id: "first", kind: "entity", entity_type: "document", entity_id: "one", title: "One", progress: null },
     { id: "second", kind: "entity", entity_type: "document", entity_id: "two", title: "Two", progress: null },
@@ -41,14 +41,14 @@ test("a Collection move reorders or reparents a node without duplicating it", ()
   assert.equal(moved.nodes.filter((node) => node.id === "first").length, 0);
 });
 
-test("copying a reference leaves the source Collection intact and rejects duplicates", () => {
+test("copying a reference leaves the source 专题 intact and rejects duplicates", () => {
   const source = collection("source", [
     { id: "ref", kind: "entity", entity_type: "document", entity_id: "ewc", title: "EWC", progress: null },
   ]);
   const target = addEntityReference(collection("target"), "document", "ewc", "EWC", null, null, "copy");
   assert.equal(source.nodes.length, 1);
   assert.equal(target.nodes.length, 1);
-  assert.throws(() => addEntityReference(target, "document", "ewc", "EWC"), /already in this Collection/);
+  assert.throws(() => addEntityReference(target, "document", "ewc", "EWC"), /already in this 专题/);
   assert.equal(removeCollectionNode(target, "copy").nodes.length, 0);
 });
 
@@ -63,7 +63,7 @@ test("sections can be nested to two levels and promote children on deletion", ()
   assert.equal(promoted.nodes[0].id, "regularization");
 });
 
-test("moving a Section cannot create a tree deeper than the schema permits", () => {
+test("moving a 分组 cannot create a tree deeper than the schema permits", () => {
   const source = collection("reading", [
     { id: "outer", kind: "section", title: "Outer", children: [
       { id: "inner", kind: "section", title: "Inner", children: [] },

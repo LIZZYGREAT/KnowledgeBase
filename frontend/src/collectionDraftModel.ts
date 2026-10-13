@@ -17,23 +17,23 @@ export function collectionToDraft(collection: Collection): DraftCollection {
 export function parseCollectionDraft(content: string, canonical: Collection): DraftCollection {
   const parsed: unknown = parse(content);
   if (!isRecord(parsed) || parsed.id !== canonical.id || !Array.isArray(parsed.nodes)) {
-    throw new Error("Collection Draft 的格式或 ID 无效。");
+    throw new Error("待确认的专题修改的格式或 ID 无效。");
   }
   if (parsed.schema_version !== undefined && parsed.schema_version !== 1) {
-    throw new Error("Collection Draft 使用了不支持的 Schema 版本。");
+    throw new Error("待确认的专题修改使用了不支持的 Schema 版本。");
   }
   if (parsed.title !== undefined && typeof parsed.title !== "string") {
-    throw new Error("Collection Draft 的标题无效。");
+    throw new Error("待确认的专题修改的标题无效。");
   }
   if (parsed.status !== undefined
     && (typeof parsed.status !== "string" || !["active", "archived"].includes(parsed.status))) {
-    throw new Error("Collection Draft 的状态无效。");
+    throw new Error("待确认的专题修改的状态无效。");
   }
   if (parsed.position !== undefined && !Number.isInteger(parsed.position)) {
-    throw new Error("Collection Draft 的排序位置无效。");
+    throw new Error("待确认的专题修改的排序位置无效。");
   }
   if (parsed.description !== undefined && parsed.description !== null && typeof parsed.description !== "string") {
-    throw new Error("Collection Draft 的描述无效。");
+    throw new Error("待确认的专题修改的描述无效。");
   }
   const nodes = normalizeNodes(parsed.nodes);
   return {
@@ -93,16 +93,16 @@ function collectEntities(nodes: readonly CollectionNode[], output: Map<string, C
 function normalizeNodes(nodes: unknown[]): CollectionNode[] {
   return nodes.map((node) => {
     if (!isRecord(node) || typeof node.id !== "string" || !node.id) {
-      throw new Error("Collection Draft 包含无效的节点。");
+      throw new Error("待确认的专题修改包含无效的节点。");
     }
     if (node.kind === "section") {
       if (typeof node.title !== "string" || !Array.isArray(node.children)) {
-        throw new Error("Collection Draft 包含无效的 Section。");
+        throw new Error("待确认的专题修改包含无效的分组。");
       }
       return { id: node.id, kind: "section", title: node.title, children: normalizeNodes(node.children) };
     }
     if (node.kind !== "entity" || !isEntityType(node.entity_type) || typeof node.entity_id !== "string" || !node.entity_id) {
-      throw new Error("Collection Draft 包含无效的 Entity 引用。");
+      throw new Error("待确认的专题修改包含无效的 Entity 引用。");
     }
     return {
       id: node.id,

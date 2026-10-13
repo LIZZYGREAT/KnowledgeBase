@@ -49,17 +49,17 @@ test("reader shortcut actions are grouped and back to top floats after scrolling
   assert.match(reader, /window\.scrollTo\(\{ top: 0, behavior: "smooth" \}\)/);
   assert.match(reader, /window\.scrollY > 480/);
   assert.match(reader, /className="button button-secondary reader-back-to-top"/);
-  assert.doesNotMatch(reader, />Back to top<\/button>/);
+  assert.doesNotMatch(reader, />返回 to top<\/button>/);
   assert.match(reader, /aria-expanded=\{contextExpanded\} aria-controls="reader-context-panel"/);
   assert.match(styles, /\.reader-sticky-actions\s*\{[^}]*position:\s*sticky;[^}]*top:\s*72px/);
   assert.match(styles, /\.reader-back-to-top\s*\{[^}]*position:\s*fixed/);
 });
 
-test("Term Analysis is manual and Term appearance separates explicit links from accepted detections", () => {
+test("术语 Analysis is manual and 术语 appearance separates explicit links from accepted detections", () => {
   assert.match(reader, /getDocumentTermAnalysis\(id\)/);
   assert.match(reader, /analyzeDocumentTerms\(id\)/);
   assert.match(reader, /term-analysis-consent-title/);
-  assert.match(reader, /我同意将以上 Canonical Note 内容和所需 Registry 上下文发送给 DeepSeek/);
+  assert.match(reader, /我同意将以上正式版本笔记内容和所需术语库上下文发送给 DeepSeek/);
   assert.match(reader, /navigate\(`\/terms\?tab=candidates&document_id=/);
   assert.match(reader, /title="Where it appears"/);
   assert.match(reader, /"Accepted detection"/);
@@ -67,10 +67,10 @@ test("Term Analysis is manual and Term appearance separates explicit links from 
   assert.doesNotMatch(reader, /analyzeDocumentTerms\(.*publishedRevision/);
 });
 
-test("Document Terms combine explicit links and accepted detections by Term id", () => {
+test("笔记术语 combine explicit links and accepted detections by 术语 id", () => {
   const explicit: EntitySummary = {
     id: "term-one",
-    title: "Term One",
+    title: "术语 One",
     entity_type: "term",
     metadata: {},
   };
@@ -78,27 +78,27 @@ test("Document Terms combine explicit links and accepted detections by Term id",
     entity_type: "document",
     entity_id: "note-one",
     term_id: "term-one",
-    title: "Term One",
+    title: "术语 One",
     created_from_candidate_id: "candidate-one",
     created_at: "now",
   };
 
   assert.deepEqual(combineDocumentTerms([explicit], [], "note-one"), [
-    { id: "term-one", title: "Term One", labels: ["Explicit link"] },
+    { id: "term-one", title: "术语 One", labels: ["Explicit link"] },
   ]);
   assert.deepEqual(combineDocumentTerms([], [accepted], "note-one"), [
-    { id: "term-one", title: "Term One", labels: ["Accepted detection"] },
+    { id: "term-one", title: "术语 One", labels: ["Accepted detection"] },
   ]);
   assert.deepEqual(combineDocumentTerms([explicit], [accepted], "note-one"), [
-    { id: "term-one", title: "Term One", labels: ["Explicit link", "Accepted detection"] },
+    { id: "term-one", title: "术语 One", labels: ["Explicit link", "Accepted detection"] },
   ]);
 });
 
-test("Workspace Explorer is a floating overlay and does not allocate a content column", () => {
+test("查看或编辑专题整理 is a floating overlay and does not allocate a content column", () => {
   const workspaceShell = readFileSync(resolve(process.cwd(), "src/workspace/WorkspaceShell.tsx"), "utf8");
   assert.match(workspaceShell, /useState\(false\)/);
   assert.match(workspaceShell, /event\.key === "Escape"/);
-  assert.match(workspaceShell, /aria-label=\{explorerOpen \? "关闭 Knowledge Explorer" : "打开 Knowledge Explorer"\}/);
+  assert.match(workspaceShell, /aria-label=\{explorerOpen \? "收起专题整理" : "打开专题整理"\}/);
   assert.match(styles, /\.workspace-explorer-pane\s*\{[^}]*position:\s*fixed/);
   assert.match(styles, /\.workspace-explorer-scrim\s*\{[^}]*position:\s*fixed/);
   assert.doesNotMatch(styles, /\.workspace-workspace-layout\s*\{[^}]*grid-template-columns/);

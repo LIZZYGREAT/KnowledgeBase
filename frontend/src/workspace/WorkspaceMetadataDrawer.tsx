@@ -46,7 +46,7 @@ export function WorkspaceMetadataDrawer({
   const canonicalPdfAttachment = stringValue(readRecord(canonicalSourceMetadata?.attachments).local_pdf);
   const canOpenPdf = Boolean(pdfAttachment && pdfAttachment === canonicalPdfAttachment);
   const pdfDescription = !pdfAttachment
-    ? "可通过 Review 导入并关联 PDF。"
+    ? "可通过审阅导入并关联 PDF。"
     : canOpenPdf
       ? "文件保存在本机私有存储中。"
       : "发布后可在这里打开 PDF。";
@@ -289,7 +289,7 @@ export function WorkspaceMetadataDrawer({
       </> : <>
         <div className="drawer-readonly-row"><span>实体类型</span><strong>{stringValue(readFrontmatterField(content, type, "type")) || titleCase(type)}</strong></div>
         <label className="field-label">Domains<input value={domainsText} onFocus={() => setEditingField("domains")} onChange={(event) => updateDelimitedList("domains", event.target.value)} onBlur={() => commitDelimitedList("domains", domainsText, domains, setDomainsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("domains", domainsText, domains, setDomainsText); } }} placeholder="用逗号分隔 ID" /></label>
-        <label className="field-label">Topics<input value={topicsText} onFocus={() => setEditingField("topics")} onChange={(event) => updateDelimitedList("topics", event.target.value)} onBlur={() => commitDelimitedList("topics", topicsText, topics, setTopicsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("topics", topicsText, topics, setTopicsText); } }} placeholder="用逗号分隔 ID" /></label>
+        <label className="field-label">分类<input value={topicsText} onFocus={() => setEditingField("topics")} onChange={(event) => updateDelimitedList("topics", event.target.value)} onBlur={() => commitDelimitedList("topics", topicsText, topics, setTopicsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("topics", topicsText, topics, setTopicsText); } }} placeholder="用逗号分隔 ID" /></label>
         <label className="field-label">Tags<input value={tagsText} onFocus={() => setEditingField("tags")} onChange={(event) => updateDelimitedList("tags", event.target.value)} onBlur={() => commitDelimitedList("tags", tagsText, tags, setTagsText)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitDelimitedList("tags", tagsText, tags, setTagsText); } }} placeholder="用逗号分隔 ID" /></label>
       </>}
     </section>
@@ -298,7 +298,7 @@ export function WorkspaceMetadataDrawer({
       <SectionHeading title="关联来源与引用" detail="这里管理笔记关联的来源；正文引用会在发布后建立索引。" />
       <div className="source-association-list">
         {sourceEntries.map((source) => <label className="source-association-option" key={source.id}><input type="checkbox" checked={associatedSourceIds.includes(source.id)} onChange={(event) => onFrontmatterUpdate("sources", event.target.checked ? [...new Set([...associatedSourceIds, source.id])] : associatedSourceIds.filter((sourceId) => sourceId !== source.id))} /><span><strong>{source.title}</strong><small>{source.id}</small></span></label>)}
-        {!sourceEntries.length && <p className="subtle-copy">暂无已发布来源。请先到 Review 导入并发布来源资料。</p>}
+        {!sourceEntries.length && <p className="subtle-copy">暂无已发布来源。请先到审阅导入并发布来源资料。</p>}
       </div>
       {sourceError && <p className="error-copy" role="alert">{sourceError}</p>}
       <div className="draft-evidence-box"><div className="context-card-heading"><strong>当前引用</strong><small>{citations.length} 条</small></div>
@@ -329,7 +329,7 @@ export function WorkspaceMetadataDrawer({
       </div>
       <div className="metadata-pdf-actions">
         {canOpenPdf && <a className="button button-secondary" href={`/api/sources/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noreferrer">打开 PDF</a>}
-        <button className="button button-secondary" onClick={() => onNavigate("/library?tab=import")}>{pdfAttachment ? "在 Library 查看导入" : "在 Library 导入 PDF"}</button>
+        <button className="button button-secondary" onClick={() => onNavigate("/library?tab=import")}>{pdfAttachment ? "在资料库查看导入" : "在资料库导入 PDF"}</button>
       </div>
     </section>}
     {error && <p className="error-copy" role="alert">{error}</p>}

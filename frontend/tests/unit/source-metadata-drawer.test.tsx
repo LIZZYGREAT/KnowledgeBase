@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceMetadataDrawer } from "../../src/workspace/WorkspaceMetadataDrawer";
 
-describe("Source metadata drawer", () => {
-  it("edits Source identity fields as structured Draft metadata", () => {
+describe("文献 metadata drawer", () => {
+  it("edits 文献 identity fields as structured 未发布修改 metadata", () => {
     const onFrontmatterUpdate = vi.fn();
     const onSourcePdfChange = vi.fn();
     const onNavigate = vi.fn();
@@ -50,7 +50,7 @@ describe("Source metadata drawer", () => {
     expect(screen.getByRole("link", { name: "打开 PDF" }).getAttribute("href")).toBe("/api/sources/ewc-2017/pdf");
     const advanced = document.querySelector("details.workspace-metadata-advanced") as HTMLDetailsElement;
     expect(advanced.open).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "在 Library 查看导入" }));
+    fireEvent.click(screen.getByRole("button", { name: "在资料库查看导入" }));
     expect(onNavigate).toHaveBeenCalledWith("/library?tab=import");
     fireEvent.change(screen.getByLabelText("标题"), { target: { value: "Updated paper title" } });
     expect(onFrontmatterUpdate).toHaveBeenLastCalledWith("title", "Updated paper title");
@@ -133,7 +133,7 @@ describe("Source metadata drawer", () => {
     expect(screen.queryByRole("button", { name: "保存草稿" })).toBeNull();
   });
 
-  it("resets buffered fields when the drawer switches to another Source", () => {
+  it("resets buffered fields when the drawer switches to another 文献", () => {
     const props = {
       type: "source" as const,
       sourceEntries: [],
@@ -166,7 +166,7 @@ describe("Source metadata drawer", () => {
     expect(screen.queryByText("URL 须为空，或使用有效的 http:// / https:// 地址。")).toBeNull();
   });
 
-  it("routes an unlinked Source to Review to add a PDF", () => {
+  it("routes an unlinked 文献 to 审阅 to add a PDF", () => {
     const onNavigate = vi.fn();
     render(<WorkspaceMetadataDrawer
       type="source"
@@ -186,13 +186,13 @@ describe("Source metadata drawer", () => {
     expect(screen.getByText("尚未关联 PDF")).toBeTruthy();
     const advanced = document.querySelector("details.workspace-metadata-advanced") as HTMLDetailsElement;
     expect(advanced.open).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "在 Library 导入 PDF" }));
+    fireEvent.click(screen.getByRole("button", { name: "在资料库导入 PDF" }));
     expect(onNavigate).toHaveBeenCalledWith("/library?tab=import");
     fireEvent.click(screen.getByText("高级信息"));
     expect((screen.getByLabelText("附件 URI") as HTMLInputElement).value).toBe("");
   });
 
-  it("does not offer a PDF URL that exists only in an unpublished Draft", () => {
+  it("does not offer a PDF URL that exists only in an unpublished 未发布修改", () => {
     render(<WorkspaceMetadataDrawer
       type="source"
       id="ewc-2017"

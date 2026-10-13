@@ -62,7 +62,7 @@ export function useExplorerNewNote({
   async function enterNewNoteWorkspace(draft: Draft) {
     if (!newNoteTarget || !selectedCollectionId) return;
     const savedCollectionDraft = await collectionDraft.flush();
-    if (!savedCollectionDraft) throw new Error("Collection Draft 尚未保存；请重试。 ");
+    if (!savedCollectionDraft) throw new Error("待确认的专题修改尚未保存；请重试。 ");
     setNewNoteTarget(null);
     setCreatedNoteDraft(null);
     navigate(newNoteWorkspacePath(draft.entity_id, selectedCollectionId));

@@ -85,7 +85,7 @@ describe("发现术语 panel", () => {
     await user.click(screen.getByRole("checkbox", { name: /专业词汇/ }));
     await user.click(screen.getByText("高级设置"));
     await user.type(screen.getByLabelText(/自定义研究方向/), " continual learning ");
-    await user.type(screen.getByLabelText(/优先 文献标识/), " source-alpha, source-beta ");
+    await user.type(screen.getByLabelText(/优先文献标识/), " source-alpha, source-beta ");
     await user.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() => expect(api.updateTermDiscoverySettings).toHaveBeenCalledWith(

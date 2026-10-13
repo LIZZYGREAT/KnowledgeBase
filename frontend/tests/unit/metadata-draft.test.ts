@@ -11,7 +11,7 @@ test("metadata patching updates Markdown frontmatter without changing its body",
   assert.equal(updated.includes("id: ewc"), true);
 });
 
-test("Source metadata is parsed and updated as a complete YAML document", () => {
+test("文献 metadata is parsed and updated as a complete YAML document", () => {
   const content = "id: source-1\ntitle: Paper\ntype: paper\n";
   const updated = patchYamlField(content, "source", "title", "Updated Paper");
   assert.equal(readFrontmatterField(updated, "source", "title"), "Updated Paper");
@@ -65,7 +65,7 @@ test("nested metadata is returned as plain JavaScript objects and arrays", () =>
   assert.deepEqual(readFrontmatterField(document, "document", "sources"), ["source-1"]);
 });
 
-test("Source attachments are returned as plain JavaScript objects", () => {
+test("文献 attachments are returned as plain JavaScript objects", () => {
   const source = "id: source-1\nattachments:\n  local_pdf: storage://papers/test.pdf\n";
   const attachments = readFrontmatterField(source, "source", "attachments");
 

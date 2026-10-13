@@ -8,8 +8,8 @@ export function WorkspaceRuntimeDraftConflictDrawer({ workspaceDraft }: {
   if (!conflict) return null;
 
   return <WorkspaceDrawer
-    title="Draft 内容冲突"
-    description="另一个编辑会话保存了更新的 Runtime Draft revision。本地缓冲仍保留且尚未保存；请载入最新版本，或检查三份内容后手动合并。"
+    title="未发布修改内容冲突"
+    description="另一个编辑会话保存了更新的 Runtime 编辑版本。本地缓冲仍保留且尚未保存；请载入最新版本，或检查三份内容后手动合并。"
     wide
     closeable={false}
     onClose={() => undefined}
@@ -17,12 +17,12 @@ export function WorkspaceRuntimeDraftConflictDrawer({ workspaceDraft }: {
     {workspaceDraft.error && <p className="editor-notice error-notice" role="alert">{workspaceDraft.error}</p>}
     <div className="conflict-columns">
       <ConflictColumn title="当前正式版" content={conflict.canonicalContent} />
-      <ConflictColumn title="另一个标签页已保存的 Draft" content={conflict.existingDraft.content} />
+      <ConflictColumn title="另一个标签页已保存的未发布修改" content={conflict.existingDraft.content} />
       <ConflictColumn title="本地未保存缓冲" content={conflict.localContent} />
     </div>
     <label className="field-label merge-label">
       手动合并内容
-      <span>编辑后将以 Draft revision {conflict.existingDraft.revision} 为预期版本保存；若版本已变化，系统会保留冲突并重新载入最新版本。</span>
+      <span>编辑后将以编辑版本 {conflict.existingDraft.revision} 为预期版本保存；若版本已变化，系统会保留冲突并重新载入最新版本。</span>
       <textarea
         className="merge-textarea"
         value={workspaceDraft.runtimeMergeContent}
@@ -32,7 +32,7 @@ export function WorkspaceRuntimeDraftConflictDrawer({ workspaceDraft }: {
     </label>
     <div className="editor-main-actions drawer-footer">
       <button className="button button-secondary" type="button" onClick={() => void workspaceDraft.reloadExistingDraft()}>
-        载入已保存 Draft
+        载入已保存未发布修改
       </button>
       <button className="button button-secondary" type="button" onClick={() => void workspaceDraft.applyRuntimeMerge(conflict.localContent).catch(() => undefined)}>
         保留本地并保存

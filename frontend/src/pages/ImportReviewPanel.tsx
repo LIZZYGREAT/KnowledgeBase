@@ -69,7 +69,7 @@ export function ImportReviewPanel({ navigate }: { navigate: Navigate }) {
 
   return (
     <section id="imports" className="surface review-section wide-section import-library-panel">
-      <SectionHeading title="Import Review" detail="从 storage/uploads 暂存 Markdown 与 PDF；旧笔记使用 legacy profile" />
+      <SectionHeading title="导入审阅" detail="从 storage/uploads 暂存 Markdown 与 PDF；旧笔记使用 legacy profile" />
       <form className="browser-import-form" onSubmit={(event) => void stageBrowserImport(event)}>
         <div
           className={`browser-import-dropzone${dropActive ? " is-active" : ""}`}
@@ -157,7 +157,7 @@ function ImportReviewItem({
     try {
       await updateImportItem(item.id, content);
       const draft = await createImportDraft(item.id, markdownTitle.trim());
-      if (draft.entity_type !== "document" && draft.entity_type !== "term") throw new Error("该导入项没有创建 Document 或 Term Draft。");
+      if (draft.entity_type !== "document" && draft.entity_type !== "term") throw new Error("该导入项没有创建笔记或术语未发布修改。");
       onChanged();
       onDraft(draft.entity_type, draft.entity_id);
     } catch (reason) {
@@ -197,19 +197,19 @@ function ImportReviewItem({
     {expanded && <div className="import-review-details">
       {loading && <p className="subtle-copy">正在读取暂存文件…</p>}
       {detail?.file_type === "markdown" && <>
-        <p className="trust-note">标题只在创建 Draft 时写入 Frontmatter，不会更改 ID 或正文 H1；尚未创建 Draft 前单独修改的标题不会保存。Legacy 导入允许缺少 KnowledgeBase Frontmatter，创建时会自动补入最小元数据。</p>
+        <p className="trust-note">标题只在创建未发布修改时写入 Frontmatter，不会更改 ID 或正文 H1；尚未创建未发布修改前单独修改的标题不会保存。Legacy 导入允许缺少 KnowledgeBase Frontmatter，创建时会自动补入最小元数据。</p>
         <label className="field-label">标题<input required value={markdownTitle} onChange={(event) => setMarkdownTitle(event.target.value)} /></label>
         <textarea className="import-markdown-editor" value={content} onChange={(event) => setContent(event.target.value)} spellCheck={false} aria-label={`${item.display_name} 导入内容`} />
-        <div className="import-review-actions"><button className="button button-secondary" disabled={busy || loading} onClick={() => void updateImportItem(item.id, content).then(() => setError("已保存暂存内容。"), (reason: unknown) => setError(errorMessage(reason)))}>{busy ? "保存中…" : "保存暂存内容"}</button><button className="button button-primary" disabled={busy || loading} onClick={() => void saveAndCreateDraft()}>{busy ? "正在创建…" : "保存并创建 Draft"}</button></div>
+        <div className="import-review-actions"><button className="button button-secondary" disabled={busy || loading} onClick={() => void updateImportItem(item.id, content).then(() => setError("已保存暂存内容。"), (reason: unknown) => setError(errorMessage(reason)))}>{busy ? "保存中…" : "保存暂存内容"}</button><button className="button button-primary" disabled={busy || loading} onClick={() => void saveAndCreateDraft()}>{busy ? "正在创建…" : "保存并创建未发布修改"}</button></div>
       </>}
       {detail?.file_type === "pdf" && <>
-        <p className="trust-note">PDF 只创建 Source Draft，不会自动生成 Document。确认后会把 PDF 复制到忽略目录 storage/papers。</p>
+        <p className="trust-note">PDF 只创建文献未发布修改，不会自动生成笔记。确认后会把 PDF 复制到忽略目录 storage/papers。</p>
         <div className="import-source-fields">
-          <label className="field-label">Source ID<input value={sourceId} onChange={(event) => setSourceId(event.target.value)} placeholder="例如：example-2024" /></label>
+          <label className="field-label">文献 ID<input value={sourceId} onChange={(event) => setSourceId(event.target.value)} placeholder="例如：example-2024" /></label>
           <label className="field-label">标题<input required value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} /></label>
           <label className="field-label">类型<select value={sourceType} onChange={(event) => setSourceType(event.target.value as typeof sourceType)}><option value="paper">Paper</option><option value="book">Book</option><option value="course">Course</option><option value="web">Web</option><option value="personal">Personal</option></select></label>
         </div>
-        <div className="import-review-actions"><button className="button button-primary" disabled={busy || loading || !sourceTitle.trim()} onClick={() => void confirmPdfSource()}>{busy ? "正在创建…" : "确认并创建 Source Draft"}</button></div>
+        <div className="import-review-actions"><button className="button button-primary" disabled={busy || loading || !sourceTitle.trim()} onClick={() => void confirmPdfSource()}>{busy ? "正在创建…" : "确认并创建文献未发布修改"}</button></div>
       </>}
       {error && <p className="error-copy" role="alert">{error}</p>}
     </div>}

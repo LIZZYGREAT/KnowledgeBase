@@ -26,7 +26,7 @@ export function WorkspaceSourceDrawer({
 }) {
   return <WorkspaceDrawer
     title="完整源码"
-    description="高级模式可直接编辑完整 Markdown/YAML 源文；修改仍写入 Runtime Draft，发布前需检查差异。"
+    description="高级模式可直接编辑完整 Markdown/YAML 源文；修改仍写入已保存的修改，发布前需检查差异。"
     wide
     onClose={onClose}
   >
@@ -42,7 +42,7 @@ export function WorkspaceSourceDrawer({
       />
       <div className="drawer-footer">
         <button className="button button-secondary" type="button" onClick={onClose}>关闭</button>
-        <button className="button button-primary" type="button" disabled={!isDirty || saveState === "runtime-conflict" || saveState === "canonical-conflict"} onClick={onSave}>保存 Draft</button>
+        <button className="button button-primary" type="button" disabled={!isDirty || saveState === "runtime-conflict" || saveState === "canonical-conflict"} onClick={onSave}>保存未发布修改</button>
       </div>
     </section>
   </WorkspaceDrawer>;

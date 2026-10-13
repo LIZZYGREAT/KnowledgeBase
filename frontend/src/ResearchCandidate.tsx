@@ -62,7 +62,7 @@ export function ResearchCandidateCard({
         <div className="research-candidate-title-row"><h3>{item.work.title}</h3><Chip tone={candidateStatusTone(item.candidate.status)}>{statusLabel(item.candidate.status)}</Chip></div>
         <p className="research-candidate-meta">{[item.work.year, item.work.venue, item.work.authors.slice(0, 3).join(", ")].filter(Boolean).join(" · ") || "出版信息待补充"}</p>
       </div>
-      <div className="research-card-tools"><ResearchLanguageToggle language={language} onChange={setLanguage} /><button className="text-button" onClick={() => onDetails(language, setLanguage)}>Why this candidate <span aria-hidden="true">↗</span></button></div>
+      <div className="research-card-tools"><ResearchLanguageToggle language={language} onChange={setLanguage} /><button className="text-button" onClick={() => onDetails(language, setLanguage)}>推荐理由 <span aria-hidden="true">↗</span></button></div>
     </div>
     <div className="research-candidate-tags"><Chip tone={item.analysis.readiness === "low" ? "amber" : "green"}>{item.analysis.readiness === "low" ? "拓展阅读" : "优先阅读"}</Chip>{lens && <Chip tone="green">{lens.title}</Chip>}{item.analysis.matched_topics.slice(0, 4).map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
     <div className="research-candidate-summary"><div className="research-explanation"><MarkdownContent content={summary} /></div>{chinese && !hasChineseAnalysis && <p className="subtle-copy research-translation-note">此历史候选暂无中文分析</p>}</div>
@@ -74,18 +74,18 @@ export function ResearchCandidateCard({
       <div><span>{chinese ? "为什么值得读" : "Why read it"}</span><div className="research-explanation"><MarkdownContent content={readingReason} /></div></div>
       <div className="research-readiness-insight"><span>{chinese ? "当前适合度" : "Readiness"}</span><p>{item.analysis.readiness ?? "not available"} {item.analysis.readiness === "low" && <Chip tone="amber">Stretch</Chip>}</p><div className="research-readiness-why-now"><span>{chinese ? "为什么现在" : "Why now"}</span><div className="research-explanation"><MarkdownContent content={item.analysis.why_now ?? "not available"} /></div></div><small>Known prerequisites: {(item.analysis.known_prerequisites ?? []).join(", ") || "not available"}</small><small>Missing prerequisites: {(item.analysis.missing_prerequisites ?? []).join(", ") || "not available"}</small></div>
     </div>
-    {(item.discovered_term_candidate_count ?? 0) > 0 && <div className="research-discovered-terms"><span>Discovered Terms: {item.discovered_term_candidate_count}</span>{onReviewTerms && <button className="text-button" onClick={onReviewTerms}>Review in Terms →</button>}</div>}
+    {(item.discovered_term_candidate_count ?? 0) > 0 && <div className="research-discovered-terms"><span>Discovered 术语: {item.discovered_term_candidate_count}</span>{onReviewTerms && <button className="text-button" onClick={onReviewTerms}>审阅 in 术语 →</button>}</div>}
     {onApprove && (item.candidate.status === "new" || item.candidate.status === "shortlisted") && <ResearchCardReview candidate={item.candidate} values={overrides} onChange={setOverrides} onApprove={onApprove} onReject={onDismiss} language={language} original={{ summary: item.analysis.summary, summary_zh: item.analysis.summary_zh ?? "", why_relevant: item.analysis.why_relevant, why_relevant_zh: item.analysis.why_relevant_zh ?? "", reading_reason: item.analysis.reading_reason, reading_reason_zh: item.analysis.reading_reason_zh ?? "" }} />}
     {longExplanation && <button className="text-button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "收起推荐正文" : "展开推荐正文"}</button>}
     <div className="research-candidate-footer">
       <span>收录于 {formatDate(item.candidate.created_at)}</span>
       <div className="research-card-actions">
-        {externalUrl && <a className="button button-quiet" href={externalUrl} target="_blank" rel="noreferrer">Open Paper ↗</a>}
-        {item.candidate.status === "new" && <button className="button button-secondary" disabled={busy} onClick={onShortlist}>Shortlist</button>}
-        {item.candidate.status !== "dismissed" && item.candidate.status !== "note_created" && <button className="button button-quiet" disabled={busy} onClick={onCreateNote}>Create Note</button>}
-        {!onApprove && item.candidate.status === "new" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
-        {!onApprove && item.candidate.status === "shortlisted" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>Dismiss</button>}
-        {item.candidate.status === "dismissed" && <button className="button button-secondary" disabled={busy} onClick={onRestore}>Restore to Inbox</button>}
+        {externalUrl && <a className="button button-quiet" href={externalUrl} target="_blank" rel="noreferrer">打开 Paper ↗</a>}
+        {item.candidate.status === "new" && <button className="button button-secondary" disabled={busy} onClick={onShortlist}>稍后阅读</button>}
+        {item.candidate.status !== "dismissed" && item.candidate.status !== "note_created" && <button className="button button-quiet" disabled={busy} onClick={onCreateNote}>创建笔记</button>}
+        {!onApprove && item.candidate.status === "new" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>忽略</button>}
+        {!onApprove && item.candidate.status === "shortlisted" && <button className="button button-quiet" disabled={busy} onClick={onDismiss}>忽略</button>}
+        {item.candidate.status === "dismissed" && <button className="button button-secondary" disabled={busy} onClick={onRestore}>恢复到待看论文</button>}
       </div>
     </div>
   </article>;
@@ -141,10 +141,10 @@ export function ResearchCreateNoteDialog({
       }
       const suggested = values.find((collection) => collection.id === suggestedCollectionId);
       if (!allowedCollectionIds.includes(suggestedCollectionId)) {
-        setDestinationHint(`Suggested Collection ${suggestedCollectionId} is no longer in this Profile's context.`);
+        setDestinationHint(`Suggested 专题 ${suggestedCollectionId} is no longer in this 研究方向's context.`);
         setDestinationResolving(false);
       } else if (!suggested) {
-        setDestinationHint(`Suggested Collection ${suggestedCollectionId} is not currently active.`);
+        setDestinationHint(`Suggested 专题 ${suggestedCollectionId} is not currently active.`);
         setDestinationResolving(false);
       } else {
         setCollectionId(suggested.id);
@@ -152,7 +152,7 @@ export function ResearchCreateNoteDialog({
       }
     }).catch((reason: unknown) => {
       if (active) {
-        setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection 列表。");
+        setLoadError(reason instanceof Error ? reason.message : "无法读取专题列表。");
         setDestinationResolving(false);
       }
     }).finally(() => {
@@ -196,7 +196,7 @@ export function ResearchCreateNoteDialog({
         }
       }
     }).catch((reason: unknown) => {
-      if (active) setLoadError(reason instanceof Error ? reason.message : "无法读取 Collection Sections。");
+      if (active) setLoadError(reason instanceof Error ? reason.message : "无法读取专题分组。");
     }).finally(() => {
       if (active) setDestinationResolving(false);
     });
@@ -214,11 +214,11 @@ export function ResearchCreateNoteDialog({
       ...(collectionId && sectionId ? { section_id: sectionId } : {}),
       });
     }}>
-      <div><p className="eyebrow">RESEARCH CONVERSION</p><h2 id="research-create-note-title">Create Research Note</h2><p>{title}</p></div>
-      <label className="field-label">Type<select aria-label="Note type" value={documentType} onChange={(event) => setDocumentType(event.target.value as ResearchNoteOptions["document_type"])}><option value="paper-note">Paper Note</option><option value="learning-note">Learning Note</option></select></label>
-      <label className="field-label">Template<select aria-label="Note template" value={template} onChange={(event) => setTemplate(event.target.value as ResearchNoteOptions["template"])}><option value="structured">Structured skeleton</option><option value="blank">Blank</option></select></label>
-      <label className="field-label">Collection<select aria-label="Collection" value={collectionId} onChange={(event) => setCollectionId(event.target.value)}><option value="">No Collection</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}</select></label>
-      {collectionId && <label className="field-label">Section<select aria-label="Section" value={sectionId} onChange={(event) => setSectionId(event.target.value)}><option value="">Collection root</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}</select></label>}
+      <div><p className="eyebrow">RESEARCH CONVERSION</p><h2 id="research-create-note-title">Create 论文推荐笔记</h2><p>{title}</p></div>
+      <label className="field-label">Type<select aria-label="笔记 type" value={documentType} onChange={(event) => setDocumentType(event.target.value as ResearchNoteOptions["document_type"])}><option value="paper-note">论文笔记</option><option value="learning-note">学习笔记</option></select></label>
+      <label className="field-label">Template<select aria-label="笔记 template" value={template} onChange={(event) => setTemplate(event.target.value as ResearchNoteOptions["template"])}><option value="structured">Structured skeleton</option><option value="blank">Blank</option></select></label>
+      <label className="field-label">专题<select aria-label="专题" value={collectionId} onChange={(event) => setCollectionId(event.target.value)}><option value="">No 专题</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}</select></label>
+      {collectionId && <label className="field-label">分组<select aria-label="分组" value={sectionId} onChange={(event) => setSectionId(event.target.value)}><option value="">专题根目录</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.label}</option>)}</select></label>}
       {destinationResolving && <p className="field-hint" role="status">Resolving suggested destination…</p>}
       {destinationHint && <p className="field-hint" role="status">{destinationHint}</p>}
       {loadError && <p className="error-copy" role="alert">{loadError}</p>}
@@ -336,57 +336,57 @@ export function ResearchCandidateDrawer({
   }
   return <div className="research-drawer-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="research-drawer" role="dialog" aria-modal="true" aria-labelledby="research-drawer-title">
-      <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">Why this candidate</h2><p>{work.title}</p></div><div className="research-drawer-tools"><ResearchLanguageToggle language={language} onChange={onLanguageChange} /><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></div></header>
+      <header className="research-drawer-header"><div><p className="eyebrow">RESEARCH PROVENANCE</p><h2 id="research-drawer-title">推荐理由</h2><p>{work.title}</p></div><div className="research-drawer-tools"><ResearchLanguageToggle language={language} onChange={onLanguageChange} /><button className="workspace-drawer-close" aria-label="关闭候选详情" onClick={onClose}>×</button></div></header>
       <div className="research-drawer-body">
         {detail.conversion_blocker === "ambiguous_source" && <section className="research-source-ambiguity" role="alert">
-          <strong>可能已存在 {detail.source_match_candidates.length} 个 Source</strong>
-          <p>请先修复下面显示的 Source 冲突，再创建笔记或保存 Source。为避免重复记录，当前转换操作已阻止。</p>
+          <strong>可能已存在 {detail.source_match_candidates.length} 个文献</strong>
+          <p>请先修复下面显示的文献冲突，再创建笔记或保存文献。为避免重复记录，当前转换操作已阻止。</p>
           {detail.source_match_candidates.every((source) => source.matched_by.includes("title_author_year") && source.conflicts.length === 0)
-            ? <p>有多条 Source 同时匹配标题、第一作者和年份，请检查是否存在重复 Source。</p>
+            ? <p>有多条文献同时匹配标题、第一作者和年份，请检查是否存在重复文献。</p>
             : detail.source_match_candidates.some((source) => source.conflicts.length > 0)
               ? detail.source_match_candidates.flatMap((source) => source.conflicts.map((conflict) => <p className="research-source-conflict" key={`${source.id}:${conflict.field}`}><strong>冲突：{sourceConflictLabel(conflict.field)}</strong><span>现有：{conflict.existing_value}</span><span>本次发现：{conflict.discovered_value}</span></p>))
-              : <p>多个 Source 与这篇论文的标识匹配，请检查是否存在重复记录。</p>}
+              : <p>多个文献与这篇论文的标识匹配，请检查是否存在重复记录。</p>}
           {detail.source_match_candidates.map((source) => {
             const path = entityPath("source", source.id);
             return <div className="research-related-row" key={source.id}>
               <div><strong>{source.title}</strong><small>{source.id} · 匹配依据：{source.matched_by.map(matchMethodLabel).join("、")}</small></div>
-              {path && <button className="button button-secondary" onClick={() => onOpenEntity(path + "?edit=1")}>Open to fix</button>}
+              {path && <button className="button button-secondary" onClick={() => onOpenEntity(path + "?edit=1")}>打开 to fix</button>}
             </div>;
           })}
         </section>}
         <section className="research-detail-section"><h3>{chinese ? "论文简介与相关性" : "Why this paper"}</h3><MarkdownContent content={summary} onNavigate={onOpenEntity} /><MarkdownContent content={relevance} onNavigate={onOpenEntity} />{chinese && !hasChineseAnalysis && <p className="subtle-copy research-translation-note">此历史候选暂无中文分析</p>}</section>
         <section className="research-detail-section"><h3>{chinese ? "为什么值得读" : "Why read it"}</h3><MarkdownContent content={readingReason} onNavigate={onOpenEntity} /></section>
-        <section className="research-detail-section research-readiness-detail"><h3>Readiness</h3><DetailRow label="Readiness" value={analysis.analysis.readiness ?? "not available"} />{analysis.analysis.readiness === "low" && <Chip tone="amber">Stretch</Chip>}<div className="research-detail-markdown"><span>Why now</span><div className="research-explanation"><MarkdownContent content={analysis.analysis.why_now ?? "not available"} onNavigate={onOpenEntity} /></div></div><DetailRow label="Known prerequisites" value={(analysis.analysis.known_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Missing prerequisites" value={(analysis.analysis.missing_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Discovered Terms" value={String(detail.discovered_term_candidate_count ?? 0)} />{(detail.discovered_term_candidate_count ?? 0) > 0 && onReviewTerms && <button className="button button-secondary" onClick={onReviewTerms}>Review in Terms →</button>}</section>
+        <section className="research-detail-section research-readiness-detail"><h3>Readiness</h3><DetailRow label="Readiness" value={analysis.analysis.readiness ?? "not available"} />{analysis.analysis.readiness === "low" && <Chip tone="amber">Stretch</Chip>}<div className="research-detail-markdown"><span>Why now</span><div className="research-explanation"><MarkdownContent content={analysis.analysis.why_now ?? "not available"} onNavigate={onOpenEntity} /></div></div><DetailRow label="Known prerequisites" value={(analysis.analysis.known_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Missing prerequisites" value={(analysis.analysis.missing_prerequisites ?? []).join(", ") || "not available"} /><DetailRow label="Discovered 术语" value={String(detail.discovered_term_candidate_count ?? 0)} />{(detail.discovered_term_candidate_count ?? 0) > 0 && onReviewTerms && <button className="button button-secondary" onClick={onReviewTerms}>审阅 in 术语 →</button>}</section>
         <section className="research-detail-section"><h3>Paper</h3><DetailRow label="Authors" value={work.authors.join(", ")} /><DetailRow label="Year" value={work.year == null ? undefined : String(work.year)} /><DetailRow label="Venue" value={work.venue} /><DetailRow label="Abstract" value={work.abstract} /></section>
-        <section className="research-detail-section"><h3>Research focus</h3><DetailRow label="Research Profile" value={profile.title} /><DetailRow label="Focus" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} /></section>
-        {(candidate.status === "new" || candidate.status === "shortlisted") && <section className="research-detail-section"><h3>Save Source</h3><p className="subtle-copy">只保存论文引用，不创建笔记。</p><button className="button button-secondary" disabled={noteBusy || detail.conversion_blocker === "ambiguous_source"} onClick={onSaveSource}>Save Source</button></section>}
-        {(analysis.analysis.suggested_collection || analysis.analysis.suggested_section) && <section className="research-detail-section"><h3>Suggested destination</h3><p className="subtle-copy">AI suggestion only. Check the current Collection before creating the Note.</p>{analysis.analysis.suggested_collection && <div className="research-related-row"><div><strong>{relationTitle("collection", analysis.analysis.suggested_collection)}</strong><small>Collection · {analysis.analysis.suggested_collection}</small></div></div>}{analysis.analysis.suggested_section && <DetailRow label="Section" value={analysis.analysis.suggested_section} />}</section>}
+        <section className="research-detail-section"><h3>论文推荐 focus</h3><DetailRow label="研究方向" value={profile.title} /><DetailRow label="检索主题" value={candidateLens?.title ?? candidate.primary_lens_id ?? "Unknown"} /><DetailRow label="Candidate status" value={statusLabel(candidate.status)} /></section>
+        {(candidate.status === "new" || candidate.status === "shortlisted") && <section className="research-detail-section"><h3>收藏文献</h3><p className="subtle-copy">只保存论文引用，不创建笔记。</p><button className="button button-secondary" disabled={noteBusy || detail.conversion_blocker === "ambiguous_source"} onClick={onSaveSource}>收藏文献</button></section>}
+        {(analysis.analysis.suggested_collection || analysis.analysis.suggested_section) && <section className="research-detail-section"><h3>Suggested destination</h3><p className="subtle-copy">AI suggestion only. Check the current 专题 before creating the 笔记.</p>{analysis.analysis.suggested_collection && <div className="research-related-row"><div><strong>{relationTitle("collection", analysis.analysis.suggested_collection)}</strong><small>专题 · {analysis.analysis.suggested_collection}</small></div></div>}{analysis.analysis.suggested_section && <DetailRow label="分组" value={analysis.analysis.suggested_section} />}</section>}
         <section className="research-detail-section"><h3>{chinese ? "关联知识" : "Related knowledge"}</h3>{detail.knowledge_relations.length ? detail.knowledge_relations.map((relation) => {
           const path = entityPath(relation.entity_type, relation.entity_id);
           const reason = chinese ? relation.reason_zh || relation.reason : relation.reason;
           return <div className="research-related-row" key={relation.entity_type + ":" + relation.entity_id}>
             <div><strong>{relationTitle(relation.entity_type, relation.entity_id)}</strong><small>{relation.entity_type} · {relation.entity_id} · {relation.relation}</small><div className="research-explanation"><MarkdownContent content={reason} onNavigate={onOpenEntity} /></div></div>
-            {path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}
+            {path && <button className="text-button" onClick={() => onOpenEntity(path)}>打开 ↗</button>}
           </div>;
         }) : <p className="subtle-copy">没有关联记录。</p>}</section>
         {detail.linked_entities.length > 0 && <section className="research-detail-section"><h3>Current knowledge links</h3>{detail.linked_entities.map((link) => {
           const path = entityPath(link.entity_type, link.entity_id);
-          return <div className="research-related-row" key={link.entity_type + ":" + link.entity_id}><div><strong>{link.relation_type === "source" ? "Source" : "Note"} · {relationTitle(link.entity_type, link.entity_id)}</strong><small>{link.entity_id} · Published canonical link</small></div>{path && <button className="text-button" onClick={() => onOpenEntity(path)}>Open ↗</button>}</div>;
+          return <div className="research-related-row" key={link.entity_type + ":" + link.entity_id}><div><strong>{link.relation_type === "source" ? "文献" : "笔记"} · {relationTitle(link.entity_type, link.entity_id)}</strong><small>{link.entity_id} · Published canonical link</small></div>{path && <button className="text-button" onClick={() => onOpenEntity(path)}>打开 ↗</button>}</div>;
         })}</section>}
-        <section className="research-detail-section"><h3>Candidate note</h3>{candidate.status === "shortlisted" ? editingNote ? <form className="research-candidate-note-editor" onSubmit={(event) => { event.preventDefault(); onSaveNote(noteDraft.trim()); }}><label className="field-label">Candidate note<textarea aria-label="Candidate note" rows={3} maxLength={4000} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label>{noteError && <p className="error-copy" role="alert">{noteError}</p>}<div className="research-inline-actions"><button className="button button-quiet" type="button" disabled={noteBusy} onClick={() => { setNoteDraft(candidate.user_note ?? ""); setEditingNote(false); }}>Cancel</button><button className="button button-secondary" type="submit" disabled={noteBusy || noteDraft.trim() === (candidate.user_note ?? "")}>{noteBusy ? "Saving…" : "Save note"}</button></div></form> : <div className="research-candidate-note"><DetailRow label="Your note" value={candidate.user_note ?? "No note added"} /><button className="text-button" disabled={noteBusy} onClick={() => setEditingNote(true)}>Edit note</button></div> : candidate.user_note ? <DetailRow label="Your note" value={candidate.user_note} /> : <p className="subtle-copy">No note added.</p>}</section>
-        <section className="research-detail-section"><h3>Candidate history</h3><DetailRow label="Added" value={formatDate(candidate.created_at)} /><DetailRow label="First viewed" value={formatDate(candidate.first_viewed_at)} /><DetailRow label="Last viewed" value={formatDate(candidate.last_viewed_at)} />{candidate.dismiss_reason && <DetailRow label="Dismiss reason" value={candidate.dismiss_reason} />}</section>
+        <section className="research-detail-section"><h3>Candidate note</h3>{candidate.status === "shortlisted" ? editingNote ? <form className="research-candidate-note-editor" onSubmit={(event) => { event.preventDefault(); onSaveNote(noteDraft.trim()); }}><label className="field-label">Candidate note<textarea aria-label="Candidate note" rows={3} maxLength={4000} value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} /></label>{noteError && <p className="error-copy" role="alert">{noteError}</p>}<div className="research-inline-actions"><button className="button button-quiet" type="button" disabled={noteBusy} onClick={() => { setNoteDraft(candidate.user_note ?? ""); setEditingNote(false); }}>取消</button><button className="button button-secondary" type="submit" disabled={noteBusy || noteDraft.trim() === (candidate.user_note ?? "")}>{noteBusy ? "正在保存…" : "保存 note"}</button></div></form> : <div className="research-candidate-note"><DetailRow label="Your note" value={candidate.user_note ?? "No note added"} /><button className="text-button" disabled={noteBusy} onClick={() => setEditingNote(true)}>编辑 note</button></div> : candidate.user_note ? <DetailRow label="Your note" value={candidate.user_note} /> : <p className="subtle-copy">No note added.</p>}</section>
+        <section className="research-detail-section"><h3>Candidate history</h3><DetailRow label="Added" value={formatDate(candidate.created_at)} /><DetailRow label="First viewed" value={formatDate(candidate.first_viewed_at)} /><DetailRow label="Last viewed" value={formatDate(candidate.last_viewed_at)} />{candidate.dismiss_reason && <DetailRow label="忽略 reason" value={candidate.dismiss_reason} />}</section>
         <details className="research-advanced-settings research-technical-provenance">
-          <summary>Technical provenance</summary>
-          <section className="research-detail-section"><h3>Discovery records</h3>{detail.discoveries.map((discovery) => <div className="research-provenance-card" key={discovery.id}><div><Chip tone="blue">{discovery.provider}</Chip><span>{formatDate(discovery.discovered_at)}</span></div><DetailRow label="Matched query" value={discovery.query_text} /><DetailRow label="Provider record ID" value={discovery.provider_record_id} /><DetailRow label="Lens" value={profile.lenses.find((lens) => lens.id === discovery.lens_id)?.title ?? discovery.lens_id} /></div>)}</section>
+          <summary>技术详情</summary>
+          <section className="research-detail-section"><h3>发现术语 records</h3>{detail.discoveries.map((discovery) => <div className="research-provenance-card" key={discovery.id}><div><Chip tone="blue">{discovery.provider}</Chip><span>{formatDate(discovery.discovered_at)}</span></div><DetailRow label="Matched query" value={discovery.query_text} /><DetailRow label="Provider record ID" value={discovery.provider_record_id} /><DetailRow label="检索主题" value={profile.lenses.find((lens) => lens.id === discovery.lens_id)?.title ?? discovery.lens_id} /></div>)}</section>
           <section className="research-detail-section"><h3>Analysis provenance</h3><DetailRow label="Provider" value={analysis.provider} /><DetailRow label="Model" value={analysis.model} /><DetailRow label="Analysis version" value={String(analysis.analysis_version)} /><DetailRow label="Prompt version" value={analysis.prompt_version} /><DetailRow label="Analyzed at" value={formatDate(analysis.analyzed_at)} /><DetailRow label="Input hash" value={analysis.input_hash} /></section>
-          <details className="research-advanced-settings"><summary>Model signals</summary><section className="research-detail-section"><p className="field-hint">These are uncalibrated model signals. They are not paper quality scores or probabilities.</p><div className="research-detail-score-grid"><Score label="Profile relevance" value={analysis.analysis.profile_relevance} /><Score label="Knowledge relevance" value={analysis.analysis.knowledge_relevance} /><Score label="Novelty to library" value={analysis.analysis.novelty_to_library} /><Score label="Recommended ranking score" value={detail.recommended_score} /></div></section></details>
+          <details className="research-advanced-settings"><summary>模型信号</summary><section className="research-detail-section"><p className="field-hint">These are uncalibrated model signals. They are not paper quality scores or probabilities.</p><div className="research-detail-score-grid"><Score label="研究方向 relevance" value={analysis.analysis.profile_relevance} /><Score label="Knowledge relevance" value={analysis.analysis.knowledge_relevance} /><Score label="Novelty to library" value={analysis.analysis.novelty_to_library} /><Score label="推荐顺序 ranking score" value={detail.recommended_score} /></div></section></details>
           <AnalysisTimeContext detail={detail} />
           <section className="research-detail-section"><h3>Matched terms</h3><div className="research-candidate-tags">{analysis.analysis.matched_topics.length ? analysis.analysis.matched_topics.map((term) => <Chip key={term}>{term}</Chip>) : <span className="subtle-copy">No matched topics recorded.</span>}</div></section>
           {(work.doi || work.arxiv_id || work.openalex_id || work.semantic_scholar_id || work.url) && <section className="research-detail-section"><h3>Identifiers and links</h3><DetailRow label="DOI" value={work.doi} /><DetailRow label="arXiv" value={work.arxiv_id} /><DetailRow label="OpenAlex" value={work.openalex_id} /><DetailRow label="Semantic Scholar" value={work.semantic_scholar_id} /><DetailRow label="URL" value={work.url} /></section>}
           {detail.pending_links.length > 0 && <section className="research-detail-section"><h3>Pending knowledge links</h3>{detail.pending_links.map((link) => <DetailRow key={link.id} label={link.intended_entity_type + " draft"} value={link.intended_entity_id} />)}</section>}
         </details>
       </div>
-      <footer className="research-drawer-footer"><span>Shortlist、Dismiss 和备注会直接保存。Save Source / Create Note 只有发布后才进入正式知识库。</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>
+      <footer className="research-drawer-footer"><span>稍后阅读、忽略和备注会直接保存。收藏文献 / 创建笔记只有发布后才进入正式知识库。</span><button className="button button-secondary" onClick={onClose}>Done</button></footer>
     </aside>
   </div>;
 }
@@ -409,20 +409,20 @@ function AnalysisTimeContext({ detail }: { detail: ResearchCandidateDetail }) {
       <DetailRow label="DOI" value={input.work?.doi} />
       <DetailRow label="arXiv ID" value={input.work?.arxiv_id} />
       <DetailRow label="Abstract at analysis time" value={input.work?.abstract} />
-      <DetailRow label="Research Profile" value={input.profile?.title ?? input.profile?.id} />
-      <DetailRow label="Profile breadth" value={input.profile?.breadth} />
+      <DetailRow label="研究方向" value={input.profile?.title ?? input.profile?.id} />
+      <DetailRow label="研究方向 breadth" value={input.profile?.breadth} />
       <DetailRow label="Breadth policy" value={input.profile?.breadth_policy} />
-      <DetailRow label="Profile description" value={input.profile?.description} />
-      <DetailRow label="Matched Lens" value={input.matched_lens?.title ?? input.matched_lens?.id} />
-      <DetailRow label="Lens queries" value={input.matched_lens?.queries?.join(" · ")} />
-      <DetailRow label="Lens include terms" value={input.matched_lens?.include_terms?.join(" · ")} />
-      <DetailRow label="Lens exclude terms" value={input.matched_lens?.exclude_terms?.join(" · ")} />
+      <DetailRow label="研究方向 description" value={input.profile?.description} />
+      <DetailRow label="Matched 检索主题" value={input.matched_lens?.title ?? input.matched_lens?.id} />
+      <DetailRow label="检索主题 queries" value={input.matched_lens?.queries?.join(" · ")} />
+      <DetailRow label="检索主题 include terms" value={input.matched_lens?.include_terms?.join(" · ")} />
+      <DetailRow label="检索主题 exclude terms" value={input.matched_lens?.exclude_terms?.join(" · ")} />
       {input.knowledge_context?.focus_query && <DetailRow label="Context focus" value={input.knowledge_context.focus_query} />}
       {cards.length ? <div className="research-analysis-context-cards">{cards.map((card) => <article className="research-provenance-card" key={`${card.entity_type}:${card.entity_id}`}>
         <div><Chip tone="blue">{card.entity_type}</Chip><span>{card.review_status}{card.pinned ? " · Pinned" : ""}</span></div>
         <strong>{card.title}</strong>
         <DetailRow label="Entity ID" value={card.entity_id} />
-        <DetailRow label="Topics" value={card.topics.join(" · ")} />
+        <DetailRow label="分类" value={card.topics.join(" · ")} />
         <DetailRow label="Domains" value={card.domains.join(" · ")} />
         <DetailRow label="Retrieval score" value={card.retrieval_score.toFixed(2)} />
         {card.relevant_sections.map((section, index) => <div className="research-analysis-context-excerpt" key={`${section.heading}:${index}`}>
@@ -454,10 +454,10 @@ export function ResearchDismissDialog({
   const [note, setNote] = useState("");
   return <div className="research-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="research-dismiss-dialog" role="dialog" aria-modal="true" aria-labelledby="dismiss-dialog-title" onSubmit={(event) => { event.preventDefault(); onSubmit(reason || undefined, note.trim()); }}>
-      <div><p className="eyebrow">CANDIDATE ACTION</p><h2 id="dismiss-dialog-title">Dismiss {count === 1 ? "candidate" : `${count} candidates`}</h2><p>This decision is stored in Research Runtime history.</p></div>
+      <div><p className="eyebrow">CANDIDATE ACTION</p><h2 id="dismiss-dialog-title">忽略 {count === 1 ? "candidate" : `${count} candidates`}</h2><p>This decision is stored in 论文推荐 Runtime history.</p></div>
       <label className="field-label">Reason (optional)<select value={reason} onChange={(event) => setReason(event.target.value as typeof reason)}><option value="">Skip reason</option><option value="not_relevant">Not relevant</option><option value="already_known">Already known</option><option value="too_redundant">Too redundant</option><option value="not_interested">Not following this subfield</option><option value="other">Other</option></select></label>
-      <label className="field-label">Note (optional)<textarea rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a short note for future reference" /></label>
-      <div className="research-dialog-actions"><button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="button button-danger" type="submit" disabled={busy}>{busy ? "Saving…" : "Confirm Dismiss"}</button></div>
+      <label className="field-label">笔记 (optional)<textarea rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="加入 a short note for future reference" /></label>
+      <div className="research-dialog-actions"><button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>取消</button><button className="button button-danger" type="submit" disabled={busy}>{busy ? "正在保存…" : "Confirm 忽略"}</button></div>
     </form>
   </div>;
 }
@@ -478,10 +478,10 @@ export function ResearchShortlistDialog({
   const [note, setNote] = useState("");
   return <div className="research-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <form className="research-dismiss-dialog" role="dialog" aria-modal="true" aria-labelledby="shortlist-dialog-title" onSubmit={(event) => { event.preventDefault(); onSubmit(note.trim()); }}>
-      <div><p className="eyebrow">CANDIDATE ACTION</p><h2 id="shortlist-dialog-title">Shortlist {count === 1 ? "candidate" : `${count} candidates`}</h2><p>This decision is stored in Research Runtime history.</p></div>
-      <label className="field-label">Note (optional)<textarea aria-label="Shortlist note" rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a reading reminder or comparison point" /></label>
+      <div><p className="eyebrow">CANDIDATE ACTION</p><h2 id="shortlist-dialog-title">稍后阅读 {count === 1 ? "candidate" : `${count} candidates`}</h2><p>This decision is stored in 论文推荐 Runtime history.</p></div>
+      <label className="field-label">笔记 (optional)<textarea aria-label="稍后阅读 note" rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} placeholder="加入 a reading reminder or comparison point" /></label>
       {error && <p className="error-copy" role="alert">{error}</p>}
-      <div className="research-dialog-actions"><button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Confirm Shortlist"}</button></div>
+      <div className="research-dialog-actions"><button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>取消</button><button className="button button-primary" type="submit" disabled={busy}>{busy ? "正在保存…" : "Confirm 稍后阅读"}</button></div>
     </form>
   </div>;
 }
@@ -527,7 +527,7 @@ function entityPath(type: string, id: string): string | null {
 }
 
 export function statusLabel(status: string): string {
-  const labels: Record<string, string> = { new: "New", shortlisted: "Shortlisted", dismissed: "Dismissed", saved_source: "Saved Source", note_created: "Note Created" };
+  const labels: Record<string, string> = { new: "New", shortlisted: "稍后阅读", dismissed: "已忽略", saved_source: "已收藏文献", note_created: "已创建笔记" };
   return labels[status] ?? status.replaceAll("_", " ");
 }
 

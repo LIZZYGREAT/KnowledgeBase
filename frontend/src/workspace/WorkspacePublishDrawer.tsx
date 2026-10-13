@@ -44,22 +44,22 @@ export function WorkspacePublishDrawer({
           {items.some((item) => item.entityType !== "collection") && <li>元数据变化：{summary.metadataByTarget.length
             ? summary.metadataByTarget.map((item) => `${item.label}：${item.fields.join("、")}`).join("；")
             : "无"}</li>}
-          {items.some((item) => item.entityType === "collection") && <li>Collection 变化：{summary.collectionChangesByTarget.length
+          {items.some((item) => item.entityType === "collection") && <li>专题变化：{summary.collectionChangesByTarget.length
             ? summary.collectionChangesByTarget.map((item) => `${item.label}：${item.fields.join("、")}`).join("；")
-            : summary.collectionUpdated ? "Canonical YAML 已更新" : "无"}</li>}
+            : summary.collectionUpdated ? "正式版本 YAML 已更新" : "无"}</li>}
         </ul>
       </section>
 
       <section className="publish-review-section" aria-labelledby="publish-validation-heading">
         <h3 id="publish-validation-heading">校验</h3>
-        {busy && <p className="subtle-copy" role="status">正在保存 Draft 并检查 Canonical…</p>}
+        {busy && <p className="subtle-copy" role="status">正在保存未发布修改并检查正式版本…</p>}
         {items.length > 0 && <ul className="publish-validation-list">
           {items.map((item) => <li key={item.comparison.draft.id}>
-            <span>{item.label} · Draft revision {item.draftRevision} · Publisher 预检（结构、引用与冲突）</span>
+            <span>{item.label} · 编辑版本 {item.draftRevision} · 内容检查（结构、引用与冲突）</span>
             <strong className={item.preflight.valid ? "publish-check-pass" : "publish-check-fail"}>{item.preflight.valid ? "通过" : "未通过"}</strong>
           </li>)}
           <li>
-            <span>Canonical 冲突</span>
+            <span>正式版本冲突</span>
             <strong className={checksComplete ? "publish-check-pass" : "publish-check-fail"}>{checksComplete ? "未发现" : items.some((item) => item.preflight.conflict || item.comparison.canonical_changed) ? "需要处理" : "尚未通过"}</strong>
           </li>
         </ul>}
@@ -70,7 +70,7 @@ export function WorkspacePublishDrawer({
 
       <section className="publish-review-section" aria-labelledby="publish-diff-heading">
         <div className="publish-review-heading-row"><h3 id="publish-diff-heading">差异</h3><button className="button button-secondary" type="button" disabled={busy || !items.length} aria-expanded={showDiff} onClick={() => setShowDiff((value) => !value)}>{showDiff ? "收起完整差异" : "查看完整差异"}</button></div>
-        {!showDiff && <p className="subtle-copy">差异对比 Draft 与当前 Canonical 内容。</p>}
+        {!showDiff && <p className="subtle-copy">差异对比未发布修改与当前正式版本内容。</p>}
         {showDiff && items.map((item) => <section className="publish-diff-target" key={item.comparison.draft.id}>
           <h4>{item.label}</h4>
           <pre className="publish-full-diff">{createLineDiff(item.comparison.current_content, item.comparison.draft.content).map((line, index) => <span className={`publish-diff-line ${line.kind}`} key={`${line.kind}:${index}`}><span aria-hidden="true">{line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}</span>{line.text || " "}{"\n"}</span>)}</pre>
@@ -78,11 +78,11 @@ export function WorkspacePublishDrawer({
       </section>
 
       {error && <p className="error-copy" role="alert">{error}</p>}
-      <p className="trust-note">检查不会写入 Canonical。发布前 Publisher 会再次校验引用与冲突；成功后服务端写入 Canonical 并刷新索引。</p>
+      <p className="trust-note">内容检查通过后，确认保存为正式版本。若存在版本冲突，请先合并修改。</p>
       <div className="drawer-footer">
         <button className="button button-secondary" type="button" disabled={busy || publishing} onClick={onClose}>取消</button>
         <button className="button button-secondary" type="button" disabled={busy || publishing} onClick={onRefresh}>重新检查</button>
-        <button className="button button-primary" type="button" disabled={busy || publishing || !checksComplete || published} onClick={onPublish}>{publishing ? "发布中…" : batch ? "Publish All · 一个 Git 提交" : "确认发布"}</button>
+        <button className="button button-primary" type="button" disabled={busy || publishing || !checksComplete || published} onClick={onPublish}>{publishing ? "发布中…" : batch ? "确认保存全部" : "确认发布"}</button>
       </div>
     </section>
   </WorkspaceDrawer>;

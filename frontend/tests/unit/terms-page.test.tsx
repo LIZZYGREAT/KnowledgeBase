@@ -45,13 +45,13 @@ vi.mock("../../src/reader/readerModel", async (importOriginal) => ({
 const terms: EntitySummary[] = [
   {
     id: "survivor-term",
-    title: "Survivor Term",
+    title: "Survivor 术语",
     entity_type: "term",
     metadata: { type: "concept", depth: "standard", aliases: ["Current Alias"], domains: ["ai"], topics: ["agents"] },
   },
   {
     id: "loser-term",
-    title: "Loser Term",
+    title: "Loser 术语",
     entity_type: "term",
     metadata: { type: "entity", depth: "stub", aliases: ["Former Alias"], domains: ["biology"], topics: ["methods"] },
   },
@@ -137,7 +137,7 @@ const candidates = [
   candidate({ id: "candidate-closed", status: "accepted", display_name: "Closed 候选" }),
 ];
 
-describe("术语 术语库 controls", () => {
+describe("术语术语库 controls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.listAllEntities.mockResolvedValue(terms);
@@ -174,21 +174,21 @@ describe("术语 术语库 controls", () => {
   it("filters 术语库 entries by all three 术语 types", async () => {
     render(<TermsPage onOpen={vi.fn()} />);
 
-    expect(await screen.findByText("Survivor Term")).not.toBeNull();
-    expect(screen.getByText("Loser Term")).not.toBeNull();
+    expect(await screen.findByText("Survivor 术语")).not.toBeNull();
+    expect(screen.getByText("Loser 术语")).not.toBeNull();
     expect(screen.getByText("Word 术语")).not.toBeNull();
 
     await userEvent.selectOptions(screen.getByLabelText("类别"), "entity");
 
-    expect(screen.getByText("Loser Term")).not.toBeNull();
-    expect(screen.queryByText("Survivor Term")).toBeNull();
+    expect(screen.getByText("Loser 术语")).not.toBeNull();
+    expect(screen.queryByText("Survivor 术语")).toBeNull();
     expect(screen.queryByText("Word 术语")).toBeNull();
   });
 
   it("sends 术语 tab selections to their matching URLs", async () => {
     const navigate = vi.fn();
     render(<TermsPage onOpen={vi.fn()} navigate={navigate} />);
-    await screen.findByText("Survivor Term");
+    await screen.findByText("Survivor 术语");
 
     await userEvent.click(screen.getByRole("tab", { name: "待处理" }));
     expect(navigate).toHaveBeenLastCalledWith("/terms?tab=candidates");
@@ -203,31 +203,31 @@ describe("术语 术语库 controls", () => {
   it("searches 术语库 titles, IDs and aliases and filters by 领域 and 主题", async () => {
     render(<TermsPage onOpen={vi.fn()} />);
 
-    expect(await screen.findByText("Survivor Term")).not.toBeNull();
-    await userEvent.type(screen.getByLabelText("搜索 术语"), "Current Alias");
-    expect(screen.getByText("Survivor Term")).not.toBeNull();
-    expect(screen.queryByText("Loser Term")).toBeNull();
+    expect(await screen.findByText("Survivor 术语")).not.toBeNull();
+    await userEvent.type(screen.getByLabelText("搜索术语"), "Current Alias");
+    expect(screen.getByText("Survivor 术语")).not.toBeNull();
+    expect(screen.queryByText("Loser 术语")).toBeNull();
 
-    await userEvent.clear(screen.getByLabelText("搜索 术语"));
-    await userEvent.selectOptions(screen.getByLabelText("按 领域 筛选"), "ai");
-    expect(screen.getByText("Survivor Term")).not.toBeNull();
-    expect(screen.queryByText("Loser Term")).toBeNull();
+    await userEvent.clear(screen.getByLabelText("搜索术语"));
+    await userEvent.selectOptions(screen.getByLabelText("按领域筛选"), "ai");
+    expect(screen.getByText("Survivor 术语")).not.toBeNull();
+    expect(screen.queryByText("Loser 术语")).toBeNull();
 
-    await userEvent.selectOptions(screen.getByLabelText("按 领域 筛选"), "");
-    await userEvent.selectOptions(screen.getByLabelText("按 主题 筛选"), "methods");
-    expect(screen.getByText("Loser Term")).not.toBeNull();
-    expect(screen.queryByText("Survivor Term")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("按领域筛选"), "");
+    await userEvent.selectOptions(screen.getByLabelText("按主题筛选"), "methods");
+    expect(screen.getByText("Loser 术语")).not.toBeNull();
+    expect(screen.queryByText("Survivor 术语")).toBeNull();
   });
 
-  it("groups explicit links, detections, Sources, PDFs, and 论文推荐 Works by 术语", async () => {
+  it("groups explicit links, detections, 文献, PDFs, and 论文推荐 Works by 术语", async () => {
     api.getEntity.mockResolvedValue({
       ...terms[0],
       content: "",
       canonical_content: "",
       related_terms: [],
       backlinks: [
-        { source_entity_type: "document", source_entity_id: "note-one", source_title: "笔记 One", link_target: "Survivor Term", line: 14 },
-        { source_entity_type: "term", source_entity_id: "word-term", source_title: "Word 术语", link_target: "Survivor Term", line: 7 },
+        { source_entity_type: "document", source_entity_id: "note-one", source_title: "笔记 One", link_target: "Survivor 术语", line: 14 },
+        { source_entity_type: "term", source_entity_id: "word-term", source_title: "Word 术语", link_target: "Survivor 术语", line: 7 },
       ],
       detected_mentions: [
         { id: "note-one", title: "笔记 One" },
@@ -237,7 +237,7 @@ describe("术语 术语库 controls", () => {
       related_documents: [],
       term_relations: [
         { entity_type: "document", entity_id: "note-one", term_id: "survivor-term", title: "笔记 One", created_from_candidate_id: "candidate-one", created_at: "2026-01-01T00:00:00Z" },
-        { entity_type: "source", entity_id: "source-paper", term_id: "survivor-term", title: "Source Paper", created_from_candidate_id: "candidate-two", created_at: "2026-01-02T00:00:00Z" },
+        { entity_type: "source", entity_id: "source-paper", term_id: "survivor-term", title: "文献 Paper", created_from_candidate_id: "candidate-two", created_at: "2026-01-02T00:00:00Z" },
         { entity_type: "research_work", entity_id: "work-one", term_id: "survivor-term", title: "论文推荐 Work", created_from_candidate_id: "candidate-three", created_at: "2026-01-03T00:00:00Z" },
       ],
     } satisfies EntityDetail);
@@ -249,12 +249,12 @@ describe("术语 术语库 controls", () => {
     expect(within(notes).getByText("Accepted detection")).toBeTruthy();
     expect(within(notes).getByText("Explicit link")).toBeTruthy();
     expect(within(notes).getByText("Unlinked 笔记")).toBeTruthy();
-    expect(within(await screen.findByRole("region", { name: "Sources & PDFs" })).getByText("Source Paper")).toBeTruthy();
+    expect(within(await screen.findByRole("region", { name: "文献 & PDFs" })).getByText("文献 Paper")).toBeTruthy();
     expect(within(await screen.findByRole("region", { name: "论文推荐 Works" })).getByText("论文推荐 Work")).toBeTruthy();
     expect(within(await screen.findByRole("region", { name: "Related 术语" })).getByText("Word 术语")).toBeTruthy();
 
     await userEvent.click(within(notes).getByRole("button", { name: /笔记 One/ }));
-    await userEvent.click(within(screen.getByRole("region", { name: "Sources & PDFs" })).getByRole("button", { name: /Source Paper/ }));
+    await userEvent.click(within(screen.getByRole("region", { name: "文献 & PDFs" })).getByRole("button", { name: /文献 Paper/ }));
     await userEvent.click(within(screen.getByRole("region", { name: "论文推荐 Works" })).getByRole("button", { name: /论文推荐 Work/ }));
     expect(navigate).toHaveBeenNthCalledWith(1, "/documents/note-one");
     expect(navigate).toHaveBeenNthCalledWith(2, "/sources/source-paper");
@@ -265,12 +265,12 @@ describe("术语 术语库 controls", () => {
     const preview: TermMergePreview = {
       survivor_term_id: "survivor-term",
       loser_term_ids: ["loser-term"],
-      final_title: "Survivor Term",
-      aliases: ["Current Alias", "Loser Term", "Former Alias", "loser-term"],
+      final_title: "Survivor 术语",
+      aliases: ["Current Alias", "Loser 术语", "Former Alias", "loser-term"],
       loser_bodies_not_merged: ["loser-term"],
       selected_terms: [
-        { id: "survivor-term", title: "Survivor Term", type: "concept", depth: "standard" },
-        { id: "loser-term", title: "Loser Term", type: "entity", depth: "stub" },
+        { id: "survivor-term", title: "Survivor 术语", type: "concept", depth: "standard" },
+        { id: "loser-term", title: "Loser 术语", type: "entity", depth: "stub" },
       ],
       type_conflict: true,
       depth_conflict: true,
@@ -290,14 +290,14 @@ describe("术语 术语库 controls", () => {
     const user = userEvent.setup();
     render(<TermsPage onOpen={vi.fn()} />);
 
-    await screen.findByText("Loser Term");
-    await user.click(screen.getByRole("checkbox", { name: "选择 Survivor Term" }));
-    await user.click(screen.getByRole("checkbox", { name: "选择 Loser Term" }));
+    await screen.findByText("Loser 术语");
+    await user.click(screen.getByRole("checkbox", { name: "选择 Survivor 术语" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择 Loser 术语" }));
     await user.click(screen.getByRole("button", { name: /合并所选/ }));
 
     expect(await screen.findByText("最终别名")).not.toBeNull();
     expect((await screen.findAllByText("Former Alias")).length).toBeGreaterThan(0);
-    expect(screen.getByText("所选 术语 的类型与深度")).not.toBeNull();
+    expect(screen.getByText("所选术语的类型与深度")).not.toBeNull();
     expect(screen.getByText("以下条目的正文会随合并删除，不会复制到 Survivor：")).not.toBeNull();
     const confirmButton = screen.getByRole("button", { name: "确认合并" });
     expect((confirmButton as HTMLButtonElement).disabled).toBe(true);
@@ -311,20 +311,20 @@ describe("术语 术语库 controls", () => {
     await waitFor(() => expect(api.mergeTerms).toHaveBeenCalledWith({
       survivor_term_id: "survivor-term",
       loser_term_ids: ["loser-term"],
-      final_title: "Survivor Term",
+      final_title: "Survivor 术语",
       confirm_loser_bodies_not_merged: true,
       final_type: "entity",
       final_depth: "stub",
     }));
-    expect((await screen.findByRole("status")).textContent).toContain("已将 1 个 术语 合并到 Survivor Term。");
-    await waitFor(() => expect(screen.queryByText("Loser Term")).toBeNull());
+    expect((await screen.findByRole("status")).textContent).toContain("已将 1 个术语合并到 Survivor 术语。");
+    await waitFor(() => expect(screen.queryByText("Loser 术语")).toBeNull());
   });
 
   it("bulk rejects only selected pending 待处理", async () => {
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "选择候选 Adaptive Token Pruning" }));
     expect(screen.queryByRole("checkbox", { name: "选择候选 Closed 候选" })).toBeNull();
-    expect(screen.queryByRole("checkbox", { name: "选择候选 论文推荐 Reading Phrase" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "选择候选论文推荐 Reading Phrase" })).toBeNull();
     expect(screen.getByRole("button", { name: "批量暂时移除" })).toBeTruthy();
     await userEvent.click(screen.getByText("更多操作"));
     await userEvent.click(screen.getByRole("button", { name: "批量不再推荐" }));
@@ -343,7 +343,7 @@ describe("术语 术语库 controls", () => {
         candidate_id: "candidate-pdf",
         origin_type: "source",
         origin_id: "source-one",
-        origin_title: "Source One",
+        origin_title: "文献 One",
         origin_rejected: false,
         mention: "PDF reading phrase",
         context_excerpt: "A reusable phrase from the source.",
@@ -403,7 +403,7 @@ describe("术语 术语库 controls", () => {
     expect(api.rejectTermCandidate).not.toHaveBeenCalled();
   });
 
-  it("filters 候选 review and links a selected 术语库 术语", async () => {
+  it("filters 候选 review and links a selected 术语库术语", async () => {
     api.acceptTermCandidate.mockResolvedValue({});
     render(<TermsPage onOpen={vi.fn()} initialTab="candidates" />);
 
@@ -421,16 +421,16 @@ describe("术语 术语库 controls", () => {
 
     const pickerTrigger = screen.getByRole("button", { name: "选择其他术语" });
     await userEvent.click(pickerTrigger);
-    expect(document.activeElement).toBe(screen.getByLabelText("搜索 术语"));
-    await userEvent.type(screen.getByLabelText("搜索 术语"), "Loser Term");
-    await userEvent.click(screen.getByRole("option", { name: /Loser Term/ }));
-    await userEvent.click(screen.getByRole("button", { name: "链接到所选 术语" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("搜索术语"));
+    await userEvent.type(screen.getByLabelText("搜索术语"), "Loser 术语");
+    await userEvent.click(screen.getByRole("option", { name: /Loser 术语/ }));
+    await userEvent.click(screen.getByRole("button", { name: "链接到所选术语" }));
 
     await waitFor(() => expect(api.acceptTermCandidate).toHaveBeenCalledWith("candidate-existing", "loser-term"));
     await waitFor(() => expect(document.activeElement).toBe(pickerTrigger));
   });
 
-  it("reopens a 编辑中 候选's 未发布的术语修改 with its explicit 候选 context", async () => {
+  it("reopens a 编辑中候选's 未发布的术语修改 with its explicit 候选 context", async () => {
     const draft: Draft = {
       id: "draft-research",
       entity_type: "term",
@@ -453,7 +453,7 @@ describe("术语 术语库 controls", () => {
 
     await waitFor(() => expect(api.getDraft).toHaveBeenCalledWith("draft-research"));
     expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByLabelText("论文推荐 Reading Phrase 的 未发布的术语修改 编辑区"));
+    expect(document.activeElement).toBe(screen.getByLabelText("论文推荐 Reading Phrase 的未发布的术语修改编辑区"));
     const draftingTitle = screen.getByRole("heading", { level: 2, name: "论文推荐 Reading Phrase" });
     const draftingCard = draftingTitle.closest("article");
     expect(within(draftingCard as HTMLElement).queryByRole("button", { name: "暂时移除", exact: true })).toBeNull();
@@ -464,8 +464,8 @@ describe("术语 术语库 controls", () => {
   });
 
   it("filters 待处理 by 笔记, PDF, 论文推荐, and 外部发现 and collapses long evidence", async () => {
-    const pdfCandidate = candidate({ id: "candidate-pdf", display_name: "PDF 候选", evidence: [{ ...candidate({}).evidence[0], id: "evidence-pdf", candidate_id: "candidate-pdf", origin_type: "source", origin_id: "source-pdf", origin_title: "PDF Source" }] });
-    const researchCandidate = candidate({ id: "candidate-research-work", display_name: "论文推荐 候选", evidence: [{ ...candidate({}).evidence[0], id: "evidence-research-work", candidate_id: "candidate-research-work", origin_type: "research_work", origin_id: "work-one", origin_title: "论文推荐 Work" }] });
+    const pdfCandidate = candidate({ id: "candidate-pdf", display_name: "PDF 候选", evidence: [{ ...candidate({}).evidence[0], id: "evidence-pdf", candidate_id: "candidate-pdf", origin_type: "source", origin_id: "source-pdf", origin_title: "PDF 文献" }] });
+    const researchCandidate = candidate({ id: "candidate-research-work", display_name: "论文推荐候选", evidence: [{ ...candidate({}).evidence[0], id: "evidence-research-work", candidate_id: "candidate-research-work", origin_type: "research_work", origin_id: "work-one", origin_title: "论文推荐 Work" }] });
     const webCandidate = candidate({ id: "candidate-web", display_name: "Web 候选", evidence: [{ ...candidate({}).evidence[0], id: "evidence-web", candidate_id: "candidate-web", origin_type: "external", origin_id: "https://example.com/discovery", origin_title: "外部发现" }] });
     const manyEvidenceCandidate = candidate({
       id: "candidate-many-evidence",
@@ -481,11 +481,11 @@ describe("术语 术语库 controls", () => {
     expect(screen.getByText("PDF 候选")).not.toBeNull();
     expect(screen.queryByText("Adaptive Token Pruning")).toBeNull();
     await user.click(screen.getByRole("button", { name: "论文推荐" }));
-    expect(screen.getByText("论文推荐 候选")).not.toBeNull();
+    expect(screen.getByText("论文推荐候选")).not.toBeNull();
     expect(screen.queryByText("PDF 候选")).toBeNull();
     await user.click(screen.getByRole("button", { name: "外部发现" }));
     expect(screen.getByText("Web 候选")).not.toBeNull();
-    expect(screen.queryByText("论文推荐 候选")).toBeNull();
+    expect(screen.queryByText("论文推荐候选")).toBeNull();
     await user.click(screen.getByRole("button", { name: "全部" }));
 
     await screen.findByText("Many Evidence 候选");
@@ -526,7 +526,7 @@ describe("术语 术语库 controls", () => {
     await waitFor(() => expect(api.createCandidateTermDraft).toHaveBeenCalledWith("candidate-new"));
     expect(api.requestCandidateTermDraftProposal).not.toHaveBeenCalled();
     expect(await screen.findByRole("region", { name: "候选解释审核" })).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Adaptive Token Pruning 的 未发布的术语修改 编辑区")));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Adaptive Token Pruning 的未发布的术语修改编辑区")));
     expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
     await userEvent.click(screen.getByRole("button", { name: "AI 生成双语解释" }));
     await waitFor(() => expect(api.requestCandidateTermDraftProposal).toHaveBeenCalledWith(draft.id, "candidate-new"));

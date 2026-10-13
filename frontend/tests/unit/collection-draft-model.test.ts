@@ -23,7 +23,7 @@ function canonicalCollection() {
   };
 }
 
-test("Collection Draft serialization keeps canonical references and enriches the read model", () => {
+test("待确认的专题修改 serialization keeps canonical references and enriches the read model", () => {
   const canonical = canonicalCollection();
   const draft = collectionToDraft(canonical);
   const content = serializeCollectionDraft(draft);
@@ -39,7 +39,7 @@ test("Collection Draft serialization keeps canonical references and enriches the
   assert.equal(restored.position, 4);
 });
 
-test("runtime reading progress stays out of the canonical Collection Draft", () => {
+test("runtime reading progress stays out of the canonical 待确认的专题修改", () => {
   const canonical = canonicalCollection();
   const updated = updateEntityProgress(collectionToDraft(canonical), "document", "ewc", "done");
   assert.equal(updated.nodes[0].children[0].progress, "done");
@@ -47,7 +47,7 @@ test("runtime reading progress stays out of the canonical Collection Draft", () 
   assert.equal(canonical.nodes[0].children[0].progress, "reading");
 });
 
-test("malformed or cross-Collection drafts are rejected before editing", () => {
+test("malformed or cross-专题 drafts are rejected before editing", () => {
   const canonical = canonicalCollection();
   assert.throws(() => parseCollectionDraft("title: no nodes", canonical), /格式或 ID 无效/);
   assert.throws(() => parseCollectionDraft("id: another\nnodes: []", canonical), /格式或 ID 无效/);

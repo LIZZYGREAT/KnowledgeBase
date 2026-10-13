@@ -23,7 +23,7 @@ function DocumentReview({ result }: { result: Data }) {
   const proposedContent = typeof result.proposed_content === "string" ? result.proposed_content : "";
   const rationale = typeof result.rationale === "string" ? result.rationale : "";
   return <>
-    {summary && <MarkdownSection title="Review summary" content={summary} />}
+    {summary && <MarkdownSection title="审阅 summary" content={summary} />}
     {rationale && <MarkdownSection title="Rationale" content={rationale} />}
     {proposedContent && <MarkdownSection title="Suggested revision" content={proposedContent} />}
     {findings.length > 0 && <section className="proposal-result-section">
@@ -43,11 +43,11 @@ function MetadataSuggestion({ result }: { result: Data }) {
   const rationale = typeof result.rationale === "string" ? result.rationale : "";
   const labels: Record<string, string> = {
     title: "Title",
-    type: "Document type",
+    type: "笔记 type",
     domains: "Domains",
-    topics: "Topics",
+    topics: "分类",
     tags: "Tags",
-    sources: "Sources",
+    sources: "文献",
   };
   return <>
     {rationale && <MarkdownSection title="Rationale" content={rationale} />}
@@ -78,17 +78,17 @@ function TermDraft({ result }: { result: Data }) {
 function EvidenceSuggestions({ result }: { result: Data }) {
   const candidates = Array.isArray(result.candidates) ? result.candidates.map(asRecord).filter((item): item is Data => item !== null) : [];
   return <div className="proposal-result-list">{candidates.map((candidate, index) => <article className="proposal-result-item" key={`${String(candidate.source_id ?? "source")}:${index}`}>
-    {typeof candidate.source_id === "string" && <strong>Source · {candidate.source_id}</strong>}
+    {typeof candidate.source_id === "string" && <strong>文献 · {candidate.source_id}</strong>}
     {typeof candidate.claim === "string" && <MarkdownSection title="Claim" content={candidate.claim} />}
-    {typeof candidate.rationale === "string" && <MarkdownSection title="Why this Source" content={candidate.rationale} />}
+    {typeof candidate.rationale === "string" && <MarkdownSection title="Why this 文献" content={candidate.rationale} />}
   </article>)}</div>;
 }
 
 function TermCandidates({ result }: { result: Data }) {
   const candidates = Array.isArray(result.candidates) ? result.candidates.map(asRecord).filter((item): item is Data => item !== null) : [];
   return <div className="proposal-result-list">{candidates.map((candidate, index) => <article className="proposal-result-item" key={`${String(candidate.mention ?? "term")}:${index}`}>
-    <strong>{typeof candidate.mention === "string" ? candidate.mention : `Term ${index + 1}`}</strong>
-    {typeof candidate.action === "string" && <p>{candidate.action === "link_existing" ? "Link to an existing Term" : "Propose a new Term"}{typeof candidate.term_id === "string" ? ` · ${candidate.term_id}` : ""}</p>}
+    <strong>{typeof candidate.mention === "string" ? candidate.mention : `术语 ${index + 1}`}</strong>
+    {typeof candidate.action === "string" && <p>{candidate.action === "link_existing" ? "Link to an existing 术语" : "Propose a new 术语"}{typeof candidate.term_id === "string" ? ` · ${candidate.term_id}` : ""}</p>}
     {typeof candidate.rationale === "string" && <MarkdownSection title="Rationale" content={candidate.rationale} />}
   </article>)}</div>;
 }
@@ -111,7 +111,7 @@ function HumanResult({ proposal }: { proposal: Proposal }) {
         {typeof result.summary === "string" && <MarkdownSection title="Summary" content={result.summary} />}
         {typeof result.rationale === "string" && <MarkdownSection title="Rationale" content={result.rationale} />}
         {proposed && <MarkdownSection title="Suggested content" content={proposed} />}
-        {!proposed && typeof result.summary !== "string" && typeof result.rationale !== "string" && <p className="subtle-copy">This Proposal has no readable summary. Open the raw data to inspect its fields.</p>}
+        {!proposed && typeof result.summary !== "string" && typeof result.rationale !== "string" && <p className="subtle-copy">This AI 建议 has no readable summary. 打开 the raw data to inspect its fields.</p>}
       </>;
     }
   }

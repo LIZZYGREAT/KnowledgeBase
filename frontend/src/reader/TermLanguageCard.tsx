@@ -62,7 +62,7 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     if (!proposal || busy) return;
     setBusy(true);
     setError("");
-    setActionFeedback("正在将建议写入 未发布的术语修改…");
+    setActionFeedback("正在将建议写入未发布的术语修改…");
     try {
       await workspace.applyProposalToDraft(proposal.id);
       setProposal(null);
@@ -93,7 +93,7 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     }
   }
 
-  return <section className="term-language-card surface" aria-label="术语 解释">
+  return <section className="term-language-card surface" aria-label="术语解释">
     <div className="term-language-actions">
       <div className="term-language-switch" role="group" aria-label="解释语言">
         <button type="button" className={`button ${language === "zh" ? "button-primary" : "button-secondary"}`} disabled={busy || Boolean(proposal)} aria-pressed={language === "zh"} onClick={() => { setLanguage("zh"); setActionFeedback(""); }}>中文</button>
@@ -108,7 +108,7 @@ export function TermLanguageCard({ body, workspace, navigate, disabled }: { body
     {structured && <details><summary>完整原文与其他内容</summary><Markdown content={body} onNavigate={navigate} /></details>}
     {rewriting && <div className="term-language-rewrite">
       <label className="field-label">重写要求<textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} disabled={disabled || busy} placeholder="例如：解释向量维度、来源和分类器如何使用，并给出简单例子" rows={2} /></label>
-      <p className="subtle-copy">显式请求会将当前编辑内容 发送给 DeepSeek；结果先供对比，不会自动采用或发布。</p>
+      <p className="subtle-copy">显式请求会将当前编辑内容发送给 DeepSeek；结果先供对比，不会自动采用或发布。</p>
       <button type="button" className="button button-primary" disabled={disabled || busy || Boolean(rewriteBlockedReason)} onClick={() => void rewrite()}>{busy && !proposal ? "正在重写…" : "AI 双语重写"}</button>
       {rewriteBlockedReason && !busy && <p className="term-language-disabled-reason" role="status">{rewriteBlockedReason}</p>}
     </div>}

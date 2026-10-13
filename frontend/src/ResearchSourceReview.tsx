@@ -17,8 +17,8 @@ export function ResearchSourceReview({ draft, busy, error, onConfirm, onEdit }: 
   } catch {
     parseError = "无法读取来源信息，请返回编辑修正草稿。";
   }
-  return <div className="explorer-modal-backdrop"><section className="explorer-modal surface" role="dialog" aria-modal="true" aria-label="确认已有 Source Draft">
-    <h2>Source 草稿审核</h2><p>检查已有修改；确认后将通过正常发布流程收藏此来源。</p>
+  return <div className="explorer-modal-backdrop"><section className="explorer-modal surface" role="dialog" aria-modal="true" aria-label="确认已有文献未发布修改">
+    <h2>文献草稿审核</h2><p>检查已有修改；确认后将通过正常发布流程收藏此来源。</p>
     {parseError ? <p role="alert">{parseError}</p> : <dl className="source-fields">
       <div><dt>标题</dt><dd>{text(metadata.title)}</dd></div>
       <div><dt>资料类型</dt><dd>{text(metadata.type)}</dd></div>
@@ -32,7 +32,7 @@ export function ResearchSourceReview({ draft, busy, error, onConfirm, onEdit }: 
     </dl>}
     <details><summary>查看完整 YAML</summary><pre>{draft.content}</pre></details>
     {error && <p role="alert">{error}</p>}
-    <button disabled={busy || Boolean(parseError)} onClick={onConfirm}>确认通过并发布 Source</button>
+    <button disabled={busy || Boolean(parseError)} onClick={onConfirm}>确认通过并发布文献</button>
     <button disabled={busy} onClick={onEdit}>返回编辑</button>
   </section></div>;
 }

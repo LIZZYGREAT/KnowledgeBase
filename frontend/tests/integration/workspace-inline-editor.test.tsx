@@ -22,7 +22,7 @@ it("uses a compact vertical paragraph editor and keeps finish/cancel keyboard be
   expect(editSection?.dataset.blockType).toBe("paragraph");
   expect(Boolean(source && preview && (source.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
   expect(editor.closest("label")?.textContent).toContain("Markdown source");
-  expect(preview?.textContent).toContain("Preview");
+  expect(preview?.textContent).toContain("预览");
 
   fireEvent.change(editor, { target: { value: "Edited." } });
   fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
@@ -53,7 +53,7 @@ it("gives code blocks a full-width source, rendered preview, and larger height r
   expect(readStyles()).toMatch(/\.workspace-inline-block-editing\[data-block-type="code"\] \.workspace-inline-textarea\s*\{[^}]*min-height:\s*140px;[^}]*max-height:\s*420px/);
 });
 
-it("maps display math to one editable Workspace block while inline math stays in its paragraph", async () => {
+it("maps display math to one editable 查看或编辑 block while inline math stays in its paragraph", async () => {
   const displayFormula = String.raw`\frac{a+b}{c}+\sum_{i=1}^{n}i+\begin{matrix}a&b\\c&d\end{matrix}`;
   const body = `Inline $x^2$ stays in this paragraph.\n\n$$\n${displayFormula}\n$$\n\nA final paragraph.`;
   const { container } = render(<WorkspaceInlineEditor body={body} annotations={[]} onBodyChange={() => undefined} onNavigate={() => undefined} />);
@@ -82,7 +82,7 @@ it("maps display math to one editable Workspace block while inline math stays in
   });
 });
 
-it("keeps Markdown marks and restricted colors in Workspace reading and edit previews", async () => {
+it("keeps Markdown marks and restricted colors in 查看或编辑 reading and edit previews", async () => {
   const body = "Intro ==highlight== and <span style='color: green'>green</span>.";
   const { container } = render(<WorkspaceInlineEditor body={body} annotations={[]} onBodyChange={() => undefined} onNavigate={() => undefined} />);
 

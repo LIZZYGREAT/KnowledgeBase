@@ -270,11 +270,11 @@ export function useWorkspaceDraft(type: EntityType, id: string) {
 
   const applyProposalToDraft = useCallback(async (proposalId: string) => {
     const activeIdentity = identity;
-    if (identityRef.current !== activeIdentity) throw new Error("Workspace 已切换到其他实体。");
+    if (identityRef.current !== activeIdentity) throw new Error("查看或编辑已切换到其他实体。");
     const saved = await saveNow() ?? await acquireDraft();
-    if (identityRef.current !== activeIdentity) throw new Error("Workspace 已切换到其他实体。");
+    if (identityRef.current !== activeIdentity) throw new Error("查看或编辑已切换到其他实体。");
     const result = await applyProposalToDraftRequest(proposalId, saved.id, saved.revision);
-    if (identityRef.current !== activeIdentity) throw new Error("Workspace 已切换到其他实体。");
+    if (identityRef.current !== activeIdentity) throw new Error("查看或编辑已切换到其他实体。");
     acceptDraft(result.draft);
     setRuntimeError("");
     return result;

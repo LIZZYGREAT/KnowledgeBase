@@ -18,27 +18,27 @@ export function CollectionOverview({
   onToggle: (sectionId: string) => void;
   onOpen: (type: EntityType, id: string) => void;
 }) {
-  if (loading) return <LoadingState label="正在读取 Collection…" />;
+  if (loading) return <LoadingState label="正在读取专题…" />;
   if (error) return <ErrorState message={error} retry={retry} />;
-  if (!collection) return <EmptyState title="选择一个 Collection" description="从左侧选择阅读路径，或打开 All Documents、Unfiled 和 Recent。" />;
+  if (!collection) return <EmptyState title="选择一个专题" description="从左侧选择阅读路径，或打开所有笔记、未归入专题和最近打开。" />;
   const entityCount = countEntities(collection.nodes);
   const documentCount = countEntities(collection.nodes, "document");
   return <div className="explorer-overview">
     <div className="explorer-overview-header">
       <div>
-        <p className="eyebrow">{collection.status === "archived" ? "ARCHIVED COLLECTION" : "COLLECTION READING PATH"}</p>
+        <p className="eyebrow">{collection.status === "archived" ? "ARCHIVED 专题" : "专题 READING PATH"}</p>
         <h2>{collection.title}</h2>
         {collection.description && <p>{collection.description}</p>}
       </div>
-      <Chip tone={collection.status === "active" ? "green" : "neutral"}>{collection.status === "active" ? "Active" : "Archived"}</Chip>
+      <Chip tone={collection.status === "active" ? "green" : "neutral"}>{collection.status === "active" ? "已启用" : "已归档"}</Chip>
     </div>
     <div className="explorer-stat-strip">
-      <div><strong>{documentCount}</strong><span>Documents</span></div>
+      <div><strong>{documentCount}</strong><span>笔记</span></div>
       <div><strong>{entityCount}</strong><span>References</span></div>
       <div><strong>{collection.nodes.length}</strong><span>Top-level items</span></div>
     </div>
     <section className="explorer-outline-card">
-      <div className="section-heading"><div><h2>Reading path</h2><p>打开左侧目录中的 Document、Term 或 Source。</p></div></div>
+      <div className="section-heading"><div><h2>Reading path</h2><p>打开左侧目录中的笔记、术语或文献。</p></div></div>
       {collection.nodes.length ? <div className="explorer-outline-list">
         {collection.nodes.map((node) => node.kind === "section" ? <button key={node.id} onClick={() => onToggle(node.id)}>
           <span className="explorer-outline-icon">⌄</span>
@@ -49,7 +49,7 @@ export function CollectionOverview({
           <span><strong>{node.title}</strong><small>{node.entity_id}</small></span>
           <span aria-hidden="true">↗</span>
         </button>)}
-      </div> : <EmptyState title="目录为空" description="这个 Collection 尚未添加任何知识条目。" />}
+      </div> : <EmptyState title="目录为空" description="这个专题尚未添加任何知识条目。" />}
     </section>
   </div>;
 }
@@ -75,12 +75,12 @@ export function VirtualViewContent({
   onStartDrag: (event: ReactDragEvent<HTMLElement>, entity: EntitySummary) => void;
   onAdd: (entity: EntitySummary) => void;
 }) {
-  const title = view === "all" ? "All Documents" : view === "unfiled" ? "Unfiled" : "Recent";
+  const title = view === "all" ? "所有笔记" : view === "unfiled" ? "未归入专题" : "最近打开";
   const description = view === "all"
-    ? "所有已发布的 Documents，按标题排序。"
+    ? "所有已发布的笔记，按标题排序。"
     : view === "unfiled"
-      ? "尚未加入任何 Collection 的 Documents。"
-      : "最近打开过的 Documents。";
+      ? "尚未加入任何专题的笔记。"
+      : "最近打开过的笔记。";
   return <div className="explorer-virtual-content">
     <div className="explorer-overview-header">
       <div><p className="eyebrow">VIRTUAL VIEW</p><h2>{title}</h2><p>{description}</p></div>
@@ -100,12 +100,12 @@ export function VirtualViewContent({
             badge={<Chip>{item.entity_type}</Chip>}
             onClick={() => onOpen(item.entity_type, item.id)}
           />
-          {editMode && <button className="button button-secondary" onClick={() => onAdd(item)}>Add to Collection</button>}
+          {editMode && <button className="button button-secondary" onClick={() => onAdd(item)}>加入专题</button>}
         </div>)}
       </div>
     ) : <EmptyState
-      title={view === "unfiled" ? "没有 Unfiled Documents" : view === "recent" ? "还没有最近打开的笔记" : "还没有 Documents"}
-      description={view === "unfiled" ? "每篇 Document 都已加入 Collection。" : view === "recent" ? "打开一篇笔记后，它会出现在这里。" : "发布的 Documents 会出现在这里。"}
+      title={view === "unfiled" ? "没有未归入专题笔记" : view === "recent" ? "还没有最近打开的笔记" : "还没有笔记"}
+      description={view === "unfiled" ? "每篇笔记都已加入专题。" : view === "recent" ? "打开一篇笔记后，它会出现在这里。" : "发布的笔记会出现在这里。"}
     />}
   </div>;
 }

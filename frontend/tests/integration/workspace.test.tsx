@@ -65,10 +65,10 @@ let publishedSource: EntityDetail | null;
 
 function makeEntity(id = "quick-start"): EntityDetail {
   const titles: Record<string, string> = {
-    "second-note": "Second Note",
-    "formatted-note": "Formatted Note",
-    "linked-note": "Linked Note",
-    "repeated-note": "Repeated Note",
+    "second-note": "Second 笔记",
+    "formatted-note": "Formatted 笔记",
+    "linked-note": "Linked 笔记",
+    "repeated-note": "Repeated 笔记",
   };
   const bodies: Record<string, string> = {
     "second-note": "# Second heading\n\nSecond entity content.",
@@ -135,7 +135,7 @@ function installApiBehavior() {
   api.listDrafts.mockImplementation(async (type: string, id: string) => drafts.filter((draft) => draft.entity_type === type && draft.entity_id === id));
   api.getDraft.mockImplementation(async (id: string) => {
     const draft = drafts.find((item) => item.id === id);
-    if (!draft) throw Object.assign(new Error("Draft not found"), { status: 404 });
+    if (!draft) throw Object.assign(new Error("未发布修改 not found"), { status: 404 });
     return { ...draft };
   });
   api.createDraft.mockImplementation(async (type: Draft["entity_type"], id: string, content: string) => {
@@ -145,7 +145,7 @@ function installApiBehavior() {
   });
   api.updateDraft.mockImplementation(async (id: string, content: string, revision: number) => {
     const draft = drafts.find((item) => item.id === id);
-    if (!draft) throw new Error("Draft not found");
+    if (!draft) throw new Error("未发布修改 not found");
     Object.assign(draft, { content, revision: revision + 1 });
     return { ...draft };
   });
@@ -154,7 +154,7 @@ function installApiBehavior() {
   });
   api.compareDraft.mockImplementation(async (id: string) => {
     const draft = drafts.find((item) => item.id === id);
-    if (!draft) throw new Error("Draft not found");
+    if (!draft) throw new Error("未发布修改 not found");
     return {
       draft: { ...draft },
       base_content: canonicalContent,
@@ -168,7 +168,7 @@ function installApiBehavior() {
     draft_id: id,
     valid: !conflictOnPreflight,
     conflict: conflictOnPreflight,
-    errors: conflictOnPreflight ? ["Canonical changed"] : [],
+    errors: conflictOnPreflight ? ["正式版本 changed"] : [],
     warnings: [],
   }));
   api.preflightDraftsBatch.mockImplementation(async (expectations: Array<{ draft_id: string }>) => ({
@@ -176,7 +176,7 @@ function installApiBehavior() {
       draft_id,
       valid: !conflictOnPreflight,
       conflict: conflictOnPreflight,
-      errors: conflictOnPreflight ? ["Canonical changed"] : [],
+      errors: conflictOnPreflight ? ["正式版本 changed"] : [],
       warnings: [],
     })),
   }));
@@ -225,12 +225,12 @@ function installApiBehavior() {
   });
   api.applyProposalToDraft.mockImplementation(async (proposalId: string, draftId: string, revision: number) => {
     const draft = drafts.find((item) => item.id === draftId);
-    if (!draft) throw new Error("Draft not found");
-    if (draft.revision !== revision) throw Object.assign(new Error("Draft revision conflict"), { status: 409 });
+    if (!draft) throw new Error("未发布修改 not found");
+    if (draft.revision !== revision) throw Object.assign(new Error("编辑版本 conflict"), { status: 409 });
     const proposal = proposals.find((item) => item.id === proposalId);
-    if (!proposal) throw new Error("Proposal not found");
+    if (!proposal) throw new Error("AI 建议 not found");
     const content = proposal.payload.content;
-    if (typeof content !== "string") throw new Error("Proposal has no content candidate");
+    if (typeof content !== "string") throw new Error("AI 建议 has no content candidate");
     Object.assign(draft, { content, revision: revision + 1 });
     const applied = {
       ...proposal,
@@ -242,7 +242,7 @@ function installApiBehavior() {
   });
   api.rejectProposal.mockImplementation(async (proposalId: string) => {
     const updated = proposals.find((item) => item.id === proposalId);
-    if (!updated) throw new Error("Proposal not found");
+    if (!updated) throw new Error("AI 建议 not found");
     const rejected = { ...updated, status: "rejected" };
     proposals = proposals.map((item) => item.id === proposalId ? rejected : item);
     return rejected;
@@ -359,7 +359,7 @@ function selectAcrossReaderBlocks(container: HTMLElement) {
   fireEvent.mouseUp(root);
 }
 
-describe("Workspace React integration", () => {
+describe("查看或编辑 React integration", () => {
   beforeEach(() => {
     drafts = [];
     proposals = [];
@@ -372,7 +372,7 @@ describe("Workspace React integration", () => {
     installApiBehavior();
   });
 
-  it("previews an edited Draft title immediately, keeps it after reload, and restores Canonical after discard", async () => {
+  it("previews an edited 未发布修改 title immediately, keeps it after reload, and restores 正式版本 after discard", async () => {
     const user = userEvent.setup();
     const canonical = makeEntity();
     publishedEntity = {
@@ -387,23 +387,23 @@ describe("Workspace React integration", () => {
     fireEvent.change(screen.getByLabelText("标题"), { target: { value: "决策树" } });
 
     expect(screen.getByRole("heading", { name: "决策树" })).toBeTruthy();
-    expect(screen.getByText("Draft 预览 · 尚未发布")).toBeTruthy();
+    expect(screen.getByText("未发布修改预览 · 尚未发布")).toBeTruthy();
     await waitFor(() => expect(drafts[0].content).toContain("title: 决策树"), { timeout: 2500 });
 
     firstView.unmount();
     renderWorkspace();
     await screen.findByRole("heading", { name: "决策树" });
-    expect(screen.getByText("Draft 预览 · 尚未发布")).toBeTruthy();
+    expect(screen.getByText("未发布修改预览 · 尚未发布")).toBeTruthy();
 
     const confirmation = vi.spyOn(window, "confirm").mockReturnValue(true);
-    await user.click(screen.getByRole("button", { name: "丢弃 Draft" }));
+    await user.click(screen.getByRole("button", { name: "丢弃未发布修改" }));
     await screen.findByRole("heading", { name: "[" });
-    expect(screen.queryByText("Draft 预览 · 尚未发布")).toBeNull();
+    expect(screen.queryByText("未发布修改预览 · 尚未发布")).toBeNull();
     expect(confirmation).toHaveBeenCalledOnce();
     confirmation.mockRestore();
   });
 
-  it("keeps the Canonical title visible and reports malformed Draft metadata", async () => {
+  it("keeps the 正式版本 title visible and reports malformed 未发布修改 metadata", async () => {
     const canonical = makeEntity();
     publishedEntity = {
       ...canonical,
@@ -414,11 +414,11 @@ describe("Workspace React integration", () => {
     renderWorkspace();
 
     await screen.findByRole("heading", { name: "[" });
-    expect(screen.getByText("Draft 预览 · 尚未发布")).toBeTruthy();
-    expect(screen.getByRole("alert").textContent).toContain("Draft 标题无法读取");
+    expect(screen.getByText("未发布修改预览 · 尚未发布")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("未发布修改标题无法读取");
   });
 
-  it("keeps incomplete Source year and URL text local while syncing valid values immediately", () => {
+  it("keeps incomplete 文献 year and URL text local while syncing valid values immediately", () => {
     const onFrontmatterUpdate = vi.fn();
     render(<WorkspaceMetadataDrawer
       type="source"
@@ -463,13 +463,13 @@ describe("Workspace React integration", () => {
     expect(onFrontmatterUpdate).toHaveBeenCalledWith("url", null);
   });
 
-  it("edits and publishes the original Research Source Draft after returning from review", async () => {
+  it("edits and publishes the original 论文推荐文献未发布修改 after returning from review", async () => {
     const user = userEvent.setup();
     const content = "schema_version: 1\nid: research-paper\ntype: paper\ntitle: Preserved title\nauthors: [Ada]\nyear: 2017\nidentifiers: {doi: 10.1000/preserved}\nattachments: {}\n";
     const draft = makeDraft("source", "research-paper", content);
     draft.revision = 5;
     drafts.push(draft);
-    publishedSource = { ...makeEntity(), id: "research-paper", title: "Canonical title", entity_type: "source", metadata: { type: "paper", authors: ["Ada"], year: 2017, identifiers: { doi: "10.1000/preserved" }, attachments: {} }, content: null, canonical_content: content };
+    publishedSource = { ...makeEntity(), id: "research-paper", title: "正式版本 title", entity_type: "source", metadata: { type: "paper", authors: ["Ada"], year: 2017, identifiers: { doi: "10.1000/preserved" }, attachments: {} }, content: null, canonical_content: content };
     function Flow() {
       const [editing, setEditing] = useState(false);
       return editing ? <WorkspacePage type="source" id="research-paper" navigate={vi.fn()} openMetadataOnLoad /> : <ResearchSourceReview draft={draft} busy={false} error="" onConfirm={vi.fn()} onEdit={() => setEditing(true)} />;
@@ -492,7 +492,7 @@ describe("Workspace React integration", () => {
     expect(api.discardDraft).not.toHaveBeenCalled();
   });
 
-  it("shows Source autosave failures in the open metadata drawer and hands them back to the reader on close", async () => {
+  it("shows 文献 autosave failures in the open metadata drawer and hands them back to the reader on close", async () => {
     const user = userEvent.setup();
     const id = "ewc-2017";
     const content = [
@@ -539,7 +539,7 @@ describe("Workspace React integration", () => {
     await waitFor(() => expect(document.querySelector(".workspace-reader-save-error")?.textContent).toContain("保存失败：runtime write failed"), { timeout: 4000 });
   });
 
-  it("keeps reading and inline editing in one Workspace, autosaves, then publishes through the review drawer", async () => {
+  it("keeps reading and inline editing in one 查看或编辑, autosaves, then publishes through the review drawer", async () => {
     const user = userEvent.setup();
     const { container } = renderWorkspace();
     await screen.findByRole("heading", { name: "Quick Start" });
@@ -553,7 +553,7 @@ describe("Workspace React integration", () => {
     await user.click(screen.getByRole("button", { name: "完成区块" }));
     await waitFor(() => expect(drafts[0]?.content).toContain("Revised paragraph."), { timeout: 2500 });
 
-    await user.click(screen.getByRole("button", { name: "Source" }));
+    await user.click(screen.getByRole("button", { name: "文献" }));
     await screen.findByRole("heading", { name: "完整源码" });
     expect(container.querySelector(".workspace-shell")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "完整源码" }));
@@ -568,7 +568,7 @@ describe("Workspace React integration", () => {
     expect(api.publishDraft).toHaveBeenCalledWith("draft-1", 1);
   });
 
-  it("fetches the Reader entity once and retries canonical hydration through the Workspace owner", async () => {
+  it("fetches the Reader entity once and retries canonical hydration through the 查看或编辑 owner", async () => {
     const user = userEvent.setup();
     const entity = makeEntity();
     api.getEntity.mockRejectedValueOnce(new Error("temporary read failure"))
@@ -582,19 +582,19 @@ describe("Workspace React integration", () => {
     expect(api.getEntity).toHaveBeenCalledTimes(2);
   });
 
-  it("flushes a dirty Draft before internal navigation", async () => {
+  it("flushes a dirty 未发布修改 before internal navigation", async () => {
     const user = userEvent.setup();
     const { navigate, requestNavigation } = renderGuardedWorkspace();
     await screen.findByRole("heading", { name: "Quick Start" });
     await user.click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
     const editor = await screen.findByRole("textbox", { name: "Markdown 区块 2" });
-    fireEvent.change(editor, { target: { value: "Saved before leaving." } });
+    fireEvent.change(editor, { target: { value: "已保存 before leaving." } });
 
     let allowed = false;
     await act(async () => { allowed = await requestNavigation("/library"); });
 
     expect(allowed).toBe(true);
-    expect(api.createDraft).toHaveBeenCalledWith("document", "quick-start", expect.stringContaining("Saved before leaving."));
+    expect(api.createDraft).toHaveBeenCalledWith("document", "quick-start", expect.stringContaining("已保存 before leaving."));
     expect(navigate).toHaveBeenCalledWith("/library");
   });
 
@@ -615,7 +615,7 @@ describe("Workspace React integration", () => {
     expect(screen.getByRole("alert").textContent).toContain("network unavailable");
   });
 
-  it("keeps the current page open and shows Runtime conflict when navigation saving conflicts", async () => {
+  it("keeps the current page open and shows 编辑版本冲突 when navigation saving conflicts", async () => {
     const user = userEvent.setup();
     const { navigate, requestNavigation } = renderGuardedWorkspace();
     await screen.findByRole("heading", { name: "Quick Start" });
@@ -632,8 +632,8 @@ describe("Workspace React integration", () => {
 
     expect(allowed).toBe(false);
     expect(navigate).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "Draft 内容冲突" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "丢弃 Draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("heading", { name: "未发布修改内容冲突" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "丢弃未发布修改" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("请等待保存完成或先处理冲突")).toBeTruthy();
   });
 
@@ -647,11 +647,11 @@ describe("Workspace React integration", () => {
     await screen.findByRole("heading", { name: "Quick Start" });
     await userEvent.setup().click(await screen.findByRole("button", { name: "编辑第 2 个区块" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Markdown 区块 2" }), {
-      target: { value: "Save in flight" },
+      target: { value: "保存 in flight" },
     });
     await waitFor(() => expect(api.updateDraft).toHaveBeenCalledOnce(), { timeout: 2500 });
 
-    expect((screen.getByRole("button", { name: "丢弃 Draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "丢弃未发布修改" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("请等待保存完成或先处理冲突")).toBeTruthy();
 
     await act(async () => {
@@ -659,7 +659,7 @@ describe("Workspace React integration", () => {
       Object.assign(draft, { content, revision: draft.revision + 1 });
       resolveUpdate({ ...draft });
     });
-    await waitFor(() => expect((screen.getByRole("button", { name: "丢弃 Draft" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByRole("button", { name: "丢弃未发布修改" }) as HTMLButtonElement).disabled).toBe(false));
   });
 
   it("opens Metadata directly over the Reader", async () => {
@@ -684,7 +684,7 @@ describe("Workspace React integration", () => {
     expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
   });
 
-  it("opens AI review for a new Term Draft and explains that its Proposal awaits Apply", async () => {
+  it("opens AI review for a new 术语未发布修改 and explains that its AI 建议 awaits Apply", async () => {
     const id = "stable-index";
     const content = [
       "---",
@@ -730,22 +730,22 @@ describe("Workspace React integration", () => {
     />);
 
     await screen.findByRole("heading", { name: "AI 辅助审阅" });
-    expect(await screen.findByText("已生成建议，等待 Apply to Draft。")).toBeTruthy();
+    expect(await screen.findByText("已生成建议，等待采用建议。")).toBeTruthy();
     expect(screen.getByText("+A stable index retains canonical facts.")).toBeTruthy();
     expect(api.listProposals).toHaveBeenCalledWith(undefined, "term", id);
 
-    await userEvent.click(screen.getByRole("button", { name: "Apply to Draft" }));
-    await screen.findByText(/候选已写入 Draft/);
-    expect(screen.queryByText("已生成建议，等待 Apply to Draft。")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "采用建议" }));
+    await screen.findByText(/候选已写入未发布修改/);
+    expect(screen.queryByText("已生成建议，等待采用建议。")).toBeNull();
 
     await userEvent.click(screen.getByRole("checkbox", { name: /我同意/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Term Draft 建议" }));
+    await userEvent.click(screen.getByRole("button", { name: "术语未发布修改建议" }));
     await waitFor(() => expect(api.requestAIProposal).toHaveBeenCalledWith(
       "term-draft", draft.id, undefined, "candidate-stable-index",
     ));
   });
 
-  it("applies a content Proposal to the saved Draft and advances its revision", async () => {
+  it("applies a content AI 建议 to the saved 未发布修改 and advances its revision", async () => {
     const user = userEvent.setup();
     const candidate = canonicalContent.replace("selected phrase", "AI candidate");
     api.requestAIProposal.mockImplementationOnce(async () => {
@@ -775,17 +775,17 @@ describe("Workspace React integration", () => {
     await user.click(screen.getByRole("button", { name: "文档审阅" }));
     await screen.findByText("candidate diff");
 
-    await user.click(screen.getByRole("button", { name: "Apply to Draft" }));
+    await user.click(screen.getByRole("button", { name: "采用建议" }));
 
     await waitFor(() => expect(api.applyProposalToDraft).toHaveBeenCalledWith(
       "proposal-content", "draft-1", 1,
     ));
     expect(drafts[0].content).toBe(candidate);
     expect(drafts[0].revision).toBe(2);
-    expect(screen.getByText(/候选已写入 Draft/)).toBeTruthy();
+    expect(screen.getByText(/候选已写入未发布修改/)).toBeTruthy();
   });
 
-  it("opens and confirms Publish Review directly from the Reader", async () => {
+  it("opens and confirms 确认保存审阅 directly from the Reader", async () => {
     const user = userEvent.setup();
     seedDraft(canonicalContent.replace("selected phrase", "reviewed from reader"));
     renderWorkspace();
@@ -801,7 +801,7 @@ describe("Workspace React integration", () => {
     expect(screen.queryByRole("heading", { name: "编辑 quick-start" })).toBeNull();
   });
 
-  it("refreshes canonical Reader data after Publish and enables another publish after editing", async () => {
+  it("refreshes canonical Reader data after 确认保存 and enables another publish after editing", async () => {
     const user = userEvent.setup();
     const publishedContent = canonicalContent
       .replace("title: Quick Start", "title: Published Title")
@@ -836,7 +836,7 @@ describe("Workspace React integration", () => {
       };
       publishedSource = {
         id: "source-one",
-        title: "Updated Source",
+        title: "Updated 文献",
         entity_type: "source",
         metadata: { type: "paper" },
         content: null,
@@ -857,7 +857,7 @@ describe("Workspace React integration", () => {
     });
     const { container } = renderWorkspace();
     await screen.findByRole("heading", { name: "Published Title" });
-    expect(screen.getByText("Draft 预览 · 尚未发布")).toBeTruthy();
+    expect(screen.getByText("未发布修改预览 · 尚未发布")).toBeTruthy();
 
     await user.click(await screen.findByRole("button", { name: "发布" }));
     await screen.findByRole("heading", { name: "变更摘要" });
@@ -866,10 +866,10 @@ describe("Workspace React integration", () => {
     await user.click(publishButton);
 
     await screen.findByRole("heading", { name: "Published Title" });
-    expect(screen.queryByText("Draft 预览 · 尚未发布")).toBeNull();
+    expect(screen.queryByText("未发布修改预览 · 尚未发布")).toBeNull();
     await waitFor(() => expect(api.getEntity.mock.calls.filter(([type, id]) => type === "document" && id === "quick-start").length).toBe(2));
     await user.click(screen.getByRole("button", { name: "More" }));
-    expect(await screen.findByRole("button", { name: /Updated Source/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Updated 文献/ })).toBeTruthy();
 
     selectParagraphSubstring(container, "published phrase");
     const annotationButton = await screen.findByRole("button", { name: "yellow 高亮" });
@@ -882,7 +882,7 @@ describe("Workspace React integration", () => {
     expect(draft.content).toBe(publishedContent);
   });
 
-  it("preflights a new Document and its Collection reference as one batch", async () => {
+  it("preflights a new 笔记 and its 专题 reference as one batch", async () => {
     const user = userEvent.setup();
     const documentDraft = seedDraft(canonicalContent.replace("selected phrase", "batch reviewed"));
     const collectionDraft = makeDraft(
@@ -894,7 +894,7 @@ describe("Workspace React integration", () => {
     renderWorkspace("quick-start", () => undefined, undefined, "reading-list");
     await screen.findByRole("heading", { name: "Quick Start" });
 
-    await user.click(screen.getByRole("button", { name: "Publish All" }));
+    await user.click(screen.getByRole("button", { name: "确认保存 All" }));
 
     await screen.findByRole("heading", { name: "变更摘要" });
     expect(api.preflightDraftsBatch).toHaveBeenCalledWith([
@@ -902,13 +902,13 @@ describe("Workspace React integration", () => {
       { draft_id: collectionDraft.id, expected_revision: collectionDraft.revision },
     ]);
     expect(api.preflightDraft).not.toHaveBeenCalled();
-    await waitFor(() => expect((screen.getByRole("button", { name: /Publish All · 一个 Git 提交/ }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByRole("button", { name: /确认保存全部/ }) as HTMLButtonElement).disabled).toBe(false));
   });
 
-  it("preflights and publishes Research Source, Document, and Collection Drafts together", async () => {
+  it("preflights and publishes 论文推荐文献, 笔记, and 专题未发布修改 together", async () => {
     const user = userEvent.setup();
     const documentDraft = seedDraft(canonicalContent.replace("selected phrase", "research note"));
-    const sourceDraft = makeDraft("source", "research-paper", "schema_version: 1\nid: research-paper\ntype: paper\ntitle: Research Paper\n");
+    const sourceDraft = makeDraft("source", "research-paper", "schema_version: 1\nid: research-paper\ntype: paper\ntitle: 论文推荐 Paper\n");
     const collectionDraft = makeDraft("collection", "continual-learning", "schema_version: 1\nid: continual-learning\ntitle: Continual Learning\nstatus: active\nposition: 0\nnodes: []\n");
     drafts.push(sourceDraft);
     drafts.push(collectionDraft);
@@ -916,15 +916,15 @@ describe("Workspace React integration", () => {
     renderWorkspace("quick-start", navigate, undefined, "continual-learning", [sourceDraft.id], "research-group");
     await screen.findByRole("heading", { name: "Quick Start" });
 
-    await user.click(screen.getByRole("button", { name: "Publish All" }));
+    await user.click(screen.getByRole("button", { name: "确认保存 All" }));
     await screen.findByRole("heading", { name: "变更摘要" });
     expect(api.preflightDraftsBatch).toHaveBeenCalledWith([
       { draft_id: documentDraft.id, expected_revision: documentDraft.revision },
       { draft_id: collectionDraft.id, expected_revision: collectionDraft.revision },
       { draft_id: sourceDraft.id, expected_revision: sourceDraft.revision },
     ]);
-    await waitFor(() => expect((screen.getByRole("button", { name: /Publish All · 一个 Git 提交/ }) as HTMLButtonElement).disabled).toBe(false));
-    await user.click(screen.getByRole("button", { name: /Publish All · 一个 Git 提交/ }));
+    await waitFor(() => expect((screen.getByRole("button", { name: /确认保存全部/ }) as HTMLButtonElement).disabled).toBe(false));
+    await user.click(screen.getByRole("button", { name: /确认保存全部/ }));
 
     await waitFor(() => expect(api.publishDraftsBatch).toHaveBeenCalledOnce());
     expect(api.publishDraftsBatch.mock.calls[0][0]).toEqual([
@@ -936,14 +936,14 @@ describe("Workspace React integration", () => {
     expect(navigate).toHaveBeenCalledWith("/documents/quick-start?collection=continual-learning");
   });
 
-  it("refreshes Publish Review after a Draft-only stale revision and publishes the latest revision", async () => {
+  it("refreshes 确认保存审阅 after a 未发布修改-only stale revision and publishes the latest revision", async () => {
     const user = userEvent.setup();
     const reviewedDraft = seedDraft(canonicalContent.replace("selected phrase", "reviewed phrase"));
     api.publishDraft.mockImplementationOnce(async (id: string, expectedRevision: number) => {
       const current = drafts.find((draft) => draft.id === id);
       if (current?.revision !== expectedRevision) {
         throw Object.assign(
-          new Error("Draft changed after review. Refresh the Publish Review before publishing."),
+          new Error("未发布修改 changed after review. Refresh the 确认保存审阅 before publishing."),
           { status: 409 },
         );
       }
@@ -962,7 +962,7 @@ describe("Workspace React integration", () => {
 
     await waitFor(() => expect(api.publishDraft).toHaveBeenCalledWith(reviewedDraft.id, 1));
     await screen.findByRole("heading", { name: "变更摘要" });
-    expect(screen.getByText(/Draft revision 2/)).toBeTruthy();
+    expect(screen.getByText(/编辑版本 2/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "查看完整差异" }));
     expect(screen.getByText(/later revision/)).toBeTruthy();
     const refreshedPublishButton = screen.getByRole("button", { name: "确认发布" });
@@ -978,7 +978,7 @@ describe("Workspace React integration", () => {
     const draft = seedDraft(canonicalContent.replace("selected phrase", "reviewed phrase"));
     api.publishDraft.mockImplementationOnce(async () => {
       conflictOnPreflight = true;
-      throw Object.assign(new Error("Draft changed before publish."), { status: 409 });
+      throw Object.assign(new Error("未发布修改 changed before publish."), { status: 409 });
     });
     renderWorkspace();
 
@@ -1015,14 +1015,14 @@ describe("Workspace React integration", () => {
 
   it("does not guess source offsets for formatted Markdown or links", async () => {
     const formatted = renderWorkspace("formatted-note");
-    await screen.findByRole("heading", { name: "Formatted Note" });
+    await screen.findByRole("heading", { name: "Formatted 笔记" });
     selectWholeParagraph(formatted.container);
     expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText(/无法无歧义地对应 Markdown 源文/)).toBeTruthy();
     formatted.unmount();
 
     const linked = renderWorkspace("linked-note");
-    await screen.findByRole("heading", { name: "Linked Note" });
+    await screen.findByRole("heading", { name: "Linked 笔记" });
     selectWholeParagraph(linked.container);
     expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText(/无法无歧义地对应 Markdown 源文/)).toBeTruthy();
@@ -1030,14 +1030,14 @@ describe("Workspace React integration", () => {
 
   it("disables source formatting when selected text occurs more than once in a block", async () => {
     const { container } = renderWorkspace("repeated-note");
-    await screen.findByRole("heading", { name: "Repeated Note" });
+    await screen.findByRole("heading", { name: "Repeated 笔记" });
     selectParagraphSubstring(container, "same text");
 
     expect((await screen.findByRole("button", { name: "加粗" })).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText(/无法无歧义地对应 Markdown 源文/)).toBeTruthy();
   });
 
-  it("keeps local content unsaved when another tab already created a different Draft, then saves an explicit merge", async () => {
+  it("keeps local content unsaved when another tab already created a different 未发布修改, then saves an explicit merge", async () => {
     const user = userEvent.setup();
     const existing = makeDraft("document", "quick-start", canonicalContent + "\nOther tab content.\n");
     api.createDraft.mockImplementationOnce(async () => {
@@ -1052,11 +1052,11 @@ describe("Workspace React integration", () => {
     await user.type(editor, "Local unsaved content.");
     await user.click(screen.getByRole("button", { name: "完成区块" }));
 
-    await screen.findByRole("heading", { name: "Draft 内容冲突" });
-    expect(screen.getAllByText(/另一个标签页已为此内容创建 Draft/).length).toBeGreaterThan(0);
+    await screen.findByRole("heading", { name: "未发布修改内容冲突" });
+    expect(screen.getAllByText(/另一个标签页已为此内容创建未发布修改/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Other tab content/)).toBeTruthy();
     expect(screen.getAllByText(/当前本地修改尚未保存/).length).toBeGreaterThan(0);
-    expect(container.querySelector(".workspace-reader-save-state")?.textContent).toBe("Draft 冲突");
+    expect(container.querySelector(".workspace-reader-save-state")?.textContent).toBe("未发布修改冲突");
 
     const merge = screen.getByRole("textbox", { name: /手动合并内容/ });
     await user.clear(merge);
@@ -1064,16 +1064,16 @@ describe("Workspace React integration", () => {
     await user.click(screen.getByRole("button", { name: "保存手动合并" }));
 
     await waitFor(() => expect(api.updateDraft).toHaveBeenCalledWith(existing.id, "Merged content from both tabs.", 1));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Draft 内容冲突" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "未发布修改内容冲突" })).toBeNull());
   });
 
-  it("separates a Runtime Draft revision conflict and keeps local content with a latest-revision CAS", async () => {
+  it("separates a Runtime 编辑版本 conflict and keeps local content with a latest-revision CAS", async () => {
     const user = userEvent.setup();
     const existing = seedDraft();
     const otherTabContent = canonicalContent + "\nOther tab revision.\n";
     api.updateDraft.mockImplementationOnce(async () => {
       Object.assign(existing, { content: otherTabContent, revision: 2 });
-      throw Object.assign(new Error("Draft revision changed"), {
+      throw Object.assign(new Error("编辑版本 changed"), {
         status: 409,
         code: "draft_revision_conflict",
         expected_revision: 1,
@@ -1088,8 +1088,8 @@ describe("Workspace React integration", () => {
     await user.type(editor, "Local revision.");
     await user.click(screen.getByRole("button", { name: "完成区块" }));
 
-    await screen.findByRole("heading", { name: "Draft 内容冲突" });
-    expect(screen.getAllByText(/Runtime Draft 已在另一个会话中更新/).length).toBeGreaterThan(0);
+    await screen.findByRole("heading", { name: "未发布修改内容冲突" });
+    expect(screen.getAllByText(/已保存的修改已在另一个会话中更新/).length).toBeGreaterThan(0);
     expect(screen.getByText(/Other tab revision/)).toBeTruthy();
     expect(api.compareDraft).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "保留本地并保存" }));
@@ -1099,7 +1099,7 @@ describe("Workspace React integration", () => {
       expect.stringContaining("Local revision."),
       2,
     ));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Draft 内容冲突" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "未发布修改内容冲突" })).toBeNull());
   });
 
   it("does not let a pending autosave from the previous entity write into the next entity", async () => {
@@ -1119,7 +1119,7 @@ describe("Workspace React integration", () => {
     await waitFor(() => expect(api.updateDraft).toHaveBeenCalledOnce(), { timeout: 2500 });
 
     await user.click(screen.getByRole("button", { name: "切换实体" }));
-    await screen.findByRole("heading", { name: "Second Note" });
+    await screen.findByRole("heading", { name: "Second 笔记" });
     expect(await screen.findByText("Second entity content.")).toBeTruthy();
 
     await act(async () => {
@@ -1168,7 +1168,7 @@ describe("Workspace React integration", () => {
     expect(api.requestAIProposal.mock.calls[0][2]).toBe("A paragraph with a selected phrase.");
   });
 
-  it("recovers a Document Draft conflict by deleting the Draft and reloading Canonical", async () => {
+  it("recovers a 笔记未发布修改 conflict by deleting the 未发布修改 and reloading 正式版本", async () => {
     const user = userEvent.setup();
     const oldContent = canonicalContent.replace("selected phrase", "old phrase");
     const draft = seedDraft(oldContent);
@@ -1177,9 +1177,9 @@ describe("Workspace React integration", () => {
 
     await user.click(await screen.findByRole("button", { name: "发布" }));
     await screen.findByRole("heading", { name: "解决版本冲突" });
-    expect((screen.getByRole("button", { name: "丢弃 Draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "丢弃未发布修改" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("请等待保存完成或先处理冲突")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "放弃 Draft 并载入当前正式版" }));
+    await user.click(screen.getByRole("button", { name: "放弃未发布修改并载入当前正式版" }));
 
     await waitFor(() => expect(api.discardDraft).toHaveBeenCalledWith(draft.id, draft.revision));
     const paragraph = await screen.findByText("A paragraph with a selected phrase.");

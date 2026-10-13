@@ -4,13 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../src/api";
 import { ReviewPage } from "../../src/pages/ReviewPage";
 
-describe("Review page navigation", () => {
+describe("审阅 page navigation", () => {
   afterEach(() => {
     window.history.replaceState({}, "", "/");
     vi.restoreAllMocks();
   });
 
-  it("summarizes cross-system queues and routes Import handling to Library", async () => {
+  it("summarizes cross-system queues and routes 导入 handling to 资料库", async () => {
     vi.spyOn(api, "listAllEntities").mockResolvedValue([]);
     vi.spyOn(api, "listProposals").mockResolvedValue([]);
     vi.spyOn(api, "listImports").mockResolvedValue([{
@@ -27,10 +27,10 @@ describe("Review page navigation", () => {
     const navigate = vi.fn();
     render(<ReviewPage onOpen={vi.fn()} navigate={navigate} />);
 
-    const importsLink = await screen.findByRole("button", { name: /Imports.*1.*在 Library 中管理导入/ });
-    expect(screen.getByRole("button", { name: /Term Candidates.*2/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Research Inbox.*3/ })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Import Review" })).toBeNull();
+    const importsLink = await screen.findByRole("button", { name: /Imports.*1.*在资料库中管理导入/ });
+    expect(screen.getByRole("button", { name: /待处理术语.*2/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /待看论文.*3/ })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "导入审阅" })).toBeNull();
     await userEvent.click(importsLink);
     expect(navigate).toHaveBeenCalledWith("/library?tab=import");
   });

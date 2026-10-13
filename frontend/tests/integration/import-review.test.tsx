@@ -40,7 +40,7 @@ function makeDraft(entityType: Draft["entity_type"] = "document"): Draft {
   };
 }
 
-describe("Import Review title editing", () => {
+describe("导入审阅 title editing", () => {
   beforeEach(() => {
     vi.spyOn(api, "listImports").mockResolvedValue([makeJob()]);
     vi.spyOn(api, "getImportItemContent").mockResolvedValue({
@@ -60,7 +60,7 @@ describe("Import Review title editing", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("uses the Legacy H1 as the default and sends the edited title when creating a Draft", async () => {
+  it("uses the Legacy H1 as the default and sends the edited title when creating a 未发布修改", async () => {
     const user = userEvent.setup();
     const navigate = vi.fn();
     render(<ImportReviewPanel navigate={navigate} />);
@@ -70,21 +70,21 @@ describe("Import Review title editing", () => {
     expect(title.value).toBe("Original H1");
     await user.clear(title);
     await user.type(title, "Imported title");
-    await user.click(screen.getByRole("button", { name: "保存并创建 Draft" }));
+    await user.click(screen.getByRole("button", { name: "保存并创建未发布修改" }));
 
     await waitFor(() => expect(api.createImportDraft).toHaveBeenCalledWith("import-item-1", "Imported title"));
     expect(api.updateImportItem).toHaveBeenCalledWith("import-item-1", markdownContent);
     expect(navigate).toHaveBeenCalledWith("/documents/original-h1");
   });
 
-  it("rejects a blank title before saving content or creating a Draft", async () => {
+  it("rejects a blank title before saving content or creating a 未发布修改", async () => {
     const user = userEvent.setup();
     render(<ImportReviewPanel navigate={vi.fn()} />);
 
     await user.click(await screen.findByRole("button", { name: "审阅" }));
     const title = await screen.findByLabelText("标题");
     await user.clear(title);
-    await user.click(screen.getByRole("button", { name: "保存并创建 Draft" }));
+    await user.click(screen.getByRole("button", { name: "保存并创建未发布修改" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain("标题不能为空");
     expect(api.updateImportItem).not.toHaveBeenCalled();
@@ -138,7 +138,7 @@ describe("Import Review title editing", () => {
     render(<ImportReviewPanel navigate={navigate} />);
 
     await user.click(await screen.findByRole("button", { name: "审阅" }));
-    await user.click(await screen.findByRole("button", { name: "确认并创建 Source Draft" }));
+    await user.click(await screen.findByRole("button", { name: "确认并创建文献未发布修改" }));
 
     await waitFor(() => expect(api.confirmImportSource).toHaveBeenCalledWith("import-item-1", {
       source_id: "pdf-title",

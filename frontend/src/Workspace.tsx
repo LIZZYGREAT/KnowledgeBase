@@ -75,7 +75,7 @@ export function WorkspacePage({
       <WorkspaceShell
         type={type}
         id={id}
-        explorer={<Suspense fallback={<div className="workspace-explorer-loading">正在载入 Explorer…</div>}>
+        explorer={<Suspense fallback={<div className="workspace-explorer-loading">正在载入专题整理…</div>}>
           <WorkspaceExplorer
             key={`explorer:${collectionId ?? ""}:${batchMode ? "batch" : "normal"}`}
             embedded

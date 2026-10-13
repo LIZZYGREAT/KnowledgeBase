@@ -92,7 +92,7 @@ export function useExplorerDnD({
         return;
       }
       if (!payload.entityType || !payload.entityId) {
-        throw new Error("只能复制 Entity 引用到另一个 Collection。");
+        throw new Error("只能复制 Entity 引用到另一个专题。");
       }
       changeDraft((current) => addEntityReference(
         current,
@@ -157,9 +157,9 @@ export function useExplorerDnD({
     setCopyError("");
     try {
       const target = collections.find((item) => item.id === targetId);
-      if (!target || target.status !== "active") throw new Error("请选择一个 Active Collection。");
+      if (!target || target.status !== "active") throw new Error("请选择一个已启用专题。");
       await saveReferenceDraft(targetId, node);
-      setDndNotice(`已将“${node.title}”复制到 ${target.title} 的 Collection Draft。`);
+      setDndNotice(`已将“${node.title}”复制到 ${target.title} 的待确认的专题修改。`);
       closeCopyEntity();
     } catch (reason) {
       setCopyError(errorMessage(reason));
@@ -201,7 +201,7 @@ async function saveReferenceDraft(
   if (currentDraft) return updateDraft(currentDraft.id, content, currentDraft.revision);
   const acquisition = await createDraft("collection", targetId, content);
   if (!acquisition.created && acquisition.draft.content !== content) {
-    throw new Error("Collection 已在另一个标签页创建不同内容的 Draft；请先检查并处理。");
+    throw new Error("专题已在另一个标签页创建不同内容的未发布修改；请先检查并处理。");
   }
   return acquisition.draft;
 }

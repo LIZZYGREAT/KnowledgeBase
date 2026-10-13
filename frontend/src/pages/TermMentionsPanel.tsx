@@ -33,28 +33,28 @@ export function TermMentionsPanel({ terms, navigate }: { terms: EntitySummary[];
   );
   const groups = detailResource.data ? mentionGroups(detailResource.data) : [];
 
-  if (!terms.length) return <EmptyState title="还没有 术语" description="发布 术语 后，可按条目查看它出现在哪些笔记、来源和研究记录中。" />;
+  if (!terms.length) return <EmptyState title="还没有术语" description="发布术语后，可按条目查看它出现在哪些笔记、来源和研究记录中。" />;
 
   return (
     <div className="term-mentions-panel">
       <div className="term-mentions-toolbar surface">
-        <label className="field-label compact-field">查看 术语
-          <select aria-label="查看 术语" value={selectedTermId} onChange={(event) => setSelectedTermId(event.target.value)}>
+        <label className="field-label compact-field">查看术语
+          <select aria-label="查看术语" value={selectedTermId} onChange={(event) => setSelectedTermId(event.target.value)}>
             {terms.map((term) => <option key={term.id} value={term.id}>{term.title}</option>)}
           </select>
         </label>
-        <p>聚合显式 Wiki Link、已接受的检测关系、未链接提及、来源与 论文推荐 Work。</p>
+        <p>聚合显式 Wiki Link、已接受的检测关系、未链接提及、来源与论文推荐 Work。</p>
       </div>
 
       {detailResource.error ? <ErrorState message={detailResource.error} retry={detailResource.retry} />
-        : detailResource.loading || !detailResource.data ? <LoadingState label="正在读取 术语 关系…" />
+        : detailResource.loading || !detailResource.data ? <LoadingState label="正在读取术语关系…" />
           : <>
             <div className="term-mentions-heading">
               <SectionHeading title={selectedTerm?.title ?? selectedTermId} detail={`${groups.reduce((count, group) => count + group.entries.length, 0)} 个关联记录`} />
-              <button type="button" className="button button-secondary" onClick={() => navigate(`/terms/${encodeURIComponent(selectedTermId)}`)}>打开 术语</button>
+              <button type="button" className="button button-secondary" onClick={() => navigate(`/terms/${encodeURIComponent(selectedTermId)}`)}>打开术语</button>
             </div>
             {groups.every((group) => group.entries.length === 0)
-              ? <EmptyState title="还没有关联记录" description="显式链接、已接受的 术语 检测和未链接提及会在这里汇总。" />
+              ? <EmptyState title="还没有关联记录" description="显式链接、已接受的术语检测和未链接提及会在这里汇总。" />
               : <div className="term-mentions-grid">
                 {groups.map((group) => <section className="term-mentions-group surface" key={group.id} aria-label={group.title}>
                   <SectionHeading title={group.title} detail={group.description} />
@@ -107,9 +107,9 @@ function mentionGroups(detail: EntityDetail): MentionGroup[] {
   const relatedTerms = byType("term");
   return [
     { id: "notes", title: "笔记", description: "显式链接、已接受检测关系与未链接提及", entries: notes },
-    { id: "sources-pdfs", title: "Sources & PDFs", description: "已接受的 Source 关系；打开 Source 可查看 PDF 状态", entries: sources },
-    { id: "research-works", title: "论文推荐 Works", description: "来自 论文推荐 Inbox 的已接受关系", entries: researchWorks },
-    { id: "related-terms", title: "Related 术语", description: "其他 术语 正文中的显式链接", entries: relatedTerms },
+    { id: "sources-pdfs", title: "文献 & PDFs", description: "已接受的文献关系；打开文献可查看 PDF 状态", entries: sources },
+    { id: "research-works", title: "论文推荐 Works", description: "来自论文推荐待看论文的已接受关系", entries: researchWorks },
+    { id: "related-terms", title: "Related 术语", description: "其他术语正文中的显式链接", entries: relatedTerms },
   ];
 }
 
@@ -117,7 +117,7 @@ function addRelation(
   addEntry: (entityType: MentionEntityType, id: string, title: string, label: string) => void,
   relation: TermRelation,
 ) {
-  const label = relation.entity_type === "source" ? "Accepted Source relation" : "Accepted detection";
+  const label = relation.entity_type === "source" ? "Accepted 文献 relation" : "Accepted detection";
   addEntry(relation.entity_type, relation.entity_id, relation.title || relation.entity_id, label);
 }
 

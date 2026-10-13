@@ -24,13 +24,13 @@ function proposal(kind: string, result: Record<string, unknown>): Proposal {
 
 it("renders review Markdown for people and keeps raw JSON collapsed", async () => {
   const { container } = render(<WorkspaceProposalPresentation proposal={proposal("document_revision", {
-    summary: "## Review\n\n- **Clear** structure.",
-    findings: [{ topic: "Navigation", explanation: "The control is easy to find.", suggestion: "Keep **Focus** visible.", severity: "suggestion" }],
+    summary: "## 审阅\n\n- **Clear** structure.",
+    findings: [{ topic: "Navigation", explanation: "The control is easy to find.", suggestion: "Keep **检索主题** visible.", severity: "suggestion" }],
   })} />);
 
-  expect(await screen.findByRole("heading", { name: "Review", level: 2 }, { timeout: 8000 })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "审阅", level: 2 }, { timeout: 8000 })).toBeTruthy();
   expect(screen.getByText("Clear", { selector: "strong" })).toBeTruthy();
-  expect(screen.getByText("Focus", { selector: "strong" })).toBeTruthy();
+  expect(screen.getByText("检索主题", { selector: "strong" })).toBeTruthy();
   const raw = container.querySelector(".proposal-raw-data");
   expect(raw instanceof HTMLDetailsElement && raw.open).toBe(false);
   expect(container.querySelector(".proposal-human-view > .proposal-payload")).toBeNull();
@@ -44,11 +44,11 @@ it("presents metadata fields as labels and values instead of serialized objects"
 
   expect(await screen.findByText("the topic", { selector: "strong" })).toBeTruthy();
   expect(screen.getByText("Title")).toBeTruthy();
-  expect(screen.getByText("Topics")).toBeTruthy();
+  expect(screen.getByText("分类")).toBeTruthy();
   expect(screen.getByText("A clearer title")).toBeTruthy();
 });
 
-it("renders a Term definition and an Evidence claim as Markdown", async () => {
+it("renders a 术语 definition and an Evidence claim as Markdown", async () => {
   const term = render(<WorkspaceProposalPresentation proposal={proposal("new_term", {
     id: "new-concept", title: "New concept", type: "concept", depth: "standard", aliases: ["Alias"], definition: "A **useful** definition.",
   })} />);
@@ -56,8 +56,8 @@ it("renders a Term definition and an Evidence claim as Markdown", async () => {
   term.unmount();
 
   render(<WorkspaceProposalPresentation proposal={proposal("evidence", {
-    candidates: [{ source_id: "source-1", claim: "A claim with **support**.", rationale: "The Source discusses this result." }],
+    candidates: [{ source_id: "source-1", claim: "A claim with **support**.", rationale: "The 文献 discusses this result." }],
   })} />);
   expect(await screen.findByText("support", { selector: "strong" })).toBeTruthy();
-  expect(screen.getByText("Source · source-1")).toBeTruthy();
+  expect(screen.getByText("文献 · source-1")).toBeTruthy();
 });

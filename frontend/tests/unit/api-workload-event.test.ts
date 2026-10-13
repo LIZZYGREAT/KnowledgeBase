@@ -64,14 +64,14 @@ describe("workload summary refresh events", () => {
     await dismissResearchCandidate("research-candidate-two");
     await createImport(["incoming.md"], "standard");
     await createImportDraft("import-item");
-    await updateImportItem("import-item-two", "---\ntitle: Note\n---\nBody");
+    await updateImportItem("import-item-two", "---\ntitle: 笔记\n---\nBody");
     await runTermDiscovery();
 
     expect(dispatch).toHaveBeenCalledTimes(9);
     expect(dispatch.mock.calls.every(([event]) => event.type === "kb:workload-changed")).toBe(true);
   });
 
-  it("sends an optional Markdown title with Import Draft creation", async () => {
+  it("sends an optional Markdown title with 导入未发布修改 creation", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({}),
@@ -89,7 +89,7 @@ describe("workload summary refresh events", () => {
     );
   });
 
-  it("refreshes after linking an existing Research Source and after publishing a Note", async () => {
+  it("refreshes after linking an existing 论文推荐文献 and after publishing a 笔记", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
@@ -113,7 +113,7 @@ describe("workload summary refresh events", () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: "note-one", title: "Note" }),
+        json: async () => ({ id: "note-one", title: "笔记" }),
       } as Response);
     vi.stubGlobal("fetch", fetchMock);
     const dispatch = vi.spyOn(window, "dispatchEvent");

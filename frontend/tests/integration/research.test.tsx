@@ -16,14 +16,14 @@ vi.mock("../../src/Workspace", async () => {
     WorkspacePage: (props: { openMetadataOnLoad?: boolean }) => React.createElement(
       "div",
       null,
-      props.openMetadataOnLoad ? "Source Metadata Editor" : "Source Workspace",
+      props.openMetadataOnLoad ? "文献 Metadata Editor" : "文献查看或编辑",
     ),
   };
 });
 
 const runRequestId = "research-request-123";
 
-describe("Research workspace", () => {
+describe("论文推荐 workspace", () => {
   it("shows the effective historical anchor and a direct settings entry", () => {
     const edit = vi.fn();
     const view = render(<ResearchProfilePanel summary={profileSummary} detail={{ ...profileDetail, profile: profile as ResearchProfile, history_anchor_year: 2017 }} onRefresh={() => undefined} onQueued={() => undefined} onEditDefaults={edit} />);
@@ -134,7 +134,7 @@ describe("Research workspace", () => {
         return jsonResponse({ ...candidate, status: "dismissed", dismiss_reason: body.reason ?? null });
       }
       if (path === "/api/research/candidates/candidate-1/restore" && init?.method === "POST") {
-        if (restoreCapacityFull) return jsonResponse({ detail: "Research Inbox is full" }, 409);
+        if (restoreCapacityFull) return jsonResponse({ detail: "待看论文 is full" }, 409);
         candidateRestored = true;
         return jsonResponse({ ...candidate, status: "new", dismiss_reason: null, decided_at: null });
       }
@@ -152,7 +152,7 @@ describe("Research workspace", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the Research inbox and explains candidate provenance", async () => {
+  it("shows the 论文推荐 inbox and explains candidate provenance", async () => {
     responseCandidateDetail = {
       ...candidateDetail,
       candidate: { ...candidateDetail.candidate, status: "shortlisted", user_note: "Read after the current batch." },
@@ -164,43 +164,43 @@ describe("Research workspace", () => {
     };
     render(<App />);
 
-    expect(screen.getByRole("button", { name: /Research/ }).getAttribute("aria-current")).toBe("page");
-    expect(await screen.findByText("Discoveries", {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /论文推荐/ }).getAttribute("aria-current")).toBe("page");
+    expect(await screen.findByText("论文发现", {}, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" }, { timeout: 5000 })).toBeTruthy();
     const candidateCard = screen.getByRole("heading", { name: "A New Regularization Method" }).closest(".research-candidate-card") as HTMLElement;
     expect(within(candidateCard).getByText("当前适合度")).toBeTruthy();
     expect(candidateCard.querySelector(".research-readiness-why-now")?.textContent).toContain("It connects a known foundation");
-    expect(within(candidateCard).getByText("Discovered Terms: 2")).toBeTruthy();
-    expect(within(candidateCard).getByRole("button", { name: /Review in Terms/ })).toBeTruthy();
+    expect(within(candidateCard).getByText("Discovered 术语: 2")).toBeTruthy();
+    expect(within(candidateCard).getByRole("button", { name: /审阅 in 术语/ })).toBeTruthy();
     fireEvent.click(within(candidateCard).getByRole("button", { name: "中文" }));
     expect(screen.getByText("关联知识")).toBeTruthy();
     expect(screen.getByText("为什么值得读")).toBeTruthy();
     expect(screen.queryByText("What may be new")).toBeNull();
     expect(screen.queryByText("Relevance: High")).toBeNull();
-    expect(screen.queryByText("Library novelty: Medium")).toBeNull();
+    expect(screen.queryByText("资料库 novelty: Medium")).toBeNull();
     expect(screen.queryByText(/排序信号/)).toBeNull();
     expect(screen.queryByText("73% library novelty")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Why this candidate/ }));
-    expect(await screen.findByRole("heading", { name: "Why this candidate" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /推荐理由/ }));
+    expect(await screen.findByRole("heading", { name: "推荐理由" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Readiness" })).toBeTruthy();
     expect(screen.getByText("Known prerequisites")).toBeTruthy();
     expect(screen.getByText("Missing prerequisites")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Review in Terms/ })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /审阅 in 术语/ })).toHaveLength(2);
     expect(screen.getByRole("alert").textContent).toContain("为避免重复记录");
-    expect(screen.getByText("可能已存在 2 个 Source")).toBeTruthy();
-    expect(screen.getByText("有多条 Source 同时匹配标题、第一作者和年份，请检查是否存在重复 Source。")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Open to fix" })).toHaveLength(2);
-    const technical = screen.getByText("Technical provenance").closest("details") as HTMLDetailsElement;
+    expect(screen.getByText("可能已存在 2 个文献")).toBeTruthy();
+    expect(screen.getByText("有多条文献同时匹配标题、第一作者和年份，请检查是否存在重复文献。")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "打开 to fix" })).toHaveLength(2);
+    const technical = screen.getByText("技术详情").closest("details") as HTMLDetailsElement;
     expect(technical.open).toBe(false);
-    const modelSignals = screen.getByText("Model signals").closest("details") as HTMLDetailsElement;
+    const modelSignals = screen.getByText("模型信号").closest("details") as HTMLDetailsElement;
     expect(modelSignals.open).toBe(false);
-    fireEvent.click(screen.getByText("Technical provenance"));
+    fireEvent.click(screen.getByText("技术详情"));
     expect(technical.open).toBe(true);
     expect(modelSignals.open).toBe(false);
-    fireEvent.click(screen.getByText("Model signals"));
+    fireEvent.click(screen.getByText("模型信号"));
     expect(screen.getByText("These are uncalibrated model signals. They are not paper quality scores or probabilities.")).toBeTruthy();
-    expect(screen.getByText("Recommended ranking score")).toBeTruthy();
+    expect(screen.getByText("推荐顺序 ranking score")).toBeTruthy();
     expect(screen.getByText("0.84")).toBeTruthy();
     expect(screen.getByText("Matched query")).toBeTruthy();
     expect(screen.getByText("research-candidate-analysis-v1")).toBeTruthy();
@@ -209,25 +209,25 @@ describe("Research workspace", () => {
     expect(screen.getByText("Snapshot excerpt used at analysis time.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Current knowledge links" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Suggested destination" })).toBeTruthy();
-    expect(screen.getByText("Collection · continual-learning")).toBeTruthy();
+    expect(screen.getByText("专题 · continual-learning")).toBeTruthy();
     expect(await screen.findByText("Fisher Information")).toBeTruthy();
-    expect(await screen.findByText("Source · Published Paper")).toBeTruthy();
-    fireEvent.click(await screen.findByRole("button", { name: "Edit note" }));
+    expect(await screen.findByText("文献 · Published Paper")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "编辑 note" }));
     fireEvent.change(await screen.findByRole("textbox", { name: "Candidate note" }), { target: { value: "Compare with replay-based methods." } });
-    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存 note" }));
     await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH")).toBe(true));
     const noteCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/note" && init?.method === "PATCH");
     expect(JSON.parse(String(noteCall?.[1]?.body))).toEqual({ note: "Compare with replay-based methods." });
     expect(await screen.findByText("Compare with replay-based methods.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Shortlist" }));
+    fireEvent.click(await screen.findByRole("button", { name: "稍后阅读" }));
     await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST")).toBe(true));
     const shortlistCall = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST");
     expect(JSON.parse(String(shortlistCall?.[1]?.body))).toEqual({});
-    expect(screen.queryByRole("heading", { name: "Shortlist candidate" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "稍后阅读 candidate" })).toBeNull();
   }, 10_000);
 
-  it("opens the conflicting canonical Source directly for metadata repair", () => {
+  it("opens the conflicting canonical 文献 directly for metadata repair", () => {
     const openEntity = vi.fn();
     render(<ResearchCandidateDrawer
       detail={{
@@ -245,23 +245,23 @@ describe("Research workspace", () => {
       onSaveSource={() => undefined}
       onSaveNote={() => undefined}
     />);
-    fireEvent.click(screen.getByRole("button", { name: "Open to fix" }));
+    fireEvent.click(screen.getByRole("button", { name: "打开 to fix" }));
     expect(openEntity).toHaveBeenCalledWith("/sources/source-one?edit=1");
     expect(screen.getByText("冲突：OpenAlex ID")).toBeTruthy();
     expect(screen.getByText("现有：W111")).toBeTruthy();
     expect(screen.getByText("本次发现：W222")).toBeTruthy();
   });
 
-  it("routes the ambiguity repair link to Source metadata editing", async () => {
+  it("routes the ambiguity repair link to 文献 metadata editing", async () => {
     responseCandidateDetail = {
       ...candidateDetail,
       conversion_blocker: "ambiguous_source",
       source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["title_author_year"], conflicts: [] }],
     };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Why this candidate/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open to fix" }));
-    expect(await screen.findByText("Source Metadata Editor")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /推荐理由/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "打开 to fix" }));
+    expect(await screen.findByText("文献 Metadata Editor")).toBeTruthy();
   });
 
   it("queues a manual run without executing it in the page request", async () => {
@@ -271,7 +271,7 @@ describe("Research workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "开始检索" }));
 
     expect(await screen.findByText("检索请求已提交。")).toBeTruthy();
-    expect(await screen.findByText("1 manual search queued")).toBeTruthy();
+    expect(await screen.findByText("1 项等待执行")).toBeTruthy();
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST");
     expect(call).toBeTruthy();
     const body = JSON.parse(String(call?.[1]?.body));
@@ -279,47 +279,47 @@ describe("Research workspace", () => {
     expect(mockFetch.mock.calls.some(([input]) => String(input).includes("/api/research/runs/") && !String(input).includes("offset="))).toBe(false);
   });
 
-  it("restores a dismissed candidate and stays in History until the user opens the Inbox", async () => {
+  it("restores a dismissed candidate and stays in 处理记录 until the user opens the 待看论文", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("tab", { name: "History" }));
-    const restoreButton = await screen.findByRole("button", { name: "Restore to Inbox" });
-    expect(screen.getByText("Dismissed", { selector: ".chip" }).className).toBe("chip chip-neutral");
+    fireEvent.click(await screen.findByRole("tab", { name: "处理记录" }));
+    const restoreButton = await screen.findByRole("button", { name: "恢复到待看论文" });
+    expect(screen.getByText("已忽略", { selector: ".chip" }).className).toBe("chip chip-neutral");
     fireEvent.click(restoreButton);
 
     await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/restore" && init?.method === "POST")).toBe(true));
-    expect((await screen.findByRole("tab", { name: "History" })).getAttribute("aria-selected")).toBe("true");
-    expect(await screen.findByText("已恢复到 Inbox。")).toBeTruthy();
+    expect((await screen.findByRole("tab", { name: "处理记录" })).getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByText("已恢复到待看论文。")).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("heading", { name: "A New Regularization Method" })).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "View Inbox" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看待看论文" }));
     const newTab = await screen.findByRole("tab", { name: /New/ });
     expect(newTab.getAttribute("aria-selected")).toBe("true");
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" })).toBeTruthy();
   });
 
-  it("keeps a dismissed candidate in History when Restore is blocked by a full Inbox", async () => {
+  it("keeps a dismissed candidate in 处理记录 when 恢复 is blocked by a full 待看论文", async () => {
     restoreCapacityFull = true;
     render(<App />);
-    fireEvent.click(await screen.findByRole("tab", { name: "History" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Restore to Inbox" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "处理记录" }));
+    fireEvent.click(await screen.findByRole("button", { name: "恢复到待看论文" }));
 
-    expect(await screen.findByText("Research Inbox is full")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByText("待看论文 is full")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "处理记录" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "A New Regularization Method" })).toBeTruthy();
   });
 
-  it("checks Source ambiguity before opening the Create Note form", async () => {
+  it("checks 文献 ambiguity before opening the 创建笔记 form", async () => {
     responseCandidateDetail = {
       ...candidateDetail,
       conversion_blocker: "ambiguous_source",
       source_match_candidates: [{ id: "source-one", title: "A New Regularization Method", matched_by: ["doi"], conflicts: [{ field: "openalex_id", existing_value: "W111", discovered_value: "W222" }] }],
     };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Create Note" }));
+    fireEvent.click(await screen.findByRole("button", { name: "创建笔记" }));
 
-    expect(await screen.findByRole("heading", { name: "Why this candidate" })).toBeTruthy();
-    expect(screen.getByText("请先修复下面显示的 Source 冲突，再创建笔记或保存 Source。为避免重复记录，当前转换操作已阻止。")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "推荐理由" })).toBeTruthy();
+    expect(screen.getByText("请先修复下面显示的文献冲突，再创建笔记或保存文献。为避免重复记录，当前转换操作已阻止。")).toBeTruthy();
     expect(screen.getByText("冲突：OpenAlex ID")).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Create Research Note" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Create 论文推荐笔记" })).toBeNull();
   });
 
   it("dismisses one candidate immediately without a reason prompt", async () => {
@@ -328,32 +328,32 @@ describe("Research workspace", () => {
     await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/dismiss" && init?.method === "POST")).toBe(true));
     const singleDismiss = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/dismiss" && init?.method === "POST");
     expect(JSON.parse(String(singleDismiss?.[1]?.body))).toEqual({});
-    expect(screen.queryByRole("heading", { name: "Dismiss candidate" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "忽略 candidate" })).toBeNull();
   });
 
   it("keeps bulk shortlist confirmation while single-candidate shortlist is immediate", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("checkbox", { name: "选择 A New Regularization Method" }));
-    fireEvent.click(screen.getByRole("button", { name: "Shortlist selected" }));
-    expect(await screen.findByRole("heading", { name: "Shortlist candidate" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "稍后阅读所选论文" }));
+    expect(await screen.findByRole("heading", { name: "稍后阅读 candidate" })).toBeTruthy();
     expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST")).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm Shortlist" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm 稍后阅读" }));
     await waitFor(() => expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/candidates/candidate-1/shortlist" && init?.method === "POST")).toBe(true));
   });
 
   it("keeps bulk dismissal confirmation and makes its reason optional", async () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("checkbox", { name: "选择 A New Regularization Method" }));
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss selected" }));
-    expect(await screen.findByRole("heading", { name: "Dismiss candidate" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "忽略所选论文" }));
+    expect(await screen.findByRole("heading", { name: "忽略 candidate" })).toBeTruthy();
     expect((screen.getByRole("combobox", { name: "Reason (optional)" }) as HTMLSelectElement).value).toBe("");
-    fireEvent.click(screen.getByRole("button", { name: "Confirm Dismiss" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm 忽略" }));
     await waitFor(() => expect(mockFetch.mock.calls.filter(([input, init]) => String(input) === "/api/research/candidates/candidate-1/dismiss" && init?.method === "POST").length).toBeGreaterThan(0));
     const bulkDismiss = mockFetch.mock.calls.filter(([input, init]) => String(input) === "/api/research/candidates/candidate-1/dismiss" && init?.method === "POST").at(-1);
     expect(JSON.parse(String(bulkDismiss?.[1]?.body))).toEqual({});
   });
 
-  it("shows pending and claimed manual requests from the persisted Profile summary", async () => {
+  it("shows pending and claimed manual requests from the persisted 研究方向 summary", async () => {
     responseProfileSummary = {
       ...profileSummary,
       manual_queue: { pending: 2, claimed: 1 },
@@ -362,18 +362,18 @@ describe("Research workspace", () => {
 
     const status = await screen.findByText((_, element) =>
       element?.classList.contains("research-search-block-note")
-      && element.textContent?.includes("2 manual searches queued") === true,
+      && element.textContent?.includes("2 项等待执行") === true,
     );
-    expect(status.textContent).toContain("1 Research request running");
+    expect(status.textContent).toContain("1 项正在检索");
   });
 
-  it("shows the Lens configuration captured by the Run, including per-run overrides", async () => {
+  it("shows the 检索主题 configuration captured by the Run, including per-run overrides", async () => {
     const snapshot = {
       ...profile,
       lenses: [
-        { id: "lens-a", title: "Lens A", enabled: true },
-        { id: "lens-b", title: "Lens B", enabled: true },
-        { id: "lens-c", title: "Lens C", enabled: true },
+        { id: "lens-a", title: "检索主题 A", enabled: true },
+        { id: "lens-b", title: "检索主题 B", enabled: true },
+        { id: "lens-c", title: "检索主题 C", enabled: true },
       ],
     };
     const run = {
@@ -399,13 +399,13 @@ describe("Research workspace", () => {
     } satisfies ResearchRun;
     render(<ResearchRunDrawer run={run} onClose={() => undefined} />);
 
-    const inspector = screen.getByRole("dialog", { name: "Research Run" });
-    const technical = within(inspector).getByText("Technical details").closest("details") as HTMLDetailsElement;
+    const inspector = screen.getByRole("dialog", { name: "检索记录" });
+    const technical = within(inspector).getByText("技术详情").closest("details") as HTMLDetailsElement;
     expect(technical.open).toBe(false);
-    fireEvent.click(within(inspector).getByText("Technical details"));
-    expect(within(inspector).getByText("Lens B")).toBeTruthy();
-    expect(within(inspector).queryByText("Lens A")).toBeNull();
-    expect(within(inspector).queryByText("Lens C")).toBeNull();
+    fireEvent.click(within(inspector).getByText("技术详情"));
+    expect(within(inspector).getByText("检索主题 B")).toBeTruthy();
+    expect(within(inspector).queryByText("检索主题 A")).toBeNull();
+    expect(within(inspector).queryByText("检索主题 C")).toBeNull();
   });
 
   it("shows run outcomes and issues before collapsing pipeline diagnostics", () => {
@@ -432,14 +432,14 @@ describe("Research workspace", () => {
     } satisfies ResearchRun;
     render(<ResearchRunDrawer run={run} onClose={() => undefined} />);
     expect(screen.getByText("42")).toBeTruthy();
-    expect(screen.getByText("Results checked")).toBeTruthy();
+    expect(screen.getByText("已检查论文")).toBeTruthy();
     expect(screen.getByText("8")).toBeTruthy();
-    expect(screen.getByText("New works")).toBeTruthy();
-    const overview = screen.getByRole("dialog", { name: "Research Run" }).querySelector(".research-run-overview") as HTMLElement;
+    expect(screen.getByText("新增论文")).toBeTruthy();
+    const overview = screen.getByRole("dialog", { name: "检索记录" }).querySelector(".research-run-overview") as HTMLElement;
     expect(within(overview).getByText("4")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Run issues" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "检索中的问题" })).toBeTruthy();
     expect(screen.getByText("OpenAlex timed out after retry.")).toBeTruthy();
-    expect((screen.getByText("Technical details").closest("details") as HTMLDetailsElement).open).toBe(false);
+    expect((screen.getByText("技术详情").closest("details") as HTMLDetailsElement).open).toBe(false);
   });
 
   it("renders normal Run flow-control states without failure tones", () => {
@@ -478,7 +478,7 @@ describe("Research workspace", () => {
     render(<ResearchRunList runs={runs} count={runs.length} loading={false} onOpen={() => undefined} />);
 
     for (const [status, tone, mark] of statuses) {
-      const label = status.replaceAll("_", " ");
+      const label = ({ success: "已完成", partial: "部分完成", skipped_paused: "已暂停", skipped_disabled: "已停用", skipped_inbox_full: "待看论文已满", capacity_reached: "已达处理上限", running: "正在检索", failed: "失败", interrupted: "已中断" } as Record<string, string>)[status];
       const chip = screen.getByText(label, { selector: ".chip" });
       expect(chip.classList.contains(`chip-${tone}`)).toBe(true);
       const row = chip.closest(".research-run-row");
@@ -514,9 +514,9 @@ describe("Research workspace", () => {
     const card = await screen.findByRole("heading", { name: "A New Regularization Method" }).then((heading) => heading.closest(".research-candidate-card") as HTMLElement);
     fireEvent.click(within(card).getByRole("button", { name: "中文" }));
     expect(within(card).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
-    fireEvent.click(within(card).getByRole("button", { name: /Why this candidate/ }));
+    fireEvent.click(within(card).getByRole("button", { name: /推荐理由/ }));
 
-    const drawer = await screen.findByRole("dialog", { name: "Why this candidate" });
+    const drawer = await screen.findByRole("dialog", { name: "推荐理由" });
     expect(within(drawer).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
     expect(within(drawer).getByRole("button", { name: "中文" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(within(drawer).getByRole("button", { name: "EN" }));
@@ -544,7 +544,7 @@ describe("Research workspace", () => {
     expect(screen.getByText("将其自适应估计结果与 EWC 进行比较。")).toBeTruthy();
   });
 
-  it.each(["card", "drawer"])("renders the Research why-now rationale as Markdown on the %s", (surface) => {
+  it.each(["card", "drawer"])("renders the 论文推荐 why-now rationale as Markdown on the %s", (surface) => {
     const whyNow = "**Builds on known concepts**\n\n- It addresses a current gap\n\n<script>alert('unsafe')</script>";
     const item = {
       ...candidateListItem,
@@ -633,7 +633,7 @@ describe("Research workspace", () => {
     expect(screen.queryByText(analysis.summary_zh)).toBeNull();
   });
 
-  it("allows long Research Markdown to expand without moving actions inside its scroll area", () => {
+  it("allows long 论文推荐 Markdown to expand without moving actions inside its scroll area", () => {
     const item = { ...candidateListItem, candidate: { ...candidate, review_overrides: { summary_zh: "长段落。".repeat(160) } } } as ResearchCandidateListItem;
     render(<ResearchCandidateCard item={item} profile={profile as ResearchProfile} selected={false} selectable={false} busy={false} onSelect={vi.fn()} onDetails={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} onRestore={vi.fn()} onCreateNote={vi.fn()} />);
     const expand = screen.getByRole("button", { name: "展开推荐正文" });
@@ -641,7 +641,7 @@ describe("Research workspace", () => {
     fireEvent.click(expand);
     expect(screen.getByRole("button", { name: "收起推荐正文" }).getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector(".research-card-expanded")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Shortlist" }).closest(".research-explanation")).toBeNull();
+    expect(screen.getByRole("button", { name: "稍后阅读" }).closest(".research-explanation")).toBeNull();
   });
 
   it("falls back to English analysis for older candidates without Chinese fields", () => {
@@ -661,7 +661,7 @@ describe("Research workspace", () => {
     />);
 
     expect(screen.getByText("A new parameter importance estimation method for continual learning.")).toBeTruthy();
-    expect(screen.getByText("It matches the regularization Lens and studies parameter importance.")).toBeTruthy();
+    expect(screen.getByText("It matches the regularization 检索主题 and studies parameter importance.")).toBeTruthy();
     expect(screen.getByText("Compare its adaptive estimates against EWC.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "中文" }));
     expect(screen.getByText("此历史候选暂无中文分析")).toBeTruthy();
@@ -713,7 +713,7 @@ describe("Research workspace", () => {
     </>);
 
     const card = container.querySelector(".research-candidate-card") as HTMLElement;
-    const drawer = screen.getByRole("dialog", { name: "Why this candidate" });
+    const drawer = screen.getByRole("dialog", { name: "推荐理由" });
     fireEvent.click(within(card).getByRole("button", { name: "中文" }));
     expect(within(card).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
     expect(within(drawer).getByText("这篇论文提出一种新的持续学习参数重要性估计方法。")).toBeTruthy();
@@ -722,19 +722,19 @@ describe("Research workspace", () => {
     expect(relationRows.some((text) => text.includes("This relation has an English-only explanation."))).toBe(true);
   });
 
-  it("creates a Research Profile from name and focus, generating stable default identifiers", async () => {
+  it("creates a 研究方向 from name and focus, generating stable default identifiers", async () => {
     const created = vi.fn();
     render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={null} onClose={() => undefined} onCreated={created} />);
-    fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "3D Gaussian Splatting" } });
-    fireEvent.change(screen.getByLabelText("New Profile description"), { target: { value: "New view synthesis work." } });
+    fireEvent.change(screen.getByLabelText("新建研究方向 title"), { target: { value: "3D Gaussian Splatting" } });
+    fireEvent.change(screen.getByLabelText("新建研究方向 description"), { target: { value: "New view synthesis work." } });
     fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning regularization" } });
-    expect(screen.queryByLabelText("New Profile schedule")).toBeNull();
-    expect(screen.queryByLabelText("New Profile breadth")).toBeNull();
-    expect(screen.queryByLabelText("New Profile inbox cap")).toBeNull();
+    expect(screen.queryByLabelText("新建研究方向 schedule")).toBeNull();
+    expect(screen.queryByLabelText("新建研究方向 breadth")).toBeNull();
+    expect(screen.queryByLabelText("新建研究方向 inbox cap")).toBeNull();
     fireEvent.click(screen.getByText("Advanced identifiers"));
-    expect((screen.getByLabelText("New Profile ID") as HTMLInputElement).value).toBe("3d-gaussian-splatting");
-    expect((screen.getByLabelText("Initial Lens ID") as HTMLInputElement).value).toBe("main");
-    fireEvent.click(screen.getByRole("button", { name: "Create Research Profile" }));
+    expect((screen.getByLabelText("新建研究方向 ID") as HTMLInputElement).value).toBe("3d-gaussian-splatting");
+    expect((screen.getByLabelText("Initial 检索主题 ID") as HTMLInputElement).value).toBe("main");
+    fireEvent.click(screen.getByRole("button", { name: "Create 研究方向" }));
 
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
@@ -754,43 +754,43 @@ describe("Research workspace", () => {
     });
   });
 
-  it("resumes an existing Profile Draft without deleting it when the editor closes", async () => {
+  it("resumes an existing 研究方向未发布修改 without deleting it when the editor closes", async () => {
     createDraftCreatedInThisFlow = false;
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "New Profile" }));
-    fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Resumed Profile" } });
+    fireEvent.click(await screen.findByRole("button", { name: "新建研究方向" }));
+    fireEvent.change(screen.getByLabelText("新建研究方向 title"), { target: { value: "Resumed 研究方向" } });
     fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Research Profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create 研究方向" }));
 
-    expect(await screen.findByText("Existing unpublished Profile Draft resumed. Closing this editor will keep the Draft.")).toBeTruthy();
+    expect(await screen.findByText("Existing unpublished 研究方向未发布修改 resumed. Closing this editor will keep the 未发布修改.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑 Resumed Profile" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑 Resumed 研究方向" })).toBeNull());
     expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts/profile-draft-1" && init?.method === "DELETE")).toBe(false);
     expect(researchProfileDraft).not.toBeNull();
   });
 
-  it("adds a numeric suffix when a generated Profile ID is already used", () => {
+  it("adds a numeric suffix when a generated 研究方向 ID is already used", () => {
     render(<ResearchProfileCreateDialog
       profiles={[profileSummary, { ...profileSummary, id: "continual-learning-2" }]}
       sourceProfile={null}
       onClose={() => undefined}
       onCreated={() => undefined}
     />);
-    fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Continual Learning" } });
+    fireEvent.change(screen.getByLabelText("新建研究方向 title"), { target: { value: "Continual Learning" } });
     fireEvent.click(screen.getByText("Advanced identifiers"));
-    expect((screen.getByLabelText("New Profile ID") as HTMLInputElement).value).toBe("continual-learning-3");
+    expect((screen.getByLabelText("新建研究方向 ID") as HTMLInputElement).value).toBe("continual-learning-3");
   });
 
-  it("duplicates a Profile's canonical settings into a new Draft", async () => {
+  it("duplicates a 研究方向's canonical settings into a new 未发布修改", async () => {
     const created = vi.fn();
     render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={profile as unknown as ResearchProfile} onClose={() => undefined} onCreated={created} />);
-    expect(screen.queryByLabelText("Initial Lens ID")).toBeNull();
+    expect(screen.queryByLabelText("Initial 检索主题 ID")).toBeNull();
     expect(screen.queryByLabelText("Initial Query")).toBeNull();
-    expect(screen.queryByLabelText("New Profile schedule")).toBeNull();
-    fireEvent.change(screen.getByLabelText("New Profile ID"), { target: { value: "continual-learning-copy" } });
-    fireEvent.change(screen.getByLabelText("New Profile title"), { target: { value: "Continual Learning Copy" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create Research Profile" }));
+    expect(screen.queryByLabelText("新建研究方向 schedule")).toBeNull();
+    fireEvent.change(screen.getByLabelText("新建研究方向 ID"), { target: { value: "continual-learning-copy" } });
+    fireEvent.change(screen.getByLabelText("新建研究方向 title"), { target: { value: "Continual Learning Copy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create 研究方向" }));
 
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
@@ -809,7 +809,7 @@ describe("Research workspace", () => {
     });
   });
 
-  it("automatically adds a unique copy suffix when duplicating an existing Profile", async () => {
+  it("automatically adds a unique copy suffix when duplicating an existing 研究方向", async () => {
     const created = vi.fn();
     render(<ResearchProfileCreateDialog
       profiles={[profileSummary, { ...profileSummary, id: "continual-learning-copy" }]}
@@ -818,14 +818,14 @@ describe("Research workspace", () => {
       onCreated={created}
     />);
 
-    expect((screen.getByLabelText("New Profile ID") as HTMLInputElement).value).toBe("continual-learning-copy-2");
-    fireEvent.click(screen.getByRole("button", { name: "Create Research Profile" }));
+    expect((screen.getByLabelText("新建研究方向 ID") as HTMLInputElement).value).toBe("continual-learning-copy-2");
+    fireEvent.click(screen.getByRole("button", { name: "Create 研究方向" }));
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ entity_id: "continual-learning-copy-2" });
   });
 
-  it("blocks Note creation until the suggested Section is resolved", async () => {
+  it("blocks 笔记 creation until the suggested 分组 is resolved", async () => {
     const collectionDraftsPath = "/api/drafts?entity_type=collection&entity_id=continual-learning";
     const fetchNormally = mockFetch.getMockImplementation();
     let resolveCollectionDrafts: (() => void) | undefined;
@@ -849,7 +849,7 @@ describe("Research workspace", () => {
     />);
 
     await waitFor(() => {
-      expect((screen.getByLabelText("Collection") as HTMLSelectElement).value).toBe("continual-learning");
+      expect((screen.getByLabelText("专题") as HTMLSelectElement).value).toBe("continual-learning");
     });
     const createButton = screen.getByRole("button", { name: "Create" });
     expect(createButton.hasAttribute("disabled")).toBe(true);
@@ -860,11 +860,11 @@ describe("Research workspace", () => {
     await waitFor(() => expect(resolveCollectionDrafts).toBeDefined());
     resolveCollectionDrafts!();
     expect(await screen.findByText(/was preselected/)).toBeTruthy();
-    expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("regularization");
+    expect((screen.getByLabelText("分组") as HTMLSelectElement).value).toBe("regularization");
     expect(createButton.hasAttribute("disabled")).toBe(false);
   });
 
-  it("does not preselect a suggested Section when its title is ambiguous", async () => {
+  it("does not preselect a suggested 分组 when its title is ambiguous", async () => {
     responseCollection = {
       id: "continual-learning",
       title: "Continual Learning",
@@ -879,12 +879,12 @@ describe("Research workspace", () => {
     render(<ResearchCreateNoteDialog title="A New Regularization Method" busy={false} suggestedCollectionId="continual-learning" suggestedSection="Regularization" allowedCollectionIds={["continual-learning"]} onClose={() => undefined} onCreate={() => undefined} />);
 
     await screen.findByText(/matches multiple sections/);
-    expect((screen.getByLabelText("Collection") as HTMLSelectElement).value).toBe("continual-learning");
-    expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("");
+    await waitFor(() => expect((screen.getByLabelText("专题") as HTMLSelectElement).value).toBe("continual-learning"));
+    expect((screen.getByLabelText("分组") as HTMLSelectElement).value).toBe("");
     expect(screen.getAllByRole("option", { name: "Regularization" })).toHaveLength(2);
   });
 
-  it("allows manual destination choice when the suggested Section is missing", async () => {
+  it("allows manual destination choice when the suggested 分组 is missing", async () => {
     responseCollection = {
       ...responseCollection,
       nodes: [],
@@ -903,7 +903,7 @@ describe("Research workspace", () => {
     });
   });
 
-  it("queues custom Research dates as local calendar boundaries", async () => {
+  it("queues custom 论文推荐 dates as local calendar boundaries", async () => {
     const now = new Date();
     const localDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 3, 0, 0, 0, 0);
@@ -927,7 +927,7 @@ describe("Research workspace", () => {
     });
   });
 
-  it("automatically assigns extra queries to the highest-priority selected Lens", async () => {
+  it("automatically assigns extra queries to the highest-priority selected 检索主题", async () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: {
@@ -981,14 +981,14 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(await screen.findByText(
-      "No active default Focus · 自动发现当前不会执行",
+      "未选择默认检索主题 · 自动发现当前不会执行",
     )).toBeTruthy();
-    expect(screen.getByText("立即检索 仍可临时选择 Research Focus。")).toBeTruthy();
+    expect(screen.getByText("立即检索仍可临时选择检索主题。")).toBeTruthy();
     const searchButton = screen.getByRole("button", { name: "立即检索" });
     expect(searchButton.hasAttribute("disabled")).toBe(false);
     fireEvent.click(searchButton);
 
-    const searchForm = screen.getByRole("heading", { name: "Research Focus" }).closest("form");
+    const searchForm = screen.getByRole("heading", { name: "检索主题" }).closest("form");
     expect(searchForm).not.toBeNull();
     const lens = within(searchForm as HTMLElement).getByRole("checkbox", { name: /Regularization/ });
     expect((lens as HTMLInputElement).checked).toBe(false);
@@ -996,7 +996,7 @@ describe("Research workspace", () => {
     expect((lens as HTMLInputElement).checked).toBe(true);
   });
 
-  it("blocks manual search when the Profile is disabled", async () => {
+  it("blocks manual search when the 研究方向 is disabled", async () => {
     responseProfileSummary = { ...profileSummary, enabled: false };
     responseProfileDetail = {
       ...profileDetail,
@@ -1006,7 +1006,7 @@ describe("Research workspace", () => {
     render(<App />);
 
     expect(await screen.findByText(
-      "Profile disabled · 启用 Profile 后才能运行 立即检索。",
+      "研究方向已停用 · 启用研究方向后才能运行立即检索。",
     )).toBeTruthy();
     expect(screen.getByRole("button", { name: "立即检索" }).hasAttribute("disabled")).toBe(true);
   });
@@ -1041,8 +1041,8 @@ describe("Research workspace", () => {
       onEditDefaults={() => undefined}
     />);
 
-    expect(screen.getByRole("heading", { name: "恢复 Research" })).toBeTruthy();
-    expect(screen.getByText(/从暂停前尚未完成的 scheduled watermark 继续搜索/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "恢复论文推荐" })).toBeTruthy();
+    expect(screen.getByText(/从暂停前尚未完成的自动检索进度继续搜索/)).toBeTruthy();
     const advanced = screen.getByText("高级选项").closest("details") as HTMLDetailsElement;
     expect(advanced.open).toBe(false);
     fireEvent.click(screen.getByText("高级选项"));
@@ -1050,7 +1050,7 @@ describe("Research workspace", () => {
     expect(screen.getByLabelText("自定义追赶天数")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("恢复方式"), { target: { value: "from_now" } });
-    expect(screen.getByText("把 scheduled watermark 推进到现在，跳过暂停期间遗漏的时间窗，只搜索现在之后的新内容。")).toBeTruthy();
+    expect(screen.getByText("把自动检索进度推进到现在，跳过暂停期间遗漏的时间窗，只搜索现在之后的新内容。")).toBeTruthy();
     expect(screen.queryByText("高级选项")).toBeNull();
   });
 
@@ -1083,15 +1083,15 @@ describe("Research workspace", () => {
     expect(JSON.parse(String(fromNowCall?.[1]?.body))).toEqual({ strategy: "from_now" });
   });
 
-  it("blocks manual search when the Inbox is full", async () => {
+  it("blocks manual search when the 待看论文 is full", async () => {
     const fullInbox = { new_count: 20, capacity: 20, remaining: 0 };
     responseProfileSummary = { ...profileSummary, inbox: fullInbox };
     responseProfileDetail = { ...profileDetail, inbox: fullInbox };
     render(<App />);
 
-    expect(await screen.findByText("Inbox Full")).toBeTruthy();
-    expect(screen.getByText("Inbox Full").parentElement?.textContent).toContain(
-      "Inbox Full · 处理候选后才能运行 立即检索。",
+    expect(await screen.findByText("待看论文已满")).toBeTruthy();
+    expect(screen.getByText("待看论文已满").parentElement?.textContent).toContain(
+      "待看论文已满 · 处理候选后才能运行立即检索。",
     );
     expect(screen.getByRole("button", { name: "立即检索" }).hasAttribute("disabled")).toBe(true);
   });
@@ -1113,7 +1113,7 @@ describe("Research workspace", () => {
     expect((screen.getByLabelText("暂停至指定日期") as HTMLInputElement).min).toBe(localToday);
   });
 
-  it("edits Profile Defaults through autosaved Draft review and publish", async () => {
+  it("edits 研究方向 Defaults through autosaved 未发布修改 review and publish", async () => {
     const published = vi.fn();
     const user = userEvent.setup();
     const seededProfile = { ...profile, search: { ...profile.search, history_seed_year: 2017 } };
@@ -1130,29 +1130,29 @@ describe("Research workspace", () => {
     expect(screen.getByLabelText("Enable unattended DeepSeek analysis")).toBeTruthy();
     expect(screen.getByText(/AI 分析已开启/)).toBeTruthy();
     expect(screen.getByText(/论文标题、作者、摘要和所选或检索到的相关知识片段会发送给 DeepSeek/)).toBeTruthy();
-    expect(screen.getByText(/筛选规则和搜索默认值的修改只影响后续 Research Run/)).toBeTruthy();
+    expect(screen.getByText(/筛选规则和搜索默认值的修改只影响后续检索记录/)).toBeTruthy();
     fireEvent.click(screen.getByText("高级设置"));
     const historySeed = screen.getByRole("spinbutton", { name: "起始研究年份（可选）" });
     fireEvent.change(historySeed, { target: { value: "2012" } });
     fireEvent.blur(historySeed);
     expect(await screen.findByText(/预填 2010-01-01 至 2014-12-31/)).toBeTruthy();
-    fireEvent.click(screen.getByLabelText("Discovery Provider openalex"));
-    fireEvent.click(screen.getByLabelText("Discovery Provider arxiv"));
-    const lastDiscoveryProvider = screen.getByLabelText("Discovery Provider openalex") as HTMLInputElement;
+    fireEvent.click(screen.getByLabelText("发现术语 Provider openalex"));
+    fireEvent.click(screen.getByLabelText("发现术语 Provider arxiv"));
+    const lastDiscoveryProvider = screen.getByLabelText("发现术语 Provider openalex") as HTMLInputElement;
     expect(lastDiscoveryProvider.checked).toBe(true);
     expect(lastDiscoveryProvider.disabled).toBe(true);
     fireEvent.click(lastDiscoveryProvider);
     expect(lastDiscoveryProvider.checked).toBe(true);
     fireEvent.click(screen.getByLabelText("Enrichment Provider openalex"));
     fireEvent.click(screen.getByLabelText("Enrichment Provider crossref"));
-    fireEvent.change(screen.getByLabelText("Profile title"), { target: { value: "Continual Learning Research" } });
-    fireEvent.change(screen.getByLabelText("Profile description"), { target: { value: "Updated research direction." } });
-    fireEvent.change(screen.getByLabelText("New Research Focus name"), { target: { value: "Regularization" } });
+    fireEvent.change(screen.getByLabelText("研究方向 title"), { target: { value: "Continual Learning 论文推荐" } });
+    fireEvent.change(screen.getByLabelText("研究方向 description"), { target: { value: "Updated research direction." } });
+    fireEvent.change(screen.getByLabelText("New 检索主题 name"), { target: { value: "Regularization" } });
     fireEvent.change(screen.getByLabelText("Initial search query"), { target: { value: "replay continual learning" } });
-    fireEvent.click(screen.getByRole("button", { name: "+ Add Research Focus" }));
-    const originalLens = screen.getByLabelText("Focus regularization name").closest("article");
+    fireEvent.click(screen.getByRole("button", { name: "+ 加入检索主题" }));
+    const originalLens = screen.getByLabelText("检索主题 regularization name").closest("article");
     fireEvent.click(within(originalLens as HTMLElement).getByText("高级筛选与标识"));
-    fireEvent.click(within(originalLens as HTMLElement).getByRole("button", { name: "Remove Research Focus regularization" }));
+    fireEvent.click(within(originalLens as HTMLElement).getByRole("button", { name: "Remove 检索主题 regularization" }));
     const queriesField = screen.getByLabelText(/Queries/) as HTMLTextAreaElement;
     expect(queriesField.value).toBe("replay continual learning");
     await user.clear(queriesField);
@@ -1161,14 +1161,14 @@ describe("Research workspace", () => {
     expect(queriesField.value).toBe("query one\n");
     await user.type(queriesField, "query two");
     await user.tab();
-    expect(screen.getByRole("option", { name: "Selected Collections and Documents" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Selected 专题 and 笔记" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Dynamic Retrieval scope"), { target: { value: "selected-context" } });
 
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(true);
     }, { timeout: 3000 });
     const draftContent = String(researchProfileDraft?.content);
-    expect(draftContent).toContain("title: Continual Learning Research");
+    expect(draftContent).toContain("title: Continual Learning 论文推荐");
     expect(draftContent).toContain("description: Updated research direction.");
     expect(draftContent).toContain("id: regularization-2");
     expect(draftContent).toContain("title: Regularization");
@@ -1184,10 +1184,10 @@ describe("Research workspace", () => {
     expect(draftContent).toContain("# Keep this trailing note.");
     expect(draftContent.indexOf("schema_version:")).toBeLessThan(draftContent.indexOf("id:"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
-    expect(await screen.findByText("Profile Draft preflight 通过。")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Profile changes" }).textContent).toContain("query two");
-    fireEvent.click(screen.getByRole("button", { name: "Publish Defaults" }));
+    fireEvent.click(screen.getByRole("button", { name: "审阅 Diff" }));
+    expect(await screen.findByText("研究方向未发布修改 preflight 通过。")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "研究方向 changes" }).textContent).toContain("query two");
+    fireEvent.click(screen.getByRole("button", { name: "确认保存 Defaults" }));
 
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
@@ -1206,7 +1206,7 @@ describe("Research workspace", () => {
     const otherProfile = {
       ...profile,
       id: "other-profile",
-      title: "Other Profile",
+      title: "Other 研究方向",
       lenses: profile.lenses.map((lens) => ({ ...lens, id: "other-focus" })),
     };
     responseAdditionalProfileSummary = {
@@ -1231,8 +1231,8 @@ describe("Research workspace", () => {
     fireEvent.blur(historySeed);
     expect(await screen.findByText(/预填 2010-01-01 至 2014-12-31/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
-    expect(await screen.findByText("Profile Draft preflight 通过。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "审阅 Diff" }));
+    expect(await screen.findByText("研究方向未发布修改 preflight 通过。")).toBeTruthy();
 
     const refreshedProfile = {
       ...seededProfile,
@@ -1246,7 +1246,7 @@ describe("Research workspace", () => {
       history_anchor_year: 2012,
     };
     deferNextProfileRefresh = true;
-    fireEvent.click(screen.getByRole("button", { name: "Publish Defaults" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认保存 Defaults" }));
 
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
@@ -1283,8 +1283,8 @@ describe("Research workspace", () => {
     fireEvent.change(screen.getByLabelText("时间范围"), { target: { value: "last_30_days" } });
     expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("last_30_days");
 
-    fireEvent.change(screen.getByLabelText("Research Profile"), { target: { value: "other-profile" } });
-    expect(await screen.findByRole("heading", { name: "Other Profile" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("研究方向"), { target: { value: "other-profile" } });
+    expect(await screen.findByRole("heading", { name: "Other 研究方向" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "立即检索" }));
     expect((screen.getByLabelText("时间范围") as HTMLSelectElement).value).toBe("last_30_days");
     expect(screen.queryByLabelText("开始日期")).toBeNull();
@@ -1301,7 +1301,7 @@ describe("Research workspace", () => {
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
     expect((screen.getByText("高级设置").closest("details") as HTMLDetailsElement).open).toBe(false);
 
-    const inboxLimit = screen.getByRole("spinbutton", { name: "Inbox max new candidates" });
+    const inboxLimit = screen.getByRole("spinbutton", { name: "待看论文 max new candidates" });
     fireEvent.change(inboxLimit, { target: { value: "" } });
     fireEvent.blur(inboxLimit);
 
@@ -1309,10 +1309,10 @@ describe("Research workspace", () => {
     expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(false);
   });
 
-  it("filters pinned Documents by title or ID without losing selection", async () => {
+  it("filters pinned 笔记 by title or ID without losing selection", async () => {
     responseDocuments = [
-      { id: "alpha-notes", title: "Alpha Research Notes" },
-      { id: "beta-notes", title: "Beta Research Notes" },
+      { id: "alpha-notes", title: "Alpha 论文推荐笔记" },
+      { id: "beta-notes", title: "Beta 论文推荐笔记" },
     ];
     render(<ResearchProfileDefaultsEditor
       profile={profile as unknown as ResearchProfile}
@@ -1322,18 +1322,18 @@ describe("Research workspace", () => {
       onPublished={() => undefined}
     />);
 
-    const alphaCheckbox = await screen.findByRole("checkbox", { name: "Alpha Research Notes" }) as HTMLInputElement;
+    const alphaCheckbox = await screen.findByRole("checkbox", { name: "Alpha 论文推荐笔记" }) as HTMLInputElement;
     fireEvent.click(alphaCheckbox);
-    const filter = screen.getByRole("searchbox", { name: "Filter Pinned Documents" });
+    const filter = screen.getByRole("searchbox", { name: "Filter Pinned 笔记" });
     fireEvent.change(filter, { target: { value: "beta" } });
-    expect(screen.queryByRole("checkbox", { name: "Alpha Research Notes" })).toBeNull();
-    expect(screen.getByRole("checkbox", { name: "Beta Research Notes" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Alpha 论文推荐笔记" })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Beta 论文推荐笔记" })).toBeTruthy();
 
     fireEvent.change(filter, { target: { value: "alpha-notes" } });
-    expect((screen.getByRole("checkbox", { name: "Alpha Research Notes" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Alpha 论文推荐笔记" }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it("publishes a re-enabled Profile without a general catch-up review", async () => {
+  it("publishes a re-enabled 研究方向 without a general catch-up review", async () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: { ...profile, enabled: false },
@@ -1342,10 +1342,10 @@ describe("Research workspace", () => {
     responseProfileSummary = { ...profileSummary, enabled: false };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "研究方向设置" }));
-    fireEvent.click(await screen.findByLabelText("Enable Research Profile"));
-    fireEvent.click(screen.getByRole("button", { name: "Review Diff" }));
+    fireEvent.click(await screen.findByLabelText("Enable 研究方向"));
+    fireEvent.click(screen.getByRole("button", { name: "审阅 Diff" }));
 
-    const publishButton = await screen.findByRole("button", { name: "Publish Defaults" });
+    const publishButton = await screen.findByRole("button", { name: "确认保存 Defaults" });
     expect(publishButton.hasAttribute("disabled")).toBe(false);
     fireEvent.click(publishButton);
 
@@ -1358,17 +1358,17 @@ describe("Research workspace", () => {
     });
   });
 
-  it("opens Save Source from candidate details in the Unified Workspace", async () => {
+  it("opens 收藏文献 from candidate details in the Unified 查看或编辑", async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Why this candidate/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save Source" }));
+    fireEvent.click(await screen.findByRole("button", { name: /推荐理由/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "收藏文献" }));
 
-    expect(await screen.findByText("Source Metadata Editor")).toBeTruthy();
+    expect(await screen.findByText("文献 Metadata Editor")).toBeTruthy();
     expect(window.location.pathname).toBe("/sources/research-paper");
     expect(window.location.search).toBe("?edit=1");
   });
 
-  it.each(["draft_reused", "draft_created"])("opens the preserved Source Workspace after %s fails preflight", async (action) => {
+  it.each(["draft_reused", "draft_created"])("opens the preserved 文献查看或编辑 after %s fails preflight", async (action) => {
     const normally = mockFetch.getMockImplementation();
     const sourceDraft = { id: "source-draft-1", entity_type: "source", entity_id: "research-paper", content: "schema_version: 1\nid: research-paper\ntype: paper\ntitle: My preserved title\nauthors: [Ada]\nyear: 2017\n", revision: 3, base_git_revision: "abc", base_content_hash: "hash", created_at: "2026-10-01", updated_at: "2026-10-01" };
     mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1377,25 +1377,25 @@ describe("Research workspace", () => {
       if (path.endsWith("/candidate-1/review")) return jsonResponse({ ...candidate, review_revision: 1 });
       if (path.endsWith("/candidate-1/save-source")) return jsonResponse({ action, draft_id: sourceDraft.id, source_id: sourceDraft.entity_id, candidate });
       if (path === "/api/drafts/source-draft-1") return jsonResponse(sourceDraft);
-      if (path.endsWith("/source-draft-1/preflight")) return jsonResponse({ valid: false, conflict: true, errors: ["Canonical changed"], warnings: [] });
+      if (path.endsWith("/source-draft-1/preflight")) return jsonResponse({ valid: false, conflict: true, errors: ["正式版本 changed"], warnings: [] });
       return normally!(input, init);
     });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "通过" }));
-    const dialog = await screen.findByRole("dialog", { name: "确认已有 Source Draft" });
+    const dialog = await screen.findByRole("dialog", { name: "确认已有文献未发布修改" });
     expect(within(dialog).getByText("My preserved title")).toBeTruthy();
     expect(dialog.querySelector("details")?.open).toBe(false);
-    if (action === "draft_reused") fireEvent.click(within(dialog).getByRole("button", { name: "确认通过并发布 Source" }));
-    await waitFor(() => expect(within(dialog).getByText("Canonical changed")).toBeTruthy());
+    if (action === "draft_reused") fireEvent.click(within(dialog).getByRole("button", { name: "确认通过并发布文献" }));
+    await waitFor(() => expect(within(dialog).getByText("正式版本 changed")).toBeTruthy());
     fireEvent.click(within(dialog).getByRole("button", { name: "返回编辑" }));
-    expect(await screen.findByText("Source Metadata Editor")).toBeTruthy();
+    expect(await screen.findByText("文献 Metadata Editor")).toBeTruthy();
     expect(window.location.pathname + window.location.search).toBe("/sources/research-paper?edit=1");
     expect(mockFetch.mock.calls.some(([input]) => String(input) === "/api/publish")).toBe(false);
     expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(false);
     expect(mockFetch.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
   });
 
-  it("approves an existing canonical Source by association without creating or publishing a Draft", async () => {
+  it("approves an existing canonical 文献 by association without creating or publishing a 未发布修改", async () => {
     const normally = mockFetch.getMockImplementation();
     mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith("/candidate-1/review")) return jsonResponse({ ...candidate, review_revision: 1 });
@@ -1406,25 +1406,25 @@ describe("Research workspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "通过" }));
     await waitFor(() => expect(mockFetch.mock.calls.some(([input]) => String(input).endsWith("/candidate-1/save-source"))).toBe(true));
     expect(mockFetch.mock.calls.some(([input]) => String(input) === "/api/publish" || String(input) === "/api/drafts")).toBe(false);
-    expect(screen.queryByRole("dialog", { name: "确认已有 Source Draft" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "确认已有文献未发布修改" })).toBeNull();
   });
 
-  it("creates a structured note group and enters batch Workspace review", async () => {
+  it("creates a structured note group and enters batch 查看或编辑 review", async () => {
     responseProfileDetail = {
       ...profileDetail,
       profile: { ...profile, context: { ...profile.context, collections: ["continual-learning"] } },
     };
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Create Note" }));
-    expect(await screen.findByRole("heading", { name: "Create Research Note" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "创建笔记" }));
+    expect(await screen.findByRole("heading", { name: "Create 论文推荐笔记" })).toBeTruthy();
     await screen.findByRole("option", { name: "Regularization" });
-    expect((screen.getByLabelText("Collection") as HTMLSelectElement).value).toBe("continual-learning");
-    await waitFor(() => expect((screen.getByLabelText("Section") as HTMLSelectElement).value).toBe("regularization"));
-    fireEvent.change(screen.getByLabelText("Collection"), { target: { value: "continual-learning" } });
-    fireEvent.change(screen.getByLabelText("Section"), { target: { value: "regularization" } });
+    await waitFor(() => expect((screen.getByLabelText("专题") as HTMLSelectElement).value).toBe("continual-learning"));
+    await waitFor(() => expect((screen.getByLabelText("分组") as HTMLSelectElement).value).toBe("regularization"));
+    fireEvent.change(screen.getByLabelText("专题"), { target: { value: "continual-learning" } });
+    fireEvent.change(screen.getByLabelText("分组"), { target: { value: "regularization" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByText("Source Workspace")).toBeTruthy();
+    expect(await screen.findByText("文献查看或编辑")).toBeTruthy();
     expect(window.location.pathname).toBe("/documents/research-note-1");
     expect(window.location.search).toBe("?collection=continual-learning&edit=1&publishAll=1&relatedDraft=source-draft-1&researchGroup=group-1");
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/research/candidates/candidate-1/create-note" && init?.method === "POST");
@@ -1500,7 +1500,7 @@ const work = {
 
 const analysis = {
   relevant: true, profile_relevance: 0.91, knowledge_relevance: 0.8, novelty_to_library: 0.73, matched_lenses: ["regularization"], matched_topics: ["Fisher information", "Catastrophic forgetting"],
-  summary: "A new parameter importance estimation method for continual learning.", why_relevant: "It matches the regularization Lens and studies parameter importance.", reading_reason: "Compare its adaptive estimates against EWC.",
+  summary: "A new parameter importance estimation method for continual learning.", why_relevant: "It matches the regularization 检索主题 and studies parameter importance.", reading_reason: "Compare its adaptive estimates against EWC.",
   summary_zh: "这篇论文提出一种新的持续学习参数重要性估计方法。", why_relevant_zh: "它与正则化方向相关，并研究参数重要性。", reading_reason_zh: "将其自适应估计结果与 EWC 进行比较。",
   readiness: "medium", known_prerequisites: ["Fisher information"], missing_prerequisites: ["Online curvature estimation"], why_now: "It connects a known foundation to the current gap.", term_candidates: [],
   existing_relations: [{ entity_type: "term", entity_id: "fisher-information", relation: "extends", reason: "Uses Fisher information to estimate parameter importance.", reason_zh: "使用 Fisher 信息估计参数重要性。" }],

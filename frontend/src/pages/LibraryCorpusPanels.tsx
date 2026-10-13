@@ -60,7 +60,7 @@ export function LibraryDocumentsPanel({ documents, onOpen, navigate, onAnalysisC
         completedAfterBaseline: Boolean(target.baselineKnown && state.analyzed_at && state.analyzed_at !== target.baselineAnalyzedAt),
       });
     } catch {
-      setAnalysisError("只读核查暂时失败；尚不能确认结果。请稍后重新核查，或查看 待处理。分析请求不会自动重发。");
+      setAnalysisError("只读核查暂时失败；尚不能确认结果。请稍后重新核查，或查看待处理。分析请求不会自动重发。");
     } finally {
       setVerificationBusy(false);
     }
@@ -101,7 +101,7 @@ export function LibraryDocumentsPanel({ documents, onOpen, navigate, onAnalysisC
         setUncertainAnalysis(uncertainty);
         setAnalysisError("请求连接中断，结果尚待确认。不会自动重发模型请求。");
       } else {
-        setAnalysisError(reason instanceof Error ? reason.message : "术语分析 失败。");
+        setAnalysisError(reason instanceof Error ? reason.message : "术语分析失败。");
       }
     } finally {
       setAnalysisBusy(false);
@@ -113,7 +113,7 @@ export function LibraryDocumentsPanel({ documents, onOpen, navigate, onAnalysisC
     navigate(`/terms?tab=candidates&document_id=${encodeURIComponent(documentId)}`);
   }
 
-  if (!documents.length) return <EmptyState title="Library 还是空的" description="发布一篇笔记后，它就会出现在这里。" />;
+  if (!documents.length) return <EmptyState title="资料库还是空的" description="发布一篇笔记后，它就会出现在这里。" />;
 
   return <div className="library-corpus-list">
     {analysisNotice && <div className="editor-notice success-notice" role="status"><span>{analysisNotice.text}</span><button type="button" className="text-button" onClick={() => openCandidates(analysisNotice.documentId)}>查看待处理术语</button>{analysisNotice.details && <details><summary>分析详情</summary><ul>{analysisNotice.details.map((item, index) => <li key={index}>{item}</li>)}</ul></details>}</div>}
@@ -137,16 +137,16 @@ export function LibraryDocumentsPanel({ documents, onOpen, navigate, onAnalysisC
     })}
     {analysisTarget && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !analysisBusy) setAnalysisTarget(null); }}>
       <section className="explorer-modal term-analysis-dialog surface" role="dialog" aria-modal="true" aria-labelledby="library-term-analysis-title">
-        <div className="section-heading"><div><h2 id="library-term-analysis-title">分析 正式笔记</h2><p>{analysisTarget.title} · 术语分析 只使用已发布的正式内容。</p></div><button className="text-button" type="button" disabled={analysisBusy} onClick={() => setAnalysisTarget(null)}>关闭</button></div>
-        <div className="term-analysis-transfer-copy"><p>本次会向 DeepSeek 发送这篇 笔记 的正文和必要元数据、当前 术语库，以及该 笔记 适用的拒绝记录，用于识别可复用概念、命名实体和阅读词汇。</p><p>不会发送其他 笔记 的全文，也不会自动把发现写入 Markdown；结果会进入 待处理 等待审核。</p></div>
-        <label className="ai-consent"><input type="checkbox" checked={transferConsent} disabled={analysisBusy} onChange={(event) => setTransferConsent(event.target.checked)} /><span>我同意将以上 正式笔记 内容和所需 术语库 上下文发送给 DeepSeek。</span></label>
+        <div className="section-heading"><div><h2 id="library-term-analysis-title">分析正式笔记</h2><p>{analysisTarget.title} · 术语分析只使用已发布的正式内容。</p></div><button className="text-button" type="button" disabled={analysisBusy} onClick={() => setAnalysisTarget(null)}>关闭</button></div>
+        <div className="term-analysis-transfer-copy"><p>本次会向 DeepSeek 发送这篇笔记的正文和必要元数据、当前术语库，以及该笔记适用的拒绝记录，用于识别可复用概念、命名实体和阅读词汇。</p><p>不会发送其他笔记的全文，也不会自动把发现写入 Markdown；结果会进入待处理等待审核。</p></div>
+        <label className="ai-consent"><input type="checkbox" checked={transferConsent} disabled={analysisBusy} onChange={(event) => setTransferConsent(event.target.checked)} /><span>我同意将以上正式笔记内容和所需术语库上下文发送给 DeepSeek。</span></label>
         {analysisError && <p className="error-copy" role="alert">{analysisError}</p>}
-        {analysisBusy && <div className="term-analysis-running" role="status"><strong>{analysisStage === "baseline" ? "正在准备唯一一次分析请求…" : "正在请求 DeepSeek 分析这篇 笔记…"}</strong><span>已等待 {elapsedSeconds} 秒。分析可能需要一段时间，请勿重复提交。</span></div>}
+        {analysisBusy && <div className="term-analysis-running" role="status"><strong>{analysisStage === "baseline" ? "正在准备唯一一次分析请求…" : "正在请求 DeepSeek 分析这篇笔记…"}</strong><span>已等待 {elapsedSeconds} 秒。分析可能需要一段时间，请勿重复提交。</span></div>}
         {uncertainAnalysis && <div className="term-analysis-verification surface" role="status">
-          {verificationBusy ? <p>正在读取分析状态和这篇 笔记 关联的 待处理…</p> : analysisVerification ? <p>{analysisVerification.completedAfterBaseline && analysisVerification.status === "up_to_date"
-            ? `分析状态已更新为 已分析（${formatAnalysisTime(analysisVerification.analyzedAt)}）；当前有 ${analysisVerification.linkedCandidateCount} 条 候选 关联这篇 笔记。`
-            : `状态：${analysisStatusLabel(analysisVerification.status)}；当前有 ${analysisVerification.linkedCandidateCount} 条 候选 关联这篇 笔记，尚不能确认中断的请求已完成。`}</p> : <p>等待只读状态核查。</p>}
-          <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={verificationBusy} onClick={() => void verifyUncertainAnalysis(uncertainAnalysis)}>重新核查只读状态</button><button className="button button-quiet" type="button" onClick={() => openCandidates(uncertainAnalysis.documentId)}>查看 待处理</button></div>
+          {verificationBusy ? <p>正在读取分析状态和这篇笔记关联的待处理…</p> : analysisVerification ? <p>{analysisVerification.completedAfterBaseline && analysisVerification.status === "up_to_date"
+            ? `分析状态已更新为已分析（${formatAnalysisTime(analysisVerification.analyzedAt)}）；当前有 ${analysisVerification.linkedCandidateCount} 条候选关联这篇笔记。`
+            : `状态：${analysisStatusLabel(analysisVerification.status)}；当前有 ${analysisVerification.linkedCandidateCount} 条候选关联这篇笔记，尚不能确认中断的请求已完成。`}</p> : <p>等待只读状态核查。</p>}
+          <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={verificationBusy} onClick={() => void verifyUncertainAnalysis(uncertainAnalysis)}>重新核查只读状态</button><button className="button button-quiet" type="button" onClick={() => openCandidates(uncertainAnalysis.documentId)}>查看待处理</button></div>
         </div>}
         <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={analysisBusy} onClick={() => setAnalysisTarget(null)}>取消</button><button className="button button-primary" type="button" disabled={analysisBusy || !transferConsent} onClick={() => void runAnalysis()}>{analysisBusy ? "Analyzing…" : "同意并分析"}</button></div>
       </section>
@@ -175,7 +175,7 @@ function formatAnalysisTime(value: string | null): string {
 }
 
 export function LibrarySourcesPanel({ sources, onOpen }: { sources: LibrarySourceState[]; onOpen: SelectEntity }) {
-  if (!sources.length) return <EmptyState title="还没有来源文献" description="导入 PDF 或发布 Source 元数据后，可从这里打开来源。" />;
+  if (!sources.length) return <EmptyState title="还没有来源文献" description="导入 PDF 或发布文献元数据后，可从这里打开来源。" />;
 
   return <div className="library-corpus-list">
     {sources.map((source) => {
@@ -188,7 +188,7 @@ export function LibrarySourcesPanel({ sources, onOpen }: { sources: LibrarySourc
       return <article className="library-source-row surface" key={source.id}>
         <div className="library-source-heading">
           <button type="button" className="library-record-main" onClick={() => onOpen("source", source.id)}>
-            <span className="library-record-copy"><strong>{source.title}</strong><small>{[readString(metadata.type) || "Source", source.id, ...(Array.isArray(metadata.authors) ? metadata.authors.filter((author): author is string => typeof author === "string") : []), typeof metadata.year === "number" ? String(metadata.year) : ""].filter(Boolean).join(" · ")}</small></span>
+            <span className="library-record-copy"><strong>{source.title}</strong><small>{[readString(metadata.type) || "文献", source.id, ...(Array.isArray(metadata.authors) ? metadata.authors.filter((author): author is string => typeof author === "string") : []), typeof metadata.year === "number" ? String(metadata.year) : ""].filter(Boolean).join(" · ")}</small></span>
             <span className="library-record-actions"><span className={`status-indicator ${pdfAttached ? "green" : "neutral"}`} /><span>{pdfAttached ? "PDF attached" : "No local PDF"}</span><span aria-hidden="true">↗</span></span>
           </button>
         </div>
@@ -196,7 +196,7 @@ export function LibrarySourcesPanel({ sources, onOpen }: { sources: LibrarySourc
           <div><small>Corpus extraction</small><Chip tone={corpusStatus === "ready" ? "green" : corpusStatus === "failed" || corpusStatus === "unavailable" ? "amber" : "neutral"}>{corpusLabel}</Chip></div>
           <div><small>发现术语</small><Chip tone={usable ? "green" : "neutral"}>{usable ? "Usable" : "Not usable"}</Chip></div>
         </div>
-        <div className="library-source-terms"><small>Related 术语</small>{relatedTerms.length ? <div>{relatedTerms.map((term) => <button className="library-related-term" type="button" key={term.id} onClick={() => onOpen("term", term.id)}>{term.title}</button>)}</div> : <span>暂无关联 术语</span>}</div>
+        <div className="library-source-terms"><small>Related 术语</small>{relatedTerms.length ? <div>{relatedTerms.map((term) => <button className="library-related-term" type="button" key={term.id} onClick={() => onOpen("term", term.id)}>{term.title}</button>)}</div> : <span>暂无关联术语</span>}</div>
         {source.error_message && <small className="library-source-error">{source.error_message}</small>}
       </article>;
     })}

@@ -132,13 +132,13 @@ export function useExplorerEditing({
   }
 
   function createSection(parentSectionId: string | null = null) {
-    const title = window.prompt(parentSectionId ? "新子 Section 名称" : "新 Section 名称")?.trim();
+    const title = window.prompt(parentSectionId ? "新子分组名称" : "新分组名称")?.trim();
     if (!title) return;
     changeDraft((current) => addCollectionSection(current, title, parentSectionId));
   }
 
   function renameSection(node: CollectionSectionNode) {
-    const title = window.prompt("Section 名称", node.title)?.trim();
+    const title = window.prompt("分组名称", node.title)?.trim();
     if (!title || title === node.title) return;
     changeDraft((current) => renameCollectionSection(current, node.id, title));
   }
@@ -166,7 +166,7 @@ export function useExplorerEditing({
       description: description.trim() || null,
     }));
     closeMetadataDialog();
-    setEditingNotice("名称和描述已写入 Collection Draft；发布后生效。");
+    setEditingNotice("名称和描述已写入待确认的专题修改；发布后生效。");
   }
 
   async function reviewCollectionDraftPublish(keepReviewOpen = false) {
@@ -178,7 +178,7 @@ export function useExplorerEditing({
     setPublishOutcome(null);
     try {
       const saved = await collectionDraft.flush();
-      if (!saved) throw new Error("没有可供审阅的 Collection Draft。");
+      if (!saved) throw new Error("没有可供审阅的待确认的专题修改。");
       const [preflight, comparison] = await Promise.all([
         preflightDraft(saved.id),
         compareDraft(saved.id),
@@ -207,11 +207,11 @@ export function useExplorerEditing({
   async function publishCollectionDraft() {
     const review = publishReview?.[0];
     if (!review) {
-      setEditingError("请先完成 Collection 发布审阅。");
+      setEditingError("请先完成专题发布审阅。");
       return;
     }
     if (!review.preflight.valid || review.preflight.conflict || review.comparison.canonical_changed) {
-      setEditingError("Collection 预检未通过，请处理问题后重新检查。");
+      setEditingError("专题预检未通过，请处理问题后重新检查。");
       return;
     }
     setPublishBusy(true);
@@ -230,7 +230,7 @@ export function useExplorerEditing({
       setPublishOutcome(toPublishOutcome(result));
     } catch (reason) {
       setEditingError((reason as { status?: number })?.status === 409
-        ? "Collection Draft 在审阅后发生变化。请重新检查差异，再确认发布。"
+        ? "待确认的专题修改在审阅后发生变化。请重新检查差异，再确认发布。"
         : errorMessage(reason));
     } finally {
       setPublishBusy(false);
@@ -246,11 +246,11 @@ export function useExplorerEditing({
       return;
     }
     if (collections.some((item) => item.id === normalizedId)) {
-      setCreateCollectionError("这个 Collection ID 已存在。");
+      setCreateCollectionError("这个专题标识已存在。");
       return;
     }
     if (!normalizedTitle) {
-      setCreateCollectionError("请输入 Collection 名称。");
+      setCreateCollectionError("请输入专题名称。");
       return;
     }
     setOperationBusy(true);
@@ -274,14 +274,14 @@ export function useExplorerEditing({
       let draft: Draft;
       if (pendingDraft) {
         if (pendingDraft.content !== content) {
-          throw new Error("此 Collection 已存在不同内容的 Draft；请先检查并处理，再创建 Collection。");
+          throw new Error("此专题已存在不同内容的未发布修改；请先检查并处理，再创建专题。");
         }
         draft = pendingDraft;
       } else {
         const acquisition = await createDraft("collection", normalizedId, content);
         draft = acquisition.draft;
         if (!acquisition.created && draft.content !== content) {
-          throw new Error("此 Collection 已在另一个标签页创建不同内容的 Draft；请先检查并处理。");
+          throw new Error("此专题已在另一个标签页创建不同内容的未发布修改；请先检查并处理。");
         }
       }
       const published = await publishDraftsBatch([
@@ -306,7 +306,7 @@ export function useExplorerEditing({
     try {
       await collectionDraft.discard();
       setEditMode(false);
-      setEditingNotice("Collection Draft 已丢弃。");
+      setEditingNotice("待确认的专题修改已丢弃。");
     } catch (reason) {
       reportError(reason);
     } finally {
@@ -321,7 +321,7 @@ export function useExplorerEditing({
       await collectionDraft.reloadCanonical();
       setCollectionConflictOpen(false);
       setEditMode(false);
-      setEditingNotice("Draft 已丢弃，已载入当前 Canonical Collection。");
+      setEditingNotice("未发布修改已丢弃，已载入当前正式版本专题。");
       collectionResource.retry();
       collectionsResource.retry();
     } catch (reason) {
@@ -338,7 +338,7 @@ export function useExplorerEditing({
       await collectionDraft.applyRebase(collectionDraft.mergeContent);
       setCollectionConflictOpen(false);
       setEditMode(true);
-      setEditingNotice("Draft 已保留并更新基线；检查合并结果后再发布。");
+      setEditingNotice("未发布修改已保留并更新基线；检查合并结果后再发布。");
     } catch (reason) {
       reportError(reason);
     } finally {

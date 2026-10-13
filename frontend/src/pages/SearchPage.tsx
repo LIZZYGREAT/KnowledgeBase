@@ -26,7 +26,7 @@ export function SearchPage({
 
   return (
     <div className="page-stack">
-      <PageHeader eyebrow="DISCOVER" title="Search" description="在 Document、Term、Source 和引用证据中查找内容。" />
+      <PageHeader eyebrow="DISCOVER" title="搜索" description="在笔记、术语、文献和引用证据中查找内容。" />
       <form className="search-panel surface" onSubmit={(event) => { event.preventDefault(); setSubmitted(filters); }}>
         <label className="search-input-wrap">
           <span aria-hidden="true">⌕</span>
@@ -37,9 +37,9 @@ export function SearchPage({
           <FilterSelect label="Domain" value={filters.domain ?? ""} onChange={(value) => update("domain", value)} entries={facets.data?.[0] ?? []} />
           <FilterSelect label="Topic" value={filters.topic ?? ""} onChange={(value) => update("topic", value)} entries={facets.data?.[1] ?? []} />
           <FilterSelect label="Tag" value={filters.tag ?? ""} onChange={(value) => update("tag", value)} entries={facets.data?.[2] ?? []} />
-          <label className="field-label">Type<select value={filters.document_type ?? ""} onChange={(event) => update("document_type", event.target.value)}><option value="">全部类型</option><option value="paper-note">Paper note</option><option value="learning-note">Learning note</option><option value="course-note">Course note</option><option value="concept">Concept</option><option value="vocabulary">Vocabulary</option><option value="paper">Paper Source</option></select></label>
-          <label className="field-label">Review<select value={filters.review ?? ""} onChange={(event) => update("review", event.target.value)}><option value="">所有状态</option><option value="unreviewed">Unreviewed</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="verified">Verified</option></select></label>
-          <label className="field-label">Maintenance<select value={filters.maintenance ?? ""} onChange={(event) => update("maintenance", event.target.value)}><option value="">所有状态</option><option value="current">Current</option><option value="needs_revision">Needs revision</option><option value="legacy">Legacy</option></select></label>
+          <label className="field-label">Type<select value={filters.document_type ?? ""} onChange={(event) => update("document_type", event.target.value)}><option value="">全部类型</option><option value="paper-note">Paper note</option><option value="learning-note">Learning note</option><option value="course-note">Course note</option><option value="concept">Concept</option><option value="vocabulary">Vocabulary</option><option value="paper">Paper 文献</option></select></label>
+          <label className="field-label">审阅<select value={filters.review ?? ""} onChange={(event) => update("review", event.target.value)}><option value="">所有状态</option><option value="unreviewed">Unreviewed</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="verified">Verified</option></select></label>
+          <label className="field-label">维护提醒<select value={filters.maintenance ?? ""} onChange={(event) => update("maintenance", event.target.value)}><option value="">所有状态</option><option value="current">Current</option><option value="needs_revision">Needs revision</option><option value="legacy">Legacy</option></select></label>
         </div>
       </form>
       <div className="results-heading">
@@ -47,7 +47,7 @@ export function SearchPage({
         <div className="segmented-control" role="tablist" aria-label="筛选结果类型">
           {(["all", "document", "term", "source"] as const).map((group) => (
             <button key={group} role="tab" aria-selected={activeGroup === group} className={activeGroup === group ? "active" : ""} onClick={() => setActiveGroup(group)}>
-              {group === "all" ? "全部" : group === "document" ? "Documents" : group === "term" ? "Terms" : "Sources"}
+              {group === "all" ? "全部" : group === "document" ? "笔记" : group === "term" ? "术语" : "文献"}
               <span>{group === "all" ? results.length : results.filter((item) => item.entity_type === group).length}</span>
             </button>
           ))}

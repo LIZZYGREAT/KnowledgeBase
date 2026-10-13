@@ -19,8 +19,8 @@ vi.mock("../../src/workspace/WorkspaceRuntimeDraftConflictDrawer", () => ({
   WorkspaceRuntimeDraftConflictDrawer: () => null,
 }));
 
-describe("Workspace deep links", () => {
-  it("opens Source metadata editing when requested", () => {
+describe("查看或编辑 deep links", () => {
+  it("opens 文献 metadata editing when requested", () => {
     render(createElement(WorkspacePage, {
       type: "source",
       id: "source-one",

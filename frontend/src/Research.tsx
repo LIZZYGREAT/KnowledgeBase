@@ -43,9 +43,9 @@ type ResearchTab = "new" | "shortlisted" | "history" | "runs";
 type HistoryStatus = Extract<ResearchCandidateStatus, "dismissed" | "saved_source" | "note_created">;
 
 const HISTORY_STATUSES: Array<{ id: HistoryStatus; label: string }> = [
-  { id: "dismissed", label: "Dismissed" },
-  { id: "saved_source", label: "Saved Source" },
-  { id: "note_created", label: "Note Created" },
+  { id: "dismissed", label: "已忽略" },
+  { id: "saved_source", label: "已收藏文献" },
+  { id: "note_created", label: "已创建笔记" },
 ];
 
 export default function ResearchPage({ navigate }: { navigate: (path: string) => void }) {
@@ -116,7 +116,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
         if (!active) return;
         const item = result.candidates[0];
         if (!item) {
-          setCandidateError("没有找到与此 Research Work 对应的 Candidate。");
+          setCandidateError("没有找到与此论文推荐 Work 对应的 Candidate。");
           return;
         }
         const status = item.candidate.status;
@@ -303,7 +303,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
       }
       try {
         const preflight = await preflightDraft(draft.id);
-        if (!preflight.valid || preflight.conflict) throw new Error(preflight.errors.join("；") || "Source 发布校验失败，修改已保留。");
+        if (!preflight.valid || preflight.conflict) throw new Error(preflight.errors.join("；") || "文献发布校验失败，修改已保留。");
         await publishDraft(draft.id, draft.revision);
       } catch (reason) {
         setSourceReview(draft);
@@ -394,9 +394,9 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
 
   const tabs: Array<{ id: ResearchTab; label: string; count?: number }> = [
     { id: "new", label: "New", count: currentSummary?.inbox.new_count },
-    { id: "shortlisted", label: "Shortlist" },
-    { id: "history", label: "History" },
-    { id: "runs", label: "Runs" },
+    { id: "shortlisted", label: "稍后阅读" },
+    { id: "history", label: "处理记录" },
+    { id: "runs", label: "检索记录" },
   ];
 
   const profileLayers = <>
@@ -427,32 +427,32 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     />}
   </>;
 
-  if (pageLoading && !profiles.length) return <LoadingState label="正在读取 Research Profiles…" />;
+  if (pageLoading && !profiles.length) return <LoadingState label="正在读取研究方向…" />;
   if (profileError && !profiles.length) return <ErrorState message={profileError} retry={refresh} />;
-  if (!profiles.length) return <div className="page-stack"><PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="从外部研究发现候选内容，并由你决定哪些进入知识库。" action={<button className="button button-primary" onClick={() => setCreateProfileSource(null)}>New Profile</button>} /><div className="surface"><div className="empty-state"><span className="empty-mark">⌕</span><strong>没有可用的 Research Profile</strong><p>添加并验证 Profile 配置后，这里会显示研究发现。</p></div></div>{profileLayers}</div>;
+  if (!profiles.length) return <div className="page-stack"><PageHeader eyebrow="发现与筛选论文" title="论文推荐" description="从外部研究发现候选内容，并由你决定哪些进入知识库。" action={<button className="button button-primary" onClick={() => setCreateProfileSource(null)}>新建研究方向</button>} /><div className="surface"><div className="empty-state"><span className="empty-mark">⌕</span><strong>没有可用的研究方向</strong><p>添加并验证研究方向配置后，这里会显示研究发现。</p></div></div>{profileLayers}</div>;
 
   return <div className="page-stack research-page">
-    <PageHeader eyebrow="DISCOVERY WORKSPACE" title="Research" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<div className="research-profile-header-actions"><label className="research-profile-select"><span>Profile</span><select aria-label="Research Profile" value={selectedProfileId} onChange={(event) => { setProfileEditor(null); setSelectedProfileId(event.target.value); setTab("new"); setRestoreNotice(false); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>Select a Profile</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button className="button button-secondary" onClick={() => setCreateProfileSource(null)}>New Profile</button><button className="button button-quiet" disabled={!profile || profile.profile.id !== selectedProfileId} onClick={() => setCreateProfileSource(profile?.profile ?? null)}>Duplicate Profile</button></div>} />
+    <PageHeader eyebrow="发现与筛选论文" title="论文推荐" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<div className="research-profile-header-actions"><label className="research-profile-select"><span>研究方向</span><select aria-label="研究方向" value={selectedProfileId} onChange={(event) => { setProfileEditor(null); setSelectedProfileId(event.target.value); setTab("new"); setRestoreNotice(false); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>选择研究方向</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button className="button button-secondary" onClick={() => setCreateProfileSource(null)}>新建研究方向</button><button className="button button-quiet" disabled={!profile || profile.profile.id !== selectedProfileId} onClick={() => setCreateProfileSource(profile?.profile ?? null)}>复制研究方向</button></div>} />
     {profileError && <ErrorState message={profileError} retry={refresh} />}
     {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} initialManualHistoryRange={manualHistoryRange} onManualHistoryRangeOpened={() => setManualHistoryRange(null)} onRefresh={refresh} onResults={() => { setTab("new"); refresh(); }} onRun={(id) => { void getResearchRun(id).then(setRunDetail).catch((reason) => setActionError(errorMessage(reason))); }} onQueued={() => { setSearchQueued(true); setTab("new"); refresh(); }} onEditDefaults={() => setProfileEditor({ profile: profile.profile, canonicalContent: profile.canonical_content, draftCreatedInThisFlow: false })} />}
-    {profilePublishWarnings.length > 0 && <div className="notice research-queued-notice" role="status"><strong>Profile published with warnings</strong><ul>{profilePublishWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="text-button" onClick={() => setProfilePublishWarnings([])}>Dismiss</button></div>}
+    {profilePublishWarnings.length > 0 && <div className="notice research-queued-notice" role="status"><strong>研究方向 published with warnings</strong><ul>{profilePublishWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="text-button" onClick={() => setProfilePublishWarnings([])}>忽略</button></div>}
     {searchQueued && <div className="notice research-queued-notice" role="status"><strong>检索请求已提交。</strong><span>可在研究方向中查看真实执行状态。</span><button className="text-button" onClick={() => setSearchQueued(false)}>关闭提示</button></div>}
-    {restoreNotice && <div className="notice research-queued-notice" role="status"><strong>已恢复到 Inbox。</strong><button className="button button-secondary" onClick={() => changeTab("new")}>View Inbox</button></div>}
+    {restoreNotice && <div className="notice research-queued-notice" role="status"><strong>已恢复到待看论文。</strong><button className="button button-secondary" onClick={() => changeTab("new")}>查看待看论文</button></div>}
 
     <section className="surface research-inbox-section">
-      <div className="research-inbox-heading"><div><p className="eyebrow">RESEARCH INBOX</p><h2>Discoveries</h2><p>先看清它是什么、为什么推荐，以及它和现有知识的关系。</p></div><div className="research-tab-list" role="tablist" aria-label="Research sections">{tabs.map((item) => <button key={item.id} role="tab" aria-selected={tab === item.id} className={tab === item.id ? "active" : ""} onClick={() => changeTab(item.id)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}</button>)}</div></div>
+      <div className="research-inbox-heading"><div><p className="eyebrow">待看论文</p><h2>论文发现</h2><p>先看清它是什么、为什么推荐，以及它和现有知识的关系。</p></div><div className="research-tab-list" role="tablist" aria-label="论文推荐 sections">{tabs.map((item) => <button key={item.id} role="tab" aria-selected={tab === item.id} className={tab === item.id ? "active" : ""} onClick={() => changeTab(item.id)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}</button>)}</div></div>
       {tab !== "runs" && <>
         <div className="research-filter-bar">
-          {tab === "history" && <label className="field-label">History<select value={historyStatus} onChange={(event) => changeFilter(() => setHistoryStatus(event.target.value as HistoryStatus))}>{HISTORY_STATUSES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
-          <label className="field-label">Research Focus<select value={lensFilter} onChange={(event) => changeFilter(() => setLensFilter(event.target.value))}><option value="">All Focuses</option>{profile?.profile.id === selectedProfileId && profile.profile.lenses.map((lens) => <option key={lens.id} value={lens.id}>{lens.title}</option>)}</select></label>
-          <label className="field-label">Sort<select value={sort} onChange={(event) => changeFilter(() => setSort(event.target.value as ResearchSort))}><option value="recommended">Recommended</option><option value="newest">Newest</option><option value="most_relevant">Most relevant</option><option value="most_novel">Most novel to library</option></select></label>
-          <span className="research-result-count">{candidateCount} {tab === "new" ? "new candidates" : tab === "shortlisted" ? "shortlisted" : "in history"}</span>
+          {tab === "history" && <label className="field-label">处理记录<select value={historyStatus} onChange={(event) => changeFilter(() => setHistoryStatus(event.target.value as HistoryStatus))}>{HISTORY_STATUSES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
+          <label className="field-label">检索主题<select value={lensFilter} onChange={(event) => changeFilter(() => setLensFilter(event.target.value))}><option value="">所有检索主题</option>{profile?.profile.id === selectedProfileId && profile.profile.lenses.map((lens) => <option key={lens.id} value={lens.id}>{lens.title}</option>)}</select></label>
+          <label className="field-label">排序<select value={sort} onChange={(event) => changeFilter(() => setSort(event.target.value as ResearchSort))}><option value="recommended">推荐顺序</option><option value="newest">最新</option><option value="most_relevant">相关性最高</option><option value="most_novel">新颖性最高</option></select></label>
+          <span className="research-result-count">{candidateCount} {tab === "new" ? "篇待看论文" : tab === "shortlisted" ? "篇稍后阅读" : "条处理记录"}</span>
         </div>
-        {tab !== "history" && (tab === "new" || tab === "shortlisted") && items.length > 0 && <div className="research-batch-toolbar"><label><input type="checkbox" checked={items.length > 0 && items.every((item) => selectedCandidates.includes(item.candidate.id))} onChange={(event) => setSelectedCandidates(event.target.checked ? items.map((item) => item.candidate.id) : [])} /> Select visible</label><span>{selectedCandidates.length} selected</span><div>{selectedCandidates.length > 0 && <>{tab === "new" && <button className="button button-secondary" disabled={actionBusy} onClick={() => setShortlistTargets(selectedCandidates)}>Shortlist selected</button>}<button className="button button-quiet" disabled={actionBusy} onClick={() => setDismissTargets(selectedCandidates)}>Dismiss selected</button></>}</div></div>}
+        {tab !== "history" && (tab === "new" || tab === "shortlisted") && items.length > 0 && <div className="research-batch-toolbar"><label><input type="checkbox" checked={items.length > 0 && items.every((item) => selectedCandidates.includes(item.candidate.id))} onChange={(event) => setSelectedCandidates(event.target.checked ? items.map((item) => item.candidate.id) : [])} /> 选择当前显示的论文</label><span>已选 {selectedCandidates.length} 项</span><div>{selectedCandidates.length > 0 && <>{tab === "new" && <button className="button button-secondary" disabled={actionBusy} onClick={() => setShortlistTargets(selectedCandidates)}>稍后阅读所选论文</button>}<button className="button button-quiet" disabled={actionBusy} onClick={() => setDismissTargets(selectedCandidates)}>忽略所选论文</button></>}</div></div>}
         {actionError && <p className="error-copy research-inline-error" role="alert">{actionError}</p>}
         {candidateError && <ErrorState message={candidateError} retry={refresh} />}
-        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={(language, onLanguageChange) => { setActionError(""); setDetailLanguage(language); detailLanguageUpdater.current = onLanguageChange; setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => void dismiss([item.candidate.id])} onRestore={() => void restoreCandidate(item.candidate.id)} onCreateNote={() => void beginCreateNote(item)} onReviewTerms={() => navigate("/terms?tab=candidates")} onApprove={() => approveSource(item.candidate.id)} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "No new candidates" : tab === "shortlisted" ? "No shortlisted candidates" : `No ${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label.toLowerCase()} items`}</strong><p>{tab === "new" ? "Run Search Now or wait for the scheduled discovery. Inbox capacity pauses discovery when full." : tab === "shortlisted" ? "Shortlisted papers will stay here while you review them." : "Processed candidates are kept in History for reference."}</p></div>}
-        {items.length > 0 && items.length < candidateCount && <div className="research-load-more"><button className="button button-secondary" disabled={candidateLoading} onClick={() => setOffset(items.length)}>{candidateLoading ? "Loading…" : "Load more"}</button></div>}
+        {candidateLoading && items.length === 0 ? <LoadingState label="正在读取候选内容…" /> : items.length && profile?.profile.id === selectedProfileId ? <div className="research-candidate-list">{items.map((item) => <ResearchCandidateCard key={item.candidate.id} item={item} profile={profile.profile} selected={selectedCandidates.includes(item.candidate.id)} selectable={tab === "new" || tab === "shortlisted"} busy={actionBusy} onSelect={(checked) => toggleSelected(item.candidate.id, checked)} onDetails={(language, onLanguageChange) => { setActionError(""); setDetailLanguage(language); detailLanguageUpdater.current = onLanguageChange; setDetailId(item.candidate.id); }} onShortlist={() => void shortlist([item.candidate.id])} onDismiss={() => void dismiss([item.candidate.id])} onRestore={() => void restoreCandidate(item.candidate.id)} onCreateNote={() => void beginCreateNote(item)} onReviewTerms={() => navigate("/terms?tab=candidates")} onApprove={() => approveSource(item.candidate.id)} />)}</div> : !candidateError && !items.length && <div className="empty-state"><span className="empty-mark">⌕</span><strong>{tab === "new" ? "暂无新推荐" : tab === "shortlisted" ? "暂无稍后阅读的论文" : `暂无${HISTORY_STATUSES.find((item) => item.id === historyStatus)?.label}记录`}</strong><p>{tab === "new" ? "点击立即检索查找论文；自动发现需启用定时任务。待看论文满额时，先处理已有推荐。" : tab === "shortlisted" ? "稍后阅读的论文保留在这里，方便继续处理。" : "处理过的论文保留在记录中，方便查询。"}</p></div>}
+        {items.length > 0 && items.length < candidateCount && <div className="research-load-more"><button className="button button-secondary" disabled={candidateLoading} onClick={() => setOffset(items.length)}>{candidateLoading ? "正在读取…" : "加载更多"}</button></div>}
       </>}
       {tab === "runs" && <>
         {candidateError && <ErrorState message={candidateError} retry={refresh} />}
@@ -460,7 +460,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
       </>}
     </section>
 
-    {detailId && (detailLoading ? <div className="research-drawer-overlay"><aside className="research-drawer" role="dialog" aria-modal="true"><LoadingState label="正在载入 Candidate provenance…" /><button className="button button-secondary" onClick={() => setDetailId("")}>Close</button></aside></div> : candidateDetail && profile && <ResearchCandidateDrawer detail={candidateDetail} profile={profile.profile} language={detailLanguage} onLanguageChange={(language) => { setDetailLanguage(language); detailLanguageUpdater.current(language); }} noteBusy={actionBusy} noteError={actionError} onSaveSource={() => void saveSource(candidateDetail.candidate.id)} onSaveNote={(note) => void updateCandidateNote(note)} onReviewTerms={() => navigate("/terms?tab=candidates")} onClose={() => { setDetailId(""); setCandidateDetail(null); detailLanguageUpdater.current = () => undefined; }} onOpenEntity={(path) => { setDetailId(""); detailLanguageUpdater.current = () => undefined; navigate(path); }} />)}
+    {detailId && (detailLoading ? <div className="research-drawer-overlay"><aside className="research-drawer" role="dialog" aria-modal="true"><LoadingState label="正在载入 Candidate provenance…" /><button className="button button-secondary" onClick={() => setDetailId("")}>关闭</button></aside></div> : candidateDetail && profile && <ResearchCandidateDrawer detail={candidateDetail} profile={profile.profile} language={detailLanguage} onLanguageChange={(language) => { setDetailLanguage(language); detailLanguageUpdater.current(language); }} noteBusy={actionBusy} noteError={actionError} onSaveSource={() => void saveSource(candidateDetail.candidate.id)} onSaveNote={(note) => void updateCandidateNote(note)} onReviewTerms={() => navigate("/terms?tab=candidates")} onClose={() => { setDetailId(""); setCandidateDetail(null); detailLanguageUpdater.current = () => undefined; }} onOpenEntity={(path) => { setDetailId(""); detailLanguageUpdater.current = () => undefined; navigate(path); }} />)}
     {runDetail && <ResearchRunDrawer run={runDetail} onClose={() => setRunDetail(null)} />}
     {dismissTargets && <ResearchDismissDialog count={dismissTargets.length} busy={actionBusy} onClose={() => setDismissTargets(null)} onSubmit={(reason, note) => void dismiss(dismissTargets, reason, note)} />}
     {shortlistTargets && <ResearchShortlistDialog count={shortlistTargets.length} busy={actionBusy} error={actionError} onClose={() => setShortlistTargets(null)} onSubmit={(note) => void shortlist(shortlistTargets, note)} />}

@@ -39,6 +39,7 @@ describe("Knowledge Dashboard", () => {
     api.listResearchProfiles.mockResolvedValue([{
       id: "profile-one",
       enabled: true,
+      enabled_lens_ids: ["main"],
       paused_until: null,
       inbox: { new_count: 3, capacity: 5, remaining: 2 },
       latest_run: { status: "success", started_at: "2026-10-07T07:00:00Z", surfaced_count: 2 },
@@ -64,7 +65,7 @@ describe("Knowledge Dashboard", () => {
         },
         items: [
           { lane: "concept", outcome: "created", mention: "Historical Core Gap", assessment: { recommendation_level: "core_gap" } },
-          { lane: "entity", outcome: "duplicate", mention: "Other Term", assessment: { recommendation_level: "next" } },
+          { lane: "entity", outcome: "duplicate", mention: "Other 术语", assessment: { recommendation_level: "next" } },
         ],
       },
     });
@@ -74,11 +75,27 @@ describe("Knowledge Dashboard", () => {
     api.listUsage.mockResolvedValue([]);
   });
 
+  it("puts actionable term and paper entries before details and allows manual search while paused", async () => {
+    const profiles = await api.listResearchProfiles();
+    api.listResearchProfiles.mockResolvedValue([{ ...profiles[0], paused_until: "2099-01-01T00:00:00Z" }]);
+    const navigate = vi.fn();
+    render(<HomePage onOpen={vi.fn()} navigate={navigate} />);
+    const tasks = await screen.findByRole("navigation", { name: "常用任务" });
+    const details = screen.getByText("学习与运行详情").closest("details");
+    expect(details?.open).toBe(false);
+    await userEvent.click(within(tasks).getByRole("button", { name: "查看术语库" }));
+    expect(navigate).toHaveBeenLastCalledWith("/terms");
+    await userEvent.click(within(tasks).getByRole("button", { name: "发现术语" }));
+    expect(navigate).toHaveBeenLastCalledWith("/terms?tab=discovery");
+    await userEvent.click(screen.getByRole("button", { name: "立即查找论文" }));
+    await waitFor(() => expect(api.queueResearchRun).toHaveBeenCalledWith("profile-one", expect.objectContaining({ lenses: ["main"] })));
+  });
+
   it("places up to three evidence-backed suggestions before workload and queues the next search", async () => {
     const profiles = await api.listResearchProfiles();
     api.listResearchProfiles.mockResolvedValue([{ ...profiles[0], enabled_lens_ids: ["focus"] }]);
     api.listResearchCandidates.mockResolvedValue({ candidates: [1, 2, 3].map((number) => ({ candidate: { id: `paper-${number}`, review_overrides: {} }, work: { id: `work-${number}`, title: `Paper ${number}` }, analysis: { readiness: "high", why_relevant_zh: `Reason ${number}`, existing_relations: [] } })) });
-    api.listTermCandidates.mockResolvedValue([{ id: "term", display_name: "Replay", evidence: [{ origin_rejected: false, context_excerpt: "Replay retains examples.", rationale: "Connects to the reviewed Note.", origin_id: "note", origin_title: "Approved Note" }], discovery_assessment: { why_now: "Next concept" } }]);
+    api.listTermCandidates.mockResolvedValue([{ id: "term", display_name: "Replay", evidence: [{ origin_rejected: false, context_excerpt: "Replay retains examples.", rationale: "Connects to the reviewed 笔记.", origin_id: "note", origin_title: "Approved 笔记" }], discovery_assessment: { why_now: "Next concept" } }]);
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
     const featured = await screen.findByRole("region", { name: "下一步值得了解" });
     await waitFor(() => expect(featured.querySelectorAll("article").length).toBe(3));
@@ -87,13 +104,13 @@ describe("Knowledge Dashboard", () => {
     expect(within(featured).queryByRole("button", { name: "展开完整理由" })).toBeNull();
     const workload = screen.getByRole("region", { name: "现在有什么要处理？" });
     expect(featured.compareDocumentPosition(workload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "寻找下一步" }));
+    await userEvent.click(screen.getByRole("button", { name: "立即查找论文" }));
     await waitFor(() => expect(api.queueResearchRun).toHaveBeenCalledWith("profile-one", { lenses: ["focus"], date_range: { mode: "incremental" } }));
   });
 
   it("expands and collapses long Markdown rationales in one rendered view", async () => {
     const longPaperReason = `**Paper rationale** ${"The paper fits the selected knowledge and has a distinct method. ".repeat(6)}`;
-    const longTermReason = `Builds on **known Terms** ${"The source passage explains why this concept matters. ".repeat(5)}`;
+    const longTermReason = `Builds on **known 术语** ${"The source passage explains why this concept matters. ".repeat(5)}`;
     api.listResearchCandidates.mockResolvedValue({ candidates: [{
       candidate: { id: "paper-markdown", review_overrides: {} },
       work: { id: "work-markdown", title: "Markdown Paper" },
@@ -102,13 +119,13 @@ describe("Knowledge Dashboard", () => {
     api.listTermCandidates.mockResolvedValue([
       {
         id: "term-why-now",
-        display_name: "Term with timing",
+        display_name: "术语 with timing",
         evidence: [{ origin_rejected: false, context_excerpt: "Reviewed passage.", rationale: "Fallback **evidence rationale**", origin_id: "note-one" }],
         discovery_assessment: { why_now: longTermReason },
       },
       {
         id: "term-evidence",
-        display_name: "Term with evidence",
+        display_name: "术语 with evidence",
         evidence: [{ origin_rejected: false, context_excerpt: "Another reviewed passage.", rationale: "Grounded in **reviewed evidence**", origin_id: "note-two" }],
         discovery_assessment: { why_now: `Grounded in **reviewed evidence** ${"The original passage supports this recommendation. ".repeat(5)}` },
       },
@@ -204,14 +221,14 @@ describe("Knowledge Dashboard", () => {
 
     render(<HomePage onOpen={vi.fn()} navigate={navigate} />);
     const featured = await screen.findByRole("region", { name: "下一步值得了解" });
-    const findButton = within(featured).getByRole("button", { name: "寻找下一步" });
+    const findButton = within(featured).getByRole("button", { name: "立即查找论文" });
     await user.click(findButton);
-    const loadingButton = await within(featured).findByRole("button", { name: "正在加入队列…" });
+    const loadingButton = await within(featured).findByRole("button", { name: "正在提交检索…" });
     expect((loadingButton as HTMLButtonElement).disabled).toBe(true);
     await act(async () => resolveQueue({ request_id: "queued", status: "pending" }));
-    expect(within(featured).getByRole("status").textContent).toContain("已加入研究队列");
+    expect(within(featured).getByRole("status").textContent).toContain("检索请求已提交");
 
-    await user.click(within(featured).getByRole("button", { name: "寻找下一步" }));
+    await user.click(within(featured).getByRole("button", { name: "立即查找论文" }));
     expect(await within(featured).findByRole("alert")).toBeTruthy();
     expect(within(featured).getByRole("alert").textContent).toContain("queue unavailable");
 
@@ -234,16 +251,18 @@ describe("Knowledge Dashboard", () => {
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     expect(await screen.findByText("2 / 8")).not.toBeNull();
-    expect(screen.getByText("Term Drafts")).not.toBeNull();
-    expect(within(screen.getByRole("button", { name: /Term Drafts/ })).getByText("1")).not.toBeNull();
+    await userEvent.click(screen.getByText("其他待处理事项"));
+    await userEvent.click(screen.getByText("学习与运行详情"));
+    expect(screen.getByText("编辑中的术语")).not.toBeNull();
+    expect(within(screen.getByRole("button", { name: /编辑中的术语/ })).getByText("1")).not.toBeNull();
     expect(screen.getByText("3 / 5")).not.toBeNull();
     expect(screen.getByText("Vision models")).not.toBeNull();
     expect(screen.getByText("Transformers")).not.toBeNull();
     expect(screen.getByText("Diffusion")).not.toBeNull();
     expect(screen.getByText("Attention Routing")).not.toBeNull();
     expect(screen.queryByText("Historical Core Gap")).toBeNull();
-    expect(screen.getByText("Concept Discovery")).not.toBeNull();
-    const researchButton = await screen.findByRole("button", { name: "Research" });
+    expect(screen.getByText("概念发现")).not.toBeNull();
+    const researchButton = await screen.findByRole("button", { name: "论文推荐" });
     const researchRow = researchButton.parentElement;
     expect(researchRow).not.toBeNull();
     expect(within(researchRow as HTMLElement).getByText("ready")).not.toBeNull();
@@ -263,7 +282,7 @@ describe("Knowledge Dashboard", () => {
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     expect(await screen.findByText("2 / 8")).not.toBeNull();
-    expect(screen.getByRole("heading", { name: "Learning Context" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "学习信息" })).not.toBeNull();
     expect(screen.getByText("加载中…")).not.toBeNull();
     await act(async () => resolveRecent([]));
   });
@@ -273,16 +292,16 @@ describe("Knowledge Dashboard", () => {
     const user = userEvent.setup();
     render(<HomePage onOpen={vi.fn()} navigate={navigate} />);
 
-    await user.click(await screen.findByRole("button", { name: "Review Terms" }));
-    await user.click(screen.getByRole("button", { name: "Open Research" }));
-    await user.click(screen.getByRole("button", { name: /Pending Imports/ }));
+    await user.click(await screen.findByRole("button", { name: "审阅术语" }));
+    await user.click(screen.getByRole("button", { name: "打开论文推荐" }));
+    await user.click(screen.getByRole("button", { name: /待检查导入/ }));
 
     expect(navigate).toHaveBeenNthCalledWith(1, "/terms?tab=candidates");
     expect(navigate).toHaveBeenNthCalledWith(2, "/research");
     expect(navigate).toHaveBeenNthCalledWith(3, "/library?tab=import");
   });
 
-  it("does not present exposed or unknown Terms as Core Gaps", async () => {
+  it("does not present exposed or unknown 术语 as 待补充知识", async () => {
     api.listTermCandidates.mockResolvedValueOnce([]);
     api.getTermDiscoveryState.mockResolvedValueOnce({
       settings: { enabled_lanes: ["concept", "entity", "vocabulary"], focus_override: null },
@@ -299,8 +318,8 @@ describe("Knowledge Dashboard", () => {
           knowledge: {
             established: [],
             learning: [],
-            exposed: [{ title: "Exposed Term" }],
-            unknown: [{ title: "Unknown Term" }],
+            exposed: [{ title: "Exposed 术语" }],
+            unknown: [{ title: "Unknown 术语" }],
           },
         },
         items: [
@@ -311,15 +330,15 @@ describe("Knowledge Dashboard", () => {
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     expect(await screen.findByText("当前没有待审阅的 Core Gap。")).not.toBeNull();
-    const coreGaps = screen.getByRole("heading", { name: "Core Gaps" }).parentElement;
+    const coreGaps = screen.getByRole("heading", { name: "待补充知识" }).parentElement;
     expect(coreGaps).not.toBeNull();
     expect(within(coreGaps as HTMLElement).getByText("当前没有待审阅的 Core Gap。")).not.toBeNull();
-    expect(screen.queryByText("Exposed Term")).toBeNull();
-    expect(screen.queryByText("Unknown Term")).toBeNull();
+    expect(screen.queryByText("Exposed 术语")).toBeNull();
+    expect(screen.queryByText("Unknown 术语")).toBeNull();
     expect(screen.queryByText("Old Core Gap")).toBeNull();
   });
 
-  it("shows Research as paused when every configured profile is disabled", async () => {
+  it("shows 论文推荐 as paused when every configured profile is disabled", async () => {
     api.listResearchProfiles.mockResolvedValueOnce([{
       id: "profile-one",
       enabled: false,
@@ -330,13 +349,13 @@ describe("Knowledge Dashboard", () => {
 
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
-    const researchButton = await screen.findByRole("button", { name: "Research" });
+    const researchButton = await screen.findByRole("button", { name: "论文推荐" });
     const researchRow = researchButton.parentElement;
     expect(researchRow).not.toBeNull();
     expect(await within(researchRow as HTMLElement).findByText("paused")).not.toBeNull();
   });
 
-  it("shows Research as paused when all active profile inboxes are full", async () => {
+  it("shows 论文推荐 as paused when all active profile inboxes are full", async () => {
     api.listResearchProfiles.mockResolvedValueOnce([{
       id: "profile-one",
       enabled: true,
@@ -347,10 +366,10 @@ describe("Knowledge Dashboard", () => {
 
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
-    expect(await screen.findByText("paused · Inbox full")).not.toBeNull();
+    expect(await screen.findByText("paused · 待看论文 full")).not.toBeNull();
   });
 
-  it("uses the effective Focus stored in the Discovery run", async () => {
+  it("uses the effective 检索主题 stored in the 发现术语 run", async () => {
     api.getTermDiscoveryState.mockResolvedValueOnce({
       settings: { enabled_lanes: ["concept"], focus_override: "Current override" },
       open_count: 0,
@@ -378,7 +397,7 @@ describe("Knowledge Dashboard", () => {
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     await screen.findByText("iCaRL");
-    const focus = screen.getByRole("heading", { name: "Current Focus" }).parentElement;
+    const focus = screen.getByRole("heading", { name: "当前学习方向" }).parentElement;
     expect(within(focus as HTMLElement).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "iCaRL",
       "Herding",
@@ -387,7 +406,7 @@ describe("Knowledge Dashboard", () => {
     expect(screen.queryByText("Current override")).toBeNull();
   });
 
-  it("reconstructs legacy Focus from override, recent context, then explicit profile", async () => {
+  it("reconstructs legacy 检索主题 from override, recent context, then explicit profile", async () => {
     api.getTermDiscoveryState.mockResolvedValueOnce({
       settings: { enabled_lanes: ["concept"], focus_override: "Current override" },
       open_count: 0,
@@ -414,7 +433,7 @@ describe("Knowledge Dashboard", () => {
     render(<HomePage onOpen={vi.fn()} navigate={vi.fn()} />);
 
     await screen.findByText("iCaRL");
-    const focus = screen.getByRole("heading", { name: "Current Focus" }).parentElement;
+    const focus = screen.getByRole("heading", { name: "当前学习方向" }).parentElement;
     expect(within(focus as HTMLElement).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "Current override",
       "iCaRL",

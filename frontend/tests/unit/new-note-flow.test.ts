@@ -9,7 +9,7 @@ test("new note IDs use a canonical title prefix and unique lowercase suffix", ()
   assert.throws(() => makeDocumentId("A note", "---"), /unique suffix/);
 });
 
-test("new note workspace route retains its Collection batch-publish context", () => {
+test("new note workspace route retains its 专题 batch-publish context", () => {
   assert.equal(
     newNoteWorkspacePath("graph-note", "learning/path"),
     "/documents/graph-note?collection=learning%2Fpath&publishAll=1",

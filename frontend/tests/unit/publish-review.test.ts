@@ -3,7 +3,7 @@ import { test } from "vitest";
 
 import { countChangedMarkdownBlocks, createLineDiff, summarizePublishChanges } from "../../src/publishReview";
 
-function reviewItem({ type = "document", before, after, label = "Document" }) {
+function reviewItem({ type = "document", before, after, label = "笔记" }) {
   return {
     label,
     entityType: type,
@@ -22,33 +22,33 @@ test("counts inserted and removed Markdown blocks without recounting moved conte
 });
 
 test("summarizes changed metadata fields and Markdown blocks", () => {
-  const before = "---\ntitle: Note\ntags: [old]\n---\n\nBefore.";
-  const after = "---\ntitle: Note\ntags: [new]\n---\n\nAfter.";
+  const before = "---\ntitle: 笔记\ntags: [old]\n---\n\nBefore.";
+  const after = "---\ntitle: 笔记\ntags: [new]\n---\n\nAfter.";
   const summary = summarizePublishChanges([reviewItem({ before, after })]);
   assert.equal(summary.changedBlockCount, 1);
-  assert.deepEqual(summary.metadataByTarget, [{ label: "Document", fields: ["标签"] }]);
+  assert.deepEqual(summary.metadataByTarget, [{ label: "笔记", fields: ["标签"] }]);
   assert.equal(summary.collectionUpdated, false);
 });
 
-test("reports metadata for a new Document whose Canonical file does not exist yet", () => {
+test("reports metadata for a new 笔记 whose 正式版本 file does not exist yet", () => {
   const summary = summarizePublishChanges([reviewItem({
     before: "",
-    after: "---\ntitle: New note\ntags: [study]\n---\n\nBody.",
+    after: "---\ntitle: 新建笔记\ntags: [study]\n---\n\nBody.",
   })]);
-  assert.deepEqual(summary.metadataByTarget, [{ label: "Document", fields: ["标签", "标题"] }]);
+  assert.deepEqual(summary.metadataByTarget, [{ label: "笔记", fields: ["标签", "标题"] }]);
   assert.equal(summary.changedBlockCount, 1);
 });
 
-test("reports Collection updates in a batch summary", () => {
-  const item = reviewItem({ type: "collection", label: "Collection", before: "title: Old\n", after: "title: New\n" });
+test("reports 专题 updates in a batch summary", () => {
+  const item = reviewItem({ type: "collection", label: "专题", before: "title: Old\n", after: "title: New\n" });
   const summary = summarizePublishChanges([item]);
   assert.equal(summary.collectionUpdated, true);
   assert.deepEqual(summary.metadataByTarget, []);
-  assert.deepEqual(summary.collectionChangesByTarget, [{ label: "Collection", fields: ["标题"] }]);
+  assert.deepEqual(summary.collectionChangesByTarget, [{ label: "专题", fields: ["标题"] }]);
   assert.equal(summarizePublishChanges([reviewItem({ type: "collection", before: "title: Same\n", after: "title: Same\n" })]).collectionUpdated, false);
 });
 
-test("summarizes Collection metadata, Section, and Entity reference changes for review", () => {
+test("summarizes 专题 metadata, 分组, and Entity reference changes for review", () => {
   const before = [
     "schema_version: 1",
     "id: study-path",
@@ -59,7 +59,7 @@ test("summarizes Collection metadata, Section, and Entity reference changes for 
     "nodes:",
     "  - id: section-notes",
     "    kind: section",
-    "    title: Notes",
+    "    title: 笔记",
     "    children:",
     "      - id: reference-one",
     "        kind: entity",
@@ -84,7 +84,7 @@ test("summarizes Collection metadata, Section, and Entity reference changes for 
     "        entity_id: note-two",
     "  - id: section-notes",
     "    kind: section",
-    "    title: Notes",
+    "    title: 笔记",
     "    children: []",
   ].join("\n") + "\n";
   const summary = summarizePublishChanges([reviewItem({ type: "collection", label: "Study Path", before, after })]);

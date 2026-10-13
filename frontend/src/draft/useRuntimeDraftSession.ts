@@ -181,7 +181,7 @@ export function useRuntimeDraftSession({
     setIsDirty(contentRef.current !== latest.content);
     setRuntimeConflict(conflict);
     setState("runtime-conflict");
-    setError("Runtime Draft 已在另一个会话中更新。本地修改已保留；请载入最新 Draft、保留本地内容或手动合并。");
+    setError("已保存的修改已在另一个会话中更新。本地修改已保留；请载入最新未发布修改、保留本地内容或手动合并。");
   }, []);
 
   const saveNow = useCallback(async (): Promise<Draft | null> => {
@@ -191,10 +191,10 @@ export function useRuntimeDraftSession({
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
     if (state === "loading" && loadStageRef.current !== "ready") {
-      throw new Error("Runtime Draft 尚未载入。");
+      throw new Error("已保存的修改尚未载入。");
     }
     if (runtimeConflictRef.current) {
-      throw Object.assign(new Error("Draft 与本地未保存内容冲突，请先重新载入或手动合并。"), { status: 409 });
+      throw Object.assign(new Error("未发布修改与本地未保存内容冲突，请先重新载入或手动合并。"), { status: 409 });
     }
     if (savePromiseRef.current) {
       await savePromiseRef.current;
@@ -219,8 +219,8 @@ export function useRuntimeDraftSession({
       if (isDraftAcquireResult(result) && !result.created && saved.content !== snapshot) {
         await captureRuntimeConflict(saved.id, contentRef.current, activeGeneration, saved);
         if (!isActive()) return null;
-        setError("另一个标签页已为此内容创建 Draft。当前本地修改尚未保存；请载入已保存 Draft 或手动合并。");
-        throw Object.assign(new Error("另一个会话已为此内容创建了不同的 Draft；本地修改仍保留。"), { status: 409 });
+        setError("另一个标签页已为此内容创建未发布修改。当前本地修改尚未保存；请载入已保存未发布修改或手动合并。");
+        throw Object.assign(new Error("另一个会话已为此内容创建了不同的未发布修改；本地修改仍保留。"), { status: 409 });
       }
       draftRef.current = saved;
       setDraft(saved);
@@ -241,7 +241,7 @@ export function useRuntimeDraftSession({
         } catch (refreshError) {
           if (!isActive()) return null;
           setState("error");
-          setError(`Runtime Draft 已发生版本冲突，载入最新内容失败：${errorMessage(refreshError)}`);
+          setError(`已保存的修改已发生版本冲突，载入最新内容失败：${errorMessage(refreshError)}`);
         }
       } else if (!runtimeConflictRef.current) {
         setState("unsaved");
@@ -285,24 +285,24 @@ export function useRuntimeDraftSession({
 
   const acquireDraft = useCallback(async (): Promise<Draft> => {
     const activeGeneration = generationRef.current;
-    if (!enabled || identityRef.current !== identity) throw new Error("Runtime Draft session 已结束。");
+    if (!enabled || identityRef.current !== identity) throw new Error("编辑会话已结束。");
     const saved = await saveNow();
     if (generationRef.current !== activeGeneration) {
-      throw new Error("Runtime Draft session 已切换到其他 Entity。");
+      throw new Error("编辑会话已切换到其他 Entity。");
     }
     if (saved) return saved;
     const snapshot = contentRef.current;
     const result = await createDraft(entityType, entityId, snapshot);
     if (generationRef.current !== activeGeneration) {
-      throw new Error("Runtime Draft session 已切换到其他 Entity。");
+      throw new Error("编辑会话已切换到其他 Entity。");
     }
     if (!result.created && result.draft.content !== snapshot) {
       await captureRuntimeConflict(result.draft.id, snapshot, activeGeneration, result.draft);
       if (generationRef.current !== activeGeneration) {
-        throw new Error("Runtime Draft session 已切换到其他 Entity。");
+        throw new Error("编辑会话已切换到其他 Entity。");
       }
-      setError("另一个标签页已为此内容创建 Draft。当前本地修改尚未保存；请载入已保存 Draft 或手动合并。");
-      throw Object.assign(new Error("Draft 内容冲突。"), { status: 409 });
+      setError("另一个标签页已为此内容创建未发布修改。当前本地修改尚未保存；请载入已保存未发布修改或手动合并。");
+      throw Object.assign(new Error("未发布修改内容冲突。"), { status: 409 });
     }
     installDraft(result.draft, activeGeneration);
     return result.draft;
@@ -311,10 +311,10 @@ export function useRuntimeDraftSession({
   const discard = useCallback(async () => {
     if (!enabled || identityRef.current !== identity) return;
     if (savePromiseRef.current) {
-      throw new Error("请等待 Draft 保存完成后再丢弃。请等待保存完成或先处理冲突。");
+      throw new Error("请等待未发布修改保存完成后再丢弃。请等待保存完成或先处理冲突。");
     }
     if (runtimeConflictRef.current) {
-      throw new Error("请先处理 Runtime Draft 冲突，再丢弃 Draft。");
+      throw new Error("请先处理已保存的修改冲突，再丢弃未发布修改。");
     }
     const activeGeneration = generationRef.current;
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -339,7 +339,7 @@ export function useRuntimeDraftSession({
   const updateLatestDraft = useCallback(async (value: string): Promise<Draft> => {
     const activeGeneration = generationRef.current;
     const conflict = runtimeConflictRef.current;
-    if (!conflict || identityRef.current !== identity) throw new Error("没有待解决的 Runtime Draft 冲突。");
+    if (!conflict || identityRef.current !== identity) throw new Error("没有待解决的已保存的修改冲突。");
     try {
       const updated = await updateDraft(
         conflict.existingDraft.id,
@@ -347,7 +347,7 @@ export function useRuntimeDraftSession({
         conflict.existingDraft.revision,
       );
       if (generationRef.current !== activeGeneration) {
-        throw new Error("Runtime Draft session 已切换到其他 Entity。");
+        throw new Error("编辑会话已切换到其他 Entity。");
       }
       draftRef.current = updated;
       contentRef.current = updated.content;
@@ -365,7 +365,7 @@ export function useRuntimeDraftSession({
       if ((reason as ApiError)?.code === "draft_revision_conflict") {
         await captureRuntimeConflict(conflict.existingDraft.id, value, activeGeneration);
         if (generationRef.current !== activeGeneration) throw reason;
-        setError("Draft 已在另一个会话中更新；合并内容没有覆盖新版本。请检查最新 Draft 后再次保存。");
+        setError("未发布修改已在另一个会话中更新；合并内容没有覆盖新版本。请检查最新未发布修改后再次保存。");
       } else {
         setError(errorMessage(reason));
       }

@@ -109,7 +109,7 @@ test("keeps the request text after failure and exposes the error beside the acti
   expect(screen.getByText("重写失败；输入仍保留，可检查错误后重试。")).toBeTruthy();
 });
 
-test("adopts or rejects only the Proposal and leaves publishing to Workspace", async () => {
+test("adopts or rejects only the AI 建议 and leaves publishing to 查看或编辑", async () => {
   const workspace = makeWorkspace();
   api.requestTermRewrite.mockResolvedValue({ proposal: makeProposal(), external_provider_notice: "sent" });
   const view = render(<TermLanguageCard body={body} workspace={workspace} navigate={vi.fn()} disabled={false} />);

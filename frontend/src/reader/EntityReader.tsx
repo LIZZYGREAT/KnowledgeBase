@@ -80,11 +80,11 @@ export function EntityPage({
   const discardBlocked = workspaceDraft.saveState === "saving" || hasDraftConflict;
   const saveStateLabel = workspaceDraft.saveState === "clean" ? "正式版"
     : workspaceDraft.saveState === "unsaved" ? "有未保存修改"
-      : workspaceDraft.saveState === "saving" ? "正在保存 Draft…"
-        : workspaceDraft.saveState === "saved" ? workspaceDraft.draft ? "Draft 已保存 · 尚未发布" : "已发布"
-          : workspaceDraft.saveState === "loading" ? "正在载入 Draft…"
-            : workspaceDraft.saveState === "error" ? "Draft 状态出错"
-              : "Draft 冲突";
+      : workspaceDraft.saveState === "saving" ? "正在保存未发布修改…"
+        : workspaceDraft.saveState === "saved" ? workspaceDraft.draft ? "未发布修改已保存 · 尚未发布" : "已发布"
+          : workspaceDraft.saveState === "loading" ? "正在载入未发布修改…"
+            : workspaceDraft.saveState === "error" ? "未发布修改状态出错"
+              : "未发布修改冲突";
   const documentBody = type === "source" ? "" : workspaceEnvelope.body;
   const annotationsMatchCanonical = Boolean(canonicalEntity) && documentBody === (canonicalEntity?.content ?? "");
   const headings = markdownHeadings(documentBody);
@@ -108,7 +108,7 @@ export function EntityPage({
         labels: new Set<string>(),
         details: new Set<string>(),
       };
-      item.labels.add(relation.entity_type === "source" ? "Accepted Source relation" : "Accepted detection");
+      item.labels.add(relation.entity_type === "source" ? "Accepted 文献 relation" : "Accepted detection");
       byEntity.set(key, item);
     }
     for (const backlink of currentEntity.backlinks) {
@@ -195,7 +195,7 @@ export function EntityPage({
   }, [documentBody, type]);
   if (workspaceDraft.loading) return <LoadingState />;
   if (workspaceDraft.loadError) return <ErrorState message={workspaceDraft.loadError} retry={workspaceDraft.retryCanonicalEntity} />;
-  if (!currentEntity) return <ErrorState message="无法载入 Canonical Entity。" retry={workspaceDraft.retryCanonicalEntity} />;
+  if (!currentEntity) return <ErrorState message="无法载入正式版本 Entity。" retry={workspaceDraft.retryCanonicalEntity} />;
   const entity = currentEntity;
   const contextTerms = type === "document"
     ? documentTerms
@@ -214,7 +214,7 @@ export function EntityPage({
     ["Type", typeLabel(entity)],
     ["Year", typeof sourceMetadata.year === "number" ? String(sourceMetadata.year) : ""],
     ["Human review", status],
-    ["Maintenance", maintenanceStatus(entity)],
+    ["维护提醒", maintenanceStatus(entity)],
   ].filter((entry) => entry[1]);
 
   function captureReaderSelection(event: MouseEvent | KeyboardEvent) {
@@ -371,11 +371,11 @@ export function EntityPage({
     <div className="page-stack entity-page">
       {collectionId && <CollectionReaderContext navigation={collectionNavigation.data} loading={collectionNavigation.loading} error={collectionNavigation.error} currentType={type} currentId={id} currentTitle={displayTitle} navigate={navigate} />}
       <div className="entity-title-row">
-        <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{displayTitle}</h1>{hasUnpublishedDraft && <span className="entity-draft-preview-label" role="status">Draft 预览 · 尚未发布</span>}{hasUnpublishedDraft && draftTitle && !draftTitle.valid && <p className="entity-draft-title-error" role="alert">Draft 标题无法读取，仍显示正式标题。请先修复元数据 YAML。</p>}<div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
+        <div className="entity-heading"><p className="eyebrow">{typeLabel(entity).toUpperCase()}</p><h1>{displayTitle}</h1>{hasUnpublishedDraft && <span className="entity-draft-preview-label" role="status">未发布修改预览 · 尚未发布</span>}{hasUnpublishedDraft && draftTitle && !draftTitle.valid && <p className="entity-draft-title-error" role="alert">未发布修改标题无法读取，仍显示正式标题。请先修复元数据 YAML。</p>}<div className="entity-heading-meta"><span className="reader-entity-id">{entity.id}</span>{metadataValues.filter(([label]) => label !== "Type").map(([label, value]) => <span className="reader-header-meta" key={label}><small>{label}</small>{value}</span>)}</div></div>
       </div>
       <div className="reader-sticky-actions" role="toolbar" aria-label="阅读快捷操作">
         <div className="reader-toolbar-group" role="group" aria-label="编辑">
-          <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("source")}>Source</button>
+          <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("source")}>文献</button>
           <button className="button button-secondary" onClick={() => workspaceEditorController.setActiveDrawer("metadata")}>元数据</button>
           <button className="button button-secondary" disabled={type === "source"} onClick={() => workspaceEditorController.setActiveDrawer("ai")}>AI 审阅</button>
           <button
@@ -386,14 +386,14 @@ export function EntityPage({
               workspaceEditorController.setActiveDrawer("publish");
               void workspaceEditorController.runPreflight();
             }}
-          >{workspaceEditorController.batchCollectionId || workspaceEditorController.additionalDraftIds.length ? "Publish All" : "发布"}</button>
+          >{workspaceEditorController.batchCollectionId || workspaceEditorController.additionalDraftIds.length ? "确认保存 All" : "发布"}</button>
           {workspaceEditorController.draft && <button
             className="button button-danger"
             disabled={workspaceEditorController.publishing || discardBlocked}
             title={discardBlocked ? "请等待保存完成或先处理冲突" : undefined}
             aria-describedby={discardBlocked ? "reader-discard-disabled-reason" : undefined}
             onClick={() => void workspaceEditorController.discardCurrentDraft()}
-          >{workspaceEditorController.batchCollectionId || workspaceEditorController.researchGroupId ? "丢弃笔记并撤销引用" : "丢弃 Draft"}</button>}
+          >{workspaceEditorController.batchCollectionId || workspaceEditorController.researchGroupId ? "丢弃笔记并撤销引用" : "丢弃未发布修改"}</button>}
         </div>
         <div className="reader-toolbar-group reader-toolbar-status" role="group" aria-label="状态">
           {discardBlocked && <span id="reader-discard-disabled-reason" className="subtle-copy" role="status">请等待保存完成或先处理冲突</span>}
@@ -401,40 +401,40 @@ export function EntityPage({
           {workspaceDraft.saveState === "canonical-conflict" && <button className="button button-secondary" onClick={() => void workspaceEditorController.openComparison()}>处理冲突</button>}
         </div>
         <div className="reader-toolbar-group reader-toolbar-reading" role="group" aria-label="阅读">
-          <button className="button button-secondary" onClick={() => navigate("/review")}>Review</button>
-          {type === "document" && sourceIds.length > 0 && <button className="button button-secondary" onClick={openSources}>Sources</button>}
+          <button className="button button-secondary" onClick={() => navigate("/review")}>审阅</button>
+          {type === "document" && sourceIds.length > 0 && <button className="button button-secondary" onClick={openSources}>文献</button>}
           <button className="button button-secondary reader-action-more" aria-expanded={contextExpanded} aria-controls="reader-context-panel" onClick={toggleContextPanel}>{contextExpanded ? "Less" : "More"}</button>
         </div>
       </div>
       {workspaceDraft.error && workspaceEditorController.activeDrawer !== "metadata" && <p className="workspace-reader-save-error" role="alert">保存失败：{workspaceDraft.error}</p>}
       {type === "document" && canonicalEntity && <section className="term-analysis-panel surface" aria-labelledby="term-analysis-title">
-        <div className="term-analysis-copy"><div className="term-analysis-heading"><strong id="term-analysis-title">Term Analysis</strong><Chip tone={termAnalysisResource.data?.status === "up_to_date" ? "green" : termAnalysisResource.data?.status === "outdated" ? "amber" : "neutral"}>{analysisBusy ? "Analyzing" : termAnalysisResource.loading ? "Checking status…" : termAnalysisResource.data?.status === "up_to_date" ? "Up to date" : termAnalysisResource.data?.status === "outdated" ? "Outdated" : "Never analyzed"}</Chip></div>
-          <p>{workspaceDraft.draft || workspaceDraft.isDirty ? "当前存在未发布 Draft；Term Analysis 只读取 Canonical 正式内容，请先发布或处理 Draft。" : "手动分析 Canonical Note 中值得长期复用的 Terms；不会分析 Draft，也不会在发布时自动运行。"}</p>
+        <div className="term-analysis-copy"><div className="term-analysis-heading"><strong id="term-analysis-title">术语 Analysis</strong><Chip tone={termAnalysisResource.data?.status === "up_to_date" ? "green" : termAnalysisResource.data?.status === "outdated" ? "amber" : "neutral"}>{analysisBusy ? "Analyzing" : termAnalysisResource.loading ? "Checking status…" : termAnalysisResource.data?.status === "up_to_date" ? "Up to date" : termAnalysisResource.data?.status === "outdated" ? "Outdated" : "Never analyzed"}</Chip></div>
+          <p>{workspaceDraft.draft || workspaceDraft.isDirty ? "当前存在未发布未发布修改；术语 Analysis 只读取正式版本正式内容，请先发布或处理未发布修改。" : "手动分析正式版本笔记中值得长期复用的术语；不会分析未发布修改，也不会在发布时自动运行。"}</p>
           {analysisResult && <small role="status">最近一次分析：新增 {analysisResult.created_candidates}，复用 {analysisResult.reused_candidates}，Existing {analysisResult.existing}，New {analysisResult.new}，跳过 {analysisResult.skipped}。</small>}
           {termAnalysisResource.error && <small className="term-analysis-error" role="status">状态读取失败：{termAnalysisResource.error}</small>}
           {analysisError && <small className="term-analysis-error" role="status">分析失败：{analysisError}</small>}
         </div>
-        <div className="term-analysis-actions"><button className="button button-secondary" type="button" onClick={() => navigate(`/terms?tab=candidates&document_id=${encodeURIComponent(id)}`)}>View Candidates</button><button className="button button-primary" type="button" disabled={analysisBusy || termAnalysisResource.loading || Boolean(workspaceDraft.draft || workspaceDraft.isDirty)} onClick={() => { setAnalysisError(""); setAnalysisConsent(false); setAnalysisDialogOpen(true); }}>{analysisBusy ? "Analyzing…" : termAnalysisResource.data?.status === "never_analyzed" || !termAnalysisResource.data ? "Analyze Terms" : "Analyze Again"}</button></div>
+        <div className="term-analysis-actions"><button className="button button-secondary" type="button" onClick={() => navigate(`/terms?tab=candidates&document_id=${encodeURIComponent(id)}`)}>View 待处理项</button><button className="button button-primary" type="button" disabled={analysisBusy || termAnalysisResource.loading || Boolean(workspaceDraft.draft || workspaceDraft.isDirty)} onClick={() => { setAnalysisError(""); setAnalysisConsent(false); setAnalysisDialogOpen(true); }}>{analysisBusy ? "Analyzing…" : termAnalysisResource.data?.status === "never_analyzed" || !termAnalysisResource.data ? "Analyze 术语" : "Analyze Again"}</button></div>
       </section>}
       <details id="reader-context-panel" ref={contextPanelRef} className="reader-context-panel surface" open={contextExpanded} onToggle={(event) => setContextExpanded(event.currentTarget.open)}>
         <summary className="reader-context-summary">
           <span className="reader-context-status"><strong>{typeLabel(entity)}</strong><span>·</span><span>{titleCase(status)}</span><span>·</span><span>{titleCase(maintenanceStatus(entity))}</span></span>
-          <span className="reader-context-counts">{(type === "document" ? [`${sourceIds.length} Sources`, `${documentTerms.length} Terms`, `${evidence.length} Evidence`] : type === "term" ? [`${termWhereAppears.length} Where it appears`, `${entity.detected_mentions.length} Detected mentions`] : [`${entity.related_documents.length} Documents`, `${evidence.length} Evidence`]).map((item) => <span key={item}>{item}</span>)}</span>
+          <span className="reader-context-counts">{(type === "document" ? [`${sourceIds.length} 文献`, `${documentTerms.length} 术语`, `${evidence.length} Evidence`] : type === "term" ? [`${termWhereAppears.length} Where it appears`, `${entity.detected_mentions.length} Detected mentions`] : [`${entity.related_documents.length} 笔记`, `${evidence.length} Evidence`]).map((item) => <span key={item}>{item}</span>)}</span>
           <span className="reader-context-toggle">{contextExpanded ? "收起详情" : "展开详情"}</span>
         </summary>
         <div className="reader-context-details">
           <div className="reader-context">
             {type === "document" && <ContextCard title="分类"><MetaChipList values={[...readList(entity.metadata, "domains"), ...readList(entity.metadata, "topics"), ...readList(entity.metadata, "tags")]} /></ContextCard>}
-            {type === "document" && <ContextCard id="reader-context-sources" title="Sources" detail={sourceIds.length ? `${sourceIds.length} 个关联来源` : "没有关联来源"}>{sourceResource.data?.map((source) => <button className="context-link" key={source.id} onClick={() => navigate(entityPath(source))}><span className="context-icon source">S</span><span><strong>{source.title}</strong><small>{readString(source.metadata.type) || "Source"}</small></span><span>↗</span></button>)}</ContextCard>}
-            <ContextCard title="Terms" detail={`${contextTerms.length} 个关联术语`}>{contextTerms.length ? contextTerms.map((term) => <button className="context-link" key={term.id} onClick={() => navigate(entityPath({ entity_type: "term", id: term.id }))}><span className="context-icon term">T</span><span><strong>{term.title}</strong><small>{[term.id, ...term.labels].join(" · ")}</small></span><span>↗</span></button>) : <p className="subtle-copy">{type === "document" ? "显式 Wiki Link 与已接受的检测关系会在这里显示。" : "正文中的 Wiki Link 会在这里形成关系。"}</p>}</ContextCard>
-            {type === "term" && <ContextCard title="Where it appears" detail="区分正文显式链接、已接受的 Term 关系以及 Source 和 Research 记录">{termWhereAppears.length ? termWhereAppears.map((item) => <button className="context-link term-appearance-link" key={`${item.entityType}:${item.id}`} onClick={() => navigate(item.entityType === "document" ? `/documents/${encodeURIComponent(item.id)}` : item.entityType === "source" ? `/sources/${encodeURIComponent(item.id)}` : `/research?work_id=${encodeURIComponent(item.id)}`)}><span><strong>{item.title}</strong><small>{`${titleCase(item.entityType.replace("_", " "))} · ${Array.from(item.labels).join(" · ")}`}</small>{item.details.size > 0 && <small>{Array.from(item.details).join(" · ")}</small>}</span><span>↗</span></button>) : <p className="subtle-copy">还没有显式链接或已接受的 Term 关系。</p>}</ContextCard>}
-            {type === "term" && <ContextCard title="Term backlinks" detail="其他 Term 正文中的 Wiki Link">{entity.backlinks.filter((backlink) => readString(backlink.source_entity_type) === "term").length ? entity.backlinks.filter((backlink) => readString(backlink.source_entity_type) === "term").map((backlink, index) => { const sourceId = readString(backlink.source_entity_id); return <button className="context-link" key={`${sourceId}:${index}`} onClick={() => navigate(`/terms/${encodeURIComponent(sourceId)}`)}><span><strong>{readString(backlink.source_title) || sourceId}</strong><small>{sourceId} · 第 {String(backlink.line)} 行 · {readString(backlink.label) || readString(backlink.link_target)}</small></span><span>↗</span></button>; }) : <p className="subtle-copy">没有其他 Term 链接到此条目。</p>}</ContextCard>}
+            {type === "document" && <ContextCard id="reader-context-sources" title="文献" detail={sourceIds.length ? `${sourceIds.length} 个关联来源` : "没有关联来源"}>{sourceResource.data?.map((source) => <button className="context-link" key={source.id} onClick={() => navigate(entityPath(source))}><span className="context-icon source">S</span><span><strong>{source.title}</strong><small>{readString(source.metadata.type) || "文献"}</small></span><span>↗</span></button>)}</ContextCard>}
+            <ContextCard title="术语" detail={`${contextTerms.length} 个关联术语`}>{contextTerms.length ? contextTerms.map((term) => <button className="context-link" key={term.id} onClick={() => navigate(entityPath({ entity_type: "term", id: term.id }))}><span className="context-icon term">T</span><span><strong>{term.title}</strong><small>{[term.id, ...term.labels].join(" · ")}</small></span><span>↗</span></button>) : <p className="subtle-copy">{type === "document" ? "显式 Wiki Link 与已接受的检测关系会在这里显示。" : "正文中的 Wiki Link 会在这里形成关系。"}</p>}</ContextCard>
+            {type === "term" && <ContextCard title="Where it appears" detail="区分正文显式链接、已接受的术语关系以及文献和论文推荐记录">{termWhereAppears.length ? termWhereAppears.map((item) => <button className="context-link term-appearance-link" key={`${item.entityType}:${item.id}`} onClick={() => navigate(item.entityType === "document" ? `/documents/${encodeURIComponent(item.id)}` : item.entityType === "source" ? `/sources/${encodeURIComponent(item.id)}` : `/research?work_id=${encodeURIComponent(item.id)}`)}><span><strong>{item.title}</strong><small>{`${titleCase(item.entityType.replace("_", " "))} · ${Array.from(item.labels).join(" · ")}`}</small>{item.details.size > 0 && <small>{Array.from(item.details).join(" · ")}</small>}</span><span>↗</span></button>) : <p className="subtle-copy">还没有显式链接或已接受的术语关系。</p>}</ContextCard>}
+            {type === "term" && <ContextCard title="术语 backlinks" detail="其他术语正文中的 Wiki Link">{entity.backlinks.filter((backlink) => readString(backlink.source_entity_type) === "term").length ? entity.backlinks.filter((backlink) => readString(backlink.source_entity_type) === "term").map((backlink, index) => { const sourceId = readString(backlink.source_entity_id); return <button className="context-link" key={`${sourceId}:${index}`} onClick={() => navigate(`/terms/${encodeURIComponent(sourceId)}`)}><span><strong>{readString(backlink.source_title) || sourceId}</strong><small>{sourceId} · 第 {String(backlink.line)} 行 · {readString(backlink.label) || readString(backlink.link_target)}</small></span><span>↗</span></button>; }) : <p className="subtle-copy">没有其他术语链接到此条目。</p>}</ContextCard>}
             {type === "term" && <ContextCard title="Detected Mentions" detail="文本提及尚未成为正式 Wiki Link">{entity.detected_mentions.length ? entity.detected_mentions.map((mention) => <button className="context-link" key={mention.id} onClick={() => navigate(`/documents/${encodeURIComponent(mention.id)}`)}><span><strong>{mention.title}</strong><small>{mention.id}</small></span><span>↗</span></button>) : <p className="subtle-copy">没有发现未链接的提及。</p>}</ContextCard>}
             <ContextCard title={type === "source" ? "Claims & Evidence" : "Evidence"} detail={type === "source" ? "来自关联笔记中的引用" : `${evidence.length} 条引用位置`}>
-              {evidence.length ? <div className="evidence-list">{evidence.map((item, index) => <div className="evidence-item" key={`${item.source_id}:${item.line}:${index}`}><button onClick={() => navigate(`/sources/${encodeURIComponent(item.source_id)}`)}>{item.citation}</button><p>{item.claim}</p><small>{item.locator || "Locator 未提供"}{item.entity_id ? ` · ${item.entity_id}` : ""}</small></div>)}</div> : <p className="subtle-copy">正文中的 Source citation 会列在这里。</p>}
-              {type === "source" && status === "verified" && <p className="trust-note">Source 元数据已标记为 verified；这不代表每条 Claim 都完成了独立证据审核。</p>}
+              {evidence.length ? <div className="evidence-list">{evidence.map((item, index) => <div className="evidence-item" key={`${item.source_id}:${item.line}:${index}`}><button onClick={() => navigate(`/sources/${encodeURIComponent(item.source_id)}`)}>{item.citation}</button><p>{item.claim}</p><small>{item.locator || "Locator 未提供"}{item.entity_id ? ` · ${item.entity_id}` : ""}</small></div>)}</div> : <p className="subtle-copy">正文中的文献 citation 会列在这里。</p>}
+              {type === "source" && status === "verified" && <p className="trust-note">文献元数据已标记为 verified；这不代表每条 Claim 都完成了独立证据审核。</p>}
             </ContextCard>
-            {type === "source" && <ContextCard title="Related Documents" detail={`${entity.related_documents.length} 篇笔记`}>{entity.related_documents.map((document) => <button className="context-link" key={document.id} onClick={() => navigate(entityPath({ entity_type: "document", id: document.id }))}><span><strong>{document.title}</strong><small>{readString(document.metadata.type) || document.id}</small></span><span>↗</span></button>)}</ContextCard>}
+            {type === "source" && <ContextCard title="Related 笔记" detail={`${entity.related_documents.length} 篇笔记`}>{entity.related_documents.map((document) => <button className="context-link" key={document.id} onClick={() => navigate(entityPath({ entity_type: "document", id: document.id }))}><span><strong>{document.title}</strong><small>{readString(document.metadata.type) || document.id}</small></span><span>↗</span></button>)}</ContextCard>}
             {!!artifacts.length && <ContextCard title="PaperSkill" detail="外部成品链接">{artifacts.map((artifact, index) => <a className="artifact-link" key={`${artifact.url}:${index}`} href={artifact.url} target="_blank" rel="noreferrer"><span><strong>{titleCase(artifact.variant)}{artifact.owner ? ` · ${artifact.owner}` : ""}</strong><small>{artifact.url}</small></span><span>↗</span></a>)}</ContextCard>}
             {(type === "document" || type === "source") && <ContextExportPanel targetType={type} targetId={id} />}
           </div>
@@ -470,7 +470,7 @@ export function EntityPage({
               top={readerSelection.top}
               left={readerSelection.left}
               formatDisabled={hasDraftConflict || readerSelection.start_offset === null}
-              formatDisabledReason={hasDraftConflict ? "请先解决 Draft 冲突。" : readerSelection.format_disabled_reason ?? undefined}
+              formatDisabledReason={hasDraftConflict ? "请先解决未发布修改冲突。" : readerSelection.format_disabled_reason ?? undefined}
               canAnnotate={readerSelection.start_offset !== null && annotationsMatchCanonical && (type === "document" || type === "term")}
               annotationBusy={annotationBusy}
               aiDisabled={hasDraftConflict}
@@ -486,9 +486,9 @@ export function EntityPage({
       {showBackToTop && <button className="button button-secondary reader-back-to-top" type="button" aria-label="回到顶部" title="回到顶部" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><span aria-hidden="true">↑</span>回到顶部</button>}
       {analysisDialogOpen && type === "document" && <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !analysisBusy) setAnalysisDialogOpen(false); }}>
         <section className="explorer-modal term-analysis-dialog surface" role="dialog" aria-modal="true" aria-labelledby="term-analysis-consent-title">
-          <div className="section-heading"><div><h2 id="term-analysis-consent-title">分析 Canonical Note</h2><p>Term Analysis 只使用当前已发布的正式内容。</p></div><button className="text-button" type="button" disabled={analysisBusy} onClick={() => setAnalysisDialogOpen(false)}>关闭</button></div>
-          <div className="term-analysis-transfer-copy"><p>本次会向 DeepSeek 发送这篇 Note 的正文和必要元数据、当前 Term Registry，以及该 Note 适用的拒绝记录，用于识别可复用概念、命名实体和阅读词汇。</p><p>不会发送其他 Notes 的全文，也不会自动把发现写入 Markdown；结果会进入 Candidates 等待审核。</p></div>
-          <label className="ai-consent"><input type="checkbox" checked={analysisConsent} onChange={(event) => setAnalysisConsent(event.target.checked)} /><span>我同意将以上 Canonical Note 内容和所需 Registry 上下文发送给 DeepSeek。</span></label>
+          <div className="section-heading"><div><h2 id="term-analysis-consent-title">分析正式版本笔记</h2><p>术语 Analysis 只使用当前已发布的正式内容。</p></div><button className="text-button" type="button" disabled={analysisBusy} onClick={() => setAnalysisDialogOpen(false)}>关闭</button></div>
+          <div className="term-analysis-transfer-copy"><p>本次会向 DeepSeek 发送这篇笔记的正文和必要元数据、当前术语术语库，以及该笔记适用的拒绝记录，用于识别可复用概念、命名实体和阅读词汇。</p><p>不会发送其他笔记的全文，也不会自动把发现写入 Markdown；结果会进入待处理项等待审核。</p></div>
+          <label className="ai-consent"><input type="checkbox" checked={analysisConsent} onChange={(event) => setAnalysisConsent(event.target.checked)} /><span>我同意将以上正式版本笔记内容和所需术语库上下文发送给 DeepSeek。</span></label>
           {analysisError && <p className="error-copy" role="alert">{analysisError}</p>}
           <div className="term-candidate-dialog-actions"><button className="button button-secondary" type="button" disabled={analysisBusy} onClick={() => setAnalysisDialogOpen(false)}>取消</button><button className="button button-primary" type="button" disabled={!analysisConsent || analysisBusy || Boolean(workspaceDraft.draft || workspaceDraft.isDirty)} onClick={() => void analyzeCanonicalDocumentTerms()}>{analysisBusy ? "Analyzing…" : "同意并分析"}</button></div>
         </section>

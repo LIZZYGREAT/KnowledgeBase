@@ -17,11 +17,11 @@ export function WorkspaceBodyEditor({ type, content, isDirty, onChange, onSelect
 
   return <div className="editor-grid">
     <section className="surface editor-writing-panel">
-      <SectionHeading title="Source YAML" detail="第一次修改后自动创建 Draft · 650ms 后保存" />
-      <textarea className="knowledge-editor" value={content} onChange={(event) => onChange(event.target.value)} onBlur={() => { if (isDirty) onSave(); }} spellCheck={false} aria-label="Source YAML Draft" />
+      <SectionHeading title="文献 YAML" detail="第一次修改后自动创建未发布修改 · 650ms 后保存" />
+      <textarea className="knowledge-editor" value={content} onChange={(event) => onChange(event.target.value)} onBlur={() => { if (isDirty) onSave(); }} spellCheck={false} aria-label="文献 YAML 未发布修改" />
     </section>
     <section className="surface editor-preview-panel">
-      <SectionHeading title="YAML 预览" detail="完整 Source 元数据" />
+      <SectionHeading title="YAML 预览" detail="完整文献元数据" />
       <pre className="source-yaml-preview">{content}</pre>
     </section>
   </div>;
