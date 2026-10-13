@@ -8,9 +8,10 @@ import sys
 
 class ManualResearchWorker:
     def __init__(self, root: Path, database: Path, has_work, interval: float = 30, on_failure=None):
+        script_path = Path(root).resolve() / "tools" / "research.py"
         self.command = (
             sys.executable,
-            str(Path(__file__).resolve().parents[3] / "tools" / "research.py"),
+            str(script_path),
             "manual-tick", "--root", str(root), "--database", str(database),
         )
         self.has_work = has_work
@@ -38,6 +39,12 @@ class ManualResearchWorker:
             try:
                 work = self.has_work()
                 if not work:
+                    continue
+                script_path = Path(self.command[1])
+                if not script_path.is_file():
+                    message = f"后台检索脚本不存在（{script_path}），请检查后端仓库目录配置。"
+                    logging.getLogger(__name__).error(message)
+                    self._record_failure(work, message)
                     continue
                 launching = asyncio.create_task(asyncio.create_subprocess_exec(*self.command))
                 try:

@@ -1,6 +1,8 @@
 import asyncio
 import sys
+from pathlib import Path
 
+import backend.app.services.manual_research_worker as worker_module
 from backend.app.services.manual_research_worker import ManualResearchWorker
 from backend.app.db.connection import connect_database
 from backend.tests.test_research_runs import _service, _profile, FakeProvider
@@ -8,6 +10,10 @@ from backend.app.services.research_providers.base import ProviderPage
 
 
 def test_web_coordinator_executes_persisted_manual_work_without_timer(tmp_path, monkeypatch):
+    monkeypatch.setattr(worker_module, "__file__", "/app/backend/app/services/manual_research_worker.py")
+    script = tmp_path / "tools" / "research.py"
+    script.parent.mkdir()
+    script.write_text("# test executor entry point\n", encoding="utf-8")
     database = tmp_path / "manual.db"
     connection = connect_database(database)
     service, _, _, _ = _service(tmp_path, connection, FakeProvider([]))
@@ -43,6 +49,7 @@ def test_web_coordinator_executes_persisted_manual_work_without_timer(tmp_path, 
     asyncio.run(exercise())
     assert len(commands) == 1
     assert commands[0][0] == sys.executable
+    assert Path(commands[0][1]) == script.resolve()
     assert commands[0][2] == "manual-tick"
     assert service.run_request_repository.get(queued.id).status == "completed"
     assert len(service.run_repository.list_for_profile("continual-learning")) == 1
@@ -82,6 +89,9 @@ def test_manual_tick_ai_disabled_does_not_call_ai(tmp_path):
 
 
 def test_worker_shutdown_terminates_executor(tmp_path, monkeypatch):
+    script = tmp_path / "tools" / "research.py"
+    script.parent.mkdir()
+    script.write_text("# test executor entry point\n", encoding="utf-8")
     started = asyncio.Event()
 
     class Process:
@@ -116,6 +126,9 @@ def test_worker_shutdown_terminates_executor(tmp_path, monkeypatch):
 
 
 def test_executor_start_failure_is_queryable_and_never_reclaims_active_work(tmp_path, monkeypatch):
+    script = tmp_path / "tools" / "research.py"
+    script.parent.mkdir()
+    script.write_text("# test executor entry point\n", encoding="utf-8")
     connection = connect_database(":memory:")
     provider = FakeProvider([])
     service, runs, _, ai = _service(tmp_path, connection, provider)
@@ -147,4 +160,30 @@ def test_executor_start_failure_is_queryable_and_never_reclaims_active_work(tmp_
     service.run_request_repository.claim_next(service.now())
     service.fail_unstarted_request(active.id, "must not overwrite running request")
     assert service.run_request_repository.get(active.id).status == "claimed"
+    connection.close()
+
+
+def test_missing_executor_script_fails_the_queued_request_with_a_clear_error(tmp_path):
+    connection = connect_database(":memory:")
+    service, runs, _, _ = _service(tmp_path, connection, FakeProvider([]))
+    queued = service.queue_manual_run("continual-learning")
+    failed = asyncio.Event()
+
+    def record_failure(record, message):
+        service.fail_unstarted_request(record.id, message)
+        failed.set()
+
+    async def exercise():
+        worker = ManualResearchWorker(tmp_path, tmp_path / "db", lambda: queued, on_failure=record_failure)
+        worker.start()
+        await asyncio.wait_for(failed.wait(), timeout=2)
+        await worker.stop()
+
+    asyncio.run(exercise())
+
+    assert service.run_request_repository.get(queued.id).status == "failed"
+    run = runs.list_for_profile(queued.profile_id)[0]
+    assert run.request_id == queued.id and run.status == "failed"
+    assert "后台检索脚本不存在" in run.error_summary
+    assert str(tmp_path / "tools" / "research.py") in run.error_summary
     connection.close()
