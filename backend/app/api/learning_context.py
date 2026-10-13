@@ -3,7 +3,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 
 class LearningContextRequest(BaseModel):
@@ -26,12 +26,27 @@ class MemoryRequest(LearningContextRequest):
     markdown: StrictStr
 
 
+class SyncRequest(LearningContextRequest):
+    dry_run: StrictBool = False
+    force: StrictBool = False
+    source_id: Optional[StrictStr] = None
+
+
 router = APIRouter(prefix="/api/learning-context", tags=["Learning Context"])
 
 
 @router.get("")
 async def get_learning_context(request: Request):
     return request.app.state.learning_context_service.get_overview()
+
+
+@router.post("/sync")
+async def sync_learning_context(body: SyncRequest, request: Request):
+    return request.app.state.learning_context_service.sync(
+        dry_run=body.dry_run,
+        force=body.force,
+        source_id=body.source_id,
+    )
 
 
 @router.get("/sources")

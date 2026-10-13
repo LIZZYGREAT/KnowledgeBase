@@ -160,7 +160,7 @@ async def lifespan(application: FastAPI):
         ui_summary_service = UiSummaryService(
             connection, research_service.profile_registry.profiles
         )
-        learning_context_service = LearningContextService(repository_root)
+        learning_context_service = LearningContextService(repository_root, ai_gateway)
         research_conversion_service = ResearchConversionService(
             repository_root,
             connection,

@@ -127,6 +127,44 @@ class TermDiscoveryOutput(AIOutput):
     candidates: list[TermDiscoverySuggestion] = Field(max_length=40)
 
 
+class LearningContextEntryChange(AIOutput):
+    entry_id: Slug
+    action: Literal["upsert", "remove"]
+    title: Optional[NonEmptyText] = Field(default=None, max_length=200)
+    summary: Optional[NonEmptyText] = Field(default=None, max_length=2000)
+    layer: Literal["active", "important", "topic"]
+    topic_id: Optional[Slug] = None
+    topic_title: Optional[NonEmptyText] = Field(default=None, max_length=200)
+    rationale: NonEmptyText = Field(max_length=600)
+
+    @model_validator(mode="after")
+    def validate_change(self):
+        if self.action == "upsert" and (self.title is None or self.summary is None):
+            raise ValueError("upsert changes require title and summary")
+        if self.action == "remove" and (self.title is not None or self.summary is not None):
+            raise ValueError("remove changes cannot include title or summary")
+        if self.layer == "topic" and self.topic_id is None:
+            raise ValueError("topic changes require topic_id")
+        if self.action == "upsert" and self.layer == "topic" and self.topic_title is None:
+            raise ValueError("topic upserts require topic_title")
+        if self.layer != "topic" and (self.topic_id is not None or self.topic_title is not None):
+            raise ValueError("only topic changes may include topic_id and topic_title")
+        return self
+
+
+class LearningContextUpdateOutput(AIOutput):
+    outcome: Literal["no_change", "knowledge_changed"]
+    changes: list[LearningContextEntryChange] = Field(max_length=20)
+
+    @model_validator(mode="after")
+    def validate_outcome(self):
+        if self.outcome == "no_change" and self.changes:
+            raise ValueError("no_change output cannot include changes")
+        if self.outcome == "knowledge_changed" and not self.changes:
+            raise ValueError("knowledge_changed output requires at least one change")
+        return self
+
+
 class ResearchRelation(AIOutput):
     entity_type: Literal["document", "term", "source", "collection"]
     entity_id: NonEmptyText
@@ -186,4 +224,5 @@ TASK_OUTPUTS = {
     "suggest_evidence": SuggestEvidenceOutput,
     "research_candidate_analysis": ResearchCandidateAnalysisAIOutput,
     "discover_terms": TermDiscoveryOutput,
+    "update_learning_context": LearningContextUpdateOutput,
 }

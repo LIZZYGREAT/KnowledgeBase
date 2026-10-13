@@ -118,4 +118,48 @@ describe("学习进度上下文 page", () => {
     expect(screen.getByText(/不会作为已掌握知识/)).toBeTruthy();
     expect(current.sources.included_document_ids).toEqual([]);
   });
+
+  it("runs learning context sync only after the user presses its explicit action", async () => {
+    const current = overview();
+    current.sources.included_document_ids = ["gem-note"];
+    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    vi.spyOn(api, "syncLearningContext").mockResolvedValue({
+      state: "synced",
+      message: "同步完成：分析 1 篇，跳过 0 篇。",
+      analyzed_count: 1,
+      skipped_count: 0,
+      source_results: [],
+    });
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    await user.click(await screen.findByRole("button", { name: "同步知识变化" }));
+
+    await waitFor(() => expect(api.syncLearningContext).toHaveBeenCalledWith({ force: false }));
+    expect(await screen.findByText("同步完成：分析 1 篇，跳过 0 篇。")).toBeTruthy();
+  });
+
+  it("confirms and reanalyzes only the selected note when requested", async () => {
+    const current = overview();
+    current.sources.included_document_ids = ["gem-note"];
+    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    vi.spyOn(api, "syncLearningContext").mockResolvedValue({
+      state: "synced",
+      message: "同步完成：分析 1 篇，跳过 0 篇。",
+      analyzed_count: 1,
+      skipped_count: 0,
+      source_results: [],
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    await user.click(await screen.findByRole("button", { name: "重新分析这篇" }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("GEM 学习笔记"));
+    await waitFor(() => expect(api.syncLearningContext).toHaveBeenCalledWith({
+      force: true,
+      source_id: "gem-note",
+    }));
+  });
 });

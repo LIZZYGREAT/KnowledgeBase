@@ -1272,6 +1272,22 @@ export function getLearningContext() {
   return request<LearningContextOverview>("/api/learning-context");
 }
 
+export interface LearningContextSyncResult {
+  state: string;
+  message: string;
+  analyzed_count: number;
+  skipped_count: number;
+  source_results: Array<Record<string, unknown>>;
+}
+
+export function syncLearningContext(options: { dry_run?: boolean; force?: boolean; source_id?: string } = {}) {
+  return request<LearningContextSyncResult>("/api/learning-context/sync", {
+    method: "POST",
+    body: JSON.stringify(options),
+    workloadChanged: true,
+  });
+}
+
 export function setLearningContextSources(includedDocumentIds: string[]) {
   return request<LearningContextOverview["sources"]>("/api/learning-context/sources", {
     method: "PUT",

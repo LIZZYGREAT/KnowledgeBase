@@ -19,10 +19,10 @@ def _document(root: Path, document_id: str = "gem-note"):
     )
 
 
-def _client(root: Path):
+def _client(root: Path, gateway=None):
     app = FastAPI()
     app.include_router(router)
-    app.state.learning_context_service = LearningContextService(root)
+    app.state.learning_context_service = LearningContextService(root, gateway)
 
     @app.exception_handler(ValueError)
     async def value_error_handler(request: Request, error: ValueError):
@@ -133,3 +133,22 @@ def test_api_edits_only_an_indexed_topic(tmp_path):
     assert (context_root / "topics" / "continual-learning.md").read_text(encoding="utf-8") == (
         "# 人工修订\n\nGEM 与 QP。\n"
     )
+
+
+def test_api_manual_sync_dry_run_only_reports_local_changes(tmp_path):
+    _document(tmp_path)
+    with _client(tmp_path) as client:
+        client.put(
+            "/api/learning-context/sources",
+            json={"included_document_ids": ["gem-note"]},
+        )
+        response = client.post("/api/learning-context/sync", json={"dry_run": True})
+        invalid = client.post("/api/learning-context/sync", json={"force": "yes"})
+        overview = client.get("/api/learning-context").json()
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "dry_run"
+    assert response.json()["source_results"][0]["action"] == "analyze"
+    assert invalid.status_code == 422
+    assert overview["status"]["state"] == "pending"
+    assert "source_baselines" not in overview["status"]

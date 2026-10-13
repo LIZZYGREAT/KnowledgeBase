@@ -155,6 +155,7 @@ def test_ai_task_registry_declares_output_contracts():
         "suggest_evidence",
         "research_candidate_analysis",
         "discover_terms",
+        "update_learning_context",
     }
     assert all(task.output_model.model_json_schema() for task in TASKS.values())
     assert all(
@@ -166,6 +167,54 @@ def test_ai_task_registry_declares_output_contracts():
     assert TASKS["research_candidate_analysis"].proposal_kind is None
     assert TASKS["discover_terms"].output_usage == "analysis"
     assert TASKS["discover_terms"].proposal_kind is None
+    assert TASKS["update_learning_context"].output_usage == "analysis"
+    assert TASKS["update_learning_context"].proposal_kind is None
+
+
+def test_learning_context_update_task_requires_localized_structured_changes():
+    client = MockDeepSeekClient(
+        {
+            "update_learning_context": {
+                "outcome": "knowledge_changed",
+                "changes": [
+                    {
+                        "entry_id": "gem-gradient-projection",
+                        "action": "upsert",
+                        "title": "梯度投影",
+                        "summary": "GEM 用二次规划将当前梯度投影到不干扰历史任务的可行域。",
+                        "layer": "topic",
+                        "topic_id": "continual-learning",
+                        "topic_title": "持续学习",
+                        "rationale": "新增章节补充了约束机制。",
+                    }
+                ],
+            }
+        }
+    )
+
+    result = AIGateway(client).run(
+        "update_learning_context",
+        {
+            "source_document_id": "gem-note",
+            "changed_sections": [{"heading": "算法", "before": "", "after": "GEM 的梯度约束。", "nearby_context": ""}],
+            "existing_related_memory": [],
+        },
+    )
+
+    assert result.outcome == "knowledge_changed"
+    assert result.changes[0].entry_id == "gem-gradient-projection"
+    assert client.calls == ["update_learning_context"]
+
+    invalid = MockDeepSeekClient(
+        {
+            "update_learning_context": {
+                "outcome": "knowledge_changed",
+                "changes": [{"entry_id": "bad", "action": "upsert", "layer": "topic", "topic_id": "x", "rationale": "x"}],
+            }
+        }
+    )
+    with pytest.raises(AIResponseError, match="JSON schema"):
+        AIGateway(invalid).run("update_learning_context", {})
 
 
 def test_term_discovery_output_requires_explainable_readiness_fields():

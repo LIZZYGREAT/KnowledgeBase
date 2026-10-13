@@ -5,6 +5,7 @@ import {
   restoreAutomaticLearningContext,
   saveLearningContextMemory,
   saveLearningContextTopic,
+  syncLearningContext,
   setLearningContextPreferences,
   setLearningContextSources,
   type LearningContextOverview,
@@ -48,6 +49,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [sourceQuery, setSourceQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [preferencesDraft, setPreferencesDraft] = useState<LearningContextPreferences | null>(null);
@@ -204,6 +206,31 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     }
   }
 
+  async function runSync(force = false, onlySourceId?: string) {
+    if (!overview) return;
+    if (sourceDirty || preferencesDirty || memoryDirty) {
+      setNotice("请先保存当前未提交的修改，再同步学习上下文。");
+      return;
+    }
+    if (force) {
+      const sourceTitle = onlySourceId
+        ? overview.sources.available_documents.find((source) => source.id === onlySourceId)?.title ?? onlySourceId
+        : `全部已选的 ${sourceCount} 篇笔记`;
+      if (!window.confirm(`将重新分析“${sourceTitle}”，并可能发送差异片段给 AI。继续吗？`)) return;
+    }
+    setSyncing(true);
+    setNotice("");
+    try {
+      const result = await syncLearningContext({ force, source_id: onlySourceId });
+      await refresh();
+      setNotice(result.message);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "同步学习上下文失败");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (loading && !overview) return <div className="page-stack"><PageHeader eyebrow="LEARNING PROGRESS" title="学习进度" /><div className="loading-state" role="status">正在读取学习进度…</div></div>;
   if (loadError && !overview) return <div className="page-stack"><PageHeader eyebrow="LEARNING PROGRESS" title="学习进度" /><ErrorState message={loadError} retry={() => void refresh()} /></div>;
   if (!overview || !preferencesDraft) return null;
@@ -228,6 +255,14 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
       <section className="learning-context-status surface" aria-live="polite">
         <div><span className={`learning-status-dot learning-status-${overview.status.state}`} /><strong>{statusCopy}</strong></div>
         <span>{sourceCount ? `已纳入 ${sourceCount} 篇正式笔记` : "尚未选择学习资料"}</span>
+        <div className="learning-panel-actions">
+          <button className="button button-primary" type="button" disabled={(!sourceCount && overview.status.state !== "pending") || sourceDirty || saving || syncing} onClick={() => void runSync()}>
+            {syncing ? "正在检查…" : "同步知识变化"}
+          </button>
+          <button className="button button-secondary" type="button" disabled={!sourceCount || sourceDirty || saving || syncing} onClick={() => void runSync(true)}>
+            重新分析全部已选资料
+          </button>
+        </div>
       </section>
 
       <div className="learning-context-management-grid">
@@ -247,16 +282,28 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
           </div>
           <div className="learning-source-list" aria-label="可选正式笔记">
             {visibleSources.map((source) => (
-              <label className="learning-source-option" key={source.id}>
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(source.id)}
-                  onChange={(event) => setSelectedIds((ids) => event.target.checked
-                    ? [...ids, source.id]
-                    : ids.filter((item) => item !== source.id))}
-                />
-                <span><strong>{source.title}</strong><small>{sourceTypeLabel(source.type)}</small></span>
-              </label>
+              <div className="learning-source-option" key={source.id}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(source.id)}
+                    onChange={(event) => setSelectedIds((ids) => event.target.checked
+                      ? [...ids, source.id]
+                      : ids.filter((item) => item !== source.id))}
+                  />
+                  <span><strong>{source.title}</strong><small>{sourceTypeLabel(source.type)}</small></span>
+                </label>
+                {selectedIds.includes(source.id) && (
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={sourceDirty || saving || syncing}
+                    onClick={() => void runSync(true, source.id)}
+                  >
+                    重新分析这篇
+                  </button>
+                )}
+              </div>
             ))}
             {visibleSources.length === 0 && <EmptyState title="没有可选笔记" description={sourceQuery ? "试试其他搜索词。" : "发布正式学习笔记后，可以在这里手动纳入。"} />}
           </div>

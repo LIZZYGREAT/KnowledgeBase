@@ -35,11 +35,28 @@ class LearningContextError(ValueError):
 class LearningContextService:
     """Own local learning context files without writing canonical knowledge."""
 
-    def __init__(self, repository_root: Path):
+    def __init__(self, repository_root: Path, ai_gateway=None):
         self.repository_root = Path(repository_root).expanduser().resolve()
         self.knowledge_root = self.repository_root / "knowledge"
         self.documents_root = self.knowledge_root / "documents"
         self.context_root = self.repository_root / "storage" / "learning-context"
+        self.ai_gateway = ai_gateway
+
+    def sync(
+        self,
+        *,
+        dry_run: bool = False,
+        force: bool = False,
+        source_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Check selected notes and incrementally update local context."""
+        from backend.app.services.learning_context_sync import LearningContextSync
+
+        return LearningContextSync(self, self.ai_gateway).run(
+            dry_run=dry_run,
+            force=force,
+            source_id=source_id,
+        )
 
     def get_sources(self) -> dict[str, Any]:
         """Return explicit selections and selectable published learning notes."""
