@@ -10,6 +10,7 @@ from backend.app.services.learning_context_service import (
     LearningContextService,
     _truncate_complete_markdown,
 )
+from backend.app.services.ai_client import AIGatewayError
 from backend.app.services.learning_context_sync import LearningContextSync
 from backend.app.services.learning_context_sync_entries import entry_blocks, render_entry
 from backend.app.services.learning_context_sync_diff import (
@@ -822,3 +823,57 @@ def test_real_learning_notes_sync_in_bounded_complete_batches_and_seed_recommend
     assert len(gateway.calls) > force_start
     forced_sources = {context["source_document_id"] for _, context in gateway.calls[force_start:]}
     assert forced_sources == set(source_ids)
+
+
+def test_sync_if_stale_refreshes_changed_notes_and_skips_unchanged_ai_work(tmp_path):
+    path = _sync_repo(tmp_path)
+    gateway = FakeLearningGateway(
+        _topic_change(), _topic_change("Updated GEM projection summary.")
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+
+    unchanged = service.sync_if_stale()
+    assert unchanged["stale"] is False
+    assert unchanged["used_previous_context"] is False
+    assert len(gateway.calls) == 1
+
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "\n## Additional detail\n\nThe projection uses a constrained optimization step.\n",
+        encoding="utf-8",
+    )
+    refreshed = service.sync_if_stale()
+
+    assert refreshed["state"] == "synced"
+    assert refreshed["stale"] is False
+    assert refreshed["used_previous_context"] is False
+    assert len(gateway.calls) == 2
+    assert "Updated GEM projection summary." in service.read_topic("continual-learning")["markdown"]
+
+
+def test_sync_if_stale_marks_previous_context_when_ai_sync_fails(tmp_path):
+    path = _sync_repo(tmp_path)
+    gateway = FakeLearningGateway(
+        _topic_change(), AIGatewayError("sensitive provider payload")
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+    old_memory = service.read_topic("continual-learning")["markdown"]
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "\n## Additional detail\n\nA substantive method change.\n",
+        encoding="utf-8",
+    )
+
+    result = service.sync_if_stale()
+
+    assert result["state"] == "failed"
+    assert result["stale"] is True
+    assert result["used_previous_context"] is True
+    assert "使用上次保存的学习上下文" in result["message"]
+    assert "AI 分析失败" in result["message"]
+    assert "sensitive provider payload" not in result["message"]
+    assert service.read_topic("continual-learning")["markdown"] == old_memory

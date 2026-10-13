@@ -62,7 +62,7 @@ Use the actual paths if the deployment uses custom directories. Confirm `git sta
 
 Manual searches need only the running Web backend. Its lifespan coordinator starts one manual-only child executor using the container Python and `/workspace/tools/research.py manual-tick`, with its own SQLite connection. Startup and a 30-second fallback inspect durable work. The shared lock prevents overlap with external ticks and backups. Pending requests survive page closure/restart; claimed requests recover only after the existing 45-minute stale cutoff and lock acquisition. Startup failures become failed Run records. Inspect requests at `/api/research/requests/{request_id}` or `/api/research/profiles/{id}/requests`; the UI does this automatically.
 
-The systemd timer is explicitly optional. It is required for unattended scheduled Research and Term Discovery, not for manual searches. Do not install or enable it merely to make the Web search button work. Disabling AI analysis continues paper metadata discovery without DeepSeek calls or recommendations.
+The Research systemd timer is explicitly optional. It is required for unattended scheduled Research and Term Discovery, not for manual searches. Do not install or enable it merely to make the Web search button work. Disabling AI analysis continues paper metadata discovery without DeepSeek calls or recommendations.
 
 
 The Research Agent runs one queued manual request or one due Profile per tick. The first tick is scheduled about two minutes after the timer itself becomes active; later ticks start about two minutes after the previous Research service becomes inactive. The service runtime is added to that idle interval, so this is not a fixed wall-clock two-minute cadence. The monotonic timer does not replay intervals missed while the host is shut down. Install the supplied systemd units on the host; they execute the CLI inside the production backend container and do not require a host Python environment.
@@ -77,16 +77,29 @@ sudo systemctl enable --now knowledgebase-research.timer
 systemctl list-timers knowledgebase-research.timer
 ```
 
+Learning Context has a separate optional daily one-shot check. It compares selected notes locally and calls the configured AI only when a substantive note change needs analysis. Before installing, set `WorkingDirectory` in `deploy/systemd/knowledgebase-learning-context.service` to the server checkout and update the Docker executable path if needed. Install and enable it only if daily checks are wanted:
+
+```sh
+sudo cp deploy/systemd/knowledgebase-learning-context.service /etc/systemd/system/
+sudo cp deploy/systemd/knowledgebase-learning-context.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now knowledgebase-learning-context.timer
+systemctl list-timers knowledgebase-learning-context.timer
+```
+
+The timer runs once daily at about 03:10 local time and catches up once after host downtime. Manual Terms and Research searches also check selected notes before reading their learning context. A failed check or sync is recorded on the Run, which continues with the last saved context and clearly marks that fallback. The sync API runs off the Web event loop. This timer is independent of automatic Research scheduling and may remain disabled.
+
 Validate configuration without contacting providers with `docker compose -f docker-compose.production.yml exec -T backend python /workspace/tools/research.py check`. Use `profiles` to inspect configured Profiles and `status` to review Inbox capacity, pauses, and recent Runs. A scheduled tick exits successfully when another process holds the global Research lock or when nothing is due. To disable unattended discovery, use `sudo systemctl disable --now knowledgebase-research.timer`; this does not stop Web manual execution. Stop the Web backend to stop its manual coordinator during maintenance.
 
 ### Safe upgrades
 
-The Research timer runs code from the mounted checkout, while the Web backend runs code from its built image. Pause both during upgrades so a timer tick cannot migrate the shared Runtime database with a different code version. The production checkout may contain Publisher commits that are not on `origin/main`; preserve those commits by merging the fetched target when needed. The worktree must be clean before updating; existing Publisher commits are allowed, but uncommitted changes are not. Never reset the production checkout or rebase Publisher history.
+The systemd timers run code from the mounted checkout, while the Web backend runs code from its built image. Pause each installed timer during upgrades so a timer job cannot update local state with a different code version. The production checkout may contain Publisher commits that are not on `origin/main`; preserve those commits by merging the fetched target when needed. The worktree must be clean before updating; existing Publisher commits are allowed, but uncommitted changes are not. Never reset the production checkout or rebase Publisher history.
 
 ```sh
 set -e
 cd /srv/KnowledgeBase
 sudo systemctl stop knowledgebase-research.timer
+sudo systemctl stop knowledgebase-learning-context.timer 2>/dev/null || true
 systemctl status knowledgebase-research.timer --no-pager || true
 ./scripts/production-backup.sh
 docker compose --env-file .env -f docker-compose.production.yml stop frontend backend

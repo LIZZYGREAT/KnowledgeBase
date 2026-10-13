@@ -1,0 +1,11 @@
+[Unit]
+Description=KnowledgeBase Learning Context Daily Check
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+RandomizedDelaySec=15min
+Unit=knowledgebase-learning-context.service
+
+[Install]
+WantedBy=timers.target

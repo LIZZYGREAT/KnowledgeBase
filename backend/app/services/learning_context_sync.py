@@ -388,7 +388,15 @@ class LearningContextSync:
             return self._needs_manual_review(status_before, baselines)
         except Exception as error:
             logger.exception("Learning context synchronization failed")
-            return self._failed(status_before, baselines, type(error).__name__)
+            reason = type(error).__name__
+            detail = str(error)
+            if reason == "LearningContextError" and detail == (
+                "AI gateway is unavailable for a substantive change"
+            ):
+                reason = "AIUnavailable"
+            elif reason == "LearningContextError" and "exceeds the size limit" in detail:
+                reason = "LearningNoteTooLarge"
+            return self._failed(status_before, baselines, reason)
 
     def _plan(self, source_id, current_bytes, current_text, baseline, force):
         current_hash = hashlib.sha256(current_bytes).hexdigest()
@@ -1004,11 +1012,19 @@ class LearningContextSync:
         }
 
     def _failed(self, status_before, baselines, reason):
+        if "AI" in reason or "Gateway" in reason or "DeepSeek" in reason:
+            message = "AI 分析失败；学习上下文和已处理基准已保留，可重试。"
+        elif reason == "LearningNoteTooLarge":
+            message = "所选笔记超过同步大小限制；已有上下文和处理基准已保留。"
+        elif reason in {"LearningContextError", "ValidationError", "ValueError", "TypeError"}:
+            message = "所选笔记或学习上下文内容无法处理；已有内容和基准已保留。"
+        else:
+            message = "本地文件或同步过程失败；学习上下文和已处理基准已保留，可重试。"
         status = deepcopy(self.service._read_status())
         status.update(
             {
                 "state": "failed",
-                "message": "同步失败，可重试；学习上下文和已处理基准已保留。",
+                "message": message,
                 "source_baselines": baselines,
                 "last_error_type": reason,
             }
@@ -1019,7 +1035,7 @@ class LearningContextSync:
             pass
         return {
             "state": "failed",
-            "message": status["message"],
+            "message": message,
             "analyzed_count": 0,
             "skipped_count": 0,
             "source_results": [],

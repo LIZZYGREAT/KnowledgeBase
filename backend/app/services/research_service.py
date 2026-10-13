@@ -624,7 +624,9 @@ class ResearchService:
                 now,
             )
 
-        profile, learning_context = self._profile_with_learning_context(profile)
+        profile, learning_context = self._profile_with_learning_context(
+            profile, sync_before_search=trigger == "manual"
+        )
         personalized_queries, exploration_queries = _research_query_overrides(
             profile, learning_context
         )
@@ -690,6 +692,14 @@ class ResearchService:
         analysis_breaker = ResearchAnalysisCircuitBreaker()
         errors: list[str] = []
         warnings: list[str] = []
+        sync_status = learning_context.get("sync_status")
+        if isinstance(sync_status, dict) and sync_status.get("used_previous_context"):
+            warnings.append(
+                sync_status.get(
+                    "message",
+                    "学习上下文同步未完成；本次使用上次保存的上下文。",
+                )
+            )
         terminal_status: Optional[ResearchRunStatus] = None
         selected_note_ids = [
             item["id"]
@@ -740,7 +750,9 @@ class ResearchService:
             )
         return finished
 
-    def _profile_with_learning_context(self, profile: ResearchProfile):
+    def _profile_with_learning_context(
+        self, profile: ResearchProfile, sync_before_search: bool = False
+    ):
         focus = "\n".join(
             value
             for value in (
@@ -751,7 +763,15 @@ class ResearchService:
             )
             if value
         )
+        sync_status = None
+        sync_if_stale = getattr(
+            self.learning_context_service, "sync_if_stale", None
+        )
+        if sync_before_search and callable(sync_if_stale):
+            sync_status = sync_if_stale()
         context = self.learning_context_service.get_recommendation_context(focus)
+        if isinstance(sync_status, dict):
+            context["sync_status"] = sync_status
         excluded = list(profile.exclude_terms)
         excluded.extend(context["preferences"]["exclude_keywords"])
         updated_profile = profile.model_copy(

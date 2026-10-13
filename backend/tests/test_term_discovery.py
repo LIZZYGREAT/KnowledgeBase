@@ -1024,6 +1024,12 @@ def test_selected_learning_context_guides_terms_without_unselected_course_pollut
 
     context_service = LearningContextService(tmp_path)
     context_service.set_sources(list(selected_notes))
+    context_service.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
     context_service.set_preferences(
         {
             "fixed_direction": "Continual learning",
@@ -1181,6 +1187,33 @@ def test_selected_learning_context_guides_terms_without_unselected_course_pollut
     assert [item.display_name for item in candidate_service.list_candidates("pending")] == [
         "Synaptic Intelligence"
     ]
+    connection.close()
+
+
+def test_manual_terms_run_marks_fallback_when_context_sync_fails(tmp_path):
+    context_service = LearningContextService(tmp_path)
+    context_service.sync_if_stale = lambda: {
+        "state": "failed",
+        "stale": True,
+        "used_previous_context": True,
+        "message": "学习上下文同步未完成；本次使用上次保存的学习上下文。AI 分析失败。",
+    }
+    connection, service, _candidate_service, _pdf_service, _gateway = _service(
+        tmp_path,
+        output={"candidates": []},
+        learning_context_service=context_service,
+    )
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"], focus_override="continual learning"
+        )
+    )
+
+    run = service.run("manual")
+
+    assert run.status == "partial"
+    assert run.snapshot["learning_context"]["sync_status"]["used_previous_context"] is True
+    assert "使用上次保存的学习上下文" in run.error_summary
     connection.close()
 
 

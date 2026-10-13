@@ -1,10 +1,19 @@
 from pathlib import Path
+import asyncio
+import threading
+import time
+from types import SimpleNamespace
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from backend.app.api.learning_context import router
+from backend.app.api.learning_context import (
+    SyncRequest,
+    get_learning_context,
+    router,
+    sync_learning_context,
+)
 from backend.app.services.learning_context_service import LearningContextService
 from backend.app.services.learning_context_sync_entries import render_entry
 
@@ -189,3 +198,45 @@ def test_api_manual_sync_dry_run_only_reports_local_changes(tmp_path):
     assert invalid.status_code == 422
     assert overview["status"]["state"] == "pending"
     assert "source_baselines" not in overview["status"]
+
+
+def test_sync_endpoint_keeps_event_loop_responsive():
+    sync_finished = threading.Event()
+    started = threading.Event()
+    loop = asyncio.new_event_loop()
+
+    def blocking_sync(**_kwargs):
+        started.set()
+        time.sleep(0.08)
+        sync_finished.set()
+        return {"state": "synced"}
+
+    service = SimpleNamespace(
+        sync=blocking_sync,
+        get_overview=lambda: {"status": {"state": "synced"}},
+    )
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(learning_context_service=service)
+        )
+    )
+
+    async def exercise():
+        sync_task = asyncio.create_task(sync_learning_context(SyncRequest(), request))
+        started_in_time = await asyncio.to_thread(started.wait, 1)
+        overview = await get_learning_context(request)
+        sync_still_running = not sync_finished.is_set()
+        result = await sync_task
+        return started_in_time, overview, sync_still_running, result
+
+    try:
+        result = loop.run_until_complete(exercise())
+    finally:
+        loop.close()
+
+    assert result == (
+        True,
+        {"status": {"state": "synced"}},
+        True,
+        {"state": "synced"},
+    )

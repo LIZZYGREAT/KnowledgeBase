@@ -332,6 +332,11 @@ class TermDiscoveryService:
         allocated_budgets = dict(budgets)
         remaining_budgets = dict(budgets)
 
+        sync_status = None
+        sync_if_stale = getattr(self.learning_context, "sync_if_stale", None)
+        if trigger == "manual" and callable(sync_if_stale):
+            sync_status = sync_if_stale()
+
         base_focus = _focus_context(self.repository_root, settings)
         preferences = self._learning_preferences()
         context_seed = _learning_context_query(
@@ -356,6 +361,11 @@ class TermDiscoveryService:
             "matched_topic_ids": [item["id"] for item in learning_context["topics"]],
             "context_hash": _json_hash(learning_context),
         }
+        if isinstance(sync_status, dict):
+            snapshot["learning_context"]["sync_status"] = {
+                key: sync_status.get(key)
+                for key in ("state", "stale", "used_previous_context", "message")
+            }
         registry = TermRegistry.load(self.repository_root / "knowledge" / "terms")
         resolver = TermResolver(registry)
         source_registry = SourceRegistry.load(
@@ -392,6 +402,13 @@ class TermDiscoveryService:
         filtered_counts = {lane: 0 for lane in _LANE_ORDER}
         items: list[TermDiscoveryRunItem] = []
         errors: list[str] = []
+        if isinstance(sync_status, dict) and sync_status.get("used_previous_context"):
+            errors.append(
+                sync_status.get(
+                    "message",
+                    "学习上下文同步未完成；本次使用上次保存的上下文。",
+                )
+            )
         created_count = 0
 
         created_count += self._process_additional_corpora(

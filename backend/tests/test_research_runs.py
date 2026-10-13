@@ -291,6 +291,54 @@ def test_explicit_exploration_reaches_provider_as_its_own_query(tmp_path):
     connection.close()
 
 
+def test_manual_research_marks_fallback_when_learning_context_sync_fails(tmp_path):
+    connection = connect_database(":memory:")
+    provider = FakeProvider([])
+    service, runs, _search, _client = _service(
+        tmp_path, connection, provider
+    )
+
+    class StaleContextReader:
+        def __init__(self):
+            self.sync_calls = 0
+
+        def sync_if_stale(self):
+            self.sync_calls += 1
+            return {
+                "state": "failed",
+                "stale": True,
+                "used_previous_context": True,
+                "message": "学习上下文同步未完成；本次使用上次保存的学习上下文。AI 分析失败。",
+            }
+
+        def get_recommendation_context(self, _focus):
+            return {
+                "included_sources": [],
+                "preferences": {
+                    "fixed_direction": "",
+                    "keywords": [],
+                    "exclude_keywords": [],
+                    "exploration_directions": [],
+                    "important_anchors": [],
+                },
+                "active": "",
+                "important": "",
+                "topics": [],
+            }
+
+    context_reader = StaleContextReader()
+    service.learning_context_service = context_reader
+    profile = service.profile_registry.get("continual-learning")
+
+    run = service.run_profile(profile.id, trigger="manual")
+
+    assert run is not None and run.status == "success"
+    assert context_reader.sync_calls == 1
+    assert "使用上次保存的学习上下文" in run.error_summary
+    assert runs.get(run.id).error_summary == run.error_summary
+    connection.close()
+
+
 def test_history_provider_budget_keeps_incomplete_progress_retryable(tmp_path):
     connection = connect_database(":memory:")
     profile = _profile()

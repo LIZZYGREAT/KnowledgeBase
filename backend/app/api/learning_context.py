@@ -1,5 +1,6 @@
 """User-managed Learning Context API."""
 
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Request
@@ -42,7 +43,8 @@ async def get_learning_context(request: Request):
 
 @router.post("/sync")
 async def sync_learning_context(body: SyncRequest, request: Request):
-    return request.app.state.learning_context_service.sync(
+    return await asyncio.to_thread(
+        request.app.state.learning_context_service.sync,
         dry_run=body.dry_run,
         force=body.force,
         source_id=body.source_id,

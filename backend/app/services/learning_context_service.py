@@ -178,6 +178,62 @@ class LearningContextService:
             source_id=source_id,
         )
 
+    def sync_if_stale(self) -> dict[str, Any]:
+        """Refresh selected-note evidence when a local check finds pending changes."""
+        previous_status = self._read_status()
+        try:
+            preview = self.sync(dry_run=True)
+        except Exception:
+            return {
+                "state": "check_failed",
+                "stale": True,
+                "used_previous_context": True,
+                "message": "无法确认学习笔记是否有待同步变化；本次使用上次保存的学习上下文。",
+            }
+
+        pending_scope = bool(
+            previous_status.get("pending_added_ids")
+            or previous_status.get("pending_removed_ids")
+        )
+        changed_sources = any(
+            isinstance(item, dict)
+            and item.get("action") in {"analyze", "skipped", "missing"}
+            for item in preview.get("source_results", [])
+        )
+        selected = self._read_sources()
+        stale_status = bool(selected) and previous_status.get("state") in {
+            "not_synced",
+            "failed",
+            "needs_manual_review",
+        }
+        stale = pending_scope or changed_sources or stale_status
+        if not stale:
+            return {
+                "state": previous_status.get("state", "synced"),
+                "stale": False,
+                "used_previous_context": False,
+                "message": previous_status.get("message", "学习上下文已是最新。"),
+            }
+
+        try:
+            result = self.sync()
+        except Exception:
+            result = {"state": "failed", "message": "同步过程未能完成。"}
+        if result.get("state") in {"synced", "no_sources"}:
+            return {
+                **result,
+                "stale": False,
+                "used_previous_context": False,
+            }
+        return {
+            **result,
+            "stale": True,
+            "used_previous_context": True,
+            "message": "学习上下文同步未完成；本次使用上次保存的学习上下文。{}".format(
+                result.get("message", "")
+            ),
+        }
+
     def get_sources(self) -> dict[str, Any]:
         """Return explicit selections and selectable published learning notes."""
         available = self.available_sources()
