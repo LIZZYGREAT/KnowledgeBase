@@ -136,3 +136,9 @@ Profile Search 新增可选 `history_seed_year`、`max_provider_requests_per_run
 后端测试限定为 `backend/tests`，以避开旧的、被忽略的 `runtime/pytest-*` 临时目录；尝试在仓库根目录收集测试时，这些残留目录造成收集错误。CI 等价检查因此不是全绿：完整后端仅部分通过且受 Python 版本限制。GitHub Actions 未查询。本次没有运行生产 Compose、真实 DeepSeek/Provider、定时器或生产备份清理操作。
 
 隔离验收覆盖的是该学习进度上下文纵向流程，不替代个人数据上的推荐质量判断或此前列出的其他浏览器回归项。部署主机的 Python 3.12 全量后端测试、真实 Provider/AI 调用、成本、定时服务和备份恢复仍需上线前按运维手册检查；没有据此声称真实推荐质量或生产就绪性已经达标。
+
+## Phase 15 修订复现基线（2026-10-13）
+
+按本轮修订方案读取 GitHub Actions 实际日志：运行 `38392976076`（基线代码 `93d7165`）为 635 通过、1 失败、3 警告；更早基线运行 `38359515724` 为 605 通过、1 失败、3 警告。两次均失败于 `backend/tests/test_knowledge_api.py::test_research_profile_controls_manual_queue_runs_and_candidate_actions`：API 测试临时仓库缺少 `tools/research.py`，但真实 lifespan worker 被启动并把请求从预期的 `pending` 改为 `failed`。这是测试隔离问题，基线中已存在，不是学习上下文改动引入。
+
+API 队列测试现在注入空闲 Worker；Worker 执行本身仍由独立的 `test_manual_research_worker.py` 覆盖。该修订尚未在 Python 3.12 CI 上执行。当前工作机只有 Python 3.9，项目要求 Python 3.12；本机无法据此报告后端 pytest 结果。后续阶段的测试结果按实际环境逐项补记。没有调用真实 Provider/DeepSeek，也没有修改服务器或调度器。

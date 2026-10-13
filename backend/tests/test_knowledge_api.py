@@ -16,6 +16,7 @@ from backend.app.domain.ai import ResearchCandidateAnalysisOutput
 from backend.app.domain.pdf_corpus import PdfCorpusRecord
 from backend.app.domain.research_runtime import ResearchWorkAnalysisRecord
 from backend.app.domain.term_runtime import TermCandidateEvidenceInput
+import backend.app.main as main_module
 from backend.app.main import app
 from backend.app.repositories.proposal_repository import ProposalRepository
 from backend.app.repositories.pdf_corpus_repository import PdfCorpusRepository
@@ -41,6 +42,22 @@ from backend.tests.test_research_runs import FakeProvider, _service
 _ROOT = Path(__file__).resolve().parents[2]
 
 
+class _IdleManualResearchWorker:
+    """Keep API queue tests independent from the lifespan-owned executor."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def start(self):
+        pass
+
+    def notify(self):
+        pass
+
+    async def stop(self):
+        pass
+
+
 @pytest.fixture
 def api_client(tmp_path, monkeypatch):
     repository = _create_repository(tmp_path / "repository")
@@ -53,6 +70,9 @@ def api_client(tmp_path, monkeypatch):
     monkeypatch.setenv("KNOWLEDGE_REPO_PATH", str(repository))
     monkeypatch.setenv("DATABASE_PATH", str(database))
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    # The dedicated worker tests cover execution. These API tests assert queue
+    # semantics and should not race a subprocess against their temporary repo.
+    monkeypatch.setattr(main_module, "ManualResearchWorker", _IdleManualResearchWorker)
     with TestClient(app) as client:
         yield client
 
