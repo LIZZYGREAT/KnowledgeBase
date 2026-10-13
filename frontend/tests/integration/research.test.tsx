@@ -927,6 +927,41 @@ describe("论文推荐 workspace", () => {
     });
   });
 
+  it("keeps each manual date mode visible, in sync, and sends its selected API mode", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "立即检索" }));
+    const modes = ["last_7_days", "last_30_days", "last_90_days", "custom", "incremental"] as const;
+    const queuedRuns = () => mockFetch.mock.calls.filter(([input, init]) =>
+      String(input) === "/api/research/profiles/continual-learning/runs" && init?.method === "POST",
+    );
+
+    for (const [index, mode] of modes.entries()) {
+      const dateSelect = screen.getByLabelText("时间范围") as HTMLSelectElement;
+      fireEvent.click(screen.getByText("高级搜索选项"));
+      const incrementalToggle = screen.getByLabelText("从上次自动检索进度继续") as HTMLInputElement;
+      fireEvent.change(dateSelect, { target: { value: mode } });
+      expect(dateSelect.value).toBe(mode);
+      expect(incrementalToggle.checked).toBe(mode === "incremental");
+      if (mode === "custom") {
+        fireEvent.change(screen.getByLabelText("开始日期"), { target: { value: "2020-01-01" } });
+        fireEvent.change(screen.getByLabelText("结束日期"), { target: { value: "2020-01-02" } });
+      }
+      if (mode === "incremental") {
+        fireEvent.click(incrementalToggle);
+        expect(dateSelect.value).toBe("last_30_days");
+        fireEvent.click(incrementalToggle);
+        expect(dateSelect.value).toBe("incremental");
+      }
+
+      fireEvent.click(screen.getByRole("button", { name: "开始检索" }));
+      await waitFor(() => expect(queuedRuns()).toHaveLength(index + 1));
+      expect(JSON.parse(String(queuedRuns()[index][1]?.body))).toMatchObject({ date_range: { mode } });
+      if (index < modes.length - 1) {
+        fireEvent.click(await screen.findByRole("button", { name: "立即检索" }));
+      }
+    }
+  });
+
   it("automatically assigns extra queries to the highest-priority selected 检索主题", async () => {
     responseProfileDetail = {
       ...profileDetail,
