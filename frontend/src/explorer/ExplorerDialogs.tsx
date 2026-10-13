@@ -105,7 +105,7 @@ export function AddExistingEntityDialog({
   const filtered = entities.filter((item) => !normalized || `${item.title} ${item.id} ${item.entity_type}`.toLocaleLowerCase().includes(normalized));
   return <div className="explorer-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="explorer-modal surface" role="dialog" aria-modal="true" aria-labelledby="add-existing-title">
-      <div className="section-heading"><div><h2 id="add-existing-title">加入已有内容 Entity</h2><p>{parentSectionId ? "添加到所选分组" : "添加到专题根目录"}</p></div><button className="text-button" onClick={onClose}>关闭</button></div>
+      <div className="section-heading"><div><h2 id="add-existing-title">加入已有内容</h2><p>{parentSectionId ? "添加到所选分组" : "添加到专题根目录"}</p></div><button className="text-button" onClick={onClose}>关闭</button></div>
       <label className="field-label">搜索笔记、术语或文献<input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="标题、ID 或类型" /></label>
       <div className="explorer-add-results" aria-live="polite">
         {loading ? <LoadingState label="正在读取知识条目…" /> : error ? <ErrorState message={error} /> : filtered.length ? filtered.map((entity) => <button key={`${entity.entity_type}:${entity.id}`} onClick={() => onChoose(entity)}>

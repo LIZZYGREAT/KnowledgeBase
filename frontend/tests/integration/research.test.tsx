@@ -291,7 +291,7 @@ describe("论文推荐 workspace", () => {
     expect(await screen.findByText("已恢复到待看论文。")).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("heading", { name: "A New Regularization Method" })).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "查看待看论文" }));
-    const newTab = await screen.findByRole("tab", { name: /New/ });
+    const newTab = await screen.findByRole("tab", { name: /待看/ });
     expect(newTab.getAttribute("aria-selected")).toBe("true");
     expect(await screen.findByRole("heading", { name: "A New Regularization Method" })).toBeTruthy();
   });
@@ -725,16 +725,16 @@ describe("论文推荐 workspace", () => {
   it("creates a 研究方向 from name and focus, generating stable default identifiers", async () => {
     const created = vi.fn();
     render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={null} onClose={() => undefined} onCreated={created} />);
-    fireEvent.change(screen.getByLabelText("新建研究方向 title"), { target: { value: "3D Gaussian Splatting" } });
-    fireEvent.change(screen.getByLabelText("新建研究方向 description"), { target: { value: "New view synthesis work." } });
-    fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning regularization" } });
+    fireEvent.change(screen.getByLabelText("新建研究方向名称"), { target: { value: "3D Gaussian Splatting" } });
+    fireEvent.change(screen.getByLabelText("新建研究方向描述"), { target: { value: "New view synthesis work." } });
+    fireEvent.change(screen.getByLabelText("初始检索词"), { target: { value: "continual learning regularization" } });
     expect(screen.queryByLabelText("新建研究方向 schedule")).toBeNull();
     expect(screen.queryByLabelText("新建研究方向 breadth")).toBeNull();
     expect(screen.queryByLabelText("新建研究方向 inbox cap")).toBeNull();
-    fireEvent.click(screen.getByText("Advanced identifiers"));
+    fireEvent.click(screen.getByText("高级标识设置"));
     expect((screen.getByLabelText("新建研究方向 ID") as HTMLInputElement).value).toBe("3d-gaussian-splatting");
-    expect((screen.getByLabelText("Initial 检索主题 ID") as HTMLInputElement).value).toBe("main");
-    fireEvent.click(screen.getByRole("button", { name: "Create 研究方向" }));
+    expect((screen.getByLabelText("初始检索主题 ID") as HTMLInputElement).value).toBe("main");
+    fireEvent.click(screen.getByRole("button", { name: "创建研究方向" }));
 
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
@@ -745,7 +745,7 @@ describe("论文推荐 workspace", () => {
       id: "3d-gaussian-splatting",
       title: "3D Gaussian Splatting",
       description: "New view synthesis work.",
-      lenses: [{ id: "main", title: "Main focus", queries: ["continual learning regularization"] }],
+      lenses: [{ id: "main", title: "主要主题", queries: ["continual learning regularization"] }],
       schedule: { mode: "daily" },
       search: { breadth: "balanced" },
       inbox: { max_new_candidates: 20 },
@@ -758,11 +758,11 @@ describe("论文推荐 workspace", () => {
     createDraftCreatedInThisFlow = false;
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "新建研究方向" }));
-    fireEvent.change(screen.getByLabelText("新建研究方向 title"), { target: { value: "Resumed 研究方向" } });
-    fireEvent.change(screen.getByLabelText("Initial Query"), { target: { value: "continual learning" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create 研究方向" }));
+    fireEvent.change(screen.getByLabelText("新建研究方向名称"), { target: { value: "Resumed 研究方向" } });
+    fireEvent.change(screen.getByLabelText("初始检索词"), { target: { value: "continual learning" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建研究方向" }));
 
-    expect(await screen.findByText("Existing unpublished 研究方向未发布修改 resumed. Closing this editor will keep the 未发布修改.")).toBeTruthy();
+    expect(await screen.findByText("已恢复未发布的研究方向修改；关闭编辑器会保留这些修改。")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑 Resumed 研究方向" })).toBeNull());
@@ -777,20 +777,20 @@ describe("论文推荐 workspace", () => {
       onClose={() => undefined}
       onCreated={() => undefined}
     />);
-    fireEvent.change(screen.getByLabelText("新建研究方向 title"), { target: { value: "Continual Learning" } });
-    fireEvent.click(screen.getByText("Advanced identifiers"));
+    fireEvent.change(screen.getByLabelText("新建研究方向名称"), { target: { value: "Continual Learning" } });
+    fireEvent.click(screen.getByText("高级标识设置"));
     expect((screen.getByLabelText("新建研究方向 ID") as HTMLInputElement).value).toBe("continual-learning-3");
   });
 
   it("duplicates a 研究方向's canonical settings into a new 未发布修改", async () => {
     const created = vi.fn();
     render(<ResearchProfileCreateDialog profiles={[profileSummary]} sourceProfile={profile as unknown as ResearchProfile} onClose={() => undefined} onCreated={created} />);
-    expect(screen.queryByLabelText("Initial 检索主题 ID")).toBeNull();
-    expect(screen.queryByLabelText("Initial Query")).toBeNull();
+    expect(screen.queryByLabelText("初始检索主题 ID")).toBeNull();
+    expect(screen.queryByLabelText("初始检索词")).toBeNull();
     expect(screen.queryByLabelText("新建研究方向 schedule")).toBeNull();
     fireEvent.change(screen.getByLabelText("新建研究方向 ID"), { target: { value: "continual-learning-copy" } });
-    fireEvent.change(screen.getByLabelText("新建研究方向 title"), { target: { value: "Continual Learning Copy" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create 研究方向" }));
+    fireEvent.change(screen.getByLabelText("新建研究方向名称"), { target: { value: "Continual Learning Copy" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建研究方向" }));
 
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
@@ -819,7 +819,7 @@ describe("论文推荐 workspace", () => {
     />);
 
     expect((screen.getByLabelText("新建研究方向 ID") as HTMLInputElement).value).toBe("continual-learning-copy-2");
-    fireEvent.click(screen.getByRole("button", { name: "Create 研究方向" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建研究方向" }));
     await waitFor(() => expect(created).toHaveBeenCalledTimes(1));
     const call = mockFetch.mock.calls.find(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST");
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ entity_id: "continual-learning-copy-2" });
@@ -1127,7 +1127,7 @@ describe("论文推荐 workspace", () => {
     />);
 
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
-    expect(screen.getByLabelText("Enable unattended DeepSeek analysis")).toBeTruthy();
+    expect(screen.getByLabelText("允许后台 DeepSeek 分析")).toBeTruthy();
     expect(screen.getByText(/AI 分析已开启/)).toBeTruthy();
     expect(screen.getByText(/论文标题、作者、摘要和所选或检索到的相关知识片段会发送给 DeepSeek/)).toBeTruthy();
     expect(screen.getByText(/筛选规则和搜索默认值的修改只影响后续检索记录/)).toBeTruthy();
@@ -1145,15 +1145,16 @@ describe("论文推荐 workspace", () => {
     expect(lastDiscoveryProvider.checked).toBe(true);
     fireEvent.click(screen.getByLabelText("Enrichment Provider openalex"));
     fireEvent.click(screen.getByLabelText("Enrichment Provider crossref"));
-    fireEvent.change(screen.getByLabelText("研究方向 title"), { target: { value: "Continual Learning 论文推荐" } });
-    fireEvent.change(screen.getByLabelText("研究方向 description"), { target: { value: "Updated research direction." } });
-    fireEvent.change(screen.getByLabelText("New 检索主题 name"), { target: { value: "Regularization" } });
-    fireEvent.change(screen.getByLabelText("Initial search query"), { target: { value: "replay continual learning" } });
+    fireEvent.change(screen.getByLabelText("研究方向名称"), { target: { value: "Continual Learning 论文推荐" } });
+    fireEvent.change(screen.getByLabelText("研究方向描述"), { target: { value: "Updated research direction." } });
+    fireEvent.change(screen.getByLabelText("新检索主题名称"), { target: { value: "Regularization" } });
+    fireEvent.change(screen.getByLabelText("初始检索词"), { target: { value: "replay continual learning" } });
     fireEvent.click(screen.getByRole("button", { name: "+ 加入检索主题" }));
-    const originalLens = screen.getByLabelText("检索主题 regularization name").closest("article");
+    const originalLens = screen.getByLabelText("检索主题 regularization 名称").closest("article");
     fireEvent.click(within(originalLens as HTMLElement).getByText("高级筛选与标识"));
-    fireEvent.click(within(originalLens as HTMLElement).getByRole("button", { name: "Remove 检索主题 regularization" }));
-    const queriesField = screen.getByLabelText(/Queries/) as HTMLTextAreaElement;
+    fireEvent.click(within(originalLens as HTMLElement).getByRole("button", { name: "移除检索主题 regularization" }));
+    const remainingLens = screen.getByLabelText("检索主题 regularization-2 名称").closest("article");
+    const queriesField = within(remainingLens as HTMLElement).getByLabelText(/检索词/) as HTMLTextAreaElement;
     expect(queriesField.value).toBe("replay continual learning");
     await user.clear(queriesField);
     await user.type(queriesField, "query one");
@@ -1161,8 +1162,8 @@ describe("论文推荐 workspace", () => {
     expect(queriesField.value).toBe("query one\n");
     await user.type(queriesField, "query two");
     await user.tab();
-    expect(screen.getByRole("option", { name: "Selected 专题 and 笔记" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Dynamic Retrieval scope"), { target: { value: "selected-context" } });
+    expect(screen.getByRole("option", { name: "所选专题与笔记" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("动态检索范围"), { target: { value: "selected-context" } });
 
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(true);
@@ -1184,10 +1185,10 @@ describe("论文推荐 workspace", () => {
     expect(draftContent).toContain("# Keep this trailing note.");
     expect(draftContent.indexOf("schema_version:")).toBeLessThan(draftContent.indexOf("id:"));
 
-    fireEvent.click(screen.getByRole("button", { name: "审阅 Diff" }));
-    expect(await screen.findByText("研究方向未发布修改 preflight 通过。")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "研究方向 changes" }).textContent).toContain("query two");
-    fireEvent.click(screen.getByRole("button", { name: "确认保存 Defaults" }));
+    fireEvent.click(screen.getByRole("button", { name: "检查差异" }));
+    expect(await screen.findByText("研究方向修改检查通过。")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "研究方向修改差异" }).textContent).toContain("query two");
+    fireEvent.click(screen.getByRole("button", { name: "确认保存" }));
 
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
@@ -1231,8 +1232,8 @@ describe("论文推荐 workspace", () => {
     fireEvent.blur(historySeed);
     expect(await screen.findByText(/预填 2010-01-01 至 2014-12-31/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "审阅 Diff" }));
-    expect(await screen.findByText("研究方向未发布修改 preflight 通过。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "检查差异" }));
+    expect(await screen.findByText("研究方向修改检查通过。")).toBeTruthy();
 
     const refreshedProfile = {
       ...seededProfile,
@@ -1246,7 +1247,7 @@ describe("论文推荐 workspace", () => {
       history_anchor_year: 2012,
     };
     deferNextProfileRefresh = true;
-    fireEvent.click(screen.getByRole("button", { name: "确认保存 Defaults" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认保存" }));
 
     await waitFor(() => {
       expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/publish" && init?.method === "POST")).toBe(true);
@@ -1301,11 +1302,11 @@ describe("论文推荐 workspace", () => {
     expect(await screen.findByRole("heading", { name: "编辑 Continual Learning" })).toBeTruthy();
     expect((screen.getByText("高级设置").closest("details") as HTMLDetailsElement).open).toBe(false);
 
-    const inboxLimit = screen.getByRole("spinbutton", { name: "待看论文 max new candidates" });
+    const inboxLimit = screen.getByRole("spinbutton", { name: "待看论文容量" });
     fireEvent.change(inboxLimit, { target: { value: "" } });
     fireEvent.blur(inboxLimit);
 
-    expect((await screen.findByRole("alert")).textContent).toContain("Enter a whole number greater than or equal to 0.");
+    expect((await screen.findByRole("alert")).textContent).toContain("请输入不小于 0 的整数。");
     expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/drafts" && init?.method === "POST")).toBe(false);
   });
 
@@ -1324,7 +1325,7 @@ describe("论文推荐 workspace", () => {
 
     const alphaCheckbox = await screen.findByRole("checkbox", { name: "Alpha 论文推荐笔记" }) as HTMLInputElement;
     fireEvent.click(alphaCheckbox);
-    const filter = screen.getByRole("searchbox", { name: "Filter Pinned 笔记" });
+    const filter = screen.getByRole("searchbox", { name: "筛选固定笔记" });
     fireEvent.change(filter, { target: { value: "beta" } });
     expect(screen.queryByRole("checkbox", { name: "Alpha 论文推荐笔记" })).toBeNull();
     expect(screen.getByRole("checkbox", { name: "Beta 论文推荐笔记" })).toBeTruthy();
@@ -1342,10 +1343,10 @@ describe("论文推荐 workspace", () => {
     responseProfileSummary = { ...profileSummary, enabled: false };
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "研究方向设置" }));
-    fireEvent.click(await screen.findByLabelText("Enable 研究方向"));
-    fireEvent.click(screen.getByRole("button", { name: "审阅 Diff" }));
+    fireEvent.click(await screen.findByLabelText("启用研究方向"));
+    fireEvent.click(screen.getByRole("button", { name: "检查差异" }));
 
-    const publishButton = await screen.findByRole("button", { name: "确认保存 Defaults" });
+    const publishButton = await screen.findByRole("button", { name: "确认保存" });
     expect(publishButton.hasAttribute("disabled")).toBe(false);
     fireEvent.click(publishButton);
 

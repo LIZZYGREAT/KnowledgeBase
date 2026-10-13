@@ -412,7 +412,7 @@ function AnalysisTimeContext({ detail }: { detail: ResearchCandidateDetail }) {
       <DetailRow label="研究方向" value={input.profile?.title ?? input.profile?.id} />
       <DetailRow label="研究方向 breadth" value={input.profile?.breadth} />
       <DetailRow label="Breadth policy" value={input.profile?.breadth_policy} />
-      <DetailRow label="研究方向 description" value={input.profile?.description} />
+      <DetailRow label="研究方向描述" value={input.profile?.description} />
       <DetailRow label="Matched 检索主题" value={input.matched_lens?.title ?? input.matched_lens?.id} />
       <DetailRow label="检索主题 queries" value={input.matched_lens?.queries?.join(" · ")} />
       <DetailRow label="检索主题 include terms" value={input.matched_lens?.include_terms?.join(" · ")} />

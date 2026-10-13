@@ -253,7 +253,7 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
     : session.state === "saving" ? "正在自动保存…"
       : session.state === "unsaved" || session.isDirty ? "有未保存修改"
         : session.draft ? "未发布修改已保存"
-          : "与已发布 Defaults 一致";
+          : "与已发布设置一致";
   const backfillRange = historySeedBackfillRange(previousHistoryAnchorYear, editableProfile?.search.history_seed_year);
   const canReview = Boolean(editableProfile)
     && session.state !== "loading"
@@ -269,71 +269,71 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
   }}>
     <section className="research-dismiss-dialog research-profile-editor" role="dialog" aria-modal="true" aria-labelledby="research-profile-editor-title">
       <header className="research-profile-editor-header">
-        <div><p className="eyebrow">PROFILE DEFAULTS</p><h2 id="research-profile-editor-title">编辑 {profile.title}</h2><p>修改会先自动保存为未发布修改；检查差异并通过校验后，才会写入 canonical 研究方向。</p></div>
-        <button className="button button-quiet" type="button" disabled={busy || (draftCreatedInThisFlow && (session.loading || session.state === "saving"))} onClick={() => void closeEditor()}>{draftCreatedInThisFlow ? "Discard new 研究方向未发布修改" : "关闭"}</button>
+        <div><p className="eyebrow">研究方向设置</p><h2 id="research-profile-editor-title">编辑 {profile.title}</h2><p>修改会先自动保存；检查差异并通过校验后，才会写入正式研究方向。</p></div>
+        <button className="button button-quiet" type="button" disabled={busy || (draftCreatedInThisFlow && (session.loading || session.state === "saving"))} onClick={() => void closeEditor()}>{draftCreatedInThisFlow ? "放弃新研究方向修改" : "关闭"}</button>
       </header>
       <div className="research-profile-editor-body">
         <div className="research-profile-draft-status" role="status"><strong>{statusText}</strong><span>研究方向未发布修改 · {profile.id}</span></div>
-        {isNewProfile && !draftCreatedInThisFlow && <p className="notice" role="status">Existing unpublished 研究方向未发布修改 resumed. Closing this editor will keep the 未发布修改.</p>}
+        {isNewProfile && !draftCreatedInThisFlow && <p className="notice" role="status">已恢复未发布的研究方向修改；关闭编辑器会保留这些修改。</p>}
         {session.error && <p className="error-copy" role="alert">{session.error}</p>}
         {error && <p className="error-copy" role="alert">{error}</p>}
         {notice && <p className="notice" role="status">{notice}</p>}
         {parseError && <p className="error-copy" role="alert">无法读取研究方向未发布修改：{parseError}</p>}
-        {libraryError && <p className="error-copy" role="alert">读取 Context 选项失败：{libraryError}</p>}
+        {libraryError && <p className="error-copy" role="alert">读取知识范围选项失败：{libraryError}</p>}
 
         {editableProfile && <>
           <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>研究方向 name</h3><p>名称和描述显示在研究方向列表中。</p></div></div>
+            <div className="research-section-heading"><div><h3>研究方向名称</h3><p>名称和描述显示在研究方向列表中。</p></div></div>
             <div className="research-defaults-grid">
-              <label className="field-label">研究方向 title<input aria-label="研究方向 title" value={editableProfile.title} onChange={(event) => updateProfile((current) => ({ ...current, title: event.target.value }))} /></label>
-              <label className="field-label">研究方向 description<textarea aria-label="研究方向 description" rows={2} value={editableProfile.description ?? ""} onChange={(event) => updateProfile((current) => ({ ...current, description: event.target.value.trim() ? event.target.value : null }))} /></label>
+              <label className="field-label">名称<input aria-label="研究方向名称" value={editableProfile.title} onChange={(event) => updateProfile((current) => ({ ...current, title: event.target.value }))} /></label>
+              <label className="field-label">描述<textarea aria-label="研究方向描述" rows={2} value={editableProfile.description ?? ""} onChange={(event) => updateProfile((current) => ({ ...current, description: event.target.value.trim() ? event.target.value : null }))} /></label>
             </div>
           </section>
 
           <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>论文推荐 focus</h3><p>编辑每个主题名称和用于发现论文的查询词。</p></div></div>
+            <div className="research-section-heading"><div><h3>论文检索主题</h3><p>编辑每个主题名称和用于发现论文的检索词。</p></div></div>
             <p className="field-hint">筛选规则和搜索默认值的修改只影响后续检索记录。系统不会自动重新评估已覆盖的历史窗口；如需按新规则检查旧论文，请使用立即检索的历史日期范围。</p>
             {editableProfile.lenses.map((lens, index) => <article className="research-default-lens" key={lens.id}>
-              <div className="research-default-lens-heading"><label><input type="checkbox" checked={lens.enabled} onChange={(event) => updateProfile((current) => updateLens(current, index, { enabled: event.target.checked }))} /><span><strong>{lens.title}</strong><small>{lens.enabled ? "Included in automatic research" : "Excluded from automatic research"}</small></span></label></div>
+              <div className="research-default-lens-heading"><label><input type="checkbox" checked={lens.enabled} onChange={(event) => updateProfile((current) => updateLens(current, index, { enabled: event.target.checked }))} /><span><strong>{lens.title}</strong><small>{lens.enabled ? "参与自动检索" : "不参与自动检索"}</small></span></label></div>
               <div className="research-defaults-grid">
-                <label className="field-label">检索主题 name<input aria-label={"检索主题 " + lens.id + " name"} value={lens.title} onChange={(event) => updateProfile((current) => updateLens(current, index, { title: event.target.value }))} /></label>
-                <TextListField label="Queries" value={lens.queries} onChange={(value) => updateProfile((current) => updateLens(current, index, { queries: value }))} />
+                <label className="field-label">检索主题名称<input aria-label={"检索主题 " + lens.id + " 名称"} value={lens.title} onChange={(event) => updateProfile((current) => updateLens(current, index, { title: event.target.value }))} /></label>
+                <TextListField label="检索词" value={lens.queries} onChange={(value) => updateProfile((current) => updateLens(current, index, { queries: value }))} />
               </div>
               <details className="research-advanced-settings research-lens-advanced">
                 <summary>高级筛选与标识</summary>
-                <p className="field-hint">Technical identifier：{lens.id}（创建后固定）</p>
-                <label className="field-label">优先级<select value={lens.priority} onChange={(event) => updateProfile((current) => updateLens(current, index, { priority: event.target.value as typeof lens.priority }))}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+                <p className="field-hint">技术标识：{lens.id}（创建后固定）</p>
+                <label className="field-label">优先级<select value={lens.priority} onChange={(event) => updateProfile((current) => updateLens(current, index, { priority: event.target.value as typeof lens.priority }))}><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
                 <div className="research-defaults-grid">
-                  <TextListField label="Include terms" value={lens.include_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { include_terms: value }))} />
-                  <TextListField label="检索主题 exclude terms" value={lens.exclude_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { exclude_terms: value }))} />
+                  <TextListField label="需包含术语" value={lens.include_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { include_terms: value }))} />
+                  <TextListField label="排除术语" value={lens.exclude_terms} onChange={(value) => updateProfile((current) => updateLens(current, index, { exclude_terms: value }))} />
                 </div>
-                <button className="button button-quiet" type="button" aria-label={"Remove 检索主题 " + lens.id} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>Remove 检索主题</button>
+                <button className="button button-quiet" type="button" aria-label={"移除检索主题 " + lens.id} disabled={editableProfile.lenses.length <= 1} onClick={() => removeLens(index)}>移除检索主题</button>
               </details>
             </article>)}
             <div className="research-default-add-lens">
-              <label className="field-label">检索主题 name<input aria-label="New 检索主题 name" value={newLensFocusName} onChange={(event) => setNewLensFocusName(event.target.value)} /></label>
-              <label className="field-label">Initial search query<input aria-label="Initial search query" value={newLensQuery} onChange={(event) => setNewLensQuery(event.target.value)} /></label>
+              <label className="field-label">新检索主题名称<input aria-label="新检索主题名称" value={newLensFocusName} onChange={(event) => setNewLensFocusName(event.target.value)} /></label>
+              <label className="field-label">初始检索词<input aria-label="初始检索词" value={newLensQuery} onChange={(event) => setNewLensQuery(event.target.value)} /></label>
               <button className="button button-secondary" type="button" onClick={addLens}>+ 加入检索主题</button>
             </div>
           </section>
 
           <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>Schedule and 待看论文</h3><p>控制自动运行时间表以及每次运行可加入待看论文的候选上限。</p></div></div>
+            <div className="research-section-heading"><div><h3>自动安排与待看论文</h3><p>控制自动运行时间以及每次运行可加入待看论文的候选上限。</p></div></div>
             <div className="research-defaults-grid research-defaults-fields">
-              <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.enabled} onChange={(event) => updateProfile((current) => ({ ...current, enabled: event.target.checked }))} /><span>Enable 研究方向</span></label>
-              <label className="field-label">Schedule<select value={editableProfile.schedule.mode} onChange={(event) => updateProfile((current) => ({ ...current, schedule: { mode: event.target.value as ResearchProfile["schedule"]["mode"] } }))}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="manual">Manual only</option></select></label>
-              <NumberField label="待看论文 max new candidates" value={editableProfile.inbox.max_new_candidates} min={0} onChange={(value) => updateProfile((current) => ({ ...current, inbox: { max_new_candidates: value } }))} />
+              <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.enabled} onChange={(event) => updateProfile((current) => ({ ...current, enabled: event.target.checked }))} /><span>启用研究方向</span></label>
+              <label className="field-label">自动检索频率<select value={editableProfile.schedule.mode} onChange={(event) => updateProfile((current) => ({ ...current, schedule: { mode: event.target.value as ResearchProfile["schedule"]["mode"] } }))}><option value="daily">每日</option><option value="weekly">每周</option><option value="manual">仅手动</option></select></label>
+              <NumberField label="待看论文容量" value={editableProfile.inbox.max_new_candidates} min={0} onChange={(value) => updateProfile((current) => ({ ...current, inbox: { max_new_candidates: value } }))} />
             </div>
           </section>
 
           <section className="research-defaults-section">
-            <div className="research-section-heading"><div><h3>Knowledge context</h3><p>选择固定引用，供已授权的 AI 分析参考。</p></div></div>
+            <div className="research-section-heading"><div><h3>知识范围</h3><p>选择固定引用，供已授权的 AI 分析参考。</p></div></div>
             {libraryLoading ? <p className="field-hint">正在载入专题和笔记…</p> : <div className="research-defaults-context-grid">
-              <SelectionList label="Pinned 专题" items={collections.map((item) => ({ id: item.id, title: item.title }))} selected={editableProfile.context.collections} onChange={(value) => updateProfile((current) => ({ ...current, context: { ...current.context, collections: value } }))} />
-              <SelectionList label="Pinned 笔记" items={documents.map((item) => ({ id: item.id, title: item.title }))} selected={editableProfile.context.documents} onChange={(value) => updateProfile((current) => ({ ...current, context: { ...current.context, documents: value } }))} />
+              <SelectionList label="固定专题" items={collections.map((item) => ({ id: item.id, title: item.title }))} selected={editableProfile.context.collections} onChange={(value) => updateProfile((current) => ({ ...current, context: { ...current.context, collections: value } }))} />
+              <SelectionList label="固定笔记" items={documents.map((item) => ({ id: item.id, title: item.title }))} selected={editableProfile.context.documents} onChange={(value) => updateProfile((current) => ({ ...current, context: { ...current.context, documents: value } }))} />
             </div>}
             <div className="research-default-ai-analysis">
-              <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.ai_analysis.enabled} onChange={(event) => updateProfile((current) => ({ ...current, ai_analysis: { ...current.ai_analysis, enabled: event.target.checked } }))} /><span>Enable unattended DeepSeek analysis</span></label>
+              <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.ai_analysis.enabled} onChange={(event) => updateProfile((current) => ({ ...current, ai_analysis: { ...current.ai_analysis, enabled: event.target.checked } }))} /><span>允许后台 DeepSeek 分析</span></label>
               <p className="field-hint">{editableProfile.ai_analysis.enabled ? "AI 分析已开启。论文标题、作者、摘要和所选或检索到的相关知识片段会发送给 DeepSeek，以生成推荐。" : "AI 分析已关闭。系统仍会收集论文，但不会向 DeepSeek 发送论文或知识库内容，也不会生成推荐候选。重新开启后，系统会逐步处理之前收集但尚未分析的论文。"}</p>
             </div>
           </section>
@@ -342,13 +342,13 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
             <summary>高级设置</summary>
             <p className="field-hint">研究方向 ID：{editableProfile.id}（创建后固定）</p>
             <section className="research-defaults-section">
-              <div className="research-section-heading"><div><h3>搜索 defaults</h3><p>这些值用于后续自动搜索；单次立即检索可单独覆盖。</p></div></div>
+              <div className="research-section-heading"><div><h3>搜索默认值</h3><p>这些值用于后续自动搜索；单次立即检索可单独覆盖。</p></div></div>
               <div className="research-defaults-grid research-defaults-fields">
-                <label className="field-label">Default breadth<select value={editableProfile.search.breadth} onChange={(event) => updateProfile((current) => ({ ...current, search: { ...current.search, breadth: event.target.value as ResearchBreadth } }))}><option value="strict">高相关</option><option value="balanced">均衡</option><option value="explore">探索新方向 · 新颖性</option></select></label>
-                <NumberField label="Initial lookback days" value={editableProfile.search.initial_lookback_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, initial_lookback_days: value } }))} />
-                <NumberField label="Max catch-up days" value={editableProfile.search.max_catchup_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_catchup_days: value } }))} />
-                <NumberField label="Max candidates per run" value={editableProfile.search.max_candidates_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_candidates_per_run: value } }))} />
-                <NumberField label="Max analyses per run" value={editableProfile.search.max_analyses_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_analyses_per_run: value } }))} />
+                <label className="field-label">默认搜索范围<select value={editableProfile.search.breadth} onChange={(event) => updateProfile((current) => ({ ...current, search: { ...current.search, breadth: event.target.value as ResearchBreadth } }))}><option value="strict">高相关</option><option value="balanced">均衡</option><option value="explore">探索新方向 · 新颖性</option></select></label>
+                <NumberField label="首次回看天数" value={editableProfile.search.initial_lookback_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, initial_lookback_days: value } }))} />
+                <NumberField label="最多追赶天数" value={editableProfile.search.max_catchup_days} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_catchup_days: value } }))} />
+                <NumberField label="每轮候选上限" value={editableProfile.search.max_candidates_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_candidates_per_run: value } }))} />
+                <NumberField label="每轮分析上限" value={editableProfile.search.max_analyses_per_run} min={1} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, max_analyses_per_run: value } }))} />
                 <NumberField label="起始研究年份（可选）" optional value={editableProfile.search.history_seed_year ?? null} min={1000} max={9997} onChange={(value) => updateProfile((current) => ({ ...current, search: { ...current.search, history_seed_year: value } }))} />
                 <p className="field-hint">指定当前学习阶段的年份，优先于来源发表年份。先探索此前两年到同期后两年；新增已批准的相关笔记或术语后，每批逐步扩展一年。留空时从已批准笔记的最早来源年份保守推断，无法推断则仅发现近期论文。起点变更不会清除或自动重跑已完成窗口。</p>
                 {backfillRange && <p className="field-hint" role="status">此调整会留下已完成的历史进度。发布后将打开立即检索，并预填 {backfillRange.start} 至 {backfillRange.end} 的自定义补查范围；确认加入队列后才会补查，且不会改写近期定时搜索进度。</p>}
@@ -358,47 +358,47 @@ export function ResearchProfileDefaultsEditor({ profile, canonicalContent, draft
               </div>
             </section>
             <section className="research-defaults-section">
-              <div className="research-section-heading"><div><h3>Providers</h3><p>选择自动发现和元数据补全使用的 Provider。</p></div></div>
+              <div className="research-section-heading"><div><h3>数据来源</h3><p>选择自动发现和元数据补全使用的 Provider。</p></div></div>
               <div className="research-defaults-grid research-defaults-fields">
                 <fieldset>
-                  <legend>发现术语 Providers</legend>
+                  <legend>论文发现来源</legend>
                   {DISCOVERY_PROVIDERS.map((provider) => {
                     const checked = editableProfile.providers.discovery.includes(provider.id);
                     return <label className="research-default-toggle" key={provider.id}><input aria-label={"发现术语 Provider " + provider.id} type="checkbox" checked={checked} disabled={checked && editableProfile.providers.discovery.length === 1} onChange={() => toggleProvider("discovery", provider.id)} /><span>{provider.label}</span></label>;
                   })}
-                  <span className="field-hint">至少选择一个发现术语 Provider。</span>
+                  <span className="field-hint">至少选择一个论文发现来源。</span>
                 </fieldset>
                 <fieldset>
-                  <legend>Enrichment Providers</legend>
+                  <legend>元数据补全来源</legend>
                   {ENRICHMENT_PROVIDERS.map((provider) => <label className="research-default-toggle" key={provider.id}><input aria-label={"Enrichment Provider " + provider.id} type="checkbox" checked={editableProfile.providers.enrichment.includes(provider.id)} onChange={() => toggleProvider("enrichment", provider.id)} /><span>{provider.label}</span></label>)}
                 </fieldset>
               </div>
             </section>
             <section className="research-defaults-section">
-              <div className="research-section-heading"><div><h3>Additional rules</h3><p>调整研究方向筛选词、增加检索主题和动态知识检索行为。</p></div></div>
-              <TextListField label="研究方向 exclude terms" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
+              <div className="research-section-heading"><div><h3>其他规则</h3><p>调整研究方向筛选词、增加检索主题和动态知识检索行为。</p></div></div>
+              <TextListField label="研究方向排除术语" value={editableProfile.exclude_terms} onChange={(value) => updateProfile((current) => ({ ...current, exclude_terms: value }))} />
               <div className="research-defaults-grid research-defaults-fields">
-                <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.context.dynamic_retrieval.enabled} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, enabled: event.target.checked } } }))} /><span>Enable dynamic retrieval</span></label>
-                <label className="field-label">Dynamic Retrieval scope<select aria-label="Dynamic Retrieval scope" value={editableProfile.context.dynamic_retrieval.scope} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, scope: event.target.value as ResearchProfile["context"]["dynamic_retrieval"]["scope"] } } }))}><option value="entire-library">Entire library</option><option value="selected-context">Selected 专题 and 笔记</option></select><span className="field-hint">Selected context limits retrieved and analyzed material to pinned 笔记 and 专题 members.</span></label>
+                <label className="research-default-toggle"><input type="checkbox" checked={editableProfile.context.dynamic_retrieval.enabled} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, enabled: event.target.checked } } }))} /><span>启用动态知识检索</span></label>
+                <label className="field-label">动态检索范围<select aria-label="动态检索范围" value={editableProfile.context.dynamic_retrieval.scope} onChange={(event) => updateProfile((current) => ({ ...current, context: { ...current.context, dynamic_retrieval: { ...current.context.dynamic_retrieval, scope: event.target.value as ResearchProfile["context"]["dynamic_retrieval"]["scope"] } } }))}><option value="entire-library">整个资料库</option><option value="selected-context">所选专题与笔记</option></select><span className="field-hint">选择知识范围后，只会从固定笔记和专题成员中检索分析材料。</span></label>
               </div>
             </section>
           </details>
         </>}
 
-        {review && <section className="research-default-review" aria-label="研究方向未发布修改 review">
-          <div className="research-section-heading"><div><h3>审阅未发布修改 diff</h3><p>左侧移除的是当前 canonical 内容，右侧新增的是待发布未发布修改。</p></div><button className="button button-quiet" type="button" disabled={busy} onClick={() => setReview(null)}>返回编辑</button></div>
+        {review && <section className="research-default-review" aria-label="检查研究方向修改">
+          <div className="research-section-heading"><div><h3>检查未发布修改</h3><p>左侧移除的是当前正式内容，右侧新增的是待保存修改。</p></div><button className="button button-quiet" type="button" disabled={busy} onClick={() => setReview(null)}>返回编辑</button></div>
           {review.comparison.canonical_changed && <p className="error-copy" role="alert">正式版本研究方向在未发布修改创建后已变化。请关闭并重新载入后再编辑。</p>}
-          <div className="research-profile-diff" role="region" aria-label="研究方向 changes">{diffLines.map((line, index) => <div className={`research-profile-diff-line ${line.kind}`} key={`${index}-${line.kind}`}><span>{line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}</span><code>{line.text || " "}</code></div>)}</div>
+          <div className="research-profile-diff" role="region" aria-label="研究方向修改差异">{diffLines.map((line, index) => <div className={`research-profile-diff-line ${line.kind}`} key={`${index}-${line.kind}`}><span>{line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}</span><code>{line.text || " "}</code></div>)}</div>
           <div className="research-profile-preflight" aria-live="polite">
-            {review.preflight.valid ? <p className="notice">研究方向未发布修改 preflight 通过。</p> : <ul className="error-copy">{review.preflight.errors.map((item) => <li key={item}>{item}</li>)}</ul>}
+            {review.preflight.valid ? <p className="notice">研究方向修改检查通过。</p> : <ul className="error-copy">{review.preflight.errors.map((item) => <li key={item}>{item}</li>)}</ul>}
             {review.preflight.warnings.map((item) => <p className="field-hint" key={item}>{item}</p>)}
           </div>
         </section>}
       </div>
       <footer className="research-dialog-actions research-profile-editor-footer">
-        {review ? <button className="button button-primary" type="button" disabled={busy || !review.preflight.valid || review.comparison.canonical_changed} onClick={() => void publishChanges()}>{busy ? "正在发布…" : "确认保存 Defaults"}</button>
-          : <button className="button button-primary" type="button" disabled={!canReview || busy || (!session.draft && !session.isDirty)} onClick={() => void reviewChanges()}>{busy ? "正在保存并审查…" : "审阅 Diff"}</button>}
-        <span>发布通过保存服务校验，并提交到 Git。</span>
+        {review ? <button className="button button-primary" type="button" disabled={busy || !review.preflight.valid || review.comparison.canonical_changed} onClick={() => void publishChanges()}>{busy ? "正在保存…" : "确认保存"}</button>
+          : <button className="button button-primary" type="button" disabled={!canReview || busy || (!session.draft && !session.isDirty)} onClick={() => void reviewChanges()}>{busy ? "正在保存并检查…" : "检查差异"}</button>}
+        <span>正式保存会通过 Publisher 校验并提交到 Git。</span>
       </footer>
     </section>
   </div>;
@@ -447,7 +447,7 @@ function NumberField(props: NumberFieldProps) {
     const nextValue = Number(rawValue);
     if (!rawValue.trim() || !Number.isInteger(nextValue) || nextValue < min || (max !== undefined && nextValue > max)) {
       setRawValue(committedValue);
-      setError("Enter a whole number greater than or equal to " + min + (max === undefined ? "." : " and no greater than " + max + "."));
+      setError("请输入不小于 " + min + (max === undefined ? " 的整数。" : " 且不大于 " + max + " 的整数。"));
       return;
     }
     setError("");
@@ -468,7 +468,7 @@ function SelectionList({ label, items, selected, onChange }: { label: string; it
   return <fieldset className="research-default-selection">
     <legend>{label}</legend>
     {items.length ? <>
-      <input aria-label={`Filter ${label}`} type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter by title or ID" />
+      <input aria-label={`筛选${label}`} type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="按名称或 ID 筛选" />
       {visibleItems.length ? visibleItems.map((item) => <label key={item.id}><input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => onChange(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} /><span>{item.title}</span></label>) : <p className="field-hint">没有匹配的项目。</p>}
     </> : <p className="field-hint">没有可选项。</p>}
   </fieldset>;

@@ -72,11 +72,11 @@ function SectionTreeNode({
       {editMode && <div className="explorer-node-actions">
         <button title="加入 existing Entity" aria-label={`在 ${node.title} 中添加已有 Entity`} onClick={() => props.onAddExisting(node.id)}>⊕</button>
         <button title="在此新建笔记" aria-label={`在 ${node.title} 中新建笔记`} onClick={() => props.onNewNoteHere(node.id, node.title)}>N</button>
-        <button title="加入 nested 分组" aria-label={`在 ${node.title} 中新建分组`} onClick={() => props.onNewSection(node.id)}>＋</button>
+        <button title="新建下级分组" aria-label={`在 ${node.title} 中新建分组`} onClick={() => props.onNewSection(node.id)}>＋</button>
         <button title="Move up" aria-label={`上移 ${node.title}`} onClick={() => props.onMoveSibling(node.id, -1)}>↑</button>
         <button title="Move down" aria-label={`下移 ${node.title}`} onClick={() => props.onMoveSibling(node.id, 1)}>↓</button>
-        <button title="Rename 分组" aria-label={`重命名 ${node.title}`} onClick={() => props.onRenameSection(node)}>✎</button>
-        <button title="Delete 分组" aria-label={`删除 ${node.title}`} onClick={() => props.onDeleteSection(node)}>×</button>
+        <button title="重命名分组" aria-label={`重命名 ${node.title}`} onClick={() => props.onRenameSection(node)}>✎</button>
+        <button title="删除分组" aria-label={`删除 ${node.title}`} onClick={() => props.onDeleteSection(node)}>×</button>
       </div>}
     </div>
     {expanded && <ul

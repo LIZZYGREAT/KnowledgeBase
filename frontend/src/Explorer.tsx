@@ -34,12 +34,12 @@ export function ExplorerPage(props: ExplorerPageProps) {
   const layoutStyle = { "--explorer-width": `${panelWidth}px` } as CSSProperties;  return (
     <div className={embedded ? "explorer-embedded" : "page-stack"}>
       {!embedded && <PageHeader
-        eyebrow="BROWSE CANONICAL 知识整理"
+        eyebrow="整理正式知识"
         title="专题整理"
         description="按专题阅读有序知识路径，也可以查看全部、未归档和最近打开的笔记。"
       />}
       <div className={`explorer-layout ${embedded ? "explorer-layout-embedded" : ""}`} style={layoutStyle}>
-        <aside className="explorer-sidebar surface" aria-label="专题整理 navigation">
+        <aside className="explorer-sidebar surface" aria-label="专题整理导航">
           <div className="explorer-sidebar-header">
             <span className="eyebrow">专题</span>
             <div className="explorer-sidebar-header-actions">
@@ -120,8 +120,8 @@ export function ExplorerPage(props: ExplorerPageProps) {
             {!collectionResource.loading && !selectedCollectionId && <EmptyState title="还没有专题" description="发布的专题会显示在这里。" />}
           </div>
 
-          <nav className="explorer-virtual-views" aria-label="Virtual views">
-            <span className="eyebrow">VIRTUAL VIEWS</span>
+          <nav className="explorer-virtual-views" aria-label="快捷视图">
+            <span className="eyebrow">快捷视图</span>
             <VirtualViewButton active={view === "all"} onClick={() => setView("all")} icon="▤" label="所有笔记" />
             <VirtualViewButton active={view === "unfiled"} onClick={() => setView("unfiled")} icon="○" label="未归入专题" />
             <VirtualViewButton active={view === "recent"} onClick={() => setView("recent")} icon="◷" label="最近打开" />

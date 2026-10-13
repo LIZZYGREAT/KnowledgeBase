@@ -26,7 +26,7 @@ export function CollectionOverview({
   return <div className="explorer-overview">
     <div className="explorer-overview-header">
       <div>
-        <p className="eyebrow">{collection.status === "archived" ? "ARCHIVED 专题" : "专题 READING PATH"}</p>
+        <p className="eyebrow">{collection.status === "archived" ? "已归档专题" : "专题学习路径"}</p>
         <h2>{collection.title}</h2>
         {collection.description && <p>{collection.description}</p>}
       </div>
@@ -34,11 +34,11 @@ export function CollectionOverview({
     </div>
     <div className="explorer-stat-strip">
       <div><strong>{documentCount}</strong><span>笔记</span></div>
-      <div><strong>{entityCount}</strong><span>References</span></div>
-      <div><strong>{collection.nodes.length}</strong><span>Top-level items</span></div>
+      <div><strong>{entityCount}</strong><span>知识条目</span></div>
+      <div><strong>{collection.nodes.length}</strong><span>顶层项目</span></div>
     </div>
     <section className="explorer-outline-card">
-      <div className="section-heading"><div><h2>Reading path</h2><p>打开左侧目录中的笔记、术语或文献。</p></div></div>
+      <div className="section-heading"><div><h2>学习路径</h2><p>打开左侧目录中的笔记、术语或文献。</p></div></div>
       {collection.nodes.length ? <div className="explorer-outline-list">
         {collection.nodes.map((node) => node.kind === "section" ? <button key={node.id} onClick={() => onToggle(node.id)}>
           <span className="explorer-outline-icon">⌄</span>
