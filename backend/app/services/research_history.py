@@ -115,10 +115,8 @@ def _selected_note_history_evidence(root, sources, selected_note_ids):
         if path is None or path.is_symlink():
             continue
         try:
-            # The file passed is_file() above. Non-strict resolution still
-            # follows existing symlinks and preserves the containment check.
-            resolved = path.resolve()
-            if not resolved.is_relative_to(documents_root.resolve()):
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(documents_root.resolve(strict=True)):
                 continue
             content = path.read_text(encoding="utf-8")
             parsed = parse_markdown(content)
