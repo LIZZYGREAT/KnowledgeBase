@@ -192,6 +192,7 @@ def test_learning_context_update_task_requires_localized_structured_changes():
                         "action": "upsert",
                         "title": "梯度投影",
                         "summary": "GEM 用二次规划将当前梯度投影到不干扰历史任务的可行域。",
+                        "support_headings": ["算法"],
                         "layer": "topic",
                         "topic_id": "continual-learning",
                         "topic_title": "持续学习",
