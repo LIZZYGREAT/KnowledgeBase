@@ -568,9 +568,10 @@ describe("学习进度上下文 page", () => {
     const user = userEvent.setup();
     render(<LearningContextPage />);
 
-    await user.click(await screen.findByRole("button", { name: "重新分析这篇" }));
+    await user.click(await screen.findByRole("button", { name: "重新分析并核对这篇" }));
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining("GEM 学习笔记"));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("未被本次核对或未被 AI 明确移除的旧知识会保留"));
     await waitFor(() => expect(api.syncLearningContext).toHaveBeenCalledWith({
       force: true,
       source_id: "gem-note",

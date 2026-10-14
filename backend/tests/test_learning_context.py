@@ -13,11 +13,16 @@ from backend.app.services.learning_context_service import (
 )
 from backend.app.services.ai_client import AIGatewayError
 from backend.app.services.learning_context_sync import LearningContextSync
-from backend.app.services.learning_context_sync_entries import entry_blocks, render_entry
+from backend.app.services.learning_context_sync_entries import (
+    entry_blocks,
+    render_entry,
+    replace_entry as replace_memory_entry,
+)
 from backend.app.services.learning_context_sync_diff import (
     _MAX_DIFF_CHARS,
     _MAX_SECTION_CHARS,
     _MAX_SECTIONS,
+    assert_duplicate_heading_alignment,
     changed_sections,
     markdown_body,
     section_units,
@@ -295,6 +300,218 @@ def test_changed_sections_distinguish_duplicate_headings_and_keep_chunk_keys_sta
     assert {item["heading"] for item in chunks} == {"Summary"}
     assert [item["section_part"] for item in chunks] == list(range(1, len(chunks) + 1))
     assert {item["section_part_count"] for item in chunks} == {len(chunks)}
+
+
+@pytest.mark.parametrize(
+    "after",
+    [
+        "## 总结\n\nInserted summary.\n\n"
+        "## 总结\n\nFirst summary.\n\n## 总结\n\nSecond summary.\n",
+        "## 总结\n\nFirst summary.\n",
+        "## 总结\n\nSecond summary.\n\n## 总结\n\nFirst summary.\n",
+    ],
+    ids=["insert", "delete", "reorder"],
+)
+def test_repeated_heading_structure_changes_require_manual_disambiguation(after):
+    before = (
+        "## 总结\n\nFirst summary.\n\n"
+        "## 总结\n\nSecond summary.\n"
+    )
+
+    with pytest.raises(LearningContextError, match="重复标题章节"):
+        assert_duplicate_heading_alignment(before, after)
+
+
+def test_single_repeated_heading_section_edit_keeps_its_occurrence_mapping():
+    before = (
+        "## 总结\n\nFirst summary.\n\n"
+        "## 总结\n\nSecond summary.\n"
+    )
+    after = before.replace("Second summary.", "Revised second summary.")
+
+    assert_duplicate_heading_alignment(before, after) is None
+
+
+def test_inserting_duplicate_heading_preserves_memory_and_baseline_with_recovery_hint(tmp_path):
+    path = _sync_repo(
+        tmp_path,
+        "## 总结\n\nFirst summary.\n\n## 总结\n\nSecond summary.\n",
+    )
+    gateway = FakeLearningGateway(
+        _topic_change("First summary supports this claim.", ["总结#1"]),
+        {"outcome": "no_change", "changes": []},
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    assert service.sync()["state"] == "synced"
+    topic_path = tmp_path / "storage" / "learning-context" / "topics" / "continual-learning.md"
+    state_path = tmp_path / "storage" / "learning-context" / "state.json"
+    old_memory = topic_path.read_bytes()
+    old_baseline = json.loads(state_path.read_text(encoding="utf-8"))["source_baselines"]["gem-note"]
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "## 总结\n\nFirst summary.",
+            "## 总结\n\nInserted summary.\n\n## 总结\n\nFirst summary.",
+        ),
+        encoding="utf-8",
+    )
+
+    result = service.sync()
+
+    current_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert result["state"] == "failed"
+    assert "同名章节逐一改成不同标题后重试" in result["message"]
+    assert topic_path.read_bytes() == old_memory
+    assert current_state["source_baselines"]["gem-note"] == old_baseline
+    assert current_state["last_error_type"] == "DuplicateHeadingAmbiguity"
+    assert len(gateway.calls) == 1
+
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "## 总结\n\nInserted summary.\n\n## 总结\n\nFirst summary.\n\n## 总结\n\nSecond summary.",
+            "## 总结补充\n\nInserted summary.\n\n## 总结一\n\nFirst summary.\n\n## 总结二\n\nSecond summary.",
+        ),
+        encoding="utf-8",
+    )
+
+    recovered = service.sync()
+
+    metadata = next(
+        item["metadata"]
+        for item in entry_blocks(topic_path.read_text(encoding="utf-8"))
+        if item["metadata"]["entry_id"] == "gem-gradient-projection"
+    )
+    assert recovered["state"] == "synced"
+    assert metadata["source_section_keys"] == {"gem-note": []}
+    assert metadata["source_headings"] == {"gem-note": []}
+    assert metadata["support_state"] == "needs_review"
+    assert len(gateway.calls) == 2
+
+
+def test_removed_section_key_is_replaced_by_current_support_on_upsert(tmp_path):
+    path = _sync_repo(
+        tmp_path,
+        "## Old Method\n\nThe old method supports a claim.\n",
+    )
+    gateway = FakeLearningGateway(
+        _topic_change("The old method supports a claim.", ["old method#1"]),
+        _topic_change("The revised method supports the claim.", ["new method#1"]),
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    assert service.sync()["state"] == "synced"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "## Old Method\n\nThe old method supports a claim.",
+            "## New Method\n\nThe revised method supports the claim.",
+        ),
+        encoding="utf-8",
+    )
+
+    result = service.sync()
+
+    metadata = next(
+        item["metadata"]
+        for item in entry_blocks(
+            (tmp_path / "storage" / "learning-context" / "topics" / "continual-learning.md").read_text(
+                encoding="utf-8"
+            )
+        )
+        if item["metadata"]["entry_id"] == "gem-gradient-projection"
+    )
+    assert result["state"] == "synced"
+    assert metadata["source_section_keys"] == {"gem-note": ["new method#1"]}
+    assert metadata["source_headings"] == {"gem-note": ["New Method"]}
+    assert metadata.get("support_state") is None
+
+
+def test_removed_section_key_without_new_support_is_flagged_for_review(tmp_path):
+    path = _sync_repo(tmp_path, "## Old Method\n\nThe old method supports a claim.\n")
+    gateway = FakeLearningGateway(
+        _topic_change("The old method supports a claim.", ["old method#1"]),
+        {"outcome": "no_change", "changes": []},
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    assert service.sync()["state"] == "synced"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "## Old Method\n\nThe old method supports a claim.",
+            "## New Method\n\nThe updated source no longer establishes that claim.",
+        ),
+        encoding="utf-8",
+    )
+
+    result = service.sync()
+
+    metadata = next(
+        item["metadata"]
+        for item in entry_blocks(
+            (tmp_path / "storage" / "learning-context" / "topics" / "continual-learning.md").read_text(
+                encoding="utf-8"
+            )
+        )
+        if item["metadata"]["entry_id"] == "gem-gradient-projection"
+    )
+    assert result["state"] == "synced"
+    assert metadata["source_section_keys"] == {"gem-note": []}
+    assert metadata["source_headings"] == {"gem-note": []}
+    assert metadata["support_state"] == "needs_review"
+    assert metadata["source_summaries"]["gem-note"] == (
+        "The old method supports a claim."
+    )
+
+
+def test_removed_section_support_does_not_disable_a_different_source(tmp_path):
+    path = _sync_repo(tmp_path, "## Old Method\n\nThe old method supports a claim.\n")
+    gateway = FakeLearningGateway(
+        _topic_change("The old method supports a claim.", ["old method#1"]),
+        {"outcome": "no_change", "changes": []},
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    assert service.sync()["state"] == "synced"
+    topic_path = tmp_path / "storage" / "learning-context" / "topics" / "continual-learning.md"
+    relative = "topics/continual-learning.md"
+    memory_files = {relative: topic_path.read_text(encoding="utf-8")}
+    metadata = next(
+        item["metadata"]
+        for item in entry_blocks(memory_files[relative])
+        if item["metadata"]["entry_id"] == "gem-gradient-projection"
+    )
+    metadata["source_headings"]["other-note"] = ["Optimization"]
+    metadata["source_section_keys"]["other-note"] = ["optimization#1"]
+    metadata["source_summaries"]["other-note"] = "Another note still supports this claim."
+    replace_memory_entry(
+        memory_files,
+        relative,
+        "gem-gradient-projection",
+        render_entry(metadata),
+    )
+    topic_path.write_text(memory_files[relative], encoding="utf-8")
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "## Old Method\n\nThe old method supports a claim.",
+            "## New Method\n\nThe updated source no longer establishes that claim.",
+        ),
+        encoding="utf-8",
+    )
+
+    result = service.sync()
+
+    metadata = next(
+        item["metadata"]
+        for item in entry_blocks(topic_path.read_text(encoding="utf-8"))
+        if item["metadata"]["entry_id"] == "gem-gradient-projection"
+    )
+    assert result["state"] == "synced"
+    assert metadata["source_headings"] == {"other-note": ["Optimization"]}
+    assert metadata["source_section_keys"] == {"other-note": ["optimization#1"]}
+    assert metadata["source_summaries"] == {
+        "other-note": "Another note still supports this claim."
+    }
+    assert metadata["summary"] == "other-note：Another note still supports this claim."
+    assert metadata.get("support_state") is None
 
 
 def test_duplicate_heading_attribution_is_exact_and_invalid_key_keeps_baseline(tmp_path):

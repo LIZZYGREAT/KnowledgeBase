@@ -451,7 +451,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
       const sourceTitle = onlySourceId
         ? overview.sources.available_documents.find((source) => source.id === onlySourceId)?.title ?? onlySourceId
         : `全部已选的 ${sourceCount} 篇笔记`;
-      if (!window.confirm(`将重新分析“${sourceTitle}”，并可能发送差异片段给 AI。继续吗？`)) return;
+      if (!window.confirm(`将重新分析并核对“${sourceTitle}”，并可能发送差异片段给 AI。未被本次核对或未被 AI 明确移除的旧知识会保留；超出核对预算的条目需要你检查。继续吗？`)) return;
     }
     setSyncing(true);
     setNotice("");
@@ -565,7 +565,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
             {syncing ? (syncProgress?.phase === "analyzing" ? "正在分析…" : "正在检查…") : "同步知识变化"}
           </button>
           <button className="button button-secondary" type="button" disabled={!sourceCount || sourceDirty || saving || syncing || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void runSync(true)}>
-            重新分析全部已选资料
+            重新分析并核对全部已选资料
           </button>
         </div>
       </section>
@@ -605,7 +605,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                     disabled={sourceDirty || saving || syncing || manualNoteDirty}
                     onClick={() => void runSync(true, source.id)}
                   >
-                    重新分析这篇
+                    重新分析并核对这篇
                   </button>
                 )}
               </div>

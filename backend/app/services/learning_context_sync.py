@@ -23,10 +23,12 @@ from backend.app.services.learning_context_service import (
 )
 from backend.app.services.markdown_parser import parse_markdown
 from backend.app.services.learning_context_sync_diff import (
+    assert_duplicate_heading_alignment as _assert_duplicate_heading_alignment,
     batch_sections as _batch_sections,
     changed_sections as _changed_sections,
     is_minor_wording_change as _is_minor_wording_change,
     markdown_body as _markdown_body,
+    section_units as _section_units,
     semantic_text as _semantic_text,
     tokens as _tokens,
 )
@@ -367,6 +369,12 @@ class LearningContextSync:
                     if "knowledge_changed" in outcomes
                     else "no_change"
                 )
+                self._reconcile_stale_section_supports(
+                    memory_files,
+                    current_id,
+                    plan["current_section_headings"],
+                    set(source_summary_updates),
+                )
                 pending_baselines[current_id] = self._new_baseline(
                     current_id,
                     metadata,
@@ -512,6 +520,11 @@ class LearningContextSync:
                 reason = "AIUnavailable"
             elif reason == "LearningContextError" and "exceeds the size limit" in detail:
                 reason = "LearningNoteTooLarge"
+            elif (
+                reason == "LearningContextError"
+                and detail.startswith("重复标题章节的数量、顺序或内容发生变化")
+            ):
+                reason = "DuplicateHeadingAmbiguity"
             return self._failed(status_before, baselines, reason)
 
     def _plan(self, source_id, current_bytes, current_text, baseline, force):
@@ -524,13 +537,16 @@ class LearningContextSync:
         old_bytes = None
         if isinstance(baseline, dict):
             old_bytes = self._read_blob(baseline.get("git_blob"))
-        old_text = ""
+        baseline_text = ""
         if old_bytes is not None:
             try:
-                old_text = "" if force else old_bytes.decode("utf-8")
+                baseline_text = old_bytes.decode("utf-8")
             except UnicodeError:
                 old_bytes = None
-                old_text = ""
+                baseline_text = ""
+        if baseline_text:
+            _assert_duplicate_heading_alignment(baseline_text, current_text)
+        old_text = "" if force else baseline_text
         change_kind = "forced_reanalysis" if force else "initial_analysis" if old_bytes is None else "incremental"
         if old_bytes is not None and not force:
             if _semantic_text(_markdown_body(old_text)) == _semantic_text(_markdown_body(current_text)):
@@ -556,6 +572,10 @@ class LearningContextSync:
             "action": "analyze",
             "changed_sections": changed_sections,
             "batches": batches,
+            "current_section_headings": {
+                item["key"]: item["heading"]
+                for item in _section_units(current_text)
+            },
             "change_kind": change_kind,
             "summary": {
                 "source_id": source_id,
@@ -975,6 +995,77 @@ class LearningContextSync:
                     raise LearningContextError("Duplicate automatic learning entry ID")
                 indexed[entry_id] = {"relative_path": relative, "metadata": block["metadata"]}
         return indexed
+
+    def _reconcile_stale_section_supports(
+        self, memory_files, source_id, current_section_headings, updated_entry_ids
+    ):
+        for relative, content in list(memory_files.items()):
+            for block in list(_entry_blocks(content)):
+                metadata = block["metadata"]
+                if metadata.get("pinned"):
+                    continue
+                source_keys = metadata.get("source_section_keys")
+                if not isinstance(source_keys, dict) or source_id not in source_keys:
+                    continue
+                previous_keys = source_keys[source_id]
+                if not isinstance(previous_keys, list):
+                    continue
+                retained_keys = [
+                    key for key in previous_keys if key in current_section_headings
+                ]
+                if retained_keys == previous_keys:
+                    continue
+                updated = deepcopy(metadata)
+                updated_keys = deepcopy(source_keys)
+                # Keep the source key present even when it is empty so legacy
+                # heading fallback cannot silently revive an obsolete match.
+                updated_keys[source_id] = retained_keys
+                updated["source_section_keys"] = updated_keys
+                headings = deepcopy(updated.get("source_headings", {}))
+                headings[source_id] = sorted(
+                    {
+                        current_section_headings[key]
+                        for key in retained_keys
+                        if isinstance(current_section_headings.get(key), str)
+                    }
+                )
+                updated["source_headings"] = headings
+                if metadata.get("entry_id") not in updated_entry_ids:
+                    other_sources = {
+                        other_id
+                        for other_id, values in headings.items()
+                        if other_id != source_id
+                        and isinstance(values, list)
+                        and values
+                    }
+                    summaries = metadata.get("source_summaries")
+                    other_summaries = (
+                        {
+                            other_id: summary
+                            for other_id, summary in summaries.items()
+                            if other_id in other_sources
+                            and isinstance(summary, str)
+                            and summary
+                        }
+                        if isinstance(summaries, dict)
+                        else {}
+                    )
+                    if other_summaries and not metadata.get("legacy_summary"):
+                        # A stale source contribution should not disable a
+                        # separately retained source that still supports it.
+                        updated["source_headings"].pop(source_id, None)
+                        updated_keys.pop(source_id, None)
+                        updated["source_section_keys"] = updated_keys
+                        updated["source_summaries"] = other_summaries
+                        updated["summary"] = _entry_summary(other_summaries)
+                    else:
+                        updated["support_state"] = "needs_review"
+                _replace_entry(
+                    memory_files,
+                    relative,
+                    metadata["entry_id"],
+                    _render_entry(updated),
+                )
 
     def _read_memory_files(self):
         files = {
@@ -1480,6 +1571,11 @@ class LearningContextSync:
             message = "AI 分析失败；学习上下文和已处理基准已保留，可重试。"
         elif reason == "LearningNoteTooLarge":
             message = "所选笔记超过同步大小限制；已有上下文和处理基准已保留。"
+        elif reason == "DuplicateHeadingAmbiguity":
+            message = (
+                "检测到重复标题章节的数量、顺序或内容发生变化，无法安全沿用旧章节归因。"
+                "请先给受影响的同名章节逐一改成不同标题后重试；学习上下文与处理基准已保留。"
+            )
         elif reason in {"LearningContextError", "ValidationError", "ValueError", "TypeError"}:
             message = "所选笔记或学习上下文内容无法处理；已有内容和基准已保留。"
         else:

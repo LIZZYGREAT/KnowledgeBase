@@ -72,6 +72,66 @@ def section_units(markdown):
     return units
 
 
+def assert_duplicate_heading_alignment(old_text, new_text):
+    """Reject ambiguous changes to repeated headings before reusing occurrence keys."""
+    if not old_text:
+        return
+    error_message = (
+        "重复标题章节的数量、顺序或内容发生变化，无法安全沿用旧章节归因；"
+        "请先给受影响的同名章节逐一改成不同标题后重试。"
+    )
+
+    def reject_ambiguous_change():
+        raise LearningContextError(error_message)
+
+    def grouped_fingerprints(markdown):
+        groups = {}
+        for unit in section_units(markdown):
+            if unit["key"] == "__preamble__":
+                continue
+            heading_key = unit["key"].rsplit("#", 1)[0]
+            groups.setdefault(heading_key, []).append(semantic_text(unit["text"]))
+        return groups
+
+    old_groups = grouped_fingerprints(old_text)
+    new_groups = grouped_fingerprints(new_text)
+    repeated = {
+        heading
+        for heading in set(old_groups) | set(new_groups)
+        if max(len(old_groups.get(heading, [])), len(new_groups.get(heading, []))) > 1
+    }
+    for heading in repeated:
+        old_sections = old_groups.get(heading, [])
+        new_sections = new_groups.get(heading, [])
+        # Renaming every heading in the affected group disambiguates it. Old
+        # occurrence keys are then removed during successful reconciliation.
+        if not new_sections:
+            continue
+        if len(old_sections) != len(new_sections) or old_sections == new_sections:
+            if len(old_sections) != len(new_sections):
+                reject_ambiguous_change()
+            continue
+        if sorted(old_sections) == sorted(new_sections):
+            reject_ambiguous_change()
+        changed = [
+            index
+            for index, (old_section, new_section) in enumerate(
+                zip(old_sections, new_sections)
+            )
+            if old_section != new_section
+        ]
+        if len(changed) != 1:
+            reject_ambiguous_change()
+        changed_index = changed[0]
+        old_other = old_sections[:changed_index] + old_sections[changed_index + 1 :]
+        new_other = new_sections[:changed_index] + new_sections[changed_index + 1 :]
+        if (
+            old_sections[changed_index] in new_other
+            or new_sections[changed_index] in old_other
+        ):
+            reject_ambiguous_change()
+
+
 def changed_sections(old_text, new_text, full=False):
     old_units = section_units(old_text) if old_text else []
     new_units = section_units(new_text)

@@ -329,3 +329,13 @@ P1-D：Terms 现在在读取相关专题内容前先把活跃专题标题加入�
 回归先验证了旧行为：只审核无关 Ethernet Term 会让未变的 GEM 笔记多调用一次 AI；RL 活跃专题仍排在 CL Profile 之后；Research/Terms 页面没有区分当前学习方向与检索配置。修复后专项验证：`backend/tests/test_term_discovery.py backend/tests/test_research_runs.py` 为 **117 passed**；Research 集成测试文件为 **58 passed**；前端单测为 **35 files / 179 passed**。`npm run typecheck`、`npm run build`、`python tools/kb.py check`（7 个文件，无错误/警告）、`python tools/research.py check --root .`（1 个 Profile 与 AI 配置有效）均通过。Vite 保留既有 ELK 分块超过 500 kB 的提示；后端有 1 条既有 HTTPX 弃用警告。
 
 较大范围环境结果：全后端测试在排除 `test_app_lifecycle.py` 和 `test_knowledge_api.py` 后为 **656 passed、6 skipped、4 failed**。前两模块因当前 Python 3.9 环境未安装 `backend/requirements.txt` 已声明的 `python-multipart` 而无法收集；4 个失败集中于 `test_manual_research_worker.py`，均是本机 Python 3.9 asyncio 事件循环绑定错误，与本次变更无关。完整前端集成套件为 **140 passed、1 failed**；唯一失败是 `workspace.test.tsx` 的 Reader Presentation Annotation 保存测试，单独复跑仍未调用标注保存 API，并显示既有“状态读取失败：未知错误”。Research 专项集成文件全部通过。本次未调用真实 Provider/DeepSeek、未部署，也未验证私人资料的推荐质量。私有审查文档未纳入提交。
+
+## Phase 15 第六轮增量修订 Stage C（2026-10-15）
+
+P2-F：重复 H1/H2 标题仍使用规范化标题加出现序号作为本地章节 key，但服务现在会与已处理 Git 基线比较同名组。同名组仍存在但数量或排列变化、或多处内容变化无法可靠对齐时，在调用 AI 前失败并保留记忆及基线；提示用户将受影响同名章节逐一改成不同标题后重试。单个重复章节的普通内容编辑仍可按稳定序号同步；消除整组重复标题后，成功同步会清除旧章节 key。若条目未获得新的当前章节依据，则保留原摘要并设为 `needs_review`，从推荐中暂时排除。Pinned 条目不被自动改动。
+
+P2-G：强制重分析按钮和确认语改为“重新分析并核对”，明确旧知识只有在 AI 明确移除时才撤销；超出本次核对预算的条目继续保留原文并进入可见人工核对列表。README 说明该操作不保证逐条自动重新证明所有旧知识，并区分已选笔记 Terms 查漏与 Research 新论文术语候选的人工审核来源。
+
+改动文件：`backend/app/services/learning_context_sync.py`、`backend/app/services/learning_context_sync_diff.py`、`backend/tests/test_learning_context.py`、`frontend/src/LearningContext.tsx`、`frontend/tests/unit/learning-context.test.tsx`、`README.md`、`docs/ARCHITECTURE.md`、`docs/REVISION_ACCEPTANCE.md`。
+
+回归覆盖重复章节插入、删除、重排时保守拒绝；单个重复章节内容编辑仍可继续；为重复标题逐一改名后同步可恢复并把旧支持标成待核对；唯一标题章节替换时旧 key 被清理或转待核对；移除一个来源的旧支持不会停用仍有独立依据的其他来源。既有强制重分析预算回归同时覆盖 16 条旧知识中 12 条进入核对预算、4 条保留原文并列入人工核对。后端 `backend/tests/test_learning_context.py` **48 passed**；前端学习进度单测 **15 passed**；`npm run typecheck` 通过；`npm run build` 通过（Vite 保留既有 ELK 分块超过 500 kB 提示）；`python tools/kb.py check` 检查 7 个文件且无错误或警告；`python tools/research.py check --root .` 验证 1 个 Profile 与 AI 配置有效。后端测试使用本机 Python 3.9，pytest 有一条既有 asyncio fixture scope 弃用提示。未调用真实 Provider/DeepSeek，未部署，未将私有审查文档加入提交。

@@ -12,7 +12,7 @@ This repository implements Phases 0–14: repository boundaries and canonical sc
 
 KnowledgeBase 服务单用户个人科研学习，重点是 Terms 管理和**符合当前学习进度**的论文发现；Obsidian 仍是主要笔记工具。推荐当前可学、能自然延伸或稍有挑战的内容，经典旧论文也可推荐；适配度和解释质量优先于新旧、热度与数量，没有合适内容时可以不推荐。
 
-- 学习资料由用户明确选择，默认一篇也不纳入；只有被选中的正式笔记内容可作为推荐域的掌握依据。课程笔记不会自动加入。Terms 的学习进度和定时发现只分析这些笔记；全库、PDF 与外部来源由手动“通用发现”显式启动。
+- 学习资料由用户明确选择，默认一篇也不纳入；只有被选中的正式笔记内容可作为推荐域的掌握依据。课程笔记不会自动加入。Terms 的个性化进度和定时查漏只分析这些笔记；Research 从新论文发现的术语通过 Term Candidate 流程提交并由用户审核；全库、PDF 与外部来源由手动“通用发现”显式启动。
 - PDF、收藏、打开记录、草稿、点击和 AI 推荐都不代表已经掌握；关键词与兴趣只表达探索意向。
 - 学习上下文按 `active / important / archive` 分层，专题可设为当前或历史并按需读取；当前关注里的手写说明补充搜索方向，但不算掌握证据。上下文随有效知识变化增量更新；无有效变化时不调用学习上下文 AI。
 - 用户能查看、编辑和固定上下文；人工内容优先，自动更新不得覆盖人工固定的内容。
@@ -35,7 +35,7 @@ python tools/learning_context.py status --root .
 python tools/learning_context.py sync --root . --dry-run
 ```
 
-检查结果后，可在页面点击“同步知识变化”，或运行 `python tools/learning_context.py sync --root .`。`--force` 可重新分析所有已选笔记；`--source-id <ID>` 可限制到一个已选来源。同步只更新本地学习上下文，不发布 Canonical 知识。
+检查结果后，可在页面点击“同步知识变化”，或运行 `python tools/learning_context.py sync --root .`。`--force` 可重新分析并核对所有已选笔记；超出本次核对预算的旧条目会保留并提示人工检查，任何未被 AI 明确移除的旧条目都会保留，因此这不保证逐条自动重新证明全部旧知识。`--source-id <ID>` 可限制到一个已选来源。同步只更新本地学习上下文，不发布 Canonical 知识。
 
 学习上下文不进入 Git。个人备份时请保留 `storage/learning-context/`；生产备份脚本会归档整个忽略的 `storage/` 目录。产品边界与掌握证据规则见[产品原则](docs/PRODUCT_PRINCIPLES.md)。
 
