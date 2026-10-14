@@ -5,6 +5,8 @@ import * as api from "../../src/api";
 import { LearningContextPage } from "../../src/LearningContext";
 import type { LearningContextOverview } from "../../src/api";
 
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+
 function overview(): LearningContextOverview {
   return {
     sources: {
@@ -53,7 +55,14 @@ function overview(): LearningContextOverview {
 }
 
 describe("学习进度上下文 page", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalScrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
+    } else {
+      delete (HTMLElement.prototype as HTMLElement & { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
 
   it("lets the user explicitly select notes and saves the scope without an AI request", async () => {
     let current = overview();
@@ -300,6 +309,90 @@ describe("学习进度上下文 page", () => {
 
     await waitFor(() => expect(api.syncLearningContext).toHaveBeenCalledWith({ force: false }));
     expect(await screen.findByText("同步完成：分析 1 篇，跳过 0 篇。")).toBeTruthy();
+  });
+
+  it("lists over-budget entries by topic and jumps to the preserved original text", async () => {
+    const current = overview();
+    current.sources.included_document_ids = ["gem-note"];
+    current.topics = [{ id: "continual-learning", title: "持续学习", aliases: [], keywords: [] }];
+    current.editable_entries = Array.from({ length: 16 }, (_, index) => ({
+      relative_path: "topics/continual-learning.md",
+      layer: "topic" as const,
+      topic_id: "continual-learning",
+      entry_id: `chapter-${String(index + 1).padStart(2, "0")}-entry`,
+      title: `旧知识 ${index + 1}`,
+      summary: `原始正文 ${index + 1} 完整保留。`,
+      pinned: false,
+      support_state: null,
+    }));
+    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    vi.spyOn(api, "getLearningContextTopic").mockResolvedValue({
+      id: "continual-learning",
+      title: "持续学习",
+      aliases: [],
+      keywords: [],
+      markdown: "专题正文由独立存储返回。",
+    });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const sync = vi.spyOn(api, "syncLearningContext").mockResolvedValue({
+      state: "synced",
+      message: "同步完成：4 条旧知识超出单次核对预算。",
+      analyzed_count: 1,
+      skipped_count: 0,
+      source_results: [{
+        source_id: "gem-note",
+        manual_review_entry_ids: [
+          "chapter-13-entry",
+          "chapter-14-entry",
+          "chapter-15-entry",
+          "chapter-16-entry",
+        ],
+      }],
+    });
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    await user.click(await screen.findByRole("button", { name: "同步知识变化" }));
+
+    expect(await screen.findByText("本次有 4 条旧知识未进入核对")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "查看：持续学习 · 旧知识 13" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "查看：持续学习 · 旧知识 16" })).toBeTruthy();
+    expect(screen.getByText("条目 ID：chapter-13-entry")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "查看：持续学习 · 旧知识 13" }));
+    expect(await screen.findByText("原始正文 13 完整保留。")).toBeTruthy();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" }));
+    expect(screen.getByText("待核对 4 条")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "同步知识变化" }));
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("本次有 4 条旧知识未进入核对")).toBeTruthy();
+    expect(screen.getByText("原始正文 13 完整保留。")).toBeTruthy();
+    expect(screen.getByText("待核对 4 条")).toBeTruthy();
+  });
+
+  it("shows the ID when an over-budget entry is absent from the current list", async () => {
+    const current = overview();
+    current.sources.included_document_ids = ["gem-note"];
+    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    vi.spyOn(api, "syncLearningContext").mockResolvedValue({
+      state: "synced",
+      message: "同步完成：1 条旧知识超出单次核对预算。",
+      analyzed_count: 1,
+      skipped_count: 0,
+      source_results: [{ source_id: "gem-note", manual_review_entry_ids: ["missing-entry"] }],
+    });
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    await user.click(await screen.findByRole("button", { name: "同步知识变化" }));
+
+    expect(await screen.findByText("missing-entry")).toBeTruthy();
+    expect(screen.getByText("当前列表中未找到此条目；请按 ID 查找。")).toBeTruthy();
   });
 
   it("shows chapter batch progress while a long sync is still running", async () => {

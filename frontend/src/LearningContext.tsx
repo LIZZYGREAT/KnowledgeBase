@@ -69,6 +69,11 @@ function memoryPath(layer: MemoryLayer) {
   return layer.startsWith("topic:") ? `topics/${layer.slice(6)}.md` : `${layer}.md`;
 }
 
+function memoryLayerForEntry(entry: LearningContextEditableEntry): MemoryLayer | null {
+  if (entry.layer === "active" || entry.layer === "important") return entry.layer;
+  return entry.topic_id ? `topic:${entry.topic_id}` : null;
+}
+
 function withoutAutomaticEntryBlocks(markdown: string) {
   return markdown
     .replace(
@@ -84,6 +89,8 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
+  const [manualReviewEntryIds, setManualReviewEntryIds] = useState<string[]>([]);
+  const [pendingEntryFocusId, setPendingEntryFocusId] = useState("");
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [sourceQuery, setSourceQuery] = useState("");
@@ -168,6 +175,16 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   const editableEntries = overview?.editable_entries.filter(
     (entry) => entry.relative_path === memoryPath(selectedLayer),
   ) ?? [];
+  const existingReviewEntryIds = overview?.manual_entries
+    .filter((entry) => entry.relative_path === memoryPath(selectedLayer) && entry.support_state === "needs_review")
+    .map((entry) => entry.entry_id) ?? [];
+  const budgetReviewEntryIds = manualReviewEntryIds.filter((entryId) => overview?.editable_entries.some(
+    (entry) => entry.entry_id === entryId && entry.relative_path === memoryPath(selectedLayer),
+  ));
+  const pendingReviewCount = new Set([
+    ...existingReviewEntryIds,
+    ...budgetReviewEntryIds,
+  ]).size;
   const editingEntry = editableEntries.find((entry) => entry.entry_id === editingEntryId);
   const entryDirty = Boolean(editingEntry && (
     entryDraftTitle !== editingEntry.title || entryDraftSummary !== editingEntry.summary
@@ -216,6 +233,15 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     void loadMemory();
     return () => { current = false; };
   }, [currentMemory, topicId]);
+
+  useEffect(() => {
+    if (!pendingEntryFocusId || !memoryLoaded || memoryLoading) return;
+    const target = document.getElementById(`learning-context-entry-${pendingEntryFocusId}`);
+    if (!target) return;
+    target.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    target.focus();
+    setPendingEntryFocusId("");
+  }, [editableEntries, memoryLoaded, memoryLoading, pendingEntryFocusId]);
 
   const visibleSources = useMemo(() => {
     const query = sourceQuery.trim().toLocaleLowerCase();
@@ -367,6 +393,12 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     try {
       const result = await syncLearningContext({ force, source_id: onlySourceId });
       await refresh();
+      const ids = result.source_results.flatMap((source) =>
+        Array.isArray(source.manual_review_entry_ids)
+          ? source.manual_review_entry_ids.filter((entryId): entryId is string => typeof entryId === "string")
+          : [],
+      );
+      setManualReviewEntryIds(Array.from(new Set(ids)));
       setNotice(result.message);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "同步学习上下文失败");
@@ -376,11 +408,12 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   }
 
   function changeMemoryLayer(nextLayer: MemoryLayer) {
-    if (nextLayer === selectedLayer) return;
+    if (nextLayer === selectedLayer) return true;
     if ((memoryDirty || entryDirty) && !window.confirm("当前上下文有未保存的修改；放弃修改并切换层级吗？")) {
-      return;
+      return false;
     }
     setSelectedLayer(nextLayer);
+    return true;
   }
 
   if (loading && !overview) return <div className="page-stack"><PageHeader eyebrow="LEARNING PROGRESS" title="学习进度" /><div className="loading-state" role="status">正在读取学习进度…</div></div>;
@@ -391,7 +424,6 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     (entry) => entry.relative_path === memoryPath(selectedLayer),
   );
   const restorableEntries = memoryStatusEntries.filter((entry) => entry.pinned || entry.removed);
-  const reviewEntries = memoryStatusEntries.filter((entry) => entry.support_state === "needs_review");
   const removedSourceEntries = memoryStatusEntries.filter((entry) => entry.support_state === "source_removed");
   const manualMemoryText = withoutAutomaticEntryBlocks(memoryText);
   const syncProgress = overview.status.sync_progress;
@@ -409,6 +441,41 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
       />
 
       {notice && <div className="editor-notice success-notice" role="status">{notice}</div>}
+      {manualReviewEntryIds.length > 0 && (
+        <section className="learning-sync-review" role="status" aria-label="本次同步待人工核对的条目">
+          <div>
+            <strong>本次有 {manualReviewEntryIds.length} 条旧知识未进入核对</strong>
+            <p>这些条目尚未由本次同步验证。可查看条目原文；当前列表中找不到的条目会显示 ID。</p>
+          </div>
+          <ul>
+            {manualReviewEntryIds.map((entryId) => {
+              const entry = overview.editable_entries.find((item) => item.entry_id === entryId);
+              const destination = entry ? memoryLayerForEntry(entry) : null;
+              const location = entry?.layer === "topic"
+                ? topicLayers.find((topic) => topic.id === entry.topic_id)?.title ?? "专题"
+                : entry?.layer === "important" ? "重要知识" : "当前关注";
+              return (
+                <li key={entryId}>
+                  {entry && destination ? (
+                    <button
+                      className="text-button learning-sync-review-link"
+                      type="button"
+                      onClick={() => {
+                        if (changeMemoryLayer(destination)) setPendingEntryFocusId(entryId);
+                      }}
+                    >
+                      查看：{location} · {entry.title}
+                    </button>
+                  ) : (
+                    <strong>{entry?.title ?? entryId}</strong>
+                  )}
+                  <small>{entry ? `条目 ID：${entryId}` : "当前列表中未找到此条目；请按 ID 查找。"}</small>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
       {loadError && <ErrorState message={loadError} retry={() => void refresh()} />}
 
       <section className="learning-context-status surface" aria-live="polite">
@@ -503,9 +570,9 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                 {topicLayers.map((topic: LearningContextTopic) => <option value={`topic:${topic.id}`} key={topic.id}>{topic.is_active ? "当前专题" : "历史专题"}：{topic.title}</option>)}
               </select>
             </label>
-            <span className={`chip ${restorableEntries.length || reviewEntries.length || removedSourceEntries.length ? "chip-amber" : "chip-green"}`}>
-              {reviewEntries.length
-                ? `待核对 ${reviewEntries.length} 条`
+            <span className={`chip ${restorableEntries.length || pendingReviewCount || removedSourceEntries.length ? "chip-amber" : "chip-green"}`}>
+              {pendingReviewCount
+                ? `待核对 ${pendingReviewCount} 条`
                 : removedSourceEntries.length
                   ? `来源已移除 ${removedSourceEntries.length} 条`
                 : restorableEntries.length
@@ -569,7 +636,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
             <>
               <div className="learning-memory-preview">
                 {editableEntries.map((entry) => (
-                  <article className="learning-memory-auto-entry" key={entry.entry_id}>
+                  <article id={`learning-context-entry-${entry.entry_id}`} tabIndex={-1} className="learning-memory-auto-entry" key={entry.entry_id}>
                     {editingEntryId === entry.entry_id ? (
                       <div className="learning-memory-entry-editor">
                         <label className="field-label">

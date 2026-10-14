@@ -4,6 +4,13 @@
 .learning-context-status strong { font-weight: 650; }
 .learning-sync-progress { display: grid; max-width: 460px; gap: 3px; color: #506458; font-size: var(--text-xs); line-height: 1.45; }
 .learning-sync-progress small { color: #87948b; }
+.learning-sync-review { display: grid; gap: 10px; border: 1px solid #e6d4b2; border-radius: 9px; padding: 13px 16px; background: #fffbf2; color: #6d5a3b; font-size: var(--text-sm); }
+.learning-sync-review > div { display: grid; gap: 4px; }
+.learning-sync-review p { margin: 0; color: #89734e; font-size: var(--text-xs); line-height: 1.5; }
+.learning-sync-review ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.learning-sync-review li { display: grid; justify-items: start; gap: 2px; }
+.learning-sync-review li small { color: #89734e; font-size: var(--text-xs); }
+.learning-sync-review-link { padding: 0; text-align: left; }
 .learning-status-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #91a59a; }
 .learning-status-synced { background: #4d9a69; box-shadow: 0 0 0 4px #4d9a6917; }
 .learning-status-pending, .learning-status-syncing { background: #d09b52; box-shadow: 0 0 0 4px #d09b5217; }

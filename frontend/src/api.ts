@@ -1334,7 +1334,11 @@ export interface LearningContextSyncResult {
   message: string;
   analyzed_count: number;
   skipped_count: number;
-  source_results: Array<Record<string, unknown>>;
+  source_results: Array<{
+    source_id?: string;
+    manual_review_entry_ids?: string[];
+    [key: string]: unknown;
+  }>;
 }
 
 export function syncLearningContext(options: { dry_run?: boolean; force?: boolean; source_id?: string } = {}) {

@@ -646,6 +646,10 @@ class LearningContextSync:
         for relative, content in memory_files.items():
             for block in _entry_blocks(content):
                 metadata = block["metadata"]
+                if metadata.get("entry_id") == "current-learning-focus":
+                    # This is a derived summary rebuilt from topic entries; it
+                    # should not consume the bounded claim-review allowance.
+                    continue
                 if metadata.get("support_state") in {"needs_review", "source_removed"}:
                     continue
                 source_headings = metadata.get("source_headings", {})
@@ -724,6 +728,9 @@ class LearningContextSync:
                     related_matches.append(entry)
                 elif force and source_id in source_headings:
                     forced_source_matches.append(entry)
+
+        for matches in (heading_matches, related_matches, forced_source_matches):
+            matches.sort(key=lambda entry: entry["id"])
 
         found = []
         uncovered = []

@@ -751,17 +751,19 @@ def test_over_budget_same_chapter_entries_are_preserved_and_reported(tmp_path):
             self.calls.append((task_name, context))
             if context["change_kind"] == "initial_analysis":
                 return {"outcome": "no_change", "changes": []}
-            assert "chapter-01-entry" in {
-                item["id"] for item in context["existing_related_memory"]
-            }
-            assert "chapter-16-entry" not in {
-                item["id"] for item in context["existing_related_memory"]
-            }
+            supplied_chapter_ids = [
+                item["id"]
+                for item in context["existing_related_memory"]
+                if item["id"].startswith("chapter-")
+            ]
+            assert len(supplied_chapter_ids) <= 12
+            if not supplied_chapter_ids:
+                return {"outcome": "no_change", "changes": []}
             return {
                 "outcome": "knowledge_changed",
                 "changes": [
                     {
-                        "entry_id": "chapter-01-entry",
+                        "entry_id": supplied_chapter_ids[0],
                         "action": "upsert",
                         "title": "Updated Mechanism claim",
                         "summary": "The forced review confirms this claim.",
@@ -820,6 +822,28 @@ def test_over_budget_same_chapter_entries_are_preserved_and_reported(tmp_path):
     assert entries["chapter-01-entry"]["source_summaries"]["gem-note"] == (
         "The forced review confirms this claim."
     )
+    unreviewed_ids = [
+        "chapter-13-entry",
+        "chapter-14-entry",
+        "chapter-15-entry",
+        "chapter-16-entry",
+    ]
+    for index, entry_id in zip(range(13, 17), unreviewed_ids):
+        assert entries[entry_id]["source_summaries"]["gem-note"] == (
+            "A distinct supported fact number {}.".format(index)
+        )
+
+    repeated = service.sync(force=True, source_id="gem-note")
+    repeated_entries = {
+        item["metadata"]["entry_id"]: item["metadata"]
+        for item in entry_blocks(topic_path.read_text(encoding="utf-8"))
+    }
+    repeated_unreviewed_ids = repeated["source_results"][0]["manual_review_entry_ids"]
+    assert repeated_unreviewed_ids == unreviewed_ids
+    for index, entry_id in zip(range(13, 17), repeated_unreviewed_ids):
+        assert repeated_entries[entry_id]["source_summaries"]["gem-note"] == (
+            "A distinct supported fact number {}.".format(index)
+        )
 
 
 def test_learning_memory_matches_changed_chapter_and_force_keeps_unreported_entries(tmp_path):

@@ -301,3 +301,11 @@ P2：章节变化现在复用差异器已有的 `normalized_heading#occurrence` 
 回归覆盖同一笔记两个同名“总结”章节、只归因到第二节、引用第一节的错误 key 被拒且不推进成功基线，并保留手写固定内容；长章节片段共用同一 key。AI 网关输出契约和测试 Fake Gateway 均切换到 `support_section_keys`。
 
 改动文件：`backend/app/domain/ai.py`、`backend/app/services/ai_gateway.py`、`backend/app/services/learning_context_sync.py`、`backend/app/services/learning_context_sync_diff.py`、`backend/tests/test_ai_gateway.py`、`backend/tests/test_learning_context.py`、`backend/tests/test_research_runs.py`。Python 3.12.14 下 `test_learning_context.py`、`test_learning_context_api.py` 与 `test_ai_gateway.py` 结果 **88 passed**，有 1 条既有 HTTPX/Starlette 弃用警告。测试使用 Fake Gateway；没有真实模型调用。私有第五轮方案未纳入提交。
+
+## Phase 15 第五轮增量修订：超预算条目入口（2026-10-14）
+
+P2：学习进度页在同步结果含 `manual_review_entry_ids` 时列出条目标题、所属专题和 ID；点击已找到的条目会切换到对应层级并滚动到正文，列表不存在的条目显示 ID 作为降级信息。页面同时显示当前层级待核对数量，但这些运行结果不会写入条目状态，也不会把未进入本轮输入的条目标成 AI 已验证。每层的核对名额排除自动生成的“当前关注”汇总条目；同优先级条目按 ID 稳定排序，重复强制同步仍准确报告同一批 4 个未核对条目，已保留其原文。
+
+改动文件：`backend/app/services/learning_context_sync.py`、`backend/tests/test_learning_context.py`、`frontend/src/LearningContext.tsx`、`frontend/src/api.ts`、`frontend/src/styles/learning-context.css`、`frontend/tests/unit/learning-context.test.tsx`。回归覆盖 16 条同章节记忆、12 条输入预算、4 条 ID/标题展示、原文保留、下一次同步重复提示，以及 UI 跳转和缺失条目 ID 降级。
+
+本机完整验证：随附 Python 3.12.14 后端 `backend/tests` **685 passed、6 skipped、3 warnings**；前端 `npm run test:unit` **35 files / 174 passed**，`npm run test:integration` **11 files / 140 passed**，`npm run typecheck` 通过，`npm run build` 通过（Vite 提示已有超过 500 kB 的 ELK 分块）。后端警告为既有 Starlette/httpx 弃用和 Python tar 提取 API 弃用；6 项平台跳过与上一节所列 POSIX 权限、shell 及符号链接条件相同。验证未调用真实 Provider/DeepSeek，未使用私人规格作为提交内容，也未部署生产服务。
