@@ -12,7 +12,6 @@ lenses:
     priority: high
     queries:
       - elastic weight consolidation
-      - regularization continual learning
       - parameter importance continual learning
       - fisher information catastrophic forgetting
     include_terms:
@@ -27,7 +26,6 @@ lenses:
     priority: medium
     queries:
       - replay continual learning
-      - rehearsal continual learning
       - experience replay catastrophic forgetting
     include_terms:
       - replay
@@ -39,8 +37,26 @@ lenses:
     enabled: true
     priority: high
     queries:
-      - class incremental learning
       - class incremental continual learning
+      - nearest class mean class incremental learning
+    include_terms: []
+    exclude_terms: []
+
+  - id: distillation
+    title: 蒸馏与无遗忘学习
+    enabled: true
+    priority: medium
+    queries:
+      - learning without forgetting knowledge distillation continual learning
+    include_terms: []
+    exclude_terms: []
+
+  - id: gradient-episodic-memory
+    title: Gradient Episodic Memory
+    enabled: true
+    priority: high
+    queries:
+      - gradient episodic memory A-GEM continual learning
     include_terms: []
     exclude_terms: []
 

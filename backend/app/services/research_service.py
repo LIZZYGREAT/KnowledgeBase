@@ -627,8 +627,12 @@ class ResearchService:
         profile, learning_context = self._profile_with_learning_context(
             profile, sync_before_search=trigger == "manual"
         )
+        query_plan_warnings: list[str] = []
         personalized_queries, exploration_queries = _research_query_overrides(
-            profile, learning_context, lens_overrides
+            profile,
+            learning_context,
+            lens_overrides,
+            diagnostics=query_plan_warnings,
         )
         queries = self.query_builder.build(
             profile,
@@ -691,7 +695,7 @@ class ResearchService:
         unavailable_enrichment_providers: set[str] = set()
         analysis_breaker = ResearchAnalysisCircuitBreaker()
         errors: list[str] = []
-        warnings: list[str] = []
+        warnings: list[str] = list(query_plan_warnings)
         sync_status = learning_context.get("sync_status")
         if isinstance(sync_status, dict) and sync_status.get("used_previous_context"):
             warnings.append(
@@ -1600,6 +1604,7 @@ def _research_query_overrides(
     profile: ResearchProfile,
     context: dict,
     lens_overrides: Optional[Mapping[str, bool]] = None,
+    diagnostics: Optional[list[str]] = None,
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """Build short main-direction queries and a separate explicit exploration stream."""
     preferences = context.get("preferences", {})
@@ -1626,10 +1631,10 @@ def _research_query_overrides(
         if isinstance(value, str)
     ]
 
-    candidates: list[tuple[str, str]] = []
+    candidates: list[tuple[str, str, bool]] = []
     seen_candidates = set()
 
-    def add_candidate(value, evidence=""):
+    def add_candidate(value, evidence="", user_keyword=False):
         phrase = _clean_research_phrase(value)
         if not phrase:
             return
@@ -1637,10 +1642,14 @@ def _research_query_overrides(
         if key in seen_candidates:
             return
         seen_candidates.add(key)
-        candidates.append((phrase, evidence[:2000] if isinstance(evidence, str) else ""))
+        candidates.append(
+            (
+                phrase,
+                evidence[:2000] if isinstance(evidence, str) else "",
+                user_keyword,
+            )
+        )
 
-    for value in _research_context_values(preferences.get("keywords"), 8):
-        add_candidate(value)
     user_direction = context.get("user_direction", "")
     if isinstance(user_direction, str) and user_direction.strip():
         selected_evidence = "\n".join(
@@ -1673,6 +1682,8 @@ def _research_query_overrides(
         add_candidate(value)
     for heading, body in _learning_context_sections(context.get("important", "")):
         add_candidate(heading, body)
+    for value in _research_context_values(preferences.get("keywords"), 8):
+        add_candidate(value, user_keyword=True)
 
     overrides = dict(lens_overrides or {})
     enabled_lenses = [
@@ -1680,31 +1691,103 @@ def _research_query_overrides(
         for lens in profile.lenses
         if overrides.get(lens.id, lens.enabled)
     ]
+    fallback_lens = next(
+        iter(
+            sorted(
+                enabled_lenses,
+                key=lambda lens: _LENS_PRIORITY_ORDER[lens.priority],
+            )
+        ),
+        None,
+    )
     profile_queries = {
         lens.id: {normalize_query(query) for query in lens.queries}
         for lens in enabled_lenses
     }
     personalized: dict[str, list[str]] = {}
-    for phrase, evidence in candidates:
+    for phrase, evidence, user_keyword in candidates:
+        if user_keyword and not (
+            set(_research_tokens(phrase)) - _RESEARCH_QUERY_STOPWORDS
+        ):
+            if diagnostics is not None:
+                diagnostics.append(
+                    "搜索偏好关键词“{}”未采用：内容只有停用词，没有可检索词。".format(
+                        phrase
+                    )
+                )
+            continue
         scored = [
             (score, lens, anchor)
             for lens in enabled_lenses
             for score, anchor in [_research_lens_match(lens, phrase, evidence)]
             if score > 0
         ]
-        if not scored:
+        if scored:
+            best_score = max(item[0] for item in scored)
+            best = [item for item in scored if item[0] == best_score]
+        else:
+            best = []
+        if not best and user_keyword and fallback_lens is not None:
+            # A user-entered method name stays searchable even when its short
+            # abbreviation cannot identify one Lens. The carrier Lens only
+            # supplies the existing stream, exclusions, and progress tracking.
+            lens, anchor = fallback_lens, ""
+        elif not best:
+            if user_keyword and diagnostics is not None:
+                reason = (
+                    "没有启用的研究 Lens。"
+                    if not enabled_lenses
+                    else "没有匹配的研究方向。"
+                )
+                diagnostics.append(
+                    "搜索偏好关键词“{}”未采用：{}".format(phrase, reason)
+                )
             continue
-        best_score = max(item[0] for item in scored)
-        best = [item for item in scored if item[0] == best_score]
-        if len(best) != 1:
+        elif len(best) != 1 and user_keyword and fallback_lens is not None:
+            lens, anchor = fallback_lens, ""
+        elif len(best) != 1:
             # Ambiguous concepts stay covered by the Profile's existing searches.
+            if user_keyword and diagnostics is not None:
+                reason = (
+                    "没有启用的研究 Lens。"
+                    if not enabled_lenses
+                    else "无法唯一匹配研究方向。"
+                )
+                diagnostics.append(
+                    "搜索偏好关键词“{}”未采用：{}".format(phrase, reason)
+                )
             continue
-        _score, lens, anchor = best[0]
-        query = _compose_personalized_query(primary_direction, phrase, anchor)
+        else:
+            _score, lens, anchor = best[0]
+        query = (
+            _compose_keyword_research_query(primary_direction, phrase, anchor)
+            if user_keyword
+            else _compose_personalized_query(primary_direction, phrase, anchor)
+        )
+        keyword_tokens = (
+            set(_research_tokens(phrase)) - _RESEARCH_QUERY_STOPWORDS
+            if user_keyword
+            else set()
+        )
+        query_tokens = set(_research_tokens(query))
+        if user_keyword and not keyword_tokens.issubset(query_tokens):
+            if diagnostics is not None:
+                diagnostics.append(
+                    "搜索偏好关键词“{}”未采用：方向锚点与关键词超过单次查询长度上限。".format(
+                        phrase
+                    )
+                )
+            continue
         if not query or _research_query_is_excluded(
             query,
             (*profile.exclude_terms, *lens.exclude_terms, *preference_exclusions),
         ):
+            if user_keyword and diagnostics is not None:
+                diagnostics.append(
+                    "搜索偏好关键词“{}”未采用：生成的查询命中了排除词。".format(
+                        phrase
+                    )
+                )
             continue
         normalized = normalize_query(query)
         if normalized in profile_queries[lens.id]:
@@ -1713,8 +1796,20 @@ def _research_query_overrides(
         if normalized in {normalize_query(item) for item in selected}:
             continue
         if len(selected) >= _MAX_PERSONALIZED_QUERIES_PER_LENS:
+            if user_keyword and diagnostics is not None:
+                diagnostics.append(
+                    "搜索偏好关键词“{}”未采用：该 Lens 的个性化查询数量已达上限。".format(
+                        phrase
+                    )
+                )
             continue
         if sum(len(items) for items in personalized.values()) >= _MAX_PERSONALIZED_RESEARCH_QUERIES:
+            if user_keyword and diagnostics is not None:
+                diagnostics.append(
+                    "搜索偏好关键词“{}”未采用：本次个性化查询数量已达上限。".format(
+                        phrase
+                    )
+                )
             break
         selected.append(query)
 
@@ -1861,6 +1956,24 @@ def _compose_personalized_query(direction: str, phrase: str, anchor: str) -> str
         re.sub(r"\s*\([^()]*\)", " ", phrase).strip(),
         anchor,
     ):
+        cleaned = _clean_research_phrase(value)
+        if not cleaned:
+            continue
+        normalized = normalize_query(cleaned)
+        if any(
+            _contains_query_phrase(normalize_query(existing), normalized)
+            or _contains_query_phrase(normalized, normalize_query(existing))
+            for existing in parts
+        ):
+            continue
+        parts.append(cleaned)
+    return _short_research_query(" ".join(parts))
+
+
+def _compose_keyword_research_query(direction: str, phrase: str, anchor: str) -> str:
+    """Keep an explicit user keyword in front of its current-direction anchor."""
+    parts = []
+    for value in (phrase, direction, anchor):
         cleaned = _clean_research_phrase(value)
         if not cleaned:
             continue

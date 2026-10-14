@@ -76,6 +76,33 @@ def test_explicit_exploration_query_does_not_inherit_lens_include_terms():
         connection.close()
 
 
+def test_learning_progress_synaptic_intelligence_query_does_not_inherit_strict_lens_terms():
+    connection, _, service, profile, _query = _setup()
+    try:
+        personalized_query = ResearchQueryBuilder().build(
+            profile,
+            personalized_queries={
+                profile.lenses[0].id: ["Synaptic Intelligence Continual Learning"]
+            },
+        )[-1]
+        decision = service.screen(
+            _work(
+                title="Synaptic Intelligence for Continual Learning",
+                abstract="A method estimates parameter importance to reduce forgetting.",
+                doi="10.1000/synaptic-intelligence",
+            ),
+            profile,
+            personalized_query,
+            _RANGE,
+            _NOW,
+        )
+
+        assert personalized_query.include_terms == ()
+        assert decision.eligible is True
+    finally:
+        connection.close()
+
+
 def test_missing_abstract_is_marked_incomplete_but_title_only_work_can_continue():
     connection, _, service, profile, query = _setup()
     try:

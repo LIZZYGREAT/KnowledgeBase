@@ -163,7 +163,9 @@ class ResearchScreeningService:
 
 def _validate_query_lens_settings(profile, query, lens):
     expected_include_terms = (
-        () if query.is_exploration else tuple(lens.include_terms)
+        ()
+        if query.is_exploration or query.is_personalized
+        else tuple(lens.include_terms)
     )
     expected_priority = "low" if query.is_exploration else lens.priority
     if (

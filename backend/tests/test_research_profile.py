@@ -19,7 +19,17 @@ def test_repository_research_configuration_loads_profiles_without_network():
         "regularization",
         "replay",
         "class-incremental",
+        "distillation",
+        "gradient-episodic-memory",
     ]
+    assert profile.lenses[3].queries == [
+        "learning without forgetting knowledge distillation continual learning",
+    ]
+    assert profile.lenses[4].queries == [
+        "gradient episodic memory A-GEM continual learning",
+    ]
+    assert sum(len(lens.queries) for lens in profile.lenses) == 9
+    assert "nearest class mean class incremental learning" in profile.lenses[2].queries
     assert registry.path_for(profile.id).as_posix().endswith(
         "config/research/profiles/continual-learning.yaml"
     )

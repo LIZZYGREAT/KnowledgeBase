@@ -62,7 +62,8 @@ def test_personalized_search_is_added_without_replacing_profile_history_queries(
     assert queries[:2] == builder.build(profile)
     assert queries[-1].lens_id == "regularization"
     assert queries[-1].priority == "high"
-    assert queries[-1].include_terms == ("fisher information", "regularization")
+    assert queries[-1].include_terms == ()
+    assert queries[0].include_terms == ("fisher information", "regularization")
     assert queries[-1].profile_exclude_terms == ("pure domain adaptation",)
 
 

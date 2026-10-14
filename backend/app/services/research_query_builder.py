@@ -22,6 +22,7 @@ class ResearchQuery:
     profile_exclude_terms: tuple[str, ...]
     is_exploration: bool = False
     exploration_direction: Optional[str] = None
+    is_personalized: bool = False
 
 
 class ResearchQueryBuilder:
@@ -110,12 +111,13 @@ class ResearchQueryBuilder:
                         query_key=query_key,
                         priority="low" if is_exploration else lens.priority,
                         include_terms=(
-                            () if is_exploration else tuple(lens.include_terms)
+                            () if is_personalized else tuple(lens.include_terms)
                         ),
                         exclude_terms=tuple(lens.exclude_terms),
                         profile_exclude_terms=tuple(profile.exclude_terms),
                         is_exploration=is_exploration,
                         exploration_direction=text.strip() if is_exploration else None,
+                        is_personalized=is_personalized,
                     )
                 )
         if additional_queries:

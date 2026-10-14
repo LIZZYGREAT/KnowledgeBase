@@ -230,6 +230,172 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
     connection.close()
 
 
+@pytest.mark.parametrize("keyword", ["SI", "DER", "A-GEM", "SI for the future"])
+def test_user_keywords_reach_provider_with_current_direction_anchor(
+    tmp_path, keyword
+):
+    connection = connect_database(":memory:")
+    profile = _profile(queries=("profile baseline",))
+    profile = profile.model_copy(
+        update={"ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False})}
+    )
+
+    class ContextReader:
+        def get_recommendation_context(self, _focus):
+            return {
+                "included_sources": [],
+                "preferences": {
+                    "fixed_direction": "Continual Learning",
+                    "keywords": [keyword],
+                    "exclude_keywords": [],
+                    "exploration_directions": [],
+                    "important_anchors": [],
+                },
+                "active": "",
+                "important": "",
+                "user_direction": "",
+                "topics": [],
+            }
+
+    class QueryRecordingProvider(FakeProvider):
+        def __init__(self):
+            super().__init__([], name="arxiv")
+            self.requested = []
+
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.requested.append(query)
+            return super().search(query, start_at, end_at, cursor, limit)
+
+    provider = QueryRecordingProvider()
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    service.learning_context_service = ContextReader()
+
+    run = service.run_profile(profile.id, trigger="manual")
+
+    assert run is not None and run.status == "success"
+    assert any(keyword.casefold() in query.casefold() for query in provider.requested)
+    assert any("continual learning" in query.casefold() for query in provider.requested)
+    connection.close()
+
+
+def test_unusable_user_keyword_is_reported_in_the_run(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile(queries=("profile baseline",))
+    profile = profile.model_copy(
+        update={"ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False})}
+    )
+
+    class ContextReader:
+        def get_recommendation_context(self, _focus):
+            return {
+                "included_sources": [],
+                "preferences": {
+                    "fixed_direction": "Continual Learning",
+                    "keywords": ["and the"],
+                    "exclude_keywords": [],
+                    "exploration_directions": [],
+                    "important_anchors": [],
+                },
+                "active": "",
+                "important": "",
+                "user_direction": "",
+                "topics": [],
+            }
+
+    provider = FakeProvider([])
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    service.learning_context_service = ContextReader()
+
+    run = service.run_profile(
+        profile.id,
+        trigger="manual",
+        lens_overrides={"regularization": False},
+    )
+
+    assert run is not None and run.status == "success"
+    assert "搜索偏好关键词“and the”未采用" in (run.error_summary or "")
+    assert provider.calls == 0
+    connection.close()
+
+
+def test_learning_context_topics_add_distillation_and_gem_provider_queries(tmp_path):
+    connection = connect_database(":memory:")
+    profile = ResearchProfileRegistry.load(Path(__file__).parents[2]).get(
+        "continual-learning"
+    )
+    assert profile is not None
+    profile = profile.model_copy(
+        update={
+            "ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False}),
+            "providers": profile.providers.model_copy(
+                update={"discovery": ["arxiv"], "enrichment": []}
+            ),
+            "search": profile.search.model_copy(
+                update={
+                    "history_seed_year": 2025,
+                    "initial_lookback_days": 1,
+                    "max_provider_requests_per_run": 20,
+                }
+            ),
+        }
+    )
+
+    class ContextReader:
+        def get_recommendation_context(self, _focus):
+            return {
+                "included_sources": [],
+                "preferences": {
+                    "fixed_direction": "Continual Learning",
+                    "keywords": [],
+                    "exclude_keywords": [],
+                    "exploration_directions": [],
+                    "important_anchors": [],
+                },
+                "active": (
+                    "### Learning without Forgetting (LwF)\n"
+                    "LwF distills knowledge from the previous model.\n\n"
+                    "### Gradient Episodic Memory (GEM)\n"
+                    "GEM constrains gradients with episodic memories."
+                ),
+                "important": "",
+                "user_direction": "",
+                "topics": [],
+            }
+
+    class QueryRecordingProvider(FakeProvider):
+        def __init__(self):
+            super().__init__([], name="arxiv")
+            self.requested = []
+
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.requested.append(query)
+            return super().search(query, start_at, end_at, cursor, limit)
+
+    provider = QueryRecordingProvider()
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    service.learning_context_service = ContextReader()
+
+    run = service.run_profile(profile.id, trigger="manual")
+
+    assert run is not None and run.status == "success"
+    requested = {query.casefold() for query in provider.requested}
+    assert any(
+        "learning without forgetting" in query and "knowledge distillation" in query
+        for query in requested
+    )
+    assert any(
+        "gradient episodic memory" in query and "a-gem" in query
+        for query in requested
+    )
+    connection.close()
+
+
 def test_explicit_exploration_reaches_provider_as_its_own_query(tmp_path):
     connection = connect_database(":memory:")
     profile = ResearchProfileRegistry.load(Path(__file__).parents[2]).get(
@@ -249,6 +415,8 @@ def test_explicit_exploration_reaches_provider_as_its_own_query(tmp_path):
         "regularization",
         "replay",
         "class-incremental",
+        "distillation",
+        "gradient-episodic-memory",
     ]
     assert not any(
         "reinforcement learning" in text.casefold()
