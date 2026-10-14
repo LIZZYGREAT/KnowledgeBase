@@ -1631,24 +1631,39 @@ def _research_query_overrides(
         if isinstance(value, str)
     ]
 
-    candidates: list[tuple[str, str, bool]] = []
-    seen_candidates = set()
+    priority_candidates: list[tuple[str, str, bool]] = []
+    automatic_candidates: list[tuple[str, str, bool]] = []
+    seen_priority_candidates = set()
+    seen_automatic_candidates = set()
 
-    def add_candidate(value, evidence="", user_keyword=False):
+    def add_candidate(value, evidence="", user_keyword=False, priority=False):
         phrase = _clean_research_phrase(value)
         if not phrase:
             return
         key = normalize_query(phrase)
-        if key in seen_candidates:
+        is_priority = user_keyword or priority
+        seen = seen_priority_candidates if is_priority else seen_automatic_candidates
+        if key in seen:
+            if user_keyword and is_priority:
+                for index, (existing_phrase, existing_evidence, _keyword) in enumerate(
+                    priority_candidates
+                ):
+                    if normalize_query(existing_phrase) == key:
+                        priority_candidates[index] = (
+                            phrase,
+                            existing_evidence
+                            or (evidence[:2000] if isinstance(evidence, str) else ""),
+                            True,
+                        )
+                        break
             return
-        seen_candidates.add(key)
-        candidates.append(
-            (
-                phrase,
-                evidence[:2000] if isinstance(evidence, str) else "",
-                user_keyword,
-            )
+        seen.add(key)
+        candidate = (
+            phrase,
+            evidence[:2000] if isinstance(evidence, str) else "",
+            user_keyword,
         )
+        (priority_candidates if is_priority else automatic_candidates).append(candidate)
 
     user_direction = context.get("user_direction", "")
     if isinstance(user_direction, str) and user_direction.strip():
@@ -1663,7 +1678,7 @@ def _research_query_overrides(
         for line in re.split(r"[\r\n]+|(?<=[。！？.!?])\s+", user_direction):
             phrase = re.sub(r"^\s{0,3}(?:#{1,6}\s+|[-*+]\s+)", "", line).strip()
             if phrase:
-                add_candidate(phrase, selected_evidence)
+                add_candidate(phrase, selected_evidence, priority=True)
     for heading, body in _learning_context_sections(context.get("active", "")):
         add_candidate(heading, body)
     for topic in topics[:3]:
@@ -1682,8 +1697,29 @@ def _research_query_overrides(
         add_candidate(value)
     for heading, body in _learning_context_sections(context.get("important", "")):
         add_candidate(heading, body)
-    for value in _research_context_values(preferences.get("keywords"), 8):
+    for value in _research_context_values(preferences.get("keywords"), 12):
         add_candidate(value, user_keyword=True)
+
+    # Preserve explicit intent even when the same phrase was also derived
+    # earlier from a topic or memory entry. Its context can still help choose a Lens.
+    candidates = list(priority_candidates)
+    explicit_positions = {
+        normalize_query(phrase): index
+        for index, (phrase, _evidence, _user_keyword) in enumerate(candidates)
+    }
+    for phrase, evidence, user_keyword in automatic_candidates:
+        key = normalize_query(phrase)
+        if key in explicit_positions:
+            index = explicit_positions[key]
+            explicit_phrase, explicit_evidence, explicit_user_keyword = candidates[index]
+            if not explicit_evidence and evidence:
+                candidates[index] = (
+                    explicit_phrase,
+                    evidence,
+                    explicit_user_keyword or user_keyword,
+                )
+            continue
+        candidates.append((phrase, evidence, user_keyword))
 
     overrides = dict(lens_overrides or {})
     enabled_lenses = [
@@ -1810,6 +1846,7 @@ def _research_query_overrides(
                         phrase
                     )
                 )
+                continue
             break
         selected.append(query)
 

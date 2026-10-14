@@ -254,3 +254,11 @@ P1-02：已有成功基线的强制重分析不再作为新的学习活动提升
 改动文件：`backend/app/domain/ai.py`、`backend/app/services/ai_gateway.py`、`backend/app/services/learning_context_sync.py`、`backend/tests/test_learning_context.py`。新增回归覆盖旧 GEM 专题的强制重分析、多章节逐条支持归因、虚构章节拒绝并保留基线、16 章中只更新第 14 章，以及同章 16 条记忆超过请求预算时保留并提示复核。
 
 实际命令：`python -m pytest -q --basetemp=<本任务隔离临时目录> backend/tests/test_learning_context.py backend/tests/test_learning_context_api.py`，结果 **47 passed**，另有 8 条既有 HTTPX API 弃用警告和 pytest-asyncio fixture scope 配置提示。该主机当前以 Python 3.9 运行此专项；Python 3.12 与真实 DeepSeek、个人资料质量及生产服务尚未验证。私有修订方案未纳入提交。
+
+## Phase 15 第四轮增量修订：Research 显式关键词优先级（2026-10-14）
+
+P1-01：Research 先处理用户明确输入的检索方向和偏好关键词，再使用学习上下文自动提取词补足；若某偏好词也出现在专题或记忆中，仍以用户关键词身份组成查询。偏好词读取上限与学习上下文设置对齐为 12 项；达到单 Lens 或单次查询上限时，余下词逐项写明未采用原因。
+
+回归覆盖明确 SI/DER 关键词先于大量自动章节进入 Provider、已在专题中出现的关键词继续保持用户优先级、偏好列表第 9–12 项也有逐项原因，以及既有 Research 查询流和所选笔记历史进度。`backend/tests/test_research_runs.py` 的同步模拟结果同时补充当前批次支持章节，以符合第四轮学习上下文 upsert 契约。
+
+实际命令：`python -m pytest -q --basetemp=<本任务隔离临时目录> backend/tests/test_research_query_builder.py backend/tests/test_research_runs.py backend/tests/test_research_screening.py`，结果 **100 passed**，另有 pytest-asyncio fixture loop scope 配置提示。测试使用本机 Python 3.9；未调用真实 Provider/DeepSeek，Python 3.12 CI 尚未重跑。私有修订方案未纳入提交。

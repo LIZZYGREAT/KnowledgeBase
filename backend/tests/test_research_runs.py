@@ -193,11 +193,11 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
     ]
     assert len(personal_queries) == 4
     by_text = {query.text: query for query in personal_queries}
-    assert "Continual Learning Elastic Weight Consolidation" in by_text
-    assert "Continual Learning Synaptic Intelligence parameter importance" in by_text
+    assert "EWC Continual Learning" in by_text
+    assert "GEM Continual Learning" in by_text
     assert "Continual Learning iCaRL experience replay" in by_text
-    assert by_text["Continual Learning Elastic Weight Consolidation"].lens_id == "regularization"
-    assert by_text["Continual Learning Synaptic Intelligence parameter importance"].lens_id == "regularization"
+    assert by_text["EWC Continual Learning"].lens_id == "regularization"
+    assert by_text["GEM Continual Learning"].lens_id == "regularization"
     assert by_text["Continual Learning iCaRL experience replay"].lens_id == "replay"
     assert all(len(query.text.split()) <= 8 for query in personal_queries)
     assert all(
@@ -220,7 +220,7 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
         query in personal_texts and start.year <= 2015
         for query, start, _end in provider.requested
     )
-    personal_query = next(query for query in personal_queries if "Elastic Weight Consolidation" in query.text)
+    personal_query = by_text["EWC Continual Learning"]
     scope = search.history_scope(
         profile.id,
         personal_query.lens_id,
@@ -280,6 +280,130 @@ def test_user_keywords_reach_provider_with_current_direction_anchor(
     assert any(keyword.casefold() in query.casefold() for query in provider.requested)
     assert any("continual learning" in query.casefold() for query in provider.requested)
     connection.close()
+
+
+def test_user_keywords_precede_many_context_queries_at_the_provider(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile(queries=("profile baseline",))
+    profile = profile.model_copy(
+        update={"ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False})}
+    )
+    active = "\n\n".join(
+        "### Automatic method {}\nRegularization evidence for method {}.".format(
+            index, index
+        )
+        for index in range(10)
+    )
+
+    class ContextReader:
+        def get_recommendation_context(self, _focus):
+            return {
+                "included_sources": [],
+                "preferences": {
+                    "fixed_direction": "Continual Learning",
+                    "keywords": ["SI", "DER", "A-GEM"],
+                    "exclude_keywords": [],
+                    "exploration_directions": [],
+                    "important_anchors": [],
+                },
+                "active": active,
+                "important": "",
+                "user_direction": "",
+                "topics": [],
+            }
+
+    class QueryRecordingProvider(FakeProvider):
+        def __init__(self):
+            super().__init__([], name="arxiv")
+            self.requested = []
+
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.requested.append(query)
+            return super().search(query, start_at, end_at, cursor, limit)
+
+    provider = QueryRecordingProvider()
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    service.learning_context_service = ContextReader()
+
+    run = service.run_profile(profile.id, trigger="manual")
+
+    assert run is not None and run.status == "success"
+    assert any("SI" in query for query in provider.requested)
+    assert any("DER" in query for query in provider.requested)
+    assert not any("A-GEM" in query for query in provider.requested)
+    assert "搜索偏好关键词“A-GEM”未采用" in (run.error_summary or "")
+    assert len(provider.requested) == 3  # one Profile query and two user keywords
+    connection.close()
+
+
+def test_explicit_keyword_stays_user_priority_when_topic_and_direction_contain_it():
+    profile = _profile(queries=("profile baseline",))
+    context = {
+        "preferences": {
+            "fixed_direction": "Continual Learning",
+            "keywords": ["SI"],
+            "exclude_keywords": [],
+            "exploration_directions": [],
+            "important_anchors": [],
+        },
+        "active": "",
+        "important": "",
+        "user_direction": "SI",
+        "topics": [
+            {
+                "id": "continual-learning",
+                "title": "Continual Learning",
+                "aliases": ["SI"],
+                "keywords": [],
+                "markdown": "",
+            }
+        ],
+    }
+
+    personalized, _exploration = _research_query_overrides(profile, context)
+
+    assert personalized == {"regularization": ["SI Continual Learning"]}
+
+
+def test_every_over_limit_user_keyword_has_a_clear_reason():
+    profile = _profile(queries=("profile baseline",))
+    keywords = [
+        "SI",
+        "DER",
+        "A-GEM",
+        "MAS",
+        "RWalk",
+        "iCaRL",
+        "LwF",
+        "GEM",
+        "EWC",
+        "online EWC",
+        "CORe50",
+        "regularization",
+    ]
+    diagnostics = []
+    context = {
+        "preferences": {
+            "fixed_direction": "Continual Learning",
+            "keywords": keywords,
+            "exclude_keywords": [],
+        },
+        "active": "",
+        "important": "",
+        "user_direction": "",
+        "topics": [],
+    }
+
+    personalized, _exploration = _research_query_overrides(
+        profile, context, diagnostics=diagnostics
+    )
+
+    assert len(personalized["regularization"]) == 2
+    diagnostic_text = "\n".join(diagnostics)
+    for keyword in keywords[2:]:
+        assert "搜索偏好关键词“{}”未采用".format(keyword) in diagnostic_text
 
 
 def test_unusable_user_keyword_is_reported_in_the_run(tmp_path):
@@ -605,6 +729,9 @@ def test_scheduled_research_syncs_new_selected_note_before_building_queries(tmp_
                             "The new note explains how GEM constrains gradients "
                             "with episodic memories."
                         ),
+                        "support_headings": [
+                            context["changed_sections"][0]["heading"]
+                        ],
                         "layer": "topic",
                         "topic_id": "continual-learning",
                         "topic_title": "Continual Learning",
