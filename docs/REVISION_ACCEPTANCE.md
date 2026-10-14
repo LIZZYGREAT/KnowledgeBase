@@ -251,7 +251,7 @@ P2-07 的旧数据兼容分支本轮未清理。当前没有生产部署与个�
 
 P1-02：已有成功基线的强制重分析不再作为新的学习活动提升专题；对已有来源条目的修正也不自动夺取当前方向。首次纳入资料产生的新专题仍可推进当前方向。P1-03：每个学习上下文 upsert 现在必须声明实际支持它的章节；服务只接受当前请求中出现的精确章节名，并仅将这些章节写入来源记录。P1-04：旧条目优先按本次变化章节载入，超预算时继续细分已有章节批次；无法细分的匹配项保留原内容，并在同步结果中列出 ID、提示人工检查。强制重分析只对模型明确返回的移除执行撤销，遗漏或未进入请求的旧条目不会被批量删除。
 
-改动文件：`backend/app/domain/ai.py`、`backend/app/services/ai_gateway.py`、`backend/app/services/learning_context_sync.py`、`backend/tests/test_learning_context.py`。新增回归覆盖旧 GEM 专题的强制重分析、多章节逐条支持归因、虚构章节拒绝并保留基线、16 章中只更新第 14 章，以及同章 16 条记忆超过请求预算时保留并提示复核。
+改动文件：`backend/app/domain/ai.py`、`backend/app/services/ai_gateway.py`、`backend/app/services/learning_context_sync.py`、`backend/tests/test_learning_context.py`、`backend/tests/test_ai_gateway.py`。新增回归覆盖旧 GEM 专题的强制重分析、多章节逐条支持归因、虚构章节拒绝并保留基线、16 章中只更新第 14 章，以及同章 16 条记忆超过请求预算时保留并提示复核；AI 网关结构化输出样例显式提供当前章节依据。
 
 实际命令：`python -m pytest -q --basetemp=<本任务隔离临时目录> backend/tests/test_learning_context.py backend/tests/test_learning_context_api.py`，结果 **47 passed**，另有 8 条既有 HTTPX API 弃用警告和 pytest-asyncio fixture scope 配置提示。该主机当前以 Python 3.9 运行此专项；Python 3.12 与真实 DeepSeek、个人资料质量及生产服务尚未验证。私有修订方案未纳入提交。
 
@@ -270,3 +270,20 @@ P2-05：Terms 文档缓存不再用完整 Markdown 文件字节判定正文是�
 改动文件：`backend/app/services/term_discovery_service.py`、`backend/tests/test_term_discovery.py`。新增实际 Terms Run 回归：格式重排后不增加 AI 调用；数学不等式、代码条件、否定语句和标题/主题元数据各自变化后均重新分析。原有通用发现、个性化白名单和模式隔离由 Terms 全套测试继续覆盖。
 
 实际命令：`python -m pytest -q --basetemp=<本任务隔离临时目录> backend/tests/test_term_discovery.py`，结果 **36 passed**，另有 1 条既有 HTTPX 弃用警告和 pytest-asyncio fixture loop scope 配置提示。测试使用本机 Python 3.9；未调用真实 Provider/DeepSeek，Python 3.12 CI、生产服务和个人推荐质量尚未验证。私有修订方案未纳入提交。
+
+## Phase 15 第四轮整体验证（2026-10-14）
+
+| 检查 | 结果 |
+| --- | --- |
+| 完整后端：随附 Python 3.12.14，`pytest.main(['-q', '--basetemp', '<短隔离路径>', 'backend/tests'])` | 683 项通过、6 项平台条件跳过、3 条弃用警告。 |
+| 前端单元：`npm run test:unit` | 35 个文件，172 项通过。 |
+| 前端集成：`npm run test:integration` | 11 个文件，140 项通过。 |
+| `npm run typecheck` | 通过。 |
+| `npm run build` | 通过；有既有 ELK 分块超过 500 kB 的提示。 |
+| `python tools/kb.py check` | 7 个文件，无错误、无警告。 |
+| `python tools/research.py check --root .` | 1 个 Profile 与 AI 配置有效。 |
+| 提交与工作区检查：`git show --check`、`git diff --check`、`git status --short` | 提交检查通过；工作区干净。 |
+
+6 项平台跳过分别是：`test_publish_new_file_uses_canonical_file_permissions` 与 `test_publish_existing_file_preserves_permissions`（需要 POSIX 文件权限语义）；`test_production_backup_waits_for_research_and_restarts_services` 的 3 个参数组合（需要 POSIX shell）；`test_profile_registry_rejects_symlinked_profiles`（本机不允许创建符号链接）。
+
+完整后端测试将 pytest 临时目录设为本任务获准目录下的短路径，以避免 Windows Git 对长临时路径报 `Filename too long`；短路径下 4 个先前失败的用例全部复测通过。前后端检查均为本机验证，未运行新的 CI，未调用真实 Provider/DeepSeek，未部署生产服务，也未验收私人资料的论文推荐质量。私有修订方案未纳入提交。
