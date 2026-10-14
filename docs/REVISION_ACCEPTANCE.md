@@ -224,3 +224,25 @@ Stage D 代码提交：`043171c`（基于 Stage C 提交 `50a0b54`）。学习�
 ```
 
 本机 `.venv` 仍使用 Python 3.9，且其 pytest 在该解释器下因类型注解导入错误不可用。曾用系统 Python 3.9 跑完整后端，658 项通过、6 项跳过，4 项既有 Manual Research Worker 测试因缺少当前 asyncio 事件循环而失败；同一 Worker 测试文件在 Python 3.12 下 6 项通过。最终完整后端结果使用桌面随附 Python 3.12.14，并复用已有 `.venv` 测试依赖和本机 pytest-asyncio 插件，未修改依赖清单或虚拟环境。私有修订方案未纳入提交；无真实 Provider/DeepSeek、生产数据、生产服务或推荐质量验收。
+
+## Phase 15 第三轮增量修订（2026-10-14）
+
+本轮按逻辑部分提交：`61f6151` 使明确输入的学习方法关键词进入 Research 查询，并隔离个性化检索和严格 Lens 关键词；默认 Continual Learning Profile 补入 LwF 与 GEM/A-GEM 方向。`fdcd2b4` 让定时 Research 在生成查询前刷新学习上下文，并只把本次实际采用的来源纳入分析和引用范围；不相关新增来源不会无端改变旧候选的语义缓存。`2c89fe6` 将定时 Terms 限定为所选正式笔记上的个性化发现；PDF、外部来源及全库扫描保留为显式手动“通用发现”。默认 Research Profile 不再固定 GEM/iCaRL 笔记。后续提交 `fd9e846` 移除仅适用于受限本机测试目录的宽松路径解析，恢复 Research 历史来源的严格路径校验。README、产品原则、部署说明与 Terms 界面已同步。
+
+P2-07 的旧数据兼容分支本轮未清理。当前没有生产部署与个人 Runtime 数据依赖信息，按方案条件保留迁移逻辑，不以本地测试环境推断生产状态。没有部署、调用真实 Provider/DeepSeek 或修改个人真实数据。私有修订方案没有加入提交。
+
+| 检查 | 结果 |
+| --- | --- |
+| Research 查询构建、筛选、Run、分析、历史与候选专项 | 105 项通过、1 项平台条件跳过；历史窗口单独复跑 4 项通过。 |
+| Research 定时上下文刷新、来源边界与缓存专项 | 修正动态查询断言后专项通过；7 项聚焦回归通过。 |
+| Terms 与默认 Research Profile：`test_term_discovery.py`、`test_research_profile.py` | 43 项通过、1 项平台条件跳过；恢复严格路径解析后，4 项所选笔记与知识状态回归通过。 |
+| 完整后端：Python 3.12.14，`pytest.main(['-q', 'backend/tests'])` | 673 项通过、6 项平台条件跳过、3 条弃用警告；共收集 679 项。 |
+| 前端单元：`npm run test:unit` | 35 个文件，172 项通过。 |
+| 前端集成：`npm run test:integration` | 11 个文件，140 项通过。 |
+| `npm run typecheck`、`npm run build` | 通过；构建仍提示已有超 500 kB 的 ELK 分块。 |
+| `python tools/research.py check --root .` | 1 个 Profile 与 AI 配置有效。 |
+| `python tools/kb.py check` | 7 个文件，无错误、无警告。 |
+| 严格 Research 历史路径回归：`test_research_history.py` | 4 项通过。 |
+| `git diff --check` | 通过。 |
+
+测试通过 Python 3.12.14 并复用现有测试依赖；Windows 受限临时目录需要授权测试进程访问。默认权限下曾出现 Vitest 对系统临时转换文件的 ENOENT，授权重跑后完整通过。第三轮提交尚未由新 CI 运行覆盖；先前成功的 CI 不能替代本轮结果。未调用真实 Provider/DeepSeek，未验证个人推荐质量或生产部署。
