@@ -295,6 +295,50 @@ def test_recommendation_context_is_bounded_and_tracks_only_selected_sources(tmp_
     ) <= 1200
 
 
+def test_recommendation_sources_follow_bounded_evidence_without_a_twenty_source_cutoff(
+    tmp_path,
+):
+    source_ids = ["learning-note-{:02d}".format(index) for index in range(22)]
+    for index, source_id in enumerate(source_ids):
+        _document(tmp_path, source_id, "Learning note {}".format(index))
+
+    service = LearningContextService(tmp_path)
+    service.set_sources(source_ids[:21])
+    active_path = service.context_root / "active.md"
+    active_path.parent.mkdir(parents=True, exist_ok=True)
+    active_path.write_text(
+        render_entry(
+            {
+                "entry_id": "late-learning-source",
+                "owner": "auto",
+                "source_headings": {source_ids[20]: ["Mechanism"]},
+                "layer": "active",
+                "title": "Gradient Episodic Memory",
+                "summary": "The selected note explains its gradient constraint.",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original = service.get_recommendation_context("Gradient Episodic Memory")
+
+    assert original["included_source_count"] == 1
+    assert original["included_sources"] == [
+        {
+            "id": source_ids[20],
+            "title": "Learning note 20",
+            "type": "learning-note",
+        }
+    ]
+
+    service.set_sources(source_ids)
+    with_irrelevant_selection = service.get_recommendation_context(
+        "Gradient Episodic Memory"
+    )
+
+    assert with_irrelevant_selection == original
+
+
 def test_topic_ids_cannot_escape_context_storage(tmp_path):
     service = LearningContextService(tmp_path)
 

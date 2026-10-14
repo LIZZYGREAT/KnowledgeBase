@@ -625,7 +625,7 @@ class ResearchService:
             )
 
         profile, learning_context = self._profile_with_learning_context(
-            profile, sync_before_search=trigger == "manual"
+            profile, sync_before_search=True
         )
         query_plan_warnings: list[str] = []
         personalized_queries, exploration_queries = _research_query_overrides(

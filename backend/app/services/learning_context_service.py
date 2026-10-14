@@ -19,7 +19,6 @@ _SOURCE_TYPES = {"paper-note", "learning-note", "course-note"}
 _TOPIC_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _MAX_CANONICAL_BYTES = 2 * 1024 * 1024
 _MAX_MEMORY_BYTES = 512 * 1024
-_MAX_RECOMMENDATION_SOURCES = 20
 _MAX_RECOMMENDATION_TOPICS = 3
 _MAX_RECOMMENDATION_PREFERENCE_ITEMS = 12
 _DEFAULT_PREFERENCES = {
@@ -159,6 +158,26 @@ def _selected_memory(markdown: str, selected_source_ids: set[str]) -> str:
         else:
             selected_blocks.append(block["text"])
     return "\n\n".join(selected_blocks)
+
+
+def _recommendation_source_ids(markdowns: Iterable[str]) -> set[str]:
+    """Return selected-note IDs attached to entries actually present in context."""
+    from backend.app.services.learning_context_sync_entries import entry_blocks
+
+    source_ids = set()
+    for markdown in markdowns:
+        for block in entry_blocks(markdown):
+            metadata = block["metadata"]
+            if metadata.get("support_state") in {"needs_review", "source_removed"}:
+                continue
+            source_headings = metadata.get("source_headings", {})
+            if isinstance(source_headings, dict):
+                source_ids.update(
+                    source_id
+                    for source_id in source_headings
+                    if isinstance(source_id, str) and source_id
+                )
+    return source_ids
 
 
 class LearningContextError(ValueError):
@@ -425,16 +444,30 @@ class LearningContextService:
                 " ".join(value.split())[:160]
                 for value in preferences[field][:_MAX_RECOMMENDATION_PREFERENCE_ITEMS]
             ]
+        contributing_source_ids = _recommendation_source_ids(
+            [
+                raw["active"],
+                raw["important"],
+                *(item["markdown"] for item in raw["topics"]),
+            ]
+        )
+        selected_sources = {
+            item["id"]: item
+            for item in raw["included_sources"]
+            if isinstance(item.get("id"), str)
+        }
+        included_sources = [
+            {
+                "id": source_id,
+                "title": selected_sources[source_id]["title"],
+                "type": selected_sources[source_id]["type"],
+            }
+            for source_id in sorted(contributing_source_ids)
+            if source_id in selected_sources
+        ]
         return {
-            "included_source_count": len(raw["included_sources"]),
-            "included_sources": [
-                {
-                    "id": item["id"],
-                    "title": item["title"],
-                    "type": item["type"],
-                }
-                for item in raw["included_sources"][:_MAX_RECOMMENDATION_SOURCES]
-            ],
+            "included_source_count": len(included_sources),
+            "included_sources": included_sources,
             "preferences": bounded_preferences,
             "active": raw["active"],
             "important": raw["important"],

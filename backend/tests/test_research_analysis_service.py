@@ -21,6 +21,8 @@ from backend.app.services.ai_client import (
     MockDeepSeekClient,
 )
 from backend.app.services.ai_gateway import AIGateway
+from backend.app.services.learning_context_service import LearningContextService
+from backend.app.services.learning_context_sync_entries import render_entry
 from backend.app.services.research_analysis_service import (
     ResearchAnalysisCircuitBreaker,
     ResearchAnalysisService,
@@ -304,6 +306,81 @@ def test_research_analysis_includes_selected_learning_progress_and_invalidates_c
     assert second.input_context["learning_progress_context"]["active"].startswith("当前在学习 GEM")
     assert first.analysis.learning_context_sources[0].id == "ewc-learning-note"
     assert client.calls == ["research_candidate_analysis", "research_candidate_analysis"]
+    connection.close()
+
+
+def test_unrelated_selected_learning_source_keeps_cached_analysis_reusable(tmp_path):
+    connection = connect_database(":memory:")
+    repository = ResearchRepository(connection)
+    work = _work()
+    repository.insert_work(work)
+
+    documents_root = tmp_path / "knowledge" / "documents" / "learning"
+    documents_root.mkdir(parents=True)
+    for document_id, title in (
+        ("ewc-note", "EWC learning note"),
+        ("rl-note", "Reinforcement learning note"),
+    ):
+        (documents_root / "{}.md".format(document_id)).write_text(
+            "---\nschema_version: 1\nid: {}\ntitle: {}\n"
+            "type: learning-note\ndomains: []\ntopics: []\ntags: []\n"
+            "sources: []\n---\n\nSelected note content.\n".format(
+                document_id, title
+            ),
+            encoding="utf-8",
+        )
+
+    learning_context = LearningContextService(tmp_path)
+    learning_context.set_sources(["ewc-note"])
+    active_path = learning_context.context_root / "active.md"
+    active_path.parent.mkdir(parents=True, exist_ok=True)
+    memory = {
+        "entry_id": "ewc-progress",
+        "owner": "auto",
+        "source_headings": {"ewc-note": ["Mechanism"]},
+        "layer": "active",
+        "title": "EWC",
+        "summary": "EWC estimates parameter importance with Fisher information.",
+    }
+    active_path.write_text(render_entry(memory), encoding="utf-8")
+
+    output = _analysis_output()
+    output["learning_context_sources"] = [
+        {"id": "ewc-note", "title": "EWC learning note"}
+    ]
+    client = MockDeepSeekClient({"research_candidate_analysis": output})
+    service = ResearchAnalysisService(
+        repository,
+        AIGateway(client),
+        learning_context_service=learning_context,
+    )
+    profile = _profile()
+
+    first = service.analyze(work, profile, profile.lenses[0], _context_pack())
+    learning_context.set_sources(["ewc-note", "rl-note"])
+    with_unrelated_note = service.analyze(
+        work, profile, profile.lenses[0], _context_pack()
+    )
+
+    assert first is not None and with_unrelated_note is not None
+    assert first.input_hash == with_unrelated_note.input_hash
+    assert first.input_context["learning_progress_context"]["included_sources"] == [
+        {"id": "ewc-note", "title": "EWC learning note", "type": "learning-note"}
+    ]
+    assert client.calls == ["research_candidate_analysis"]
+
+    memory["summary"] = "EWC uses a revised Fisher importance estimate."
+    active_path.write_text(render_entry(memory), encoding="utf-8")
+    with_related_change = service.analyze(
+        work, profile, profile.lenses[0], _context_pack()
+    )
+
+    assert with_related_change is not None
+    assert with_related_change.input_hash != first.input_hash
+    assert client.calls == [
+        "research_candidate_analysis",
+        "research_candidate_analysis",
+    ]
     connection.close()
 
 

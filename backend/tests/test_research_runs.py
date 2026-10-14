@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 import yaml
@@ -28,6 +29,7 @@ from backend.app.repositories.research_search_repository import ResearchSearchRe
 from backend.app.repositories.term_candidate_repository import TermCandidateRepository
 from backend.app.services.ai_client import AIGatewayError, MockDeepSeekClient
 from backend.app.services.ai_gateway import AIGateway
+from backend.app.services.learning_context_service import LearningContextService
 from backend.app.services.research_analysis_service import ResearchAnalysisService
 from backend.app.services.research_candidate_service import ResearchCandidateService
 from backend.app.services.research_profile_registry import ResearchProfileRegistry
@@ -554,6 +556,116 @@ def test_manual_research_marks_fallback_when_learning_context_sync_fails(tmp_pat
     assert "使用上次保存的学习上下文" in run.error_summary
     assert runs.get(run.id).error_summary == run.error_summary
     assert service.run_request_repository.get(request.id).status == "completed"
+    connection.close()
+
+
+def test_scheduled_research_syncs_new_selected_note_before_building_queries(tmp_path):
+    connection = connect_database(":memory:")
+    profile = ResearchProfileRegistry.load(Path(__file__).parents[2]).get(
+        "continual-learning"
+    )
+    assert profile is not None
+    gem_lens = next(
+        lens for lens in profile.lenses if lens.id == "gradient-episodic-memory"
+    )
+    profile = profile.model_copy(
+        update={
+            "lenses": [gem_lens],
+            "ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False}),
+            "providers": profile.providers.model_copy(
+                update={"discovery": ["arxiv"], "enrichment": []}
+            ),
+            "search": profile.search.model_copy(
+                update={
+                    "history_seed_year": 2026,
+                    "initial_lookback_days": 1,
+                    "max_provider_requests_per_run": 20,
+                }
+            ),
+        }
+    )
+
+    events = []
+
+    class FakeLearningGateway:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, task_name, context):
+            events.append("learning_gateway")
+            self.calls.append((task_name, context))
+            return {
+                "outcome": "knowledge_changed",
+                "changes": [
+                    {
+                        "entry_id": "gem-gradient-projection",
+                        "action": "upsert",
+                        "title": "Gradient Episodic Memory",
+                        "summary": (
+                            "The new note explains how GEM constrains gradients "
+                            "with episodic memories."
+                        ),
+                        "layer": "topic",
+                        "topic_id": "continual-learning",
+                        "topic_title": "Continual Learning",
+                        "rationale": "The selected note explains the method.",
+                    }
+                ],
+            }
+
+    class RecordingLearningContextService(LearningContextService):
+        def get_recommendation_context(self, focus, max_chars=8000):
+            events.append("recommendation_context")
+            return super().get_recommendation_context(focus, max_chars=max_chars)
+
+    class QueryRecordingProvider(FakeProvider):
+        def __init__(self):
+            super().__init__([], name="arxiv")
+            self.requested = []
+
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            events.append("provider")
+            self.requested.append(query)
+            return super().search(query, start_at, end_at, cursor, limit)
+
+    provider = QueryRecordingProvider()
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    subprocess.run(["git", "init", "-q"], cwd=service.repository_root, check=True)
+    note_path = (
+        service.repository_root
+        / "knowledge"
+        / "documents"
+        / "learning"
+        / "gem-note.md"
+    )
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    note_path.write_text(
+        "---\nschema_version: 1\nid: gem-note\ntitle: GEM learning note\n"
+        "type: learning-note\ndomains: []\ntopics: []\ntags: []\nsources: []\n"
+        "---\n\n## Gradient Episodic Memory\n\n"
+        "GEM constrains gradients with episodic memories.\n",
+        encoding="utf-8",
+    )
+    gateway = FakeLearningGateway()
+    learning_context = RecordingLearningContextService(
+        service.repository_root, gateway
+    )
+    learning_context.set_sources(["gem-note"])
+    service.learning_context_service = learning_context
+
+    run = service.run_profile(profile.id, trigger="scheduled")
+
+    assert run is not None and run.status == "success"
+    assert len(gateway.calls) == 1
+    assert gateway.calls[0][0] == "update_learning_context"
+    assert any(
+        "gradient episodic" in query.casefold() and "a-gem" not in query.casefold()
+        for query in provider.requested
+    )
+    assert events.index("learning_gateway") < events.index("recommendation_context")
+    assert events.index("recommendation_context") < events.index("provider")
     connection.close()
 
 
