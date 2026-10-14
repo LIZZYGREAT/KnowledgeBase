@@ -753,8 +753,8 @@ def test_scheduled_research_syncs_new_selected_note_before_building_queries(tmp_
                             "The new note explains how GEM constrains gradients "
                             "with episodic memories."
                         ),
-                        "support_headings": [
-                            context["changed_sections"][0]["heading"]
+                        "support_section_keys": [
+                            context["changed_sections"][0]["section_key"]
                         ],
                         "layer": "topic",
                         "topic_id": "continual-learning",

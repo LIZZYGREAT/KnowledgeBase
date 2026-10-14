@@ -182,6 +182,11 @@ def test_term_discovery_prompt_uses_selected_progress_without_changing_term_revi
 
 
 def test_learning_context_update_task_requires_localized_structured_changes():
+    instruction = TASKS["update_learning_context"].instruction
+    assert "support_section_keys" in instruction
+    assert "cite section_key for attribution" in instruction
+    assert "Multiple fragments of one long chapter share the same section_key" in instruction
+
     client = MockDeepSeekClient(
         {
             "update_learning_context": {
@@ -192,7 +197,7 @@ def test_learning_context_update_task_requires_localized_structured_changes():
                         "action": "upsert",
                         "title": "梯度投影",
                         "summary": "GEM 用二次规划将当前梯度投影到不干扰历史任务的可行域。",
-                        "support_headings": ["算法"],
+                        "support_section_keys": ["算法#1"],
                         "layer": "topic",
                         "topic_id": "continual-learning",
                         "topic_title": "持续学习",
@@ -207,7 +212,7 @@ def test_learning_context_update_task_requires_localized_structured_changes():
         "update_learning_context",
         {
             "source_document_id": "gem-note",
-            "changed_sections": [{"heading": "算法", "before": "", "after": "GEM 的梯度约束。", "nearby_context": ""}],
+            "changed_sections": [{"section_key": "算法#1", "heading": "算法", "before": "", "after": "GEM 的梯度约束。", "nearby_context": ""}],
             "existing_related_memory": [],
         },
     )

@@ -93,12 +93,12 @@ def changed_sections(old_text, new_text, full=False):
         heading = new.get("heading") or old.get("heading") or "未分节内容"
         excerpts = _bounded_section_pairs(old["text"], new["text"])
         for part_index, (before, after) in enumerate(excerpts, 1):
-            part_heading = heading
-            if len(excerpts) > 1:
-                part_heading = "{}（片段 {}/{}）".format(heading, part_index, len(excerpts))
             changed.append(
                 {
-                    "heading": part_heading,
+                    "section_key": key,
+                    "heading": heading,
+                    "section_part": part_index if len(excerpts) > 1 else None,
+                    "section_part_count": len(excerpts) if len(excerpts) > 1 else None,
                     "before": before,
                     "after": after,
                     "nearby_context": "\n\n".join(neighbor_text)[:500],

@@ -315,6 +315,7 @@ class LearningContextSync:
                     raise LearningContextError("AI gateway is unavailable for a substantive change")
                 outcomes = []
                 source_heading_updates = {}
+                source_section_key_updates = {}
                 source_summary_updates = {}
                 uncovered_entry_ids = set()
                 suppress_progress = (
@@ -353,6 +354,7 @@ class LearningContextSync:
                             status_before.get("suppressed_entries", []),
                             allowed_entry_ids,
                             source_heading_updates,
+                            source_section_key_updates,
                             source_summary_updates,
                             None if suppress_progress else progressed_topic_ids,
                             replace_source_headings=force,
@@ -622,11 +624,17 @@ class LearningContextSync:
         selected_ids = {
             item["id"] for item in self.service._selected_source_summaries()
         }
-        requested_headings = {
-            item.get("heading")
-            for item in sections
-            if isinstance(item, dict) and isinstance(item.get("heading"), str)
-        }
+        requested_section_keys = set()
+        heading_section_keys = {}
+        for item in sections:
+            if not isinstance(item, dict):
+                continue
+            section_key = item.get("section_key")
+            heading = item.get("heading")
+            if isinstance(section_key, str):
+                requested_section_keys.add(section_key)
+                if isinstance(heading, str):
+                    heading_section_keys.setdefault(heading, set()).add(section_key)
         focus_tokens = _tokens(
             source_title
             + " "
@@ -641,6 +649,9 @@ class LearningContextSync:
                 if metadata.get("support_state") in {"needs_review", "source_removed"}:
                     continue
                 source_headings = metadata.get("source_headings", {})
+                source_section_keys = metadata.get("source_section_keys", {})
+                if not isinstance(source_section_keys, dict):
+                    source_section_keys = {}
                 selected_support = sorted(set(source_headings) & selected_ids)
                 source_summaries = metadata.get("source_summaries")
                 if isinstance(source_summaries, dict):
@@ -669,11 +680,26 @@ class LearningContextSync:
                     "{} {}".format(metadata.get("title", ""), summary)
                 )
                 source_headings_for_source = source_headings.get(source_id, [])
-                matching_headings = (
-                    set(source_headings_for_source) & requested_headings
-                    if isinstance(source_headings_for_source, list)
+                source_section_keys_for_source = (
+                    source_section_keys.get(source_id, [])
+                    if isinstance(source_section_keys, dict)
+                    else []
+                )
+                matching_section_keys = (
+                    set(source_section_keys_for_source) & requested_section_keys
+                    if isinstance(source_section_keys_for_source, list)
                     else set()
                 )
+                if not matching_section_keys and source_id not in source_section_keys:
+                    # Legacy entries only have headings. Use those as a precise
+                    # fallback when a heading identifies one section in this batch.
+                    matching_section_keys = {
+                        section_key
+                        for heading in source_headings_for_source
+                        if isinstance(heading, str)
+                        and len(heading_section_keys.get(heading, ())) == 1
+                        for section_key in heading_section_keys[heading]
+                    } if isinstance(source_headings_for_source, list) else set()
                 entry = {
                     "id": metadata["entry_id"],
                     "title": metadata.get("title", ""),
@@ -686,8 +712,13 @@ class LearningContextSync:
                     "source_headings": {
                         key: value for key, value in source_headings.items() if key in selected_ids
                     },
+                    "source_section_keys": {
+                        key: value
+                        for key, value in source_section_keys.items()
+                        if key in selected_ids
+                    } if isinstance(source_section_keys, dict) else {},
                 }
-                if matching_headings:
+                if matching_section_keys:
                     heading_matches.append(entry)
                 elif focus_tokens & related_tokens:
                     related_matches.append(entry)
@@ -717,6 +748,7 @@ class LearningContextSync:
         suppressed_entries,
         allowed_entry_ids,
         source_heading_updates,
+        source_section_key_updates,
         source_summary_updates,
         progressed_topic_ids=None,
         *,
@@ -728,10 +760,10 @@ class LearningContextSync:
             if isinstance(item, dict) and isinstance(item.get("entry_id"), str)
         } if isinstance(suppressed_entries, list) else set()
         index = self._entry_index(memory_files)
-        available_headings = {
-            item.get("heading", "未分节内容")
+        available_section_headings = {
+            item.get("section_key"): item.get("heading", "未分节内容")
             for item in changed_sections
-            if item.get("heading")
+            if isinstance(item.get("section_key"), str) and item.get("heading")
         }
         for change in changes:
             entry_id = change["entry_id"]
@@ -750,6 +782,13 @@ class LearningContextSync:
                     continue
                 updated = deepcopy(old_metadata)
                 updated["source_headings"].pop(source_id, None)
+                source_section_keys = updated.get("source_section_keys")
+                if isinstance(source_section_keys, dict):
+                    source_section_keys.pop(source_id, None)
+                    if source_section_keys:
+                        updated["source_section_keys"] = source_section_keys
+                    else:
+                        updated.pop("source_section_keys", None)
                 source_summaries = updated.get("source_summaries")
                 if isinstance(source_summaries, dict):
                     source_summaries.pop(source_id, None)
@@ -772,16 +811,17 @@ class LearningContextSync:
                     index.pop(entry_id, None)
                 continue
 
-            support_headings = change.get("support_headings")
+            support_section_keys = change.get("support_section_keys")
             if (
-                not isinstance(support_headings, list)
-                or not support_headings
-                or len(set(support_headings)) != len(support_headings)
-                or any(heading not in available_headings for heading in support_headings)
+                not isinstance(support_section_keys, list)
+                or not support_section_keys
+                or len(set(support_section_keys)) != len(support_section_keys)
+                or any(key not in available_section_headings for key in support_section_keys)
             ):
                 raise LearningContextError(
-                    "AI upsert must cite exact headings from the current batch"
+                    "AI upsert must cite exact section keys from the current batch"
                 )
+            support_headings = [available_section_headings[key] for key in support_section_keys]
             relative = _layer_path(change["layer"], change.get("topic_id"))
             topic_id = change.get("topic_id")
             if entry_id in suppressed_ids:
@@ -806,14 +846,34 @@ class LearningContextSync:
                 progressed_topic_ids.append(topic_id)
             source_headings = deepcopy(existing["metadata"].get("source_headings", {})) if existing else {}
             current_headings = source_heading_updates.setdefault(entry_id, set())
+            source_section_keys = (
+                deepcopy(existing["metadata"].get("source_section_keys", {}))
+                if existing
+                else {}
+            )
+            if not isinstance(source_section_keys, dict):
+                source_section_keys = {}
+            current_section_keys = source_section_key_updates.setdefault(entry_id, set())
             if existing and not replace_source_headings:
                 old_headings = existing["metadata"].get("source_headings", {}).get(source_id, [])
                 if isinstance(old_headings, list):
                     current_headings.update(
                         heading for heading in old_headings if isinstance(heading, str)
                     )
+                old_section_key_map = existing["metadata"].get("source_section_keys", {})
+                old_section_keys = (
+                    old_section_key_map.get(source_id, [])
+                    if isinstance(old_section_key_map, dict)
+                    else []
+                )
+                if isinstance(old_section_keys, list):
+                    current_section_keys.update(
+                        key for key in old_section_keys if isinstance(key, str)
+                    )
             current_headings.update(support_headings)
+            current_section_keys.update(support_section_keys)
             source_headings[source_id] = sorted(current_headings)
+            source_section_keys[source_id] = sorted(current_section_keys)
             source_summaries = {}
             legacy_summary = None
             support_state = None
@@ -843,6 +903,7 @@ class LearningContextSync:
                 "entry_id": entry_id,
                 "owner": "auto",
                 "source_headings": source_headings,
+                "source_section_keys": source_section_keys,
                 "layer": change["layer"],
                 "topic_id": change.get("topic_id"),
                 "topic_title": change.get("topic_title"),
@@ -872,6 +933,13 @@ class LearningContextSync:
                     continue
                 updated = deepcopy(metadata)
                 updated["source_headings"].pop(source_id, None)
+                source_section_keys = updated.get("source_section_keys")
+                if isinstance(source_section_keys, dict):
+                    source_section_keys.pop(source_id, None)
+                    if source_section_keys:
+                        updated["source_section_keys"] = source_section_keys
+                    else:
+                        updated.pop("source_section_keys", None)
                 if updated["source_headings"]:
                     source_summaries = updated.get("source_summaries")
                     if isinstance(source_summaries, dict):
@@ -1048,7 +1116,13 @@ class LearningContextSync:
                     if source_id in selected
                 }
                 if selected_sources:
-                    supported.append((metadata, selected_sources))
+                    source_section_keys = metadata.get("source_section_keys", {})
+                    selected_section_keys = {
+                        source_id: keys
+                        for source_id, keys in source_section_keys.items()
+                        if source_id in selected
+                    } if isinstance(source_section_keys, dict) else {}
+                    supported.append((metadata, selected_sources, selected_section_keys))
 
         active = memory_files.get("active.md", "")
         active_entries = [
@@ -1064,18 +1138,27 @@ class LearningContextSync:
             return
 
         topics = {}
-        for metadata, sources in supported:
+        for metadata, sources, section_keys in supported:
             topic_id = metadata.get("topic_id")
             title = metadata.get("topic_title")
             if not isinstance(topic_id, str) or not isinstance(title, str):
                 continue
             topic = topics.setdefault(
-                topic_id, {"title": title, "entries": [], "source_headings": {}}
+                topic_id,
+                {
+                    "title": title,
+                    "entries": [],
+                    "source_headings": {},
+                    "source_section_keys": {},
+                },
             )
             topic["entries"].append(metadata.get("title", ""))
             for source_id, headings in sources.items():
                 current = topic["source_headings"].setdefault(source_id, [])
                 current.extend(headings if isinstance(headings, list) else [])
+            for source_id, keys in section_keys.items():
+                current = topic["source_section_keys"].setdefault(source_id, [])
+                current.extend(keys if isinstance(keys, list) else [])
         if not topics:
             return
 
@@ -1095,9 +1178,12 @@ class LearningContextSync:
             return
 
         source_headings = {}
+        source_section_keys = {}
         for topic in topics.values():
             for source_id, headings in topic["source_headings"].items():
                 source_headings.setdefault(source_id, []).extend(headings)
+            for source_id, keys in topic["source_section_keys"].items():
+                source_section_keys.setdefault(source_id, []).extend(keys)
 
         topic_labels = []
         details = []
@@ -1116,6 +1202,10 @@ class LearningContextSync:
             "source_headings": {
                 source_id: sorted(set(headings))
                 for source_id, headings in sorted(source_headings.items())
+            },
+            "source_section_keys": {
+                source_id: sorted(set(keys))
+                for source_id, keys in sorted(source_section_keys.items())
             },
             "layer": "active",
             "title": "当前关注：{}".format("、".join(topic_labels[:2]))[:200],

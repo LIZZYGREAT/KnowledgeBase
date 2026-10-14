@@ -293,3 +293,11 @@ P2-05：Terms 文档缓存不再用完整 Markdown 文件字节判定正文是�
 P1：Research 个性化查询候选现在先加入搜索偏好关键词，再加入当前关注中的手写方向，最后才补自动提取的知识词。每 Lens 与单次查询上限、去重、Lens 路由和未采用诊断保持原规则；同一短词同时出现在偏好和手写方向时保留偏好关键词身份。新增 Provider 调用回归：6 段都匹配 Lens 的手写方向、SI 与 DER 两个偏好词同时竞争 4 条个性化预算时，模拟 Provider 实际收到 SI、DER 和仅占剩余配额的两条手写方向；自动知识候选没有越过预算。另覆盖关键词与专题/手写方向重名时仍只生成一次查询。
 
 改动文件：`backend/app/services/research_service.py`、`backend/tests/test_research_runs.py`。验证命令为 Research Run 与查询构建专项：`python 3.12 pytest.main(['-q', ..., 'backend/tests/test_research_runs.py', 'backend/tests/test_research_query_builder.py'])`，结果 **87 passed**。此处 Provider 指测试中的记录型 Fake Provider；没有调用真实检索服务或 DeepSeek。私有第五轮方案未纳入提交。
+
+## Phase 15 第五轮增量修订：同名章节精确归因（2026-10-14）
+
+P2：章节变化现在复用差异器已有的 `normalized_heading#occurrence` 作为 `section_key`，AI upsert 必须引用当前批次实际提供的 `support_section_keys`；标题仍用于阅读展示，长章节的多个片段共享来源章节 key，并分别标出片段序号。新条目及之后实质更新的条目按来源保存精确 key；原有 `source_headings` 保留原值，未分析的旧条目不批量推测 key。旧条目仅在当前批次该标题唯一时用标题作兼容匹配。
+
+回归覆盖同一笔记两个同名“总结”章节、只归因到第二节、引用第一节的错误 key 被拒且不推进成功基线，并保留手写固定内容；长章节片段共用同一 key。AI 网关输出契约和测试 Fake Gateway 均切换到 `support_section_keys`。
+
+改动文件：`backend/app/domain/ai.py`、`backend/app/services/ai_gateway.py`、`backend/app/services/learning_context_sync.py`、`backend/app/services/learning_context_sync_diff.py`、`backend/tests/test_ai_gateway.py`、`backend/tests/test_learning_context.py`、`backend/tests/test_research_runs.py`。Python 3.12.14 下 `test_learning_context.py`、`test_learning_context_api.py` 与 `test_ai_gateway.py` 结果 **88 passed**，有 1 条既有 HTTPX/Starlette 弃用警告。测试使用 Fake Gateway；没有真实模型调用。私有第五轮方案未纳入提交。
