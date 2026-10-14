@@ -171,7 +171,11 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
         personalized_queries=personalized,
         exploration_queries=exploration,
     )
-    manual_context = {**context, "user_direction": "比较 EWC 与 SI"}
+    manual_context = {
+        **context,
+        "user_direction": "比较 EWC 与 SI",
+        "preferences": {**context["preferences"], "keywords": ["EWC"]},
+    }
     manual_personalized, manual_exploration = _research_query_overrides(
         effective_profile, manual_context
     )
@@ -286,13 +290,31 @@ def test_user_keywords_precede_many_context_queries_at_the_provider(tmp_path):
     connection = connect_database(":memory:")
     profile = _profile(queries=("profile baseline",))
     profile = profile.model_copy(
-        update={"ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False})}
+        update={
+            "ai_analysis": profile.ai_analysis.model_copy(update={"enabled": False}),
+            "lenses": [
+                profile.lenses[0],
+                profile.lenses[0].model_copy(
+                    update={
+                        "id": "ewc",
+                        "title": "Elastic Weight Consolidation",
+                        "priority": "medium",
+                        "queries": ["elastic weight consolidation"],
+                        "include_terms": ["EWC"],
+                    }
+                ),
+            ],
+        }
     )
     active = "\n\n".join(
-        "### Automatic method {}\nRegularization evidence for method {}.".format(
+        "### Elastic Weight Consolidation automatic method {}\nEvidence for method {}.".format(
             index, index
         )
         for index in range(10)
+    )
+    user_direction = "\n\n".join(
+        "Elastic Weight Consolidation direction {} should be searched.".format(index)
+        for index in range(6)
     )
 
     class ContextReader:
@@ -301,14 +323,14 @@ def test_user_keywords_precede_many_context_queries_at_the_provider(tmp_path):
                 "included_sources": [],
                 "preferences": {
                     "fixed_direction": "Continual Learning",
-                    "keywords": ["SI", "DER", "A-GEM"],
+                    "keywords": ["SI", "DER"],
                     "exclude_keywords": [],
                     "exploration_directions": [],
                     "important_anchors": [],
                 },
                 "active": active,
                 "important": "",
-                "user_direction": "",
+                "user_direction": user_direction,
                 "topics": [],
             }
 
@@ -332,9 +354,11 @@ def test_user_keywords_precede_many_context_queries_at_the_provider(tmp_path):
     assert run is not None and run.status == "success"
     assert any("SI" in query for query in provider.requested)
     assert any("DER" in query for query in provider.requested)
-    assert not any("A-GEM" in query for query in provider.requested)
-    assert "搜索偏好关键词“A-GEM”未采用" in (run.error_summary or "")
-    assert len(provider.requested) == 3  # one Profile query and two user keywords
+    assert any("direction 0" in query for query in provider.requested), provider.requested
+    assert any("direction 1" in query for query in provider.requested)
+    assert not any("direction 2" in query for query in provider.requested)
+    assert not any("automatic method" in query.casefold() for query in provider.requested)
+    assert len(provider.requested) == 6  # two Profile queries and four personalized queries
     connection.close()
 
 

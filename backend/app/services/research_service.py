@@ -1665,6 +1665,8 @@ def _research_query_overrides(
         )
         (priority_candidates if is_priority else automatic_candidates).append(candidate)
 
+    for value in _research_context_values(preferences.get("keywords"), 12):
+        add_candidate(value, user_keyword=True)
     user_direction = context.get("user_direction", "")
     if isinstance(user_direction, str) and user_direction.strip():
         selected_evidence = "\n".join(
@@ -1697,9 +1699,6 @@ def _research_query_overrides(
         add_candidate(value)
     for heading, body in _learning_context_sections(context.get("important", "")):
         add_candidate(heading, body)
-    for value in _research_context_values(preferences.get("keywords"), 12):
-        add_candidate(value, user_keyword=True)
-
     # Preserve explicit intent even when the same phrase was also derived
     # earlier from a topic or memory entry. Its context can still help choose a Lens.
     candidates = list(priority_candidates)

@@ -287,3 +287,9 @@ P2-05：Terms 文档缓存不再用完整 Markdown 文件字节判定正文是�
 6 项平台跳过分别是：`test_publish_new_file_uses_canonical_file_permissions` 与 `test_publish_existing_file_preserves_permissions`（需要 POSIX 文件权限语义）；`test_production_backup_waits_for_research_and_restarts_services` 的 3 个参数组合（需要 POSIX shell）；`test_profile_registry_rejects_symlinked_profiles`（本机不允许创建符号链接）。
 
 完整后端测试将 pytest 临时目录设为本任务获准目录下的短路径，以避免 Windows Git 对长临时路径报 `Filename too long`；短路径下 4 个先前失败的用例全部复测通过。前后端检查均为本机验证，未运行新的 CI，未调用真实 Provider/DeepSeek，未部署生产服务，也未验收私人资料的论文推荐质量。私有修订方案未纳入提交。
+
+## Phase 15 第五轮增量修订：Research 显式关键词优先（2026-10-14）
+
+P1：Research 个性化查询候选现在先加入搜索偏好关键词，再加入当前关注中的手写方向，最后才补自动提取的知识词。每 Lens 与单次查询上限、去重、Lens 路由和未采用诊断保持原规则；同一短词同时出现在偏好和手写方向时保留偏好关键词身份。新增 Provider 调用回归：6 段都匹配 Lens 的手写方向、SI 与 DER 两个偏好词同时竞争 4 条个性化预算时，模拟 Provider 实际收到 SI、DER 和仅占剩余配额的两条手写方向；自动知识候选没有越过预算。另覆盖关键词与专题/手写方向重名时仍只生成一次查询。
+
+改动文件：`backend/app/services/research_service.py`、`backend/tests/test_research_runs.py`。验证命令为 Research Run 与查询构建专项：`python 3.12 pytest.main(['-q', ..., 'backend/tests/test_research_runs.py', 'backend/tests/test_research_query_builder.py'])`，结果 **87 passed**。此处 Provider 指测试中的记录型 Fake Provider；没有调用真实检索服务或 DeepSeek。私有第五轮方案未纳入提交。
