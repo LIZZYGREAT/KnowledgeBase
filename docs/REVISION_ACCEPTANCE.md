@@ -309,3 +309,11 @@ P2：学习进度页在同步结果含 `manual_review_entry_ids` 时列出条目
 改动文件：`backend/app/services/learning_context_sync.py`、`backend/tests/test_learning_context.py`、`frontend/src/LearningContext.tsx`、`frontend/src/api.ts`、`frontend/src/styles/learning-context.css`、`frontend/tests/unit/learning-context.test.tsx`。回归覆盖 16 条同章节记忆、12 条输入预算、4 条 ID/标题展示、原文保留、下一次同步重复提示，以及 UI 跳转和缺失条目 ID 降级。
 
 本机完整验证：随附 Python 3.12.14 后端 `backend/tests` **685 passed、6 skipped、3 warnings**；前端 `npm run test:unit` **35 files / 174 passed**，`npm run test:integration` **11 files / 140 passed**，`npm run typecheck` 通过，`npm run build` 通过（Vite 提示已有超过 500 kB 的 ELK 分块）。后端警告为既有 Starlette/httpx 弃用和 Python tar 提取 API 弃用；6 项平台跳过与上一节所列 POSIX 权限、shell 及符号链接条件相同。验证未调用真实 Provider/DeepSeek，未使用私人规格作为提交内容，也未部署生产服务。
+
+## Phase 15 第六轮增量修订 Stage A（2026-10-15）
+
+P1-A：页面刷新现在更新服务器快照时按区域保留其他未提交草稿。保存资料范围、搜索偏好或上下文后，不会清空另外两类编辑；切层未保存保护继续生效。P1-B：学习上下文预览新增普通个人说明编辑入口，提供 Markdown 输入和预览；保存时只替换手写说明并保留自动条目完整标记及来源 metadata，原高级 Markdown 入口继续可用。P2-E：页面首次加载和普通刷新会从持久 `status.last_result` 恢复最近同步的待核对条目入口。P2-H：自动条目的已知来源 ID 不再混入正文显示，来源笔记标题收在折叠详情中，内部摘要和 ID 存储未改。
+
+改动文件：`frontend/src/LearningContext.tsx`、`frontend/src/styles/learning-context.css`、`frontend/tests/unit/learning-context.test.tsx`。新增回归覆盖三类草稿交错保存、纯手写说明保存且保留自动条目 metadata、重载后恢复待核对链接，以及将来源标题与知识正文分开展示。
+
+验证命令：`npm run test:unit -- --reporter=dot --pool=vmThreads --maxWorkers=1`（35 files / **178 passed**）、`npm run typecheck`（通过）、`npm run build`（通过；Vite 继续报告已有 ELK 分块超过 500 kB）。默认并行单测模式在本机 Windows 临时目录内遇到 worker `ENOENT`；使用单 VM worker 的同一套前端单测全部通过。Fake API 测试未验证个人真实笔记，也未做生产浏览器或 Provider 验收；未部署。私有第六轮审查文档未纳入提交。

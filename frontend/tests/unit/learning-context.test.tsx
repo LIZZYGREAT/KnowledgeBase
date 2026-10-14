@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../src/api";
@@ -86,6 +86,122 @@ describe("学习进度上下文 page", () => {
     await waitFor(() => expect(api.setLearningContextSources).toHaveBeenCalledWith(["gem-note"]));
     expect(await screen.findByText("新增 1 篇待分析")).toBeTruthy();
     expect(api.getLearningContext).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the other section drafts when saving sources and preferences in any order", async () => {
+    let current = overview();
+    vi.spyOn(api, "getLearningContext").mockImplementation(async () => structuredClone(current));
+    vi.spyOn(api, "setLearningContextSources").mockImplementation(async (ids) => {
+      current = { ...current, sources: { ...current.sources, included_document_ids: ids } };
+      return current.sources;
+    });
+    vi.spyOn(api, "setLearningContextPreferences").mockImplementation(async (preferences) => {
+      current = { ...current, preferences };
+      return preferences;
+    });
+    vi.spyOn(api, "saveLearningContextMemory").mockImplementation(async (layer, markdown) => {
+      current = { ...current, active: markdown };
+      return { layer, markdown, pinned_entry_ids: [] };
+    });
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    const gem = await screen.findByRole("checkbox", { name: /GEM 学习笔记/ });
+    await user.click(gem);
+    const keywords = screen.getByLabelText(/搜索关键词/);
+    fireEvent.change(keywords, { target: { value: "GEM" } });
+    await user.click(screen.getByRole("button", { name: "添加个人说明" }));
+    const note = screen.getByLabelText("个人说明 Markdown");
+    fireEvent.change(note, { target: { value: "### 自己的方向\n\n人工补充说明。" } });
+
+    await user.click(screen.getByRole("button", { name: "保存搜索偏好" }));
+    await waitFor(() => expect(api.setLearningContextPreferences).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("搜索偏好已保存，不会作为已掌握知识。")).toBeTruthy();
+    expect(gem).toHaveProperty("checked", true);
+    expect(screen.getByLabelText("个人说明 Markdown")).toHaveProperty("value", "### 自己的方向\n\n人工补充说明。");
+
+    fireEvent.change(screen.getByLabelText(/搜索关键词/), { target: { value: "GEM\nEWC" } });
+    await user.click(screen.getByRole("button", { name: "保存资料范围" }));
+    await waitFor(() => expect(api.setLearningContextSources).toHaveBeenCalledWith(["gem-note"]));
+    expect(await screen.findByText("学习资料范围已保存；内容变化会在同步时处理。未发起模型请求。")).toBeTruthy();
+    expect(screen.getByLabelText(/搜索关键词/)).toHaveProperty("value", "GEM\nEWC");
+    expect(screen.getByLabelText("个人说明 Markdown")).toHaveProperty("value", "### 自己的方向\n\n人工补充说明。");
+  });
+
+  it("adds personal Markdown without exposing or changing automatic entry metadata", async () => {
+    let current = overview();
+    vi.spyOn(api, "getLearningContext").mockImplementation(async () => structuredClone(current));
+    const save = vi.spyOn(api, "saveLearningContextMemory").mockImplementation(async (layer, markdown) => {
+      current = { ...current, active: markdown };
+      return { layer, markdown, pinned_entry_ids: [] };
+    });
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    await user.click(await screen.findByRole("button", { name: "添加个人说明" }));
+    fireEvent.change(screen.getByLabelText("个人说明 Markdown"), {
+      target: { value: "### 自己的方向\n\n人工补充说明。" },
+    });
+    expect(screen.getByText("人工补充说明。")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "保存个人说明" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("个人说明已保存；自动知识条目和来源记录保持不变。")).toBeTruthy();
+    const saved = save.mock.calls[0][1];
+    expect(saved).toContain('"entry_id":"current-direction"');
+    expect(saved).toContain('"source_headings":{"gem-note":["Mechanism"]}');
+    expect(saved).toContain("人工补充说明。");
+    expect(saved).toContain('"entry_id":"related-entry"');
+    expect(current.active).toContain("### 自己的方向");
+    expect(await screen.findByText("人工补充说明。")).toBeTruthy();
+    expect(screen.getAllByText("自动维护")).toHaveLength(2);
+  });
+
+  it("restores the latest over-budget review links from the saved sync result", async () => {
+    const current = overview();
+    current.topics = [{ id: "continual-learning", title: "持续学习", aliases: [], keywords: [] }];
+    current.editable_entries.push({
+      relative_path: "topics/continual-learning.md",
+      layer: "topic",
+      topic_id: "continual-learning",
+      entry_id: "old-entry",
+      title: "待核对的旧知识",
+      summary: "仍保留的正文。",
+      pinned: false,
+      support_state: null,
+    });
+    current.status = {
+      state: "synced",
+      message: "最近一次同步有旧知识待核对",
+      last_result: [{ source_id: "gem-note", manual_review_entry_ids: ["old-entry"] }],
+    };
+    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    vi.spyOn(api, "getLearningContextTopic").mockResolvedValue({
+      ...current.topics[0],
+      markdown: '<!-- learning-context-entry {"entry_id":"old-entry","owner":"auto","source_headings":{"gem-note":["Mechanism"]},"layer":"topic","title":"待核对的旧知识","summary":"仍保留的正文。"} -->\n### 待核对的旧知识\n\n仍保留的正文。\n<!-- /learning-context-entry -->\n',
+    });
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    expect(await screen.findByText("本次有 1 条旧知识未进入核对")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "查看：持续学习 · 待核对的旧知识" }));
+    expect((await screen.findAllByText("仍保留的正文。")).length).toBeGreaterThan(0);
+  });
+
+  it("shows source note titles separately from automatic knowledge summaries", async () => {
+    const current = overview();
+    current.sources.available_documents[0].title = "GEM 论文学习笔记";
+    current.editable_entries[0].summary = "gem-note：原始自动说明。";
+    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    expect(await screen.findByText("原始自动说明。")).toBeTruthy();
+    expect(screen.queryByText("gem-note：原始自动说明。")).toBeNull();
+    const sources = screen.getByText("来源笔记").closest("details");
+    expect(sources).toBeTruthy();
+    await user.click(screen.getByText("来源笔记"));
+    expect(within(sources as HTMLElement).getByText("GEM 论文学习笔记")).toBeTruthy();
   });
 
   it("preserves a manual context edit and exposes an explicit restore action", async () => {
