@@ -132,6 +132,7 @@ class LearningContextEntryChange(AIOutput):
     action: Literal["upsert", "remove"]
     title: Optional[NonEmptyText] = Field(default=None, max_length=200)
     summary: Optional[NonEmptyText] = Field(default=None, max_length=2000)
+    support_headings: list[NonEmptyText] = Field(default_factory=list, max_length=10)
     layer: Literal["active", "important", "topic"]
     topic_id: Optional[Slug] = None
     topic_title: Optional[NonEmptyText] = Field(default=None, max_length=200)
@@ -143,6 +144,12 @@ class LearningContextEntryChange(AIOutput):
             raise ValueError("upsert changes require title and summary")
         if self.action == "remove" and (self.title is not None or self.summary is not None):
             raise ValueError("remove changes cannot include title or summary")
+        if self.action == "upsert" and not self.support_headings:
+            raise ValueError("upsert changes require supporting headings")
+        if self.action == "remove" and self.support_headings:
+            raise ValueError("remove changes cannot include supporting headings")
+        if len(set(self.support_headings)) != len(self.support_headings):
+            raise ValueError("supporting headings must be unique")
         if self.layer == "topic" and self.topic_id is None:
             raise ValueError("topic changes require topic_id")
         if self.action == "upsert" and self.layer == "topic" and self.topic_title is None:

@@ -31,6 +31,8 @@ class FakeLearningGateway:
     def run(self, task_name, context):
         self.calls.append((task_name, context))
         response = self.responses.pop(0)
+        if callable(response):
+            response = response(context)
         if isinstance(response, Exception):
             raise response
         return response
@@ -47,7 +49,10 @@ def _sync_repo(tmp_path, body="## Mechanism\n\nGEM computes a projection to pres
     return path
 
 
-def _topic_change(summary="GEM projects gradients into a feasible region."):
+def _topic_change(
+    summary="GEM projects gradients into a feasible region.",
+    support_headings=("Mechanism",),
+):
     return {
         "outcome": "knowledge_changed",
         "changes": [
@@ -56,6 +61,7 @@ def _topic_change(summary="GEM projects gradients into a feasible region."):
                 "action": "upsert",
                 "title": "梯度投影",
                 "summary": summary,
+                "support_headings": list(support_headings),
                 "layer": "topic",
                 "topic_id": "continual-learning",
                 "topic_title": "持续学习",
@@ -73,12 +79,40 @@ def _topic_changes_with_replay(projection_summary, replay_summary):
             "action": "upsert",
             "title": "记忆回放",
             "summary": replay_summary,
+            "support_headings": ["Mechanism"],
             "layer": "topic",
             "topic_id": "continual-learning",
             "topic_title": "持续学习",
             "rationale": "来源章节解释了回放机制。",
         }
     )
+    return response
+
+
+def _topic_change_for_batch(summary, remove_entry_ids=()):
+    def response(context):
+        heading = context["changed_sections"][0]["heading"]
+        output = _topic_change(summary, [heading])
+        supplied_entries = {
+            item["id"]: item for item in context["existing_related_memory"]
+        }
+        for entry_id in remove_entry_ids:
+            if (
+                entry_id in supplied_entries
+                and context["source_document_id"]
+                in supplied_entries[entry_id]["source_ids"]
+            ):
+                output["changes"].append(
+                    {
+                        "entry_id": entry_id,
+                        "action": "remove",
+                        "layer": "topic",
+                        "topic_id": "continual-learning",
+                        "rationale": "本批来源章节不再支持此知识。",
+                    }
+                )
+        return output
+
     return response
 
 
@@ -455,8 +489,13 @@ def test_force_reanalysis_reconciles_source_entries_and_upserts_complete_summari
             "Fact A is supported. Fact B was supported by the old note.",
             "Fact B is supported by the old note.",
         ),
-        _topic_change("Fact A remains supported."),
-        _topic_change("Fact A remains supported and Fact B is corrected."),
+        _topic_change_for_batch(
+            "Fact A remains supported.", ("gem-replay", "shared-method")
+        ),
+        _topic_change_for_batch(
+            "Fact A remains supported and Fact B is corrected.",
+            ("gem-replay", "shared-method"),
+        ),
     )
     service = LearningContextService(tmp_path, gateway)
     service.set_sources(["gem-note"])
@@ -524,6 +563,306 @@ def test_force_reanalysis_reconciles_source_entries_and_upserts_complete_summari
     assert "\n\nFact A remains supported." not in topic
 
 
+def test_forced_reanalysis_of_an_older_note_does_not_change_current_focus(tmp_path):
+    _sync_repo(tmp_path)
+    rl_note = _document(tmp_path, "rl-note", "Reinforcement Learning Introduction")
+    rl_note.write_text(
+        rl_note.read_text(encoding="utf-8")
+        + "\n## Policy Learning\n\nReinforcement learning optimizes policies from reward signals.\n",
+        encoding="utf-8",
+    )
+    rl_change = {
+        "outcome": "knowledge_changed",
+        "changes": [
+            {
+                "entry_id": "rl-policy-learning",
+                "action": "upsert",
+                "title": "策略学习",
+                "summary": "强化学习根据奖励信号优化策略。",
+                "support_headings": ["Policy Learning"],
+                "layer": "topic",
+                "topic_id": "reinforcement-learning",
+                "topic_title": "强化学习",
+                "rationale": "来源章节解释了策略优化。",
+            }
+        ],
+    }
+    gateway = FakeLearningGateway(
+        _topic_change(), rl_change, _topic_change("重新检查后的 GEM 梯度投影。")
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+    service.set_sources(["gem-note", "rl-note"])
+    service.sync()
+
+    result = service.sync(force=True, source_id="gem-note")
+
+    assert result["state"] == "synced"
+    assert service._read_yaml("index.yaml", {})["active_topic_ids"] == [
+        "reinforcement-learning"
+    ]
+    assert "重新检查后的 GEM 梯度投影" in service.read_topic("continual-learning")["markdown"]
+
+
+def test_upsert_records_only_its_reported_supporting_heading(tmp_path):
+    path = _sync_repo(
+        tmp_path,
+        "## GEM 的约束\n\nGEM preserves earlier task performance.\n\n"
+        "## GEM 的 QP 对偶\n\nThe quadratic program has a dual constraint.\n",
+    )
+    response = {
+        "outcome": "knowledge_changed",
+        "changes": [
+            {
+                "entry_id": "gem-qp-dual",
+                "action": "upsert",
+                "title": "GEM 的 QP 对偶",
+                "summary": "QP 对偶条件刻画梯度投影约束。",
+                "support_headings": ["GEM 的 QP 对偶"],
+                "layer": "topic",
+                "topic_id": "continual-learning",
+                "topic_title": "持续学习",
+                "rationale": "该章节推导了二次规划的对偶约束。",
+            }
+        ],
+    }
+    service = LearningContextService(tmp_path, FakeLearningGateway(response))
+    service.set_sources(["gem-note"])
+
+    result = service.sync()
+
+    assert result["state"] == "synced"
+    topic = service.read_topic("continual-learning")["markdown"]
+    blocks = {item["metadata"]["entry_id"]: item["metadata"] for item in entry_blocks(topic)}
+    assert blocks["gem-qp-dual"]["source_headings"] == {
+        "gem-note": ["GEM 的 QP 对偶"]
+    }
+
+
+def test_untrusted_support_heading_keeps_previous_context_and_baseline(tmp_path):
+    path = _sync_repo(tmp_path)
+    gateway = FakeLearningGateway(
+        _topic_change(),
+        _topic_change("This response claims support from an unsupplied section.", ["Invented heading"]),
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    service.sync()
+    topic_path = tmp_path / "storage" / "learning-context" / "topics" / "continual-learning.md"
+    state_path = tmp_path / "storage" / "learning-context" / "state.json"
+    old_memory = topic_path.read_bytes()
+    old_baseline = json.loads(state_path.read_text(encoding="utf-8"))["source_baselines"]["gem-note"]
+    path.write_text(
+        path.read_text(encoding="utf-8").replace("projection", "projection constraint"),
+        encoding="utf-8",
+    )
+
+    result = service.sync()
+
+    new_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert result["state"] == "failed"
+    assert topic_path.read_bytes() == old_memory
+    assert new_state["source_baselines"]["gem-note"] == old_baseline
+
+
+def test_over_budget_same_chapter_entries_are_preserved_and_reported(tmp_path):
+    path = _sync_repo(tmp_path)
+
+    class BudgetGateway:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, task_name, context):
+            self.calls.append((task_name, context))
+            if context["change_kind"] == "initial_analysis":
+                return {"outcome": "no_change", "changes": []}
+            assert "chapter-01-entry" in {
+                item["id"] for item in context["existing_related_memory"]
+            }
+            assert "chapter-16-entry" not in {
+                item["id"] for item in context["existing_related_memory"]
+            }
+            return {
+                "outcome": "knowledge_changed",
+                "changes": [
+                    {
+                        "entry_id": "chapter-01-entry",
+                        "action": "upsert",
+                        "title": "Updated Mechanism claim",
+                        "summary": "The forced review confirms this claim.",
+                        "support_headings": ["Mechanism"],
+                        "layer": "topic",
+                        "topic_id": "continual-learning",
+                        "topic_title": "持续学习",
+                        "rationale": "This claim remains supported by the chapter.",
+                    }
+                ],
+            }
+
+    gateway = BudgetGateway()
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    assert service.sync()["state"] == "synced"
+    topic_path = tmp_path / "storage" / "learning-context" / "topics" / "continual-learning.md"
+    topic_path.parent.mkdir(parents=True, exist_ok=True)
+    topic_path.write_text(
+        "\n\n".join(
+            render_entry(
+                {
+                    "entry_id": "chapter-{:02d}-entry".format(index),
+                    "owner": "auto",
+                    "source_headings": {"gem-note": ["Mechanism"]},
+                    "source_summaries": {
+                        "gem-note": "A distinct supported fact number {}.".format(index)
+                    },
+                    "layer": "topic",
+                    "topic_id": "continual-learning",
+                    "topic_title": "持续学习",
+                    "title": "Mechanism fact {}".format(index),
+                    "summary": "A distinct supported fact number {}.".format(index),
+                }
+            )
+            for index in range(1, 17)
+        ),
+        encoding="utf-8",
+    )
+
+    result = service.sync(force=True, source_id="gem-note")
+
+    entries = {
+        item["metadata"]["entry_id"]: item["metadata"]
+        for item in entry_blocks(topic_path.read_text(encoding="utf-8"))
+    }
+    assert result["state"] == "synced"
+    assert "4 条旧知识超出单次核对预算" in result["message"]
+    assert result["source_results"][0]["manual_review_entry_ids"] == [
+        "chapter-13-entry",
+        "chapter-14-entry",
+        "chapter-15-entry",
+        "chapter-16-entry",
+    ]
+    assert set(entries) == {"chapter-{:02d}-entry".format(index) for index in range(1, 17)}
+    assert entries["chapter-01-entry"]["source_summaries"]["gem-note"] == (
+        "The forced review confirms this claim."
+    )
+
+
+def test_learning_memory_matches_changed_chapter_and_force_keeps_unreported_entries(tmp_path):
+    body = "\n\n".join(
+        "## Chapter {}\n\nGEM chapter {} explains a distinct learning constraint.".format(
+            index, index
+        )
+        for index in range(1, 17)
+    )
+    path = _sync_repo(tmp_path, body)
+
+    class ChapterGateway:
+        def __init__(self):
+            self.calls = []
+            self.force_update_sent = False
+
+        def run(self, task_name, context):
+            self.calls.append((task_name, context))
+            headings = {section["heading"] for section in context["changed_sections"]}
+            if context["change_kind"] == "initial_analysis":
+                return {"outcome": "no_change", "changes": []}
+            if context["change_kind"] == "incremental":
+                assert "Chapter 14" in headings
+                assert "chapter-14-entry" in {
+                    item["id"] for item in context["existing_related_memory"]
+                }
+                return {
+                    "outcome": "knowledge_changed",
+                    "changes": [
+                        {
+                            "entry_id": "chapter-14-entry",
+                            "action": "upsert",
+                            "title": "Chapter 14 constraint",
+                            "summary": "The revised chapter explains the SI constraint.",
+                            "support_headings": ["Chapter 14"],
+                            "layer": "topic",
+                            "topic_id": "continual-learning",
+                            "topic_title": "持续学习",
+                            "rationale": "The changed chapter revises this claim.",
+                        }
+                    ],
+                }
+            if "Chapter 14" in headings and not self.force_update_sent:
+                self.force_update_sent = True
+                return {
+                    "outcome": "knowledge_changed",
+                    "changes": [
+                        {
+                            "entry_id": "chapter-14-entry",
+                            "action": "upsert",
+                            "title": "Chapter 14 constraint",
+                            "summary": "The full review confirms the SI constraint.",
+                            "support_headings": ["Chapter 14"],
+                            "layer": "topic",
+                            "topic_id": "continual-learning",
+                            "topic_title": "持续学习",
+                            "rationale": "The chapter supports this claim.",
+                        }
+                    ],
+                }
+            return {"outcome": "no_change", "changes": []}
+
+    gateway = ChapterGateway()
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    assert service.sync()["state"] == "synced"
+
+    context_root = tmp_path / "storage" / "learning-context"
+    topic_path = context_root / "topics" / "continual-learning.md"
+    topic_path.parent.mkdir(parents=True, exist_ok=True)
+    topic_path.write_text(
+        "\n\n".join(
+            render_entry(
+                {
+                    "entry_id": "chapter-{:02d}-entry".format(index),
+                    "owner": "auto",
+                    "source_headings": {"gem-note": ["Chapter {}".format(index)]},
+                    "source_summaries": {
+                        "gem-note": "Old knowledge from chapter {}.".format(index)
+                    },
+                    "layer": "topic",
+                    "topic_id": "continual-learning",
+                    "topic_title": "持续学习",
+                    "title": "Chapter {} knowledge".format(index),
+                    "summary": "Old knowledge from chapter {}.".format(index),
+                }
+            )
+            for index in range(1, 17)
+        ),
+        encoding="utf-8",
+    )
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "GEM chapter 14 explains a distinct learning constraint.",
+            "GEM chapter 14 revises its distinct learning constraint to explain SI.",
+        ),
+        encoding="utf-8",
+    )
+
+    incremental = service.sync()
+    assert incremental["state"] == "synced"
+    assert "Chapter 14" in gateway.calls[-1][1]["changed_sections"][0]["heading"]
+
+    forced = service.sync(force=True, source_id="gem-note")
+
+    assert forced["state"] == "synced"
+    entries = {
+        item["metadata"]["entry_id"]: item["metadata"]
+        for item in entry_blocks(topic_path.read_text(encoding="utf-8"))
+    }
+    assert set(entries) == {"chapter-{:02d}-entry".format(index) for index in range(1, 17)}
+    assert entries["chapter-14-entry"]["source_summaries"]["gem-note"] == (
+        "The full review confirms the SI constraint."
+    )
+    assert gateway.force_update_sent
+
+
 def test_failed_forced_reanalysis_keeps_previous_memory_and_baseline(tmp_path):
     path = _sync_repo(tmp_path)
     gateway = FakeLearningGateway(
@@ -564,7 +903,10 @@ def test_topic_index_rebuilds_automatic_keywords_and_keeps_manual_keywords(tmp_p
         "## Unique Obsolete Concept\n\nA unique obsolete concept is explained here.\n",
     )
     gateway = FakeLearningGateway(
-        _topic_change("A unique obsolete concept is explained here.")
+        _topic_change(
+            "A unique obsolete concept is explained here.",
+            ["Unique Obsolete Concept"],
+        )
     )
     service = LearningContextService(tmp_path, gateway)
     service.set_sources(["gem-note"])
@@ -714,6 +1056,7 @@ def test_new_selected_topic_becomes_current_and_previous_topic_remains_searchabl
                 "action": "upsert",
                 "title": "策略学习",
                 "summary": "强化学习根据奖励信号优化策略。",
+                "support_headings": ["Policy Learning"],
                 "layer": "topic",
                 "topic_id": "reinforcement-learning",
                 "topic_title": "强化学习",
@@ -757,6 +1100,7 @@ def test_manually_fixed_topic_stays_current_and_can_be_moved_to_history(tmp_path
                 "action": "upsert",
                 "title": "策略学习",
                 "summary": "强化学习根据奖励信号优化策略。",
+                "support_headings": ["Policy Learning"],
                 "layer": "topic",
                 "topic_id": "reinforcement-learning",
                 "topic_title": "强化学习",
@@ -1024,7 +1368,10 @@ def test_large_initial_sync_failure_does_not_advance_baseline_or_publish_partial
         for index in range(12)
     )
     _sync_repo(tmp_path, body)
-    gateway = FakeLearningGateway(_topic_change(), RuntimeError("provider unavailable"))
+    gateway = FakeLearningGateway(
+        _topic_change_for_batch("Initial chapter knowledge."),
+        RuntimeError("provider unavailable"),
+    )
     service = LearningContextService(tmp_path, gateway)
     service.set_sources(["gem-note"])
 
@@ -1077,6 +1424,7 @@ def test_real_learning_notes_sync_in_bounded_complete_batches_and_seed_recommend
                         "action": "upsert",
                         "title": "Progress from " + source_id,
                         "summary": "已分析章节：" + context["changed_sections"][0]["heading"],
+                        "support_headings": [context["changed_sections"][0]["heading"]],
                         "layer": "topic",
                         "topic_id": "continual-learning",
                         "topic_title": "持续学习",
@@ -1164,7 +1512,11 @@ def test_real_learning_notes_sync_in_bounded_complete_batches_and_seed_recommend
 def test_sync_if_stale_refreshes_changed_notes_and_skips_unchanged_ai_work(tmp_path):
     path = _sync_repo(tmp_path)
     gateway = FakeLearningGateway(
-        _topic_change(), _topic_change("Updated GEM projection summary.")
+        _topic_change(),
+        lambda context: _topic_change(
+            "Updated GEM projection summary.",
+            [context["changed_sections"][0]["heading"]],
+        ),
     )
     service = LearningContextService(tmp_path, gateway)
     service.set_sources(["gem-note"])

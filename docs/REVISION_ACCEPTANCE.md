@@ -246,3 +246,11 @@ P2-07 的旧数据兼容分支本轮未清理。当前没有生产部署与个�
 | `git diff --check` | 通过。 |
 
 测试通过 Python 3.12.14 并复用现有测试依赖；Windows 受限临时目录需要授权测试进程访问。默认权限下曾出现 Vitest 对系统临时转换文件的 ENOENT，授权重跑后完整通过。第三轮提交尚未由新 CI 运行覆盖；先前成功的 CI 不能替代本轮结果。未调用真实 Provider/DeepSeek，未验证个人推荐质量或生产部署。
+
+## Phase 15 第四轮增量修订：学习上下文正确性（2026-10-14）
+
+P1-02：已有成功基线的强制重分析不再作为新的学习活动提升专题；对已有来源条目的修正也不自动夺取当前方向。首次纳入资料产生的新专题仍可推进当前方向。P1-03：每个学习上下文 upsert 现在必须声明实际支持它的章节；服务只接受当前请求中出现的精确章节名，并仅将这些章节写入来源记录。P1-04：旧条目优先按本次变化章节载入，超预算时继续细分已有章节批次；无法细分的匹配项保留原内容，并在同步结果中列出 ID、提示人工检查。强制重分析只对模型明确返回的移除执行撤销，遗漏或未进入请求的旧条目不会被批量删除。
+
+改动文件：`backend/app/domain/ai.py`、`backend/app/services/ai_gateway.py`、`backend/app/services/learning_context_sync.py`、`backend/tests/test_learning_context.py`。新增回归覆盖旧 GEM 专题的强制重分析、多章节逐条支持归因、虚构章节拒绝并保留基线、16 章中只更新第 14 章，以及同章 16 条记忆超过请求预算时保留并提示复核。
+
+实际命令：`python -m pytest -q --basetemp=<本任务隔离临时目录> backend/tests/test_learning_context.py backend/tests/test_learning_context_api.py`，结果 **47 passed**，另有 8 条既有 HTTPX API 弃用警告和 pytest-asyncio fixture scope 配置提示。该主机当前以 Python 3.9 运行此专项；Python 3.12 与真实 DeepSeek、个人资料质量及生产服务尚未验证。私有修订方案未纳入提交。

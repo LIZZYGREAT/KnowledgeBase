@@ -226,6 +226,7 @@ class LearningContextSync:
         pending_baselines: dict[str, dict[str, Any]] = {}
         source_results: list[dict[str, Any]] = []
         progressed_topic_ids: list[str] = []
+        manual_review_entry_ids: dict[str, list[str]] = {}
         analyzed_count = 0
         skipped_count = 0
         try:
@@ -302,28 +303,32 @@ class LearningContextSync:
                     )
                     continue
 
+                plan["batches"] = self._split_batches_for_related_memory(
+                    current_id,
+                    metadata.title,
+                    plan["batches"],
+                    memory_files,
+                    force,
+                )
+
                 if self.gateway is None:
                     raise LearningContextError("AI gateway is unavailable for a substantive change")
                 outcomes = []
                 source_heading_updates = {}
                 source_summary_updates = {}
-                previous_source_headings = {}
-                if force:
-                    for entry_id, entry in self._entry_index(memory_files).items():
-                        source_headings = entry["metadata"].get("source_headings", {})
-                        headings = source_headings.get(current_id, [])
-                        if isinstance(headings, list):
-                            previous_source_headings[entry_id] = {
-                                item for item in headings if isinstance(item, str)
-                            }
-                unchanged_batch_headings = set()
+                uncovered_entry_ids = set()
+                suppress_progress = (
+                    force
+                    and isinstance(baseline, dict)
+                    and isinstance(baseline.get("content_sha256"), str)
+                )
                 self.service._update_sync_progress(
                     phase="analyzing",
                     total_batches=len(plan["batches"]),
                 )
                 for batch_index, batch in enumerate(plan["batches"], start=1):
                     self.service._update_sync_progress(batch_index=batch_index)
-                    context = self._build_ai_context(
+                    context, uncovered = self._build_ai_context(
                         current_id,
                         metadata,
                         batch,
@@ -331,6 +336,7 @@ class LearningContextSync:
                         memory_files,
                         force,
                     )
+                    uncovered_entry_ids.update(uncovered)
                     output = self.gateway.run("update_learning_context", context)
                     if not isinstance(output, LearningContextUpdateOutput):
                         output = LearningContextUpdateOutput.model_validate(output)
@@ -348,30 +354,11 @@ class LearningContextSync:
                             allowed_entry_ids,
                             source_heading_updates,
                             source_summary_updates,
-                            progressed_topic_ids,
-                        )
-                    elif force:
-                        unchanged_batch_headings.update(
-                            item.get("heading", "未分节内容")
-                            for item in batch
-                            if isinstance(item, dict)
+                            None if suppress_progress else progressed_topic_ids,
+                            replace_source_headings=force,
                         )
                     self.service._update_sync_progress(
                         completed_batches=batch_index
-                    )
-                if force:
-                    preserved_entry_ids = set(source_heading_updates)
-                    preserved_entry_ids.update(
-                        entry_id
-                        for entry_id, headings in previous_source_headings.items()
-                        if headings & unchanged_batch_headings
-                    )
-                    # Full reanalysis reconciles this source's contributions
-                    # only after every model batch succeeded.
-                    self._remove_source(
-                        memory_files,
-                        current_id,
-                        preserve_entry_ids=preserved_entry_ids,
                     )
                 outcome = (
                     "knowledge_changed"
@@ -385,15 +372,18 @@ class LearningContextSync:
                     current_hash,
                     outcome,
                 )
-                source_results.append(
-                    {
-                        "source_id": current_id,
-                        "action": "analyzed",
-                        "outcome": outcome,
-                        "changed_sections": len(plan["changed_sections"]),
-                        "batch_count": len(plan["batches"]),
-                    }
-                )
+                source_result = {
+                    "source_id": current_id,
+                    "action": "analyzed",
+                    "outcome": outcome,
+                    "changed_sections": len(plan["changed_sections"]),
+                    "batch_count": len(plan["batches"]),
+                }
+                if uncovered_entry_ids:
+                    ids = sorted(uncovered_entry_ids)
+                    source_result["manual_review_entry_ids"] = ids
+                    manual_review_entry_ids[current_id] = ids
+                source_results.append(source_result)
                 analyzed_count += 1
                 self.service._update_sync_progress(
                     phase="checking",
@@ -442,13 +432,22 @@ class LearningContextSync:
                     if item["action"] == "missing":
                         baselines.pop(item["source_id"], None)
 
+            manual_review_count = sum(
+                len(entry_ids) for entry_ids in manual_review_entry_ids.values()
+            )
+            completion_message = "同步完成：分析 {} 篇，跳过 {} 篇。".format(
+                analyzed_count, skipped_count
+            )
+            if manual_review_count:
+                completion_message += (
+                    "有 {} 条旧知识超出单次核对预算，已保留原内容，请人工检查。"
+                    .format(manual_review_count)
+                )
             state_after = deepcopy(status_before)
             state_after.update(
                 {
                     "state": "synced",
-                    "message": "同步完成：分析 {} 篇，跳过 {} 篇。".format(
-                        analyzed_count, skipped_count
-                    ),
+                    "message": completion_message,
                     "source_baselines": baselines,
                     "last_sync_at": _now(),
                     "last_result": source_results,
@@ -566,8 +565,15 @@ class LearningContextSync:
         }
 
     def _build_ai_context(self, source_id, metadata, sections, change_kind, memory_files, force):
-        related = self._related_entries(source_id, metadata.title, sections, memory_files)
-        return {
+        related, uncovered = self._related_entries(
+            source_id,
+            metadata.title,
+            sections,
+            memory_files,
+            force=force,
+            include_uncovered=True,
+        )
+        context = {
             "source_document_id": source_id,
             "source_title": metadata.title,
             "change_kind": change_kind,
@@ -575,12 +581,51 @@ class LearningContextSync:
             "changed_sections": sections,
             "existing_related_memory": related,
         }
+        return context, uncovered
 
-    def _related_entries(self, source_id, source_title, sections, memory_files):
-        found = []
-        total = 0
+    def _split_batches_for_related_memory(
+        self, source_id, source_title, batches, memory_files, force
+    ):
+        pending = list(reversed(batches))
+        result = []
+        while pending:
+            batch = pending.pop()
+            _, uncovered = self._related_entries(
+                source_id,
+                source_title,
+                batch,
+                memory_files,
+                force=force,
+                include_uncovered=True,
+            )
+            if uncovered and len(batch) > 1:
+                middle = max(1, len(batch) // 2)
+                pending.append(batch[middle:])
+                pending.append(batch[:middle])
+                continue
+            result.append(batch)
+        return result
+
+    def _related_entries(
+        self,
+        source_id,
+        source_title,
+        sections,
+        memory_files,
+        *,
+        force=False,
+        include_uncovered=False,
+    ):
+        heading_matches = []
+        related_matches = []
+        forced_source_matches = []
         selected_ids = {
             item["id"] for item in self.service._selected_source_summaries()
+        }
+        requested_headings = {
+            item.get("heading")
+            for item in sections
+            if isinstance(item, dict) and isinstance(item.get("heading"), str)
         }
         focus_tokens = _tokens(
             source_title
@@ -623,8 +668,12 @@ class LearningContextSync:
                 related_tokens = _tokens(
                     "{} {}".format(metadata.get("title", ""), summary)
                 )
-                if source_id not in source_headings and not (focus_tokens & related_tokens):
-                    continue
+                source_headings_for_source = source_headings.get(source_id, [])
+                matching_headings = (
+                    set(source_headings_for_source) & requested_headings
+                    if isinstance(source_headings_for_source, list)
+                    else set()
+                )
                 entry = {
                     "id": metadata["entry_id"],
                     "title": metadata.get("title", ""),
@@ -638,10 +687,25 @@ class LearningContextSync:
                         key: value for key, value in source_headings.items() if key in selected_ids
                     },
                 }
-                size = len(entry["title"]) + len(entry["summary"])
-                if len(found) < _MAX_RELATED_ENTRIES and total + size <= _MAX_RELATED_CHARS:
-                    found.append(entry)
-                    total += size
+                if matching_headings:
+                    heading_matches.append(entry)
+                elif focus_tokens & related_tokens:
+                    related_matches.append(entry)
+                elif force and source_id in source_headings:
+                    forced_source_matches.append(entry)
+
+        found = []
+        uncovered = []
+        total = 0
+        for entry in [*heading_matches, *related_matches, *forced_source_matches]:
+            size = len(entry["title"]) + len(entry["summary"])
+            if len(found) < _MAX_RELATED_ENTRIES and total + size <= _MAX_RELATED_CHARS:
+                found.append(entry)
+                total += size
+            elif entry in heading_matches:
+                uncovered.append(entry["id"])
+        if include_uncovered:
+            return found, uncovered
         return found
 
     def _apply_changes(
@@ -655,6 +719,8 @@ class LearningContextSync:
         source_heading_updates,
         source_summary_updates,
         progressed_topic_ids=None,
+        *,
+        replace_source_headings=False,
     ):
         suppressed_ids = {
             item.get("entry_id")
@@ -662,16 +728,22 @@ class LearningContextSync:
             if isinstance(item, dict) and isinstance(item.get("entry_id"), str)
         } if isinstance(suppressed_entries, list) else set()
         index = self._entry_index(memory_files)
-        headings = sorted(
-            {item.get("heading", "未分节内容") for item in changed_sections if item.get("heading")}
-        )
+        available_headings = {
+            item.get("heading", "未分节内容")
+            for item in changed_sections
+            if item.get("heading")
+        }
         for change in changes:
             entry_id = change["entry_id"]
             existing = index.get(entry_id)
             if change["action"] == "remove":
                 if entry_id in suppressed_ids:
                     continue
-                if existing is None or source_id not in existing["metadata"].get("source_headings", {}):
+                if (
+                    entry_id not in allowed_entry_ids
+                    or existing is None
+                    or source_id not in existing["metadata"].get("source_headings", {})
+                ):
                     raise LearningContextError("AI removal did not target a related auto-managed entry")
                 old_relative, old_metadata = existing["relative_path"], existing["metadata"]
                 if old_metadata.get("pinned"):
@@ -700,28 +772,47 @@ class LearningContextSync:
                     index.pop(entry_id, None)
                 continue
 
+            support_headings = change.get("support_headings")
+            if (
+                not isinstance(support_headings, list)
+                or not support_headings
+                or len(set(support_headings)) != len(support_headings)
+                or any(heading not in available_headings for heading in support_headings)
+            ):
+                raise LearningContextError(
+                    "AI upsert must cite exact headings from the current batch"
+                )
             relative = _layer_path(change["layer"], change.get("topic_id"))
             topic_id = change.get("topic_id")
-            if (
-                change["layer"] == "topic"
-                and isinstance(topic_id, str)
-                and isinstance(progressed_topic_ids, list)
-                and topic_id not in progressed_topic_ids
-            ):
-                progressed_topic_ids.append(topic_id)
             if entry_id in suppressed_ids:
                 continue
             if existing and existing["metadata"].get("pinned"):
                 continue
             if (
                 existing
-                and source_id not in existing["metadata"].get("source_headings", {})
                 and entry_id not in allowed_entry_ids
             ):
-                raise LearningContextError("AI update collided with an entry from another source")
+                raise LearningContextError("AI update did not target a related auto-managed entry")
+            if (
+                change["layer"] == "topic"
+                and isinstance(topic_id, str)
+                and isinstance(progressed_topic_ids, list)
+                and topic_id not in progressed_topic_ids
+                and (
+                    existing is None
+                    or source_id not in existing["metadata"].get("source_headings", {})
+                )
+            ):
+                progressed_topic_ids.append(topic_id)
             source_headings = deepcopy(existing["metadata"].get("source_headings", {})) if existing else {}
             current_headings = source_heading_updates.setdefault(entry_id, set())
-            current_headings.update(headings or ["未分节内容"])
+            if existing and not replace_source_headings:
+                old_headings = existing["metadata"].get("source_headings", {}).get(source_id, [])
+                if isinstance(old_headings, list):
+                    current_headings.update(
+                        heading for heading in old_headings if isinstance(heading, str)
+                    )
+            current_headings.update(support_headings)
             source_headings[source_id] = sorted(current_headings)
             source_summaries = {}
             legacy_summary = None

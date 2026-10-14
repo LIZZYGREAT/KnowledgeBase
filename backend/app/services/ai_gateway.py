@@ -221,9 +221,11 @@ TASKS = {
             "Return no_change when the knowledge meaning did not change. Otherwise return only localized upserts or removals with stable entry IDs. "
             "Keep active focused on the current direction; use important only for durable anchors; put note-specific knowledge in a topic. "
             "Update an existing entry only when its exact ID is supplied in existing_related_memory. Never invent source IDs, paths, or provenance. "
+            "Every upsert must include support_headings containing only exact heading values from the current changed_sections that directly support that entry. "
+            "Do not use headings that were not supplied in the current batch, and do not assign the entire batch to one entry by default. "
             "Do not rewrite unrelated memory or recommend changing the user's fixed direction because of a local correction. "
             "Each upsert summary is the complete current summary for that one knowledge claim, not a change fragment: preserve still-supported facts from the supplied existing summary and replace only unsupported or corrected facts. Split independent claims into separate entries instead of combining them. "
-            "During forced full reanalysis, reconcile all knowledge supported by the supplied source sections; re-emit complete upserts for still-supported existing entries and remove unsupported related entries. A no_change batch means its related existing entries remain supported by that batch. A removal must identify an exact supplied related entry. "
+            "During forced full reanalysis, reconcile only entries supplied in existing_related_memory. Omission is not removal; explicitly remove an exact supplied entry only when the supplied passages show that its claim is no longer supported. A no_change batch means its related existing entries remain supported by that batch. "
             "Return at most 20 changes."
         ),
         output_usage="analysis",
