@@ -262,3 +262,11 @@ P1-01：Research 先处理用户明确输入的检索方向和偏好关键词，
 回归覆盖明确 SI/DER 关键词先于大量自动章节进入 Provider、已在专题中出现的关键词继续保持用户优先级、偏好列表第 9–12 项也有逐项原因，以及既有 Research 查询流和所选笔记历史进度。`backend/tests/test_research_runs.py` 的同步模拟结果同时补充当前批次支持章节，以符合第四轮学习上下文 upsert 契约。
 
 实际命令：`python -m pytest -q --basetemp=<本任务隔离临时目录> backend/tests/test_research_query_builder.py backend/tests/test_research_runs.py backend/tests/test_research_screening.py`，结果 **100 passed**，另有 pytest-asyncio fixture loop scope 配置提示。测试使用本机 Python 3.9；未调用真实 Provider/DeepSeek，Python 3.12 CI 尚未重跑。私有修订方案未纳入提交。
+
+## Phase 15 第四轮增量修订：Terms 文档分析指纹（2026-10-14）
+
+P2-05：Terms 文档缓存不再用完整 Markdown 文件字节判定正文是否变化，而是对分析实际使用的标题、类型、领域、主题和正文生成确定性指纹。指纹忽略加粗/斜体标记、常见行内空白、重复空行与普通段落软换行；代码块、行内代码和数学表达式以原文保留，正文词句、否定、公式、代码及标题/领域/主题元数据改变仍会触发分析。正式 Markdown 与 Git 内容不变，PDF 和其他语料缓存未改。
+
+改动文件：`backend/app/services/term_discovery_service.py`、`backend/tests/test_term_discovery.py`。新增实际 Terms Run 回归：格式重排后不增加 AI 调用；数学不等式、代码条件、否定语句和标题/主题元数据各自变化后均重新分析。原有通用发现、个性化白名单和模式隔离由 Terms 全套测试继续覆盖。
+
+实际命令：`python -m pytest -q --basetemp=<本任务隔离临时目录> backend/tests/test_term_discovery.py`，结果 **36 passed**，另有 1 条既有 HTTPX 弃用警告和 pytest-asyncio fixture loop scope 配置提示。测试使用本机 Python 3.9；未调用真实 Provider/DeepSeek，Python 3.12 CI、生产服务和个人推荐质量尚未验证。私有修订方案未纳入提交。

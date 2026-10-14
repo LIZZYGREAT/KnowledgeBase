@@ -1345,6 +1345,155 @@ def _discovery_focus(
     return list(dict.fromkeys(value.strip() for value in focus if value.strip()))[:40]
 
 
+def _term_document_analysis_hash(metadata: DocumentMetadata, body: str) -> str:
+    encoded = json.dumps(
+        {
+            "title": metadata.title,
+            "type": metadata.type,
+            "domains": metadata.domains,
+            "topics": metadata.topics,
+            "body": _normalize_term_analysis_markdown(body),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _normalize_term_analysis_markdown(markdown: str) -> str:
+    text = markdown.replace("\r\n", "\n").replace("\r", "\n")
+    literals = []
+    literal_tokens = set()
+
+    def save_literal(value):
+        index = len(literals)
+        literals.append(value)
+        token = "\x00TERM_ANALYSIS_LITERAL_{}\x00".format(index)
+        literal_tokens.add(token)
+        return token
+
+    def protect(pattern):
+        nonlocal text
+
+        def replace(match):
+            return save_literal(match.group(0))
+
+        text = pattern.sub(replace, text)
+
+    def protect_fenced_code():
+        nonlocal text
+        protected_lines = []
+        code_lines = []
+        fence_char = None
+        min_fence_length = 0
+        for line in text.splitlines(keepends=True):
+            if fence_char is None:
+                opening = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+                if opening and not (
+                    opening.group(1).startswith("`")
+                    and "`" in opening.group(2)
+                ):
+                    marker = opening.group(1)
+                    fence_char = marker[0]
+                    min_fence_length = len(marker)
+                    code_lines = [line]
+                else:
+                    protected_lines.append(line)
+                continue
+
+            code_lines.append(line)
+            closing = re.match(r"^ {0,3}(`+|~+)[ \t]*(?:\n)?$", line)
+            if (
+                closing
+                and closing.group(1)[0] == fence_char
+                and len(closing.group(1)) >= min_fence_length
+            ):
+                block = "".join(code_lines)
+                trailing_newline = "\n" if block.endswith("\n") else ""
+                if trailing_newline:
+                    block = block[:-1]
+                protected_lines.append(save_literal(block) + trailing_newline)
+                code_lines = []
+                fence_char = None
+                min_fence_length = 0
+
+        if code_lines:
+            protected_lines.append(save_literal("".join(code_lines)))
+        text = "".join(protected_lines)
+
+    protect_fenced_code()
+    protect(
+        re.compile(
+            r"(?m)(?:^(?: {4}|\t).*(?:\n|$))+(?:^[ \t]*\n"
+            r"(?: {4}|\t).*(?:\n|$))*"
+        )
+    )
+    protect(
+        re.compile(
+            r"(?s)\\\[.*?\\\]|\\\(.*?\\\)|"
+            r"(?<!\\)\$\$.*?(?<!\\)\$\$|"
+            r"(?<!\\)\$(?!\$)[^$\n]+(?<!\\)\$"
+        )
+    )
+    protect(re.compile(r"(?s)(?P<ticks>`+)(?!`).*?(?<!`)(?P=ticks)(?!`)"))
+
+    emphasis_operator = re.compile(r"[=<>≤≥≠^+*/×÷∑∏∫−\\]")
+
+    def remove_emphasis(match):
+        content = match.group(match.lastindex)
+        return match.group(0) if emphasis_operator.search(content) else content
+
+    text = re.sub(
+        r"(?<!\w)(\*\*|__)(?!\s)(.+?)(?<!\s)\1(?!\w)",
+        remove_emphasis,
+        text,
+    )
+    text = re.sub(
+        r"(?<![\w*])\*(?!\*)(?!\s)(.+?)(?<!\s)\*(?!\*)",
+        remove_emphasis,
+        text,
+    )
+    text = re.sub(
+        r"(?<![\w_])_(?!_)(?!\s)(.+?)(?<!\s)_(?![\w_])",
+        remove_emphasis,
+        text,
+    )
+
+    normalized_lines = []
+    for line in text.split("\n"):
+        leading = re.match(r"^[ \t]*", line).group(0)
+        content = line[len(leading) :]
+        normalized_lines.append(leading + re.sub(r"[ \t]+", " ", content).rstrip())
+
+    blocks = []
+    paragraph_lines = []
+
+    def flush_paragraph():
+        if paragraph_lines:
+            blocks.append(" ".join(paragraph_lines))
+            paragraph_lines.clear()
+
+    structural_line = re.compile(
+        r"^(?: {0,3}#{1,6}(?:\s|$)| {0,3}(?:[-*+]|\d+[.)])\s|"
+        r" {0,3}>| {0,3}\|| {0,3}<| {4}|\t|[-*_]{3,}\s*$)"
+    )
+    for line in normalized_lines:
+        if not line.strip():
+            flush_paragraph()
+        elif structural_line.match(line) or line.strip() in literal_tokens:
+            flush_paragraph()
+            blocks.append(line.rstrip())
+        else:
+            paragraph_lines.append(line.strip())
+    flush_paragraph()
+
+    text = "\n\n".join(blocks)
+    for index, literal in enumerate(literals):
+        text = text.replace("\x00TERM_ANALYSIS_LITERAL_{}\x00".format(index), literal)
+    return text
+
+
 def _select_documents(
     repository_root: Path,
     repository: TermDiscoveryRepository,
@@ -1413,7 +1562,7 @@ def _select_documents(
         states = [
             repository.get_analysis_state(analysis_id, lane) for lane in note_lanes
         ]
-        text_hash = sha256(payload).hexdigest()
+        text_hash = _term_document_analysis_hash(metadata, body)
         if all(
             state is not None
             and state["text_hash"] == text_hash
@@ -1450,7 +1599,7 @@ def _select_documents(
                     metadata.id,
                     context,
                     body,
-                    sha256(payload).hexdigest(),
+                    text_hash,
                     analysis_id,
                     note_lanes,
                 ),

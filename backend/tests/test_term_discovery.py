@@ -890,6 +890,124 @@ def test_deleted_candidate_reopens_same_note_discovery_cache_without_resetting_q
     connection.close()
 
 
+def test_document_analysis_cache_ignores_markdown_formatting_and_wrapping(tmp_path):
+    connection, service, _candidate_service, _pdf_service, gateway = _service(tmp_path)
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"], focus_override="continual learning"
+        )
+    )
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        "## Mechanism\n\n"
+        "The **experience replay** method preserves old examples and does not alter weights.",
+        topics=["continual-learning"],
+    )
+
+    first = service.run()
+    first_state = service.repository.get_analysis_state("document:note-one", "concept")
+    note_path = tmp_path / "knowledge" / "documents" / "learning" / "note-one.md"
+    original_bytes = note_path.read_bytes()
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        "## Mechanism\n\n\n"
+        "The   experience replay method preserves old examples\n"
+        "and does not alter **weights**.\n",
+        topics=["continual-learning"],
+    )
+
+    second = service.run()
+    second_state = service.repository.get_analysis_state("document:note-one", "concept")
+
+    assert first.status == "success"
+    assert note_path.read_bytes() != original_bytes
+    assert second.status == "success"
+    assert len(gateway.calls_by_task("discover_terms")) == 1
+    assert second_state == first_state
+    connection.close()
+
+
+def test_document_analysis_cache_reopens_for_formula_code_negation_and_metadata(
+    tmp_path,
+):
+    connection, service, _candidate_service, _pdf_service, gateway = _service(tmp_path)
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"], focus_override="continual learning"
+        )
+    )
+    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    body = (
+        "## Update rule\n\n"
+        "The method accepts $x \\leq 0$ and does not increase the loss.\n\n"
+        "```python\nif x <= 0:\n    accept()\n```"
+    )
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        body,
+        domains=["machine-learning"],
+        topics=["continual-learning"],
+    )
+
+    assert service.run().status == "success"
+    assert len(gateway.calls_by_task("discover_terms")) == 1
+
+    body = body.replace("\\leq", "\\geq")
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        body,
+        domains=["machine-learning"],
+        topics=["continual-learning"],
+    )
+    assert service.run().status == "success"
+    assert len(gateway.calls_by_task("discover_terms")) == 2
+
+    body = body.replace("x <= 0", "x >= 0")
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        body,
+        domains=["machine-learning"],
+        topics=["continual-learning"],
+    )
+    assert service.run().status == "success"
+    assert len(gateway.calls_by_task("discover_terms")) == 3
+
+    body = body.replace("does not increase", "does increase")
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes",
+        body,
+        domains=["machine-learning"],
+        topics=["continual-learning"],
+    )
+    assert service.run().status == "success"
+    assert len(gateway.calls_by_task("discover_terms")) == 4
+
+    _write_document(
+        tmp_path,
+        "note-one",
+        "Continual Learning Notes Revised",
+        body,
+        domains=["machine-learning"],
+        topics=["continual-learning-v2"],
+    )
+    assert service.run().status == "success"
+    assert len(gateway.calls_by_task("discover_terms")) == 5
+    connection.close()
+
+
 def test_note_discovery_enriches_manual_candidate_without_creating_a_duplicate(tmp_path):
     output = {
         "candidates": [
