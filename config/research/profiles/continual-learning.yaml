@@ -73,11 +73,7 @@ providers:
 
 context:
   collections: []
-  documents:
-    - gem-gradient-episodic-memory-for-continual-learning
-    - gem-sgd
-    - icarl
-    - icarl-incremental-classifier-and-representation-learning
+  documents: []
   dynamic_retrieval:
     enabled: true
     scope: entire-library

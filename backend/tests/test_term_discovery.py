@@ -172,7 +172,22 @@ def test_dynamic_quota_and_lane_backpressure_bound_each_run():
 
 
 def test_scheduled_check_runs_once_per_rolling_24_hours(tmp_path):
-    connection, service, _candidate_service, _pdf_service, gateway = _service(
+    _write_document(
+        tmp_path,
+        "selected-learning-note",
+        "Continual Learning Notes",
+        "Elastic weight consolidation limits catastrophic forgetting.",
+        topics=["continual-learning"],
+    )
+    learning_context = LearningContextService(tmp_path)
+    learning_context.set_sources(["selected-learning-note"])
+    learning_context.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    connection, service, _candidate_service, pdf_service, gateway = _service(
         tmp_path,
         {
             "candidates": [
@@ -185,6 +200,7 @@ def test_scheduled_check_runs_once_per_rolling_24_hours(tmp_path):
                 )
             ]
         },
+        learning_context_service=learning_context,
     )
     now = datetime(2026, 10, 7, 10, tzinfo=timezone.utc)
     service.clock = lambda: now
@@ -194,16 +210,30 @@ def test_scheduled_check_runs_once_per_rolling_24_hours(tmp_path):
     second = service.scheduled_check()
     now += timedelta(hours=23, minutes=59)
     before_window = service.scheduled_check()
+    _write_document(
+        tmp_path,
+        "selected-learning-note",
+        "Continual Learning Notes",
+        "Elastic weight consolidation limits catastrophic forgetting. "
+        "The note now compares stability across sequential tasks.",
+        topics=["continual-learning"],
+    )
     now += timedelta(minutes=1)
     at_window = service.scheduled_check()
 
     assert first is not None
     assert first.trigger == "scheduled"
     assert first.status == "success"
+    assert first.snapshot["discovery_mode"] == "personalized"
+    assert first.items[0].source_id == "selected-learning-note"
+    assert pdf_service.calls == []
     assert second is None
     assert before_window is None
     assert at_window is not None and at_window.trigger == "scheduled"
-    assert [call[0] for call in gateway.calls] == ["discover_terms"]
+    assert [call[0] for call in gateway.calls] == [
+        "discover_terms",
+        "discover_terms",
+    ]
     connection.close()
 
 
@@ -270,6 +300,15 @@ def test_scheduled_accepted_note_is_not_recreated_after_focus_and_content_change
         "It protects previously learned tasks.",
         topics=["continual-learning"],
     )
+    learning_context = LearningContextService(tmp_path)
+    learning_context.set_sources(["note-one"])
+    learning_context.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    service.learning_context = learning_context
     now = datetime(2026, 10, 7, 12, tzinfo=timezone.utc)
     service.clock = lambda: now
     service.update_settings(
@@ -676,12 +715,24 @@ def test_external_query_uses_configured_focus_without_recent_activity():
     assert "iCaRL" not in query
 
 
-def test_scheduled_external_discovery_can_run_without_local_corpus(tmp_path):
+def test_scheduled_discovery_ignores_pdf_external_and_unselected_course(tmp_path):
     external = _FakeExternalDiscovery([])
-    connection, service, _candidate_service, _pdf_service, _gateway = _service(
+    connection, service, _candidate_service, pdf_service, gateway = _service(
         tmp_path, external_discovery=external
     )
-    (tmp_path / "storage" / "papers" / "source-alpha.pdf").unlink()
+    course_path = (
+        tmp_path / "knowledge" / "documents" / "courses" / "ethernet-course.md"
+    )
+    course_path.parent.mkdir(parents=True, exist_ok=True)
+    course_path.write_text(
+        "---\nschema_version: 1\nid: ethernet-course\ntitle: Ethernet course\n"
+        "type: course-note\ndomains: []\ntopics: []\ntags: []\nsources: []\n"
+        "---\n\nEthernet frames connect devices in a local network.\n",
+        encoding="utf-8",
+    )
+    learning_context = LearningContextService(tmp_path)
+    learning_context.set_sources([])
+    service.learning_context = learning_context
     service.update_settings(
         TermDiscoverySettings(
             enabled_lanes=["entity"],
@@ -692,8 +743,16 @@ def test_scheduled_external_discovery_can_run_without_local_corpus(tmp_path):
 
     run = service.scheduled_check()
 
-    assert run is not None
-    assert run.trigger == "scheduled"
+    assert run is None
+    assert service.list_runs() == []
+    assert pdf_service.calls == []
+    assert gateway.calls == []
+    assert external.calls == []
+
+    general = service.run(discovery_mode="general")
+
+    assert general.trigger == "manual"
+    assert general.snapshot["discovery_mode"] == "general"
     assert len(external.calls) == 1
     assert external.calls[0] == ("continual learning systems", 2)
     connection.close()
@@ -726,6 +785,15 @@ def test_changed_note_is_discovered_incrementally_without_a_local_pdf(tmp_path):
         domains=["machine-learning"],
         topics=["continual-learning"],
     )
+    learning_context = LearningContextService(tmp_path)
+    learning_context.set_sources(["note-one"])
+    learning_context.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    service.learning_context = learning_context
 
     first = service.scheduled_check()
     second = service.run()
@@ -1295,7 +1363,8 @@ def test_personalized_terms_analyzes_only_the_selected_gem_note(tmp_path):
     connection.close()
 
 
-def test_manual_terms_run_marks_fallback_when_context_sync_fails(tmp_path):
+@pytest.mark.parametrize("trigger", ["manual", "scheduled"])
+def test_terms_run_marks_fallback_when_context_sync_fails(tmp_path, trigger):
     context_service = LearningContextService(tmp_path)
     context_service.sync_if_stale = lambda: {
         "state": "failed",
@@ -1314,7 +1383,7 @@ def test_manual_terms_run_marks_fallback_when_context_sync_fails(tmp_path):
         )
     )
 
-    run = service.run("manual")
+    run = service.run(trigger)
 
     assert run.status == "partial"
     assert run.snapshot["learning_context"]["sync_status"]["used_previous_context"] is True

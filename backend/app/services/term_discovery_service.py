@@ -156,9 +156,7 @@ class TermDiscoveryService:
             raise ValueError("Term Discovery trigger must be manual or scheduled")
         if discovery_mode is None:
             discovery_mode = (
-                "general"
-                if trigger == "scheduled" or self.learning_context is None
-                else "personalized"
+                "personalized" if self.learning_context is not None else "general"
             )
         if discovery_mode not in {"personalized", "general"}:
             raise ValueError("Term Discovery mode must be personalized or general")
@@ -204,20 +202,7 @@ class TermDiscoveryService:
         window_start = _daily_window_start(now)
         if self.repository.has_scheduled_run_since(window_start):
             return None
-        source_registry = SourceRegistry.load(
-            self.repository_root / "knowledge" / "sources"
-        )
         settings = self.repository.get_settings()
-        has_pdf = any(
-            source.attachments.local_pdf
-            and (
-                self.repository_root
-                / "storage"
-                / "papers"
-                / "{}.pdf".format(source.id)
-            ).is_file()
-            for source in source_registry.sources
-        )
         core_lanes = [
             lane for lane in _LANE_ORDER[:2] if lane in settings.enabled_lanes
         ]
@@ -251,32 +236,23 @@ class TermDiscoveryService:
             registry = TermRegistry.load(
                 self.repository_root / "knowledge" / "terms"
             )
-            has_note = bool(
-                _select_documents(
-                    self.repository_root,
-                    self.repository,
-                    core_lanes,
-                    focus,
-                    focus_snapshot,
-                    focus_hash,
-                    registry,
-                    _selected_document_scope(learning_context, "general"),
-                )
+            selected_scope = _selected_document_scope(
+                learning_context, "personalized"
             )
-        has_external = False
-        if settings.external_enabled and core_lanes:
-            state = self.get_state()
-            open_by_lane = state.lane_open
-            has_external = bool(focus) and state.daily_remaining > 0 and any(
-                lane in settings.enabled_lanes
-                and open_by_lane.get(lane, 0) < settings.lane_capacities[lane]
-                for lane in ("concept", "entity")
-            ) and state.open_count < GLOBAL_OPEN_CAPACITY
-        if not has_pdf and not has_note and not has_external:
+            selected_documents = _select_documents(
+                self.repository_root,
+                self.repository,
+                core_lanes,
+                focus,
+                focus_snapshot,
+                focus_hash,
+                registry,
+                selected_scope,
+            )
+            has_note = bool(selected_documents)
+        if not has_note:
             return None
-        # Enabling the scheduled discovery worker is the explicit opt-in for
-        # broad library discovery. Manual runs default to selected learning notes.
-        return self.run(trigger="scheduled", discovery_mode="general")
+        return self.run(trigger="scheduled", discovery_mode="personalized")
 
     def _run_locked(
         self, trigger: str, started_at: str, run_id: str, discovery_mode: str
@@ -351,7 +327,7 @@ class TermDiscoveryService:
 
         sync_status = None
         sync_if_stale = getattr(self.learning_context, "sync_if_stale", None)
-        if trigger == "manual" and callable(sync_if_stale):
+        if callable(sync_if_stale):
             sync_status = sync_if_stale()
 
         base_focus = _focus_context(self.repository_root, settings)

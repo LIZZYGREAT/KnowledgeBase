@@ -157,7 +157,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
     <section className="term-discovery-panel" aria-label="发现术语">
       <div className="term-discovery-overview surface">
         <div className="term-discovery-overview-heading">
-          <div><span className="section-kicker">发现适合当前学习方向的术语</span><h2>发现术语</h2><p>按学习进度运行时只分析手动纳入的正式笔记；未选择笔记时不会扫描其他笔记、PDF 或外部摘要。通用发现会读取全库，并可使用已启用的 PDF 与外部来源。</p></div>
+          <div><span className="section-kicker">发现适合当前学习方向的术语</span><h2>发现术语</h2><p>按学习进度运行和定时发现只分析手动纳入的正式笔记；未选择笔记时不会扫描其他笔记、PDF 或外部摘要。通用发现会读取全库，并可使用已启用的 PDF 与外部来源，需要手动选择。</p></div>
           <div className="term-discovery-actions">
             <button className="button button-primary" type="button" disabled={busy} onClick={() => void runNow("personalized")}>{busy ? "正在运行…" : "按学习进度发现"}</button>
             <button className="button button-secondary" type="button" disabled={busy} onClick={() => void runNow("general")}>{busy ? "正在运行…" : "通用发现（全库）"}</button>
@@ -178,7 +178,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
           </label>)}
         </div>
         <details className="term-discovery-advanced"><summary>高级设置</summary>
-        <p>每日还可新增 {state.daily_remaining} 项；自动发现由已启用的定时任务运行。</p>
+        <p>每日还可新增 {state.daily_remaining} 项；定时任务按已纳入的学习资料发现，通用全库扫描需手动选择。</p>
         {LANES.map((lane) => <label className="field-label" key={lane.id}>{lane.title}容量（待处理 {state.lane_open[lane.id] ?? 0}）<input type="number" min={1} max={12} value={draft.lane_capacities[lane.id]} onChange={(event) => setDraft((current) => current ? { ...current, lane_capacities: { ...current.lane_capacities, [lane.id]: Number(event.target.value) } } : current)} aria-label={`${lane.title} capacity`} /></label>)}
         <div className="term-discovery-setting-fields">
           <label className="field-label">每日新增上限<input type="number" min={1} max={12} value={draft.daily_max_new} onChange={(event) => setDraft((current) => current ? { ...current, daily_max_new: Number(event.target.value) } : current)} /></label>
@@ -187,7 +187,7 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
         </div>
         <label className="term-discovery-external-setting">
           <input type="checkbox" checked={draft.external_enabled} onChange={(event) => setDraft((current) => current ? { ...current, external_enabled: event.target.checked } : current)} />
-          <span><strong>启用 Wikipedia 外部发现</strong><small>开启后，每次手动或定时运行最多发送一次检索主题查询并读取两条摘要；检索主题查询会发给 Wikipedia，摘要会交给 AI 分析。只用于概念和命名实体。</small></span>
+          <span><strong>启用 Wikipedia 外部发现</strong><small>开启后，手动选择通用发现时最多发送一次检索主题查询并读取两条摘要；检索主题查询会发给 Wikipedia，摘要会交给 AI 分析。只用于概念和命名实体。</small></span>
         </label>
         </details>
       </form>

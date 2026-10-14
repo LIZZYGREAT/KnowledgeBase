@@ -30,6 +30,7 @@ def test_repository_research_configuration_loads_profiles_without_network():
     ]
     assert sum(len(lens.queries) for lens in profile.lenses) == 9
     assert "nearest class mean class incremental learning" in profile.lenses[2].queries
+    assert profile.context.documents == []
     assert registry.path_for(profile.id).as_posix().endswith(
         "config/research/profiles/continual-learning.yaml"
     )
