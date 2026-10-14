@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TermDiscoveryPanel } from "../../src/pages/TermDiscoveryPanel";
 
 const api = vi.hoisted(() => ({
+  getLearningContext: vi.fn(),
   getTermDiscoveryState: vi.fn(),
   listTermDiscoveryRuns: vi.fn(),
   runTermDiscovery: vi.fn(),
@@ -49,6 +50,11 @@ const run = {
 describe("发现术语 panel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.getLearningContext.mockResolvedValue({
+      preferences: { fixed_direction: "", keywords: [], exclude_keywords: [], exploration_directions: [], important_anchors: [] },
+      active: "",
+      topics: [],
+    });
     api.getTermDiscoveryState.mockResolvedValue(state);
     api.listTermDiscoveryRuns.mockResolvedValue([]);
     api.runTermDiscovery.mockResolvedValue(run);
@@ -75,6 +81,25 @@ describe("发现术语 panel", () => {
     await waitFor(() => expect(api.runTermDiscovery).toHaveBeenCalledWith("personalized"));
     const status = await screen.findByRole("status");
     expect(status.textContent).toContain("新增 2 个待处理术语");
+  });
+
+  it("shows the active learning direction and the direction used by the latest Terms run", async () => {
+    api.getLearningContext.mockResolvedValue({
+      preferences: { fixed_direction: "", keywords: [], exclude_keywords: [], exploration_directions: [], important_anchors: [] },
+      active: "",
+      topics: [{ id: "reinforcement-learning", title: "Reinforcement Learning", aliases: [], keywords: [], is_active: true }],
+    });
+    api.listTermDiscoveryRuns.mockResolvedValue([{
+      ...run,
+      snapshot: { effective_focus: ["Continual Learning", "正则化方法"] },
+    }]);
+    render(<TermDiscoveryPanel />);
+
+    expect(await screen.findByText("当前学习方向")).not.toBeNull();
+    expect(screen.getByText("Reinforcement Learning")).not.toBeNull();
+    expect(screen.getByText("最近一次 Terms 实际方向")).not.toBeNull();
+    expect(screen.getByText("Continual Learning、正则化方法")).not.toBeNull();
+    expect(screen.getByText(/新运行优先使用自定义或固定方向/)).not.toBeNull();
   });
 
   it("requires an explicit selection for general full-library discovery", async () => {

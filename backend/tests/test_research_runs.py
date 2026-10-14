@@ -236,6 +236,70 @@ def test_learning_context_adds_search_stream_without_dropping_classic_history(tm
     connection.close()
 
 
+def test_active_reinforcement_topic_with_continual_learning_profile_keeps_actual_scope_visible(tmp_path):
+    connection = connect_database(":memory:")
+    profile = _profile(queries=("fisher information",))
+
+    class QueryRecordingProvider(FakeProvider):
+        def __init__(self):
+            super().__init__([], name="arxiv")
+            self.requested = []
+
+        def search(self, query, start_at, end_at, cursor=None, limit=None):
+            self.requested.append(query)
+            return super().search(query, start_at, end_at, cursor, limit)
+
+    provider = QueryRecordingProvider()
+    service, _runs, _search, _client = _service(
+        tmp_path, connection, provider, profile=profile
+    )
+    note = service.repository_root / "knowledge" / "documents" / "learning" / "rl-note.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(
+        "---\nschema_version: 1\nid: rl-note\ntitle: Reinforcement Learning Basics\n"
+        "type: learning-note\ndomains: []\ntopics: [reinforcement-learning]\n"
+        "tags: []\nsources: []\n---\n\n"
+        "Reinforcement learning agents learn sequential decisions from rewards.\n",
+        encoding="utf-8",
+    )
+    learning_context = LearningContextService(service.repository_root)
+    learning_context.set_sources(["rl-note"])
+    learning_context.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    learning_context._write_yaml(
+        "index.yaml",
+        {
+            "active_topic_ids": ["reinforcement-learning"],
+            "topics": [
+                {
+                    "id": "reinforcement-learning",
+                    "title": "Reinforcement Learning",
+                    "aliases": ["RL"],
+                    "keywords": ["reward learning"],
+                }
+            ],
+        },
+    )
+    learning_context._atomic_write(
+        "topics/reinforcement-learning.md",
+        "## Core idea\n\nAgents learn sequential decisions from rewards.\n",
+    )
+    service.learning_context_service = learning_context
+
+    run = service.run_profile(profile.id)
+
+    assert run is not None and run.status == "success"
+    assert learning_context.list_topics()[0]["is_active"] is True
+    assert provider.requested == ["fisher information"]
+    assert profile.title == "Continual Learning"
+    assert profile.lenses[0].queries == ["fisher information"]
+    connection.close()
+
+
 @pytest.mark.parametrize("keyword", ["SI", "DER", "A-GEM", "SI for the future"])
 def test_user_keywords_reach_provider_with_current_direction_anchor(
     tmp_path, keyword

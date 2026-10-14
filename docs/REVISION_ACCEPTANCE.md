@@ -317,3 +317,15 @@ P1-A：页面刷新现在更新服务器快照时按区域保留其他未提交�
 改动文件：`frontend/src/LearningContext.tsx`、`frontend/src/styles/learning-context.css`、`frontend/tests/unit/learning-context.test.tsx`。新增回归覆盖三类草稿交错保存、纯手写说明保存且保留自动条目 metadata、重载后恢复待核对链接，以及将来源标题与知识正文分开展示。
 
 验证命令：`npm run test:unit -- --reporter=dot --pool=vmThreads --maxWorkers=1`（35 files / **178 passed**）、`npm run typecheck`（通过）、`npm run build`（通过；Vite 继续报告已有 ELK 分块超过 500 kB）。默认并行单测模式在本机 Windows 临时目录内遇到 worker `ENOENT`；使用单 VM worker 的同一套前端单测全部通过。Fake API 测试未验证个人真实笔记，也未做生产浏览器或 Provider 验收；未部署。私有第六轮审查文档未纳入提交。
+
+## Phase 15 第六轮增量修订 Stage B（2026-10-15）
+
+P1-C：Terms 分析缓存指纹改为有效方向与实际传入的 Learning Context；选中文本指纹和 `analysis_version` 仍独立参与命中判断。全库 Knowledge State、已审核 Term 列表和全部 Term 状态不再使无关笔记缓存失效；有效方向变化仍会重新分析。现有 Term Resolver 与候选过滤继续负责已知术语去重。
+
+P1-D：Terms 现在在读取相关专题内容前先把活跃专题标题加入上下文匹配，并将活跃专题置于启用 Research Profile/Lens 后备方向之前。Terms 页面并列显示当前学习方向与最近一次运行记录中的实际方向。Research 页面分别显示当前学习方向、所选 Profile、启用 Lens 查询；方向不一致时明确说明论文检索仍沿用所选 Profile，不会自动修改配置，学习上下文查询仅在兼容现有 Lens 时补充。未自动创建或改写 Research Profile。
+
+改动文件：`backend/app/services/term_discovery_service.py`、`backend/tests/test_term_discovery.py`、`backend/tests/test_research_runs.py`、`frontend/src/Research.tsx`、`frontend/src/pages/TermDiscoveryPanel.tsx`、`frontend/src/styles/research.css`、`frontend/src/styles/terms-candidates.css`、`frontend/tests/integration/research.test.tsx`、`frontend/tests/unit/term-discovery-panel.test.tsx`、`docs/ARCHITECTURE.md`。
+
+回归先验证了旧行为：只审核无关 Ethernet Term 会让未变的 GEM 笔记多调用一次 AI；RL 活跃专题仍排在 CL Profile 之后；Research/Terms 页面没有区分当前学习方向与检索配置。修复后专项验证：`backend/tests/test_term_discovery.py backend/tests/test_research_runs.py` 为 **117 passed**；Research 集成测试文件为 **58 passed**；前端单测为 **35 files / 179 passed**。`npm run typecheck`、`npm run build`、`python tools/kb.py check`（7 个文件，无错误/警告）、`python tools/research.py check --root .`（1 个 Profile 与 AI 配置有效）均通过。Vite 保留既有 ELK 分块超过 500 kB 的提示；后端有 1 条既有 HTTPX 弃用警告。
+
+较大范围环境结果：全后端测试在排除 `test_app_lifecycle.py` 和 `test_knowledge_api.py` 后为 **656 passed、6 skipped、4 failed**。前两模块因当前 Python 3.9 环境未安装 `backend/requirements.txt` 已声明的 `python-multipart` 而无法收集；4 个失败集中于 `test_manual_research_worker.py`，均是本机 Python 3.9 asyncio 事件循环绑定错误，与本次变更无关。完整前端集成套件为 **140 passed、1 failed**；唯一失败是 `workspace.test.tsx` 的 Reader Presentation Annotation 保存测试，单独复跑仍未调用标注保存 API，并显示既有“状态读取失败：未知错误”。Research 专项集成文件全部通过。本次未调用真实 Provider/DeepSeek、未部署，也未验证私人资料的推荐质量。私有审查文档未纳入提交。

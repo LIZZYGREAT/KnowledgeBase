@@ -98,6 +98,12 @@
 .term-discovery-capacity-grid > div { display: grid; gap: 5px; border: 1px solid #e9eee9; border-radius: 8px; padding: 10px 11px; background: #fbfdfb; }
 .term-discovery-capacity-grid span { color: var(--text-subtle); font-size: var(--text-xs); }
 .term-discovery-capacity-grid strong { color: #405449; font-size: var(--text-base); }
+.term-discovery-direction-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; border: 1px solid #e9eee9; border-radius: 8px; padding: 11px 12px; background: #fbfdfb; }
+.term-discovery-direction-summary > div { display: grid; gap: 4px; }
+.term-discovery-direction-summary span { color: var(--text-subtle); font-size: var(--text-xs); }
+.term-discovery-direction-summary strong { color: #405449; font-size: var(--text-sm); }
+.term-discovery-direction-summary p { grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.5; }
+.term-discovery-direction-summary .term-discovery-direction-mismatch { border-radius: 7px; padding: 8px 10px; color: #80663e; background: #fff8eb; }
 .term-discovery-settings .section-heading { align-items: center; }
 .term-discovery-settings .section-heading p, .term-discovery-history .section-heading p { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--text-sm); }
 .term-discovery-lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -126,6 +132,7 @@
 .term-discovery-result small { color: var(--text-subtle); font-size: var(--text-xs); }
 @media (max-width: 740px) {
   .term-discovery-overview-heading { flex-direction: column; }
+  .term-discovery-direction-summary { grid-template-columns: minmax(0, 1fr); }
 }
 .term-discovery-result blockquote { margin: 1px 0 0; color: var(--text-subtle); font-size: var(--text-xs); line-height: 1.5; }
 .term-discovery-empty { margin: 0; color: var(--text-subtle); font-size: var(--text-sm); }

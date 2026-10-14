@@ -4,6 +4,7 @@ import {
   dismissResearchCandidate,
   restoreResearchCandidate,
   getResearchCandidate,
+  getLearningContext,
   getResearchProfile,
   getResearchRun,
   listResearchCandidates,
@@ -27,6 +28,7 @@ import {
   type ResearchRun,
   type ResearchSort,
   type Draft,
+  type LearningContextOverview,
 } from "./api";
 import { ResearchCandidateCard, ResearchCandidateDrawer, ResearchCreateNoteDialog, ResearchDismissDialog, ResearchShortlistDialog, type ResearchNoteOptions } from "./ResearchCandidate";
 import { ResearchProfilePanel } from "./ResearchProfile";
@@ -53,6 +55,7 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [profiles, setProfiles] = useState<ResearchProfileSummary[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [profile, setProfile] = useState<ResearchProfileDetail | null>(null);
+  const [learningContext, setLearningContext] = useState<LearningContextOverview | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [profileError, setProfileError] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -89,6 +92,27 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
   const [manualHistoryRange, setManualHistoryRange] = useState<{ start: string; end: string } | null>(null);
 
   const currentSummary = useMemo(() => profiles.find((item) => item.id === selectedProfileId) ?? null, [profiles, selectedProfileId]);
+
+  useEffect(() => {
+    let active = true;
+    void getLearningContext()
+      .then((context) => { if (active) setLearningContext(context); })
+      .catch(() => { if (active) setLearningContext(null); });
+    return () => { active = false; };
+  }, [refreshVersion]);
+
+  const activeLearningDirections = useMemo(() => {
+    if (!learningContext) return [];
+    return [...new Set([
+      learningContext.preferences.fixed_direction.trim(),
+      ...learningContext.topics.filter((topic) => topic.is_active).map((topic) => topic.title.trim()),
+    ].filter(Boolean))];
+  }, [learningContext]);
+
+  const profileFocusText = profile?.profile.id === selectedProfileId
+    ? [profile.profile.title, ...profile.profile.lenses.filter((lens) => lens.enabled).flatMap((lens) => [lens.title, ...lens.queries])].join(" ").toLocaleLowerCase()
+    : "";
+  const hasDirectionMismatch = activeLearningDirections.some((direction) => !profileFocusText.includes(direction.toLocaleLowerCase()));
 
   useEffect(() => {
     let active = true;
@@ -433,6 +457,14 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
 
   return <div className="page-stack research-page">
     <PageHeader eyebrow="发现与筛选论文" title="论文推荐" description="外部发现、知识关联与候选处理。每条发现都保留来源和分析依据。" action={<div className="research-profile-header-actions"><label className="research-profile-select"><span>研究方向</span><select aria-label="研究方向" value={selectedProfileId} onChange={(event) => { setProfileEditor(null); setSelectedProfileId(event.target.value); setTab("new"); setRestoreNotice(false); setOffset(0); setSelectedCandidates([]); }}><option value="" disabled>选择研究方向</option>{profiles.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button className="button button-secondary" onClick={() => setCreateProfileSource(null)}>新建研究方向</button><button className="button button-quiet" disabled={!profile || profile.profile.id !== selectedProfileId} onClick={() => setCreateProfileSource(profile?.profile ?? null)}>复制研究方向</button></div>} />
+    {profile?.profile.id === selectedProfileId && <section className="research-direction-summary surface" aria-label="学习方向与检索配置">
+      <div className="research-direction-summary-grid">
+        <div><span>当前学习方向</span><strong>{activeLearningDirections.join("、") || "尚未设置"}</strong></div>
+        <div><span>本次检索配置</span><strong>{profile.profile.title}</strong><small>启用主题与查询：{profile.profile.lenses.filter((lens) => lens.enabled).map((lens) => `${lens.title}：${lens.queries.join("、")}`).join("；") || "无"}</small></div>
+      </div>
+      <p>论文检索仍以所选研究方向中的启用主题和查询为基础；学习上下文只会补充能匹配现有主题的查询。</p>
+      {hasDirectionMismatch && <p className="research-direction-mismatch" role="status">当前学习方向与所选研究方向不同。本次检索仍使用 {profile.profile.title} 的检索配置，不会自动更改研究方向配置。</p>}
+    </section>}
     {profileError && <ErrorState message={profileError} retry={refresh} />}
     {profile && profile.profile.id === selectedProfileId && currentSummary && <ResearchProfilePanel summary={currentSummary} detail={profile} initialManualHistoryRange={manualHistoryRange} onManualHistoryRangeOpened={() => setManualHistoryRange(null)} onRefresh={refresh} onResults={() => { setTab("new"); refresh(); }} onRun={(id) => { void getResearchRun(id).then(setRunDetail).catch((reason) => setActionError(errorMessage(reason))); }} onQueued={() => { setSearchQueued(true); setTab("new"); refresh(); }} onEditDefaults={() => setProfileEditor({ profile: profile.profile, canonicalContent: profile.canonical_content, draftCreatedInThisFlow: false })} />}
     {profilePublishWarnings.length > 0 && <div className="notice research-queued-notice" role="status"><strong>研究方向已保存，并有格式提醒</strong><ul>{profilePublishWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="text-button" onClick={() => setProfilePublishWarnings([])}>忽略</button></div>}

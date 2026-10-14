@@ -61,6 +61,7 @@ describe("论文推荐 workspace", () => {
   let deferNextProfileRefresh = false;
   let resolveDeferredProfileRefresh: ((response: Response) => void) | null = null;
   let responseCandidateDetail = candidateDetail;
+  let responseLearningContext: Record<string, unknown>;
   let responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
   let responseDocuments: Array<{ id: string; title: string }> = [];
   let researchProfileDraft: Record<string, unknown> | null = null;
@@ -76,6 +77,16 @@ describe("论文推荐 workspace", () => {
     deferNextProfileRefresh = false;
     resolveDeferredProfileRefresh = null;
     responseCandidateDetail = candidateDetail;
+    responseLearningContext = {
+      sources: { included_document_ids: [], missing_document_ids: [], available_documents: [] },
+      preferences: { fixed_direction: "", keywords: [], exclude_keywords: [], exploration_directions: [], important_anchors: [] },
+      active: "",
+      important: "",
+      topics: [],
+      status: { state: "ready" },
+      editable_entries: [],
+      manual_entries: [],
+    };
     responseCollection = { id: "continual-learning", title: "Continual Learning", description: null, status: "active", position: 0, nodes: [{ id: "regularization", kind: "section", title: "Regularization", children: [] }] };
     responseDocuments = [];
     researchProfileDraft = null;
@@ -94,6 +105,7 @@ describe("论文推荐 workspace", () => {
       if (path === "/api/drafts?entity_type=collection&entity_id=continual-learning") return jsonResponse([]);
       if (path === "/api/documents?limit=100&offset=0") return jsonResponse(responseDocuments);
       if (path === "/api/research/profiles") return jsonResponse([responseProfileSummary, ...(responseAdditionalProfileSummary ? [responseAdditionalProfileSummary] : [])]);
+      if (path === "/api/learning-context") return jsonResponse(responseLearningContext);
       if (path === "/api/research/profiles/continual-learning" && deferNextProfileRefresh) {
         deferNextProfileRefresh = false;
         return new Promise<Response>((resolve) => { resolveDeferredProfileRefresh = resolve; });
@@ -226,6 +238,28 @@ describe("论文推荐 workspace", () => {
     expect(JSON.parse(String(shortlistCall?.[1]?.body))).toEqual({});
     expect(screen.queryByRole("heading", { name: "稍后阅读 candidate" })).toBeNull();
   }, 10_000);
+
+  it("distinguishes the active learning direction from the selected Research Profile", async () => {
+    responseLearningContext = {
+      sources: { included_document_ids: [], missing_document_ids: [], available_documents: [] },
+      preferences: { fixed_direction: "", keywords: [], exclude_keywords: [], exploration_directions: [], important_anchors: [] },
+      active: "",
+      important: "",
+      topics: [{ id: "reinforcement-learning", title: "Reinforcement Learning", aliases: ["RL"], keywords: ["reward learning"], is_active: true }],
+      status: { state: "ready" },
+      editable_entries: [],
+      manual_entries: [],
+    };
+    render(<App />);
+
+    expect(await screen.findByText("当前学习方向")).toBeTruthy();
+    expect(screen.getByText("Reinforcement Learning")).toBeTruthy();
+    expect(screen.getByText("本次检索配置")).toBeTruthy();
+    expect(screen.getAllByText("Continual Learning").length).toBeGreaterThan(1);
+    expect(screen.getByText(/fisher information catastrophic forgetting/)).toBeTruthy();
+    expect(screen.getByText(/不会自动更改研究方向配置/)).toBeTruthy();
+    expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/profiles/continual-learning" && init?.method === "PUT")).toBe(false);
+  });
 
   it("opens the conflicting canonical 文献 directly for metadata repair", () => {
     const openEntity = vi.fn();

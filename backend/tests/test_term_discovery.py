@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -929,6 +930,169 @@ def test_document_analysis_cache_ignores_markdown_formatting_and_wrapping(tmp_pa
     assert second.status == "success"
     assert len(gateway.calls_by_task("discover_terms")) == 1
     assert second_state == first_state
+    connection.close()
+
+
+def test_unrelated_term_review_does_not_reanalyze_selected_note(tmp_path):
+    _write_document(
+        tmp_path,
+        "gem-note",
+        "Gradient Episodic Memory",
+        "GEM constrains gradients with episodic memories.",
+        topics=["continual-learning"],
+    )
+    unrelated_term = tmp_path / "knowledge" / "terms" / "ethernet.md"
+    unrelated_term.parent.mkdir(parents=True, exist_ok=True)
+    _write_term(unrelated_term, "ethernet", "Ethernet", "standard")
+    context_service = LearningContextService(tmp_path)
+    context_service.set_sources(["gem-note"])
+    context_service.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    connection, service, _candidate_service, _pdf_service, gateway = _service(
+        tmp_path,
+        learning_context_service=context_service,
+    )
+    service.update_settings(
+        TermDiscoverySettings(enabled_lanes=["concept"], focus_override="continual learning")
+    )
+
+    assert service.run(discovery_mode="personalized").status == "success"
+    assert len(gateway.calls_by_task("discover_terms")) == 1
+
+    unrelated_term.write_text(
+        unrelated_term.read_text(encoding="utf-8").replace(
+            "---\n#", "review: {human: {status: approved}}\n---\n#"
+        ),
+        encoding="utf-8",
+    )
+    assert service.run(discovery_mode="personalized").status == "success"
+
+    assert len(gateway.calls_by_task("discover_terms")) == 1
+    connection.close()
+
+
+def test_term_analysis_cache_reopens_when_effective_direction_changes(tmp_path):
+    _write_document(
+        tmp_path,
+        "gem-note",
+        "Gradient Episodic Memory",
+        "GEM constrains gradients with episodic memories.",
+        topics=["continual-learning"],
+    )
+    context_service = LearningContextService(tmp_path)
+    context_service.set_sources(["gem-note"])
+    context_service.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    connection, service, _candidate_service, _pdf_service, gateway = _service(
+        tmp_path,
+        learning_context_service=context_service,
+    )
+    service.update_settings(
+        TermDiscoverySettings(enabled_lanes=["concept"], focus_override="continual learning")
+    )
+
+    assert service.run(discovery_mode="personalized").status == "success"
+    assert len(gateway.calls_by_task("discover_terms")) == 1
+
+    service.update_settings(
+        TermDiscoverySettings(
+            enabled_lanes=["concept"],
+            focus_override="continual learning systems",
+        )
+    )
+    assert service.run(discovery_mode="personalized").status == "success"
+
+    assert len(gateway.calls_by_task("discover_terms")) == 2
+    connection.close()
+
+
+def test_active_learning_topic_precedes_research_profile_focus_for_terms(tmp_path):
+    source_root = Path(__file__).resolve().parents[2]
+    research_config = tmp_path / "config" / "research"
+    profiles = research_config / "profiles"
+    profiles.mkdir(parents=True)
+    (research_config / "research.yaml").write_text(
+        (source_root / "config" / "research" / "research.yaml").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    (profiles / "continual-learning.yaml").write_text(
+        (source_root / "config" / "research" / "profiles" / "continual-learning.yaml").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    _write_document(
+        tmp_path,
+        "reinforcement-note",
+        "Reinforcement Learning Basics",
+        "Reinforcement learning uses rewards to guide sequential decisions.",
+        topics=["reinforcement-learning"],
+    )
+    context_service = LearningContextService(tmp_path)
+    context_service.set_sources(["reinforcement-note"])
+    context_service.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    context_service._write_yaml(
+        "index.yaml",
+        {
+            "active_topic_ids": ["reinforcement-learning"],
+            "topics": [
+                {
+                    "id": "reinforcement-learning",
+                    "title": "Reinforcement Learning",
+                    "aliases": ["RL"],
+                    "keywords": ["reward learning"],
+                }
+            ],
+        },
+    )
+    context_service._atomic_write(
+        "topics/reinforcement-learning.md",
+        render_entry(
+            {
+                "entry_id": "rl-core-idea",
+                "owner": "auto",
+                "title": "Core idea",
+                "source_headings": {"reinforcement-note": ["core idea#1"]},
+                "source_summaries": {
+                    "reinforcement-note": "Agents learn sequential decisions from rewards."
+                },
+                "summary": "Agents learn sequential decisions from rewards.",
+            }
+        ),
+    )
+    connection, service, _candidate_service, _pdf_service, gateway = _service(
+        tmp_path,
+        learning_context_service=context_service,
+    )
+    service.update_settings(TermDiscoverySettings(enabled_lanes=["concept"]))
+
+    run = service.run(discovery_mode="personalized")
+
+    term_call = next(
+        context
+        for task, context in gateway.calls
+        if task == "discover_terms"
+    )
+    assert run.status == "success"
+    assert term_call["focus"][0] == "Reinforcement Learning"
+    assert run.snapshot["effective_focus"][0] == "Reinforcement Learning"
+    assert "Continual Learning" in " ".join(run.snapshot["effective_focus"])
+    assert term_call["learning_context"]["topics"][0]["id"] == "reinforcement-learning"
     connection.close()
 
 

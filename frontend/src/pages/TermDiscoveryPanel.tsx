@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  getLearningContext,
   getTermDiscoveryState,
   listTermDiscoveryRuns,
   runTermDiscovery,
@@ -9,6 +10,7 @@ import {
   type TermDiscoveryMode,
   type TermDiscoverySettings,
   type TermDiscoveryState,
+  type LearningContextOverview,
 } from "../api";
 import { errorMessage } from "../errors";
 import { Chip, ErrorState, LoadingState } from "../ui";
@@ -51,6 +53,7 @@ const READINESS_LABELS: Record<TermDiscoveryRun["items"][number]["assessment"]["
 export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => void }) {
   const [state, setState] = useState<TermDiscoveryState | null>(null);
   const [runs, setRuns] = useState<TermDiscoveryRun[]>([]);
+  const [learningContext, setLearningContext] = useState<LearningContextOverview | null>(null);
   const [draft, setDraft] = useState<TermDiscoverySettings | null>(null);
   const [sourceText, setSourceText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -82,6 +85,14 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
       })
       .catch((reason: unknown) => { if (active) setError(errorMessage(reason)); })
       .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void getLearningContext()
+      .then((context) => { if (active) setLearningContext(context); })
+      .catch(() => { if (active) setLearningContext(null); });
     return () => { active = false; };
   }, []);
 
@@ -153,6 +164,21 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
   if (error && !state) return <ErrorState message={error} retry={() => { setLoading(true); void refresh().catch((reason: unknown) => setError(errorMessage(reason))).finally(() => setLoading(false)); }} />;
   if (!state || !draft) return null;
 
+  const learningDirections = learningContext
+    ? [...new Set([
+      learningContext.preferences.fixed_direction.trim(),
+      ...learningContext.topics.filter((topic) => topic.is_active).map((topic) => topic.title.trim()),
+    ].filter(Boolean))]
+    : [];
+  const latestRun = state.last_run ?? runs[0] ?? null;
+  const latestEffectiveFocus = Array.isArray(latestRun?.snapshot.effective_focus)
+    ? latestRun.snapshot.effective_focus.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  const focusMissesLearningDirection = learningContext?.topics.some((topic) =>
+    topic.is_active && latestEffectiveFocus.length > 0
+    && !latestEffectiveFocus.some((focus) => focus.toLocaleLowerCase().includes(topic.title.toLocaleLowerCase())),
+  ) ?? false;
+
   return (
     <section className="term-discovery-panel" aria-label="发现术语">
       <div className="term-discovery-overview surface">
@@ -166,6 +192,12 @@ export function TermDiscoveryPanel({ navigate }: { navigate?: (path: string) => 
         <div className="term-discovery-capacity-grid">
           <div><span>待处理术语</span><strong>{state.open_count} / {state.global_capacity}</strong></div>
         </div>
+        <section className="term-discovery-direction-summary" aria-label="当前学习方向与最近一次 Terms 实际方向">
+          <div><span>当前学习方向</span><strong>{learningDirections.join("、") || "尚未设置明确方向"}</strong></div>
+          <div><span>最近一次 Terms 实际方向</span><strong>{latestEffectiveFocus.join("、") || "暂无运行记录"}</strong></div>
+          <p>新运行优先使用自定义或固定方向，活跃专题也会参与方向选择；启用的 Research Profiles/Lenses 作为补充。最近一次运行记录用于核对已执行方向。</p>
+          {focusMissesLearningDirection && <p className="term-discovery-direction-mismatch" role="status">最近一次运行方向未包含全部活跃专题；活跃方向已变化时，请以新运行记录确认实际范围。</p>}
+        </section>
         {state.last_run && <p className="term-discovery-last-run">最近发现 · {RUN_STATUS_LABELS[state.last_run.status]} · {new Date(state.last_run.started_at).toLocaleString()}</p>}
       </div>
 
