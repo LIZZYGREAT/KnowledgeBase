@@ -37,6 +37,8 @@ python tools/learning_context.py sync --root . --dry-run
 
 检查结果后，可在页面点击“同步知识变化”，或运行 `python tools/learning_context.py sync --root .`。`--force` 可重新分析并核对所有已选笔记；超出本次核对预算的旧条目会保留并提示人工检查，任何未被 AI 明确移除的旧条目都会保留，因此这不保证逐条自动重新证明全部旧知识。`--source-id <ID>` 可限制到一个已选来源。同步只更新本地学习上下文，不发布 Canonical 知识。
 
+如果选定笔记中的重复 H1/H2 标题发生增删、改名、重排，导致旧章节无法可靠对应，普通同步和 `--force` 都会停止处理该来源，并保留现有上下文与已处理基线。提示会列出受影响标题；请将这些同名章节逐一改成不同标题后重试。
+
 学习上下文不进入 Git。个人备份时请保留 `storage/learning-context/`；生产备份脚本会归档整个忽略的 `storage/` 目录。产品边界与掌握证据规则见[产品原则](docs/PRODUCT_PRINCIPLES.md)。
 
 ## Local setup
