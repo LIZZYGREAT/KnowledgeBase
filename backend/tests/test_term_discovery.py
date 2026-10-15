@@ -37,6 +37,7 @@ from backend.app.services.term_discovery_service import (
 from backend.app.services.canonical_target_resolver import CanonicalTargetResolver
 from backend.app.services.term_registry import TermRegistry
 from backend.app.services.term_resolver import TermResolver
+from backend.app.services import term_discovery_service as term_discovery_module
 from backend.app.services.vocabulary_mining import mine_vocabulary
 from backend.app.services.wikipedia_discovery import ExternalDiscoveryResult
 
@@ -235,6 +236,88 @@ def test_scheduled_check_runs_once_per_rolling_24_hours(tmp_path):
         "discover_terms",
         "discover_terms",
     ]
+    connection.close()
+
+
+def test_scheduled_check_reuses_run_focus_with_manual_learning_direction(
+    tmp_path, monkeypatch
+):
+    _write_document(
+        tmp_path,
+        "gem-note",
+        "Gradient Episodic Memory",
+        "GEM constrains gradients with episodic memories.",
+        topics=["continual-learning"],
+    )
+    learning_context = LearningContextService(tmp_path)
+    learning_context.set_sources(["gem-note"])
+    learning_context.save_memory(
+        "active",
+        "# Current direction\n\nI want to study Synaptic Intelligence (SI) next.\n",
+    )
+    learning_context.sync_if_stale = lambda: {
+        "state": "synced",
+        "stale": False,
+        "used_previous_context": False,
+        "message": "学习上下文已是最新。",
+    }
+    connection, service, _candidate_service, _pdf_service, gateway = _service(
+        tmp_path,
+        learning_context_service=learning_context,
+    )
+    service.update_settings(TermDiscoverySettings(enabled_lanes=["concept"]))
+    now = datetime(2026, 10, 7, 10, tzinfo=timezone.utc)
+    service.clock = lambda: now
+
+    first = service.run(discovery_mode="personalized")
+    cached_analysis = service.repository.get_analysis_state(
+        "document:gem-note", "concept"
+    )
+    runs_before_check = len(service.repository.list_runs())
+    calls_before_check = len(gateway.calls_by_task("discover_terms"))
+    assert first.status == "success"
+    assert cached_analysis is not None
+
+    selected_focus_hashes = []
+    original_select_documents = term_discovery_module._select_documents
+
+    def record_selected_focus_hash(*args, **kwargs):
+        selected_focus_hashes.append(
+            args[5] if len(args) > 5 else kwargs["focus_hash"]
+        )
+        return original_select_documents(*args, **kwargs)
+
+    monkeypatch.setattr(
+        term_discovery_module, "_select_documents", record_selected_focus_hash
+    )
+
+    now += timedelta(hours=24)
+    repeated = service.scheduled_check()
+
+    assert repeated is None
+    assert selected_focus_hashes == [cached_analysis["focus_hash"]]
+    assert len(service.repository.list_runs()) == runs_before_check
+    assert len(gateway.calls_by_task("discover_terms")) == calls_before_check
+
+    learning_context.save_memory(
+        "active",
+        "# Current direction\n\nI want to study Memory Aware Synapses (MAS) next.\n",
+    )
+    changed_direction = service.scheduled_check()
+
+    assert changed_direction is not None
+    assert selected_focus_hashes[-2] == selected_focus_hashes[-1]
+    assert selected_focus_hashes[-1] != cached_analysis["focus_hash"]
+    updated_analysis = service.repository.get_analysis_state(
+        "document:gem-note", "concept"
+    )
+    assert updated_analysis["focus_hash"] == selected_focus_hashes[-1]
+    executed_context = gateway.calls_by_task("discover_terms")[-1][1]
+    assert (
+        executed_context["learning_context"]["current_focus"]
+        == changed_direction.snapshot["effective_focus"]
+    )
+    assert len(gateway.calls_by_task("discover_terms")) == calls_before_check + 1
     connection.close()
 
 

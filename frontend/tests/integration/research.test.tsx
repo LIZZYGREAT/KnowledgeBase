@@ -261,6 +261,47 @@ describe("论文推荐 workspace", () => {
     expect(mockFetch.mock.calls.some(([input, init]) => String(input) === "/api/research/profiles/continual-learning" && init?.method === "PUT")).toBe(false);
   });
 
+  it("recognizes a Chinese topic title through its stable matching profile id", async () => {
+    responseLearningContext = {
+      sources: { included_document_ids: [], missing_document_ids: [], available_documents: [] },
+      preferences: { fixed_direction: "", keywords: [], exclude_keywords: [], exploration_directions: [], important_anchors: [] },
+      active: "",
+      important: "",
+      topics: [{ id: "continual-learning", title: "持续学习", aliases: [], keywords: [], is_active: true }],
+      status: { state: "ready" },
+      editable_entries: [],
+      manual_entries: [],
+    };
+    render(<App />);
+
+    expect(await screen.findByText("当前学习方向")).toBeTruthy();
+    expect(screen.getByText("持续学习")).toBeTruthy();
+    expect(screen.getByText("本次检索配置")).toBeTruthy();
+    expect(screen.getAllByText("Continual Learning").length).toBeGreaterThan(1);
+    expect(screen.queryByText(/当前学习方向与所选研究方向不同/)).toBeNull();
+  });
+
+  it("shows both directions without claiming a mismatch when their mapping is unclear", async () => {
+    responseLearningContext = {
+      sources: { included_document_ids: [], missing_document_ids: [], available_documents: [] },
+      preferences: { fixed_direction: "", keywords: [], exclude_keywords: [], exploration_directions: [], important_anchors: [] },
+      active: "",
+      important: "",
+      topics: [{ id: "special-topic", title: "Special Topic", aliases: [], keywords: [], is_active: true }],
+      status: { state: "ready" },
+      editable_entries: [],
+      manual_entries: [],
+    };
+    render(<App />);
+
+    expect(await screen.findByText("当前学习方向")).toBeTruthy();
+    expect(screen.getByText("Special Topic")).toBeTruthy();
+    expect(screen.getByText("本次检索配置")).toBeTruthy();
+    expect(screen.getAllByText("Continual Learning").length).toBeGreaterThan(1);
+    expect(screen.getByText(/学习上下文只会补充能匹配现有主题的查询/)).toBeTruthy();
+    expect(screen.queryByText(/当前学习方向与所选研究方向不同/)).toBeNull();
+  });
+
   it("opens the conflicting canonical 文献 directly for metadata repair", () => {
     const openEntity = vi.fn();
     render(<ResearchCandidateDrawer

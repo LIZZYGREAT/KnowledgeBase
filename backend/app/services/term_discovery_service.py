@@ -210,36 +210,10 @@ class TermDiscoveryService:
         focus: list[str] = []
         focus_snapshot: dict = {}
         if core_lanes or settings.external_enabled:
-            base_focus = _focus_context(self.repository_root, settings)
-            preferences = self._learning_preferences()
-            active_topic_titles = self._active_learning_topic_titles()
-            context_seed = _learning_context_query(
-                base_focus,
-                preferences,
-                settings.focus_override,
-                active_topic_titles,
+            focus, focus_snapshot, learning_context, focus_hash = (
+                self._effective_terms_focus_context(settings)
             )
-            learning_context = self._learning_context(
-                context_seed.split(), preferences
-            )
-            explicit_focus = _term_focus_seed(
-                base_focus,
-                preferences,
-                [
-                    *active_topic_titles,
-                    *(item["title"] for item in learning_context["topics"]),
-                ],
-                settings.focus_override,
-            )
-            focus_snapshot = self.knowledge_state.build_snapshot(explicit_focus)
-            focus = _discovery_focus(
-                explicit_focus, focus_snapshot, settings.focus_override
-            )
-            learning_context["current_focus"] = focus[:20]
         if core_lanes:
-            focus_hash = _term_discovery_focus_hash(
-                focus, learning_context
-            )
             registry = TermRegistry.load(
                 self.repository_root / "knowledge" / "terms"
             )
@@ -260,6 +234,37 @@ class TermDiscoveryService:
         if not has_note:
             return None
         return self.run(trigger="scheduled", discovery_mode="personalized")
+
+    def _effective_terms_focus_context(self, settings):
+        base_focus = _focus_context(self.repository_root, settings)
+        preferences = self._learning_preferences()
+        active_topic_titles = self._active_learning_topic_titles()
+        context_seed = _learning_context_query(
+            base_focus,
+            preferences,
+            settings.focus_override,
+            active_topic_titles,
+        )
+        learning_context = self._learning_context(
+            context_seed.split(), preferences
+        )
+        explicit_focus = _term_focus_seed(
+            base_focus,
+            preferences,
+            [
+                *active_topic_titles,
+                *(item["title"] for item in learning_context["topics"]),
+                learning_context["user_direction"],
+            ],
+            settings.focus_override,
+        )
+        snapshot = self.knowledge_state.build_snapshot(explicit_focus)
+        focus = _discovery_focus(
+            explicit_focus, snapshot, settings.focus_override
+        )
+        learning_context["current_focus"] = focus[:20]
+        focus_hash = _term_discovery_focus_hash(focus, learning_context)
+        return focus, snapshot, learning_context, focus_hash
 
     def _run_locked(
         self, trigger: str, started_at: str, run_id: str, discovery_mode: str
@@ -337,32 +342,11 @@ class TermDiscoveryService:
         if callable(sync_if_stale):
             sync_status = sync_if_stale()
 
-        base_focus = _focus_context(self.repository_root, settings)
-        preferences = self._learning_preferences()
-        active_topic_titles = self._active_learning_topic_titles()
-        context_seed = _learning_context_query(
-            base_focus,
-            preferences,
-            settings.focus_override,
-            active_topic_titles,
+        focus, snapshot, learning_context, focus_hash = (
+            self._effective_terms_focus_context(settings)
         )
-        learning_context = self._learning_context(context_seed.split(), preferences)
-        explicit_focus = _term_focus_seed(
-            base_focus,
-            preferences,
-            [
-                *active_topic_titles,
-                *(item["title"] for item in learning_context["topics"]),
-                learning_context["user_direction"],
-            ],
-            settings.focus_override,
-        )
-        snapshot = self.knowledge_state.build_snapshot(explicit_focus)
         snapshot["discovery_mode"] = discovery_mode
-        focus = _discovery_focus(explicit_focus, snapshot, settings.focus_override)
-        learning_context["current_focus"] = focus[:20]
         snapshot["effective_focus"] = focus[:20]
-        focus_hash = _term_discovery_focus_hash(focus, learning_context)
         snapshot["learning_context"] = {
             "included_source_ids": [
                 item["id"] for item in learning_context["included_sources"]

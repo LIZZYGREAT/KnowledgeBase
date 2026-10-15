@@ -50,6 +50,43 @@ const HISTORY_STATUSES: Array<{ id: HistoryStatus; label: string }> = [
   { id: "note_created", label: "已创建笔记" },
 ];
 
+function normalizeDirectionLabel(value: string) {
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function topicMatchesProfile(
+  topic: LearningContextOverview["topics"][number],
+  profile: ResearchProfile,
+) {
+  const topicLabels = [topic.id, topic.title, ...topic.aliases, ...topic.keywords]
+    .map(normalizeDirectionLabel)
+    .filter(Boolean);
+  const profileLabels = [
+    profile.id,
+    profile.title,
+    ...profile.lenses.filter((lens) => lens.enabled).flatMap((lens) => [
+      lens.id,
+      lens.title,
+      ...lens.queries,
+    ]),
+  ].map(normalizeDirectionLabel).filter(Boolean);
+  return topicLabels.some((label) => profileLabels.includes(label));
+}
+
+function hasExplicitLearningDomainMismatch(
+  topics: LearningContextOverview["topics"],
+  profile: ResearchProfile,
+) {
+  const profileId = normalizeDirectionLabel(profile.id);
+  return topics.some((topic) => {
+    if (topicMatchesProfile(topic, profile)) return false;
+    const topicId = normalizeDirectionLabel(topic.id);
+    return topicId !== profileId
+      && topicId.endsWith(" learning")
+      && profileId.endsWith(" learning");
+  });
+}
+
 export default function ResearchPage({ navigate }: { navigate: (path: string) => void }) {
   const [requestedWorkId] = useState(() => new URLSearchParams(window.location.search).get("work_id") ?? "");
   const [profiles, setProfiles] = useState<ResearchProfileSummary[]>([]);
@@ -109,10 +146,11 @@ export default function ResearchPage({ navigate }: { navigate: (path: string) =>
     ].filter(Boolean))];
   }, [learningContext]);
 
-  const profileFocusText = profile?.profile.id === selectedProfileId
-    ? [profile.profile.title, ...profile.profile.lenses.filter((lens) => lens.enabled).flatMap((lens) => [lens.title, ...lens.queries])].join(" ").toLocaleLowerCase()
-    : "";
-  const hasDirectionMismatch = activeLearningDirections.some((direction) => !profileFocusText.includes(direction.toLocaleLowerCase()));
+  const hasDirectionMismatch = profile?.profile.id === selectedProfileId
+    && hasExplicitLearningDomainMismatch(
+      learningContext?.topics.filter((topic) => topic.is_active) ?? [],
+      profile.profile,
+    );
 
   useEffect(() => {
     let active = true;
