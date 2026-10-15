@@ -92,14 +92,22 @@ function withManualNotes(markdown: string, manualNotes: string) {
   return [manualNotes.trim(), ...automaticBlocks].filter(Boolean).join("\n\n");
 }
 
-function lastManualReviewEntryIds(status: LearningContextOverview["status"]) {
+function lastManualReviewEntryIds(
+  status: LearningContextOverview["status"],
+  manualEntries: LearningContextOverview["manual_entries"] = [],
+) {
   const result = status.last_result;
   if (!Array.isArray(result)) return [];
+  const handledIds = new Set(
+    manualEntries
+      .filter((entry) => entry.pinned || entry.removed)
+      .map((entry) => entry.entry_id),
+  );
   return Array.from(new Set(result.flatMap((source) => {
     if (!source || typeof source !== "object") return [];
     const ids = (source as { manual_review_entry_ids?: unknown }).manual_review_entry_ids;
     return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
-  })));
+  }))).filter((entryId) => !handledIds.has(entryId));
 }
 
 function splitSourceSummaries(summary: string) {
@@ -117,7 +125,6 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
-  const [manualReviewEntryIds, setManualReviewEntryIds] = useState<string[]>([]);
   const [pendingEntryFocusId, setPendingEntryFocusId] = useState("");
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -152,7 +159,6 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     try {
       const value = await getLearningContext();
       setOverview(value);
-      setManualReviewEntryIds(lastManualReviewEntryIds(value.status));
       if (!options.preserveSourceDraft) setSelectedIds(value.sources.included_document_ids);
       if (!options.preservePreferenceDraft) {
         setPreferencesDraft(value.preferences);
@@ -209,6 +215,9 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
       && JSON.stringify(normalizedPreferenceDraft) !== JSON.stringify(overview.preferences),
   );
   const memoryDirty = memoryEditing && memoryLoaded && memoryText !== memoryOriginal;
+  const manualReviewEntryIds = overview
+    ? lastManualReviewEntryIds(overview.status, overview.manual_entries)
+    : [];
   const editableEntries = overview?.editable_entries.filter(
     (entry) => entry.relative_path === memoryPath(selectedLayer),
   ) ?? [];
@@ -476,12 +485,6 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     try {
       const result = await syncLearningContext({ force, source_id: onlySourceId });
       await refresh();
-      const ids = result.source_results.flatMap((source) =>
-        Array.isArray(source.manual_review_entry_ids)
-          ? source.manual_review_entry_ids.filter((entryId): entryId is string => typeof entryId === "string")
-          : [],
-      );
-      setManualReviewEntryIds(Array.from(new Set(ids)));
       setNotice(result.message);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "同步学习上下文失败");

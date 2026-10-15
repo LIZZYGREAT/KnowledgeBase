@@ -159,6 +159,7 @@ describe("学习进度上下文 page", () => {
 
   it("restores the latest over-budget review links from the saved sync result", async () => {
     const current = overview();
+    current.sources.included_document_ids = ["gem-note"];
     current.topics = [{ id: "continual-learning", title: "持续学习", aliases: [], keywords: [] }];
     current.editable_entries.push({
       relative_path: "topics/continual-learning.md",
@@ -175,17 +176,57 @@ describe("学习进度上下文 page", () => {
       message: "最近一次同步有旧知识待核对",
       last_result: [{ source_id: "gem-note", manual_review_entry_ids: ["old-entry"] }],
     };
-    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    vi.spyOn(api, "getLearningContext").mockImplementation(async () => structuredClone(current));
     vi.spyOn(api, "getLearningContextTopic").mockResolvedValue({
       ...current.topics[0],
       markdown: '<!-- learning-context-entry {"entry_id":"old-entry","owner":"auto","source_headings":{"gem-note":["Mechanism"]},"layer":"topic","title":"待核对的旧知识","summary":"仍保留的正文。"} -->\n### 待核对的旧知识\n\n仍保留的正文。\n<!-- /learning-context-entry -->\n',
     });
+    vi.spyOn(api, "syncLearningContext").mockResolvedValue({
+      state: "synced",
+      message: "没有新的笔记变化。",
+      analyzed_count: 0,
+      skipped_count: 1,
+      source_results: [],
+    });
+    vi.spyOn(api, "updateLearningContextEntry").mockImplementation(async (entryId, value) => {
+      current.manual_entries = [{
+        relative_path: "topics/continual-learning.md",
+        entry_id: entryId,
+        title: value.title,
+        pinned: true,
+        removed: false,
+        support_state: null,
+      }];
+      current.editable_entries = current.editable_entries.map((entry) => entry.entry_id === entryId
+        ? { ...entry, title: value.title, summary: value.summary, pinned: true }
+        : entry);
+      return {
+        relative_path: "topics/continual-learning.md",
+        entry_id: entryId,
+        title: value.title,
+        summary: value.summary,
+        pinned: true,
+        markdown: "### 待核对的旧知识\n\n人工核对后的正文。",
+        manual_entries: current.manual_entries,
+      };
+    });
     const user = userEvent.setup();
-    render(<LearningContextPage />);
+    const firstPage = render(<LearningContextPage />);
 
+    expect(await screen.findByText("本次有 1 条旧知识未进入核对")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "同步知识变化" }));
+    expect(await screen.findByText("没有新的笔记变化。")).toBeTruthy();
+    expect(screen.getByText("本次有 1 条旧知识未进入核对")).toBeTruthy();
+    firstPage.unmount();
+    render(<LearningContextPage />);
     expect(await screen.findByText("本次有 1 条旧知识未进入核对")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "查看：持续学习 · 待核对的旧知识" }));
     expect((await screen.findAllByText("仍保留的正文。")).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "编辑条目" }));
+    fireEvent.change(screen.getByLabelText("知识标题"), { target: { value: "人工核对的知识" } });
+    fireEvent.change(screen.getByLabelText("知识正文"), { target: { value: "人工核对后的正文。" } });
+    await user.click(screen.getByRole("button", { name: "保存并固定" }));
+    await waitFor(() => expect(screen.queryByText("本次有 1 条旧知识未进入核对")).toBeNull());
   });
 
   it("shows source note titles separately from automatic knowledge summaries", async () => {
@@ -354,6 +395,10 @@ describe("学习进度上下文 page", () => {
 
   it("edits one automatic entry without exposing metadata or pinning other entries", async () => {
     let current = overview();
+    current.status = {
+      state: "synced",
+      last_result: [{ source_id: "gem-note", manual_review_entry_ids: ["current-direction"] }],
+    };
     vi.spyOn(api, "getLearningContext").mockImplementation(async () => structuredClone(current));
     vi.spyOn(api, "updateLearningContextEntry").mockImplementation(async (entryId, value) => {
       const savedMarkdown = current.active
@@ -388,6 +433,7 @@ describe("学习进度上下文 page", () => {
     const user = userEvent.setup();
     render(<LearningContextPage />);
 
+    expect(await screen.findByText("本次有 1 条旧知识未进入核对")).toBeTruthy();
     expect(await screen.findByText("当前方向")).toBeTruthy();
     expect(screen.getByText("相关知识")).toBeTruthy();
     expect(screen.queryByText(/learning-context-entry/)).toBeNull();
@@ -479,7 +525,7 @@ describe("学习进度上下文 page", () => {
       pinned: false,
       support_state: null,
     }));
-    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    vi.spyOn(api, "getLearningContext").mockImplementation(async () => structuredClone(current));
     vi.spyOn(api, "getLearningContextTopic").mockResolvedValue({
       id: "continual-learning",
       title: "持续学习",
@@ -492,20 +538,38 @@ describe("学习进度上下文 page", () => {
       configurable: true,
       value: scrollIntoView,
     });
-    const sync = vi.spyOn(api, "syncLearningContext").mockResolvedValue({
-      state: "synced",
-      message: "同步完成：4 条旧知识超出单次核对预算。",
-      analyzed_count: 1,
-      skipped_count: 0,
-      source_results: [{
-        source_id: "gem-note",
-        manual_review_entry_ids: [
-          "chapter-13-entry",
-          "chapter-14-entry",
-          "chapter-15-entry",
-          "chapter-16-entry",
-        ],
-      }],
+    let syncCount = 0;
+    const pendingReview = {
+      source_id: "gem-note",
+      manual_review_entry_ids: [
+        "chapter-13-entry",
+        "chapter-14-entry",
+        "chapter-15-entry",
+        "chapter-16-entry",
+      ],
+    };
+    const sync = vi.spyOn(api, "syncLearningContext").mockImplementation(async () => {
+      syncCount += 1;
+      if (syncCount === 1) {
+        current.status = {
+          ...current.status,
+          last_result: [pendingReview],
+        };
+        return {
+          state: "synced",
+          message: "同步完成：4 条旧知识超出单次核对预算。",
+          analyzed_count: 1,
+          skipped_count: 0,
+          source_results: [pendingReview],
+        };
+      }
+      return {
+        state: "synced",
+        message: "没有新的笔记变化。",
+        analyzed_count: 0,
+        skipped_count: 1,
+        source_results: [],
+      };
     });
     const user = userEvent.setup();
     render(<LearningContextPage />);
@@ -532,13 +596,17 @@ describe("学习进度上下文 page", () => {
   it("shows the ID when an over-budget entry is absent from the current list", async () => {
     const current = overview();
     current.sources.included_document_ids = ["gem-note"];
-    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
-    vi.spyOn(api, "syncLearningContext").mockResolvedValue({
-      state: "synced",
-      message: "同步完成：1 条旧知识超出单次核对预算。",
-      analyzed_count: 1,
-      skipped_count: 0,
-      source_results: [{ source_id: "gem-note", manual_review_entry_ids: ["missing-entry"] }],
+    vi.spyOn(api, "getLearningContext").mockImplementation(async () => structuredClone(current));
+    vi.spyOn(api, "syncLearningContext").mockImplementation(async () => {
+      const sourceResult = { source_id: "gem-note", manual_review_entry_ids: ["missing-entry"] };
+      current.status = { ...current.status, last_result: [sourceResult] };
+      return {
+        state: "synced",
+        message: "同步完成：1 条旧知识超出单次核对预算。",
+        analyzed_count: 1,
+        skipped_count: 0,
+        source_results: [sourceResult],
+      };
     });
     const user = userEvent.setup();
     render(<LearningContextPage />);
