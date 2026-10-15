@@ -227,6 +227,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
     entryDraftTitle !== editingEntry.title || entryDraftSummary !== editingEntry.summary
   ));
   const manualNoteDirty = manualNoteEditing && manualNoteDraft !== manualNoteOriginal;
+  const memoryEditorOpen = Boolean(editingEntryId || manualNoteEditing || memoryEditing);
   const hasUnsavedChanges = sourceDirty || preferencesDirty || memoryDirty || entryDirty || manualNoteDirty;
 
   useEffect(() => {
@@ -323,6 +324,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   }
 
   async function saveMemory() {
+    if (!memoryEditing || editingEntryId || manualNoteEditing) return;
     setSaving(true);
     setNotice("");
     try {
@@ -343,6 +345,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   }
 
   async function saveManualNote() {
+    if (!manualNoteEditing || editingEntryId || memoryEditing) return;
     const markdown = withManualNotes(memoryText, manualNoteDraft);
     setSaving(true);
     setNotice("");
@@ -366,12 +369,27 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
   }
 
   function beginEntryEdit(entry: LearningContextEditableEntry) {
+    if (memoryEditorOpen) return;
     setEditingEntryId(entry.entry_id);
     setEntryDraftTitle(entry.title);
     setEntryDraftSummary(entry.summary);
   }
 
+  function beginManualNoteEdit(markdown: string) {
+    if (memoryEditorOpen) return;
+    setManualNoteOriginal(markdown);
+    setManualNoteDraft(markdown);
+    setManualNoteEditing(true);
+  }
+
+  function beginMemoryEdit() {
+    if (memoryEditorOpen) return;
+    setMemoryText(memoryOriginal);
+    setMemoryEditing(true);
+  }
+
   async function saveEntry(entry: LearningContextEditableEntry) {
+    if (!editingEntryId || manualNoteEditing || memoryEditing) return;
     if (!entryDraftTitle.trim() || !entryDraftSummary.trim()) {
       setNotice("条目标题和正文都不能为空。");
       return;
@@ -443,7 +461,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
 
   async function runSync(force = false, onlySourceId?: string) {
     if (!overview) return;
-    if (sourceDirty || preferencesDirty || memoryDirty || entryDirty || manualNoteDirty) {
+    if (sourceDirty || preferencesDirty || memoryEditorOpen || memoryDirty || entryDirty || manualNoteDirty) {
       setNotice("请先保存当前未提交的修改，再同步学习上下文。");
       return;
     }
@@ -474,8 +492,15 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
 
   function changeMemoryLayer(nextLayer: MemoryLayer) {
     if (nextLayer === selectedLayer) return true;
-    if ((memoryDirty || entryDirty || manualNoteDirty) && !window.confirm("当前上下文有未保存的修改；放弃修改并切换层级吗？")) {
+    if (memoryEditorOpen && !window.confirm("当前上下文编辑模式已打开；切换层级会放弃未保存的修改。仍要切换吗？")) {
       return false;
+    }
+    if (memoryEditorOpen) {
+      setEditingEntryId("");
+      setManualNoteEditing(false);
+      setManualNoteDraft(manualNoteOriginal);
+      setMemoryEditing(false);
+      setMemoryText(memoryOriginal);
     }
     setSelectedLayer(nextLayer);
     return true;
@@ -561,10 +586,10 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
           </div>
         )}
         <div className="learning-panel-actions">
-          <button className="button button-primary" type="button" disabled={(!sourceCount && overview.status.state !== "pending") || sourceDirty || saving || syncing || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void runSync()}>
+          <button className="button button-primary" type="button" disabled={(!sourceCount && overview.status.state !== "pending") || sourceDirty || saving || syncing || memoryEditorOpen || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void runSync()}>
             {syncing ? (syncProgress?.phase === "analyzing" ? "正在分析…" : "正在检查…") : "同步知识变化"}
           </button>
-          <button className="button button-secondary" type="button" disabled={!sourceCount || sourceDirty || saving || syncing || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void runSync(true)}>
+          <button className="button button-secondary" type="button" disabled={!sourceCount || sourceDirty || saving || syncing || memoryEditorOpen || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void runSync(true)}>
             重新分析并核对全部已选资料
           </button>
         </div>
@@ -602,7 +627,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                   <button
                     className="text-button"
                     type="button"
-                    disabled={sourceDirty || saving || syncing || manualNoteDirty}
+                    disabled={sourceDirty || saving || syncing || memoryEditorOpen || manualNoteDirty}
                     onClick={() => void runSync(true, source.id)}
                   >
                     重新分析并核对这篇
@@ -647,9 +672,9 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
           </div>
           {selectedTopic && (
             <div className="learning-topic-actions" aria-label="专题方向管理">
-              {!selectedTopic.is_active && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void changeTopicStatus("current")}>设为当前方向</button>}
-              {selectedTopic.is_active && selectedTopic.manual_status !== "history" && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void changeTopicStatus("history")}>移至历史</button>}
-              {selectedTopic.manual_status === "current" || selectedTopic.manual_status === "history" ? <button className="text-button" type="button" disabled={saving || syncing || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void changeTopicStatus("automatic")}>恢复自动整理</button> : selectedTopic.is_active ? <button className="text-button" type="button" disabled={saving || syncing || memoryDirty || entryDirty || manualNoteDirty} onClick={() => void changeTopicStatus("current")}>固定为当前方向</button> : null}
+              {!selectedTopic.is_active && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={() => void changeTopicStatus("current")}>设为当前方向</button>}
+              {selectedTopic.is_active && selectedTopic.manual_status !== "history" && <button className="button button-secondary" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={() => void changeTopicStatus("history")}>移至历史</button>}
+              {selectedTopic.manual_status === "current" || selectedTopic.manual_status === "history" ? <button className="text-button" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={() => void changeTopicStatus("automatic")}>恢复自动整理</button> : selectedTopic.is_active ? <button className="text-button" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={() => void changeTopicStatus("current")}>固定为当前方向</button> : null}
             </div>
           )}
           <p className="learning-memory-preservation">
@@ -675,7 +700,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                     <button
                       className="text-button"
                       type="button"
-                      disabled={saving || manualNoteDirty || manualNoteEditing}
+                      disabled={saving || memoryEditorOpen}
                       aria-label={entry.removed ? `允许自动补回：${entry.title}` : `解除固定：${entry.title}`}
                       onClick={() => void restoreAutomatic(entry.entry_id)}
                     >
@@ -686,7 +711,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                     <button
                       className="text-button"
                       type="button"
-                      disabled={saving || manualNoteDirty || manualNoteEditing}
+                      disabled={saving || memoryEditorOpen}
                       aria-label={`确认剩余来源支持：${entry.title}`}
                       onClick={() => void restoreAutomatic(entry.entry_id, true)}
                     >
@@ -717,7 +742,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                           <textarea value={entryDraftSummary} maxLength={2000} onChange={(event) => setEntryDraftSummary(event.target.value)} />
                         </label>
                         <div className="learning-panel-actions">
-                          <button className="button button-primary" type="button" disabled={saving || !entryDirty} onClick={() => void saveEntry(entry)}>{saving ? "正在保存…" : "保存并固定"}</button>
+                          <button className="button button-primary" type="button" disabled={saving || !entryDirty || manualNoteEditing || memoryEditing} onClick={() => void saveEntry(entry)}>{saving ? "正在保存…" : "保存并固定"}</button>
                           <button className="button button-secondary" type="button" disabled={saving} onClick={() => setEditingEntryId("")}>取消</button>
                           {entryDirty && <span className="learning-unsaved">条目有未保存的修改</span>}
                         </div>
@@ -726,7 +751,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                       <>
                         <div className="learning-memory-auto-entry-heading">
                           <h3>{entry.title}</h3>
-                          <button className="text-button" type="button" disabled={saving || syncing || memoryDirty || entryDirty || manualNoteDirty || manualNoteEditing} onClick={() => beginEntryEdit(entry)}>编辑条目</button>
+                          <button className="text-button" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={() => beginEntryEdit(entry)}>编辑条目</button>
                         </div>
                         <MarkdownContent content={visibleSummary} />
                         {sourceSummaries && (
@@ -758,7 +783,7 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                         : <p>添加一段个人说明后，这里会显示 Markdown 预览。</p>}
                     </div>
                     <div className="learning-panel-actions">
-                      <button className="button button-primary" type="button" disabled={saving || syncing || memoryEditing || entryDirty || !manualNoteDirty} onClick={() => void saveManualNote()}>{saving ? "正在保存…" : "保存个人说明"}</button>
+                      <button className="button button-primary" type="button" disabled={saving || syncing || editingEntryId !== "" || memoryEditing || !manualNoteDirty} onClick={() => void saveManualNote()}>{saving ? "正在保存…" : "保存个人说明"}</button>
                       <button className="button button-secondary" type="button" disabled={saving} onClick={() => { setManualNoteDraft(manualNoteOriginal); setManualNoteEditing(false); }}>取消</button>
                       {manualNoteDirty && <span className="learning-unsaved">个人说明有未保存的修改</span>}
                     </div>
@@ -767,14 +792,14 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                   <article className="learning-memory-manual-note">
                     <div className="learning-memory-auto-entry-heading">
                       <h3>个人说明</h3>
-                      <button className="text-button" type="button" disabled={saving || syncing || memoryEditing || entryDirty} onClick={() => { setManualNoteOriginal(manualMemoryText); setManualNoteDraft(manualMemoryText); setManualNoteEditing(true); }}>编辑个人说明</button>
+                      <button className="text-button" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={() => beginManualNoteEdit(manualMemoryText)}>编辑个人说明</button>
                     </div>
                     <MarkdownContent content={manualMemoryText} />
                   </article>
                 ) : (
                   <div className="learning-memory-manual-note-empty">
                     {!editableEntries.length && <EmptyState title="这一层还没有内容" description="选择学习资料并同步后会逐步形成上下文；你也可以手动添加自己的说明。" />}
-                    <button className="button button-secondary" type="button" disabled={saving || syncing || memoryEditing || entryDirty} onClick={() => { setManualNoteOriginal(""); setManualNoteDraft(""); setManualNoteEditing(true); }}>添加个人说明</button>
+                    <button className="button button-secondary" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={() => beginManualNoteEdit("")}>添加个人说明</button>
                   </div>
                 )}
               </div>
@@ -788,15 +813,15 @@ export function LearningContextPage({ registerBeforeNavigate }: { registerBefore
                       <textarea value={memoryText} onChange={(event) => setMemoryText(event.target.value)} spellCheck={false} />
                     </label>
                     <div className="learning-panel-actions">
-                      <button className="button button-primary" type="button" disabled={saving || !memoryDirty || entryDirty} onClick={() => void saveMemory()}>{saving ? "正在保存…" : "保存上下文"}</button>
+                      <button className="button button-primary" type="button" disabled={saving || !memoryDirty || editingEntryId !== "" || manualNoteEditing} onClick={() => void saveMemory()}>{saving ? "正在保存…" : "保存上下文"}</button>
                       <button className="button button-secondary" type="button" disabled={saving} onClick={() => { setMemoryText(memoryOriginal); setMemoryEditing(false); }}>取消</button>
                       {memoryDirty && <span className="learning-unsaved">上下文有未保存的修改</span>}
                     </div>
                   </>
                 ) : (
                   <div className="learning-panel-actions">
-                    <button className="button button-secondary" type="button" disabled={entryDirty || syncing || manualNoteDirty || manualNoteEditing} onClick={() => { setMemoryText(memoryOriginal); setMemoryEditing(true); }}>编辑高级 Markdown 原文</button>
-                    {restorableEntries.length > 0 && <button className="text-button" type="button" disabled={saving || syncing || entryDirty || manualNoteDirty || manualNoteEditing} onClick={() => void restoreAutomatic()}>解除本层所有固定</button>}
+                    <button className="button button-secondary" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={beginMemoryEdit}>编辑高级 Markdown 原文</button>
+                    {restorableEntries.length > 0 && <button className="text-button" type="button" disabled={saving || syncing || memoryEditorOpen} onClick={() => void restoreAutomatic()}>解除本层所有固定</button>}
                   </div>
                 )}
               </details>

@@ -407,6 +407,44 @@ describe("学习进度上下文 page", () => {
     expect(screen.getAllByText("人工固定")).toHaveLength(2);
   });
 
+  it("keeps memory editors exclusive before typing and preserves an open note during preference saves", async () => {
+    const current = overview();
+    current.sources.included_document_ids = ["gem-note"];
+    current.active = `### 我的手写说明\n\n已有说明。\n\n${current.active}`;
+    vi.spyOn(api, "getLearningContext").mockResolvedValue(current);
+    const savePreferences = vi.spyOn(api, "setLearningContextPreferences").mockImplementation(async (preferences) => {
+      current.preferences = preferences;
+      return preferences;
+    });
+    const user = userEvent.setup();
+    render(<LearningContextPage />);
+
+    await user.click((await screen.findAllByRole("button", { name: "编辑条目" }))[0]);
+    expect(screen.getByRole("button", { name: "编辑个人说明" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "同步知识变化" })).toHaveProperty("disabled", true);
+    await user.click(screen.getByText("高级 Markdown 原文"));
+    expect(screen.getByRole("button", { name: "编辑高级 Markdown 原文" })).toHaveProperty("disabled", true);
+
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    await user.click(screen.getByRole("button", { name: "编辑个人说明" }));
+    expect(screen.getAllByRole("button", { name: "编辑条目" }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    expect(screen.getByRole("button", { name: "编辑高级 Markdown 原文" })).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("个人说明 Markdown"), {
+      target: { value: "### 尚未保存的个人说明" },
+    });
+
+    expect(screen.getByRole("button", { name: "同步知识变化" })).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("固定研究方向"), { target: { value: "多智能体规划" } });
+    await user.click(screen.getByRole("button", { name: "保存搜索偏好" }));
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText("个人说明 Markdown")).toHaveProperty("value", "### 尚未保存的个人说明");
+
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    await user.click(screen.getByRole("button", { name: "编辑高级 Markdown 原文" }));
+    expect(screen.getAllByRole("button", { name: "编辑条目" }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    expect(screen.getByRole("button", { name: "编辑个人说明" })).toHaveProperty("disabled", true);
+  });
+
   it("runs learning context sync only after the user presses its explicit action", async () => {
     const current = overview();
     current.sources.included_document_ids = ["gem-note"];
