@@ -76,13 +76,6 @@ def assert_duplicate_heading_alignment(old_text, new_text):
     """Reject ambiguous changes to repeated headings before reusing occurrence keys."""
     if not old_text:
         return
-    error_message = (
-        "重复标题章节的数量、顺序或内容发生变化，无法安全沿用旧章节归因；"
-        "请先给受影响的同名章节逐一改成不同标题后重试。"
-    )
-
-    def reject_ambiguous_change():
-        raise LearningContextError(error_message)
 
     def grouped_fingerprints(markdown):
         groups = {}
@@ -100,7 +93,8 @@ def assert_duplicate_heading_alignment(old_text, new_text):
         for heading in set(old_groups) | set(new_groups)
         if max(len(old_groups.get(heading, [])), len(new_groups.get(heading, []))) > 1
     }
-    for heading in repeated:
+    ambiguous_headings = []
+    for heading in sorted(repeated):
         old_sections = old_groups.get(heading, [])
         new_sections = new_groups.get(heading, [])
         # Renaming every heading in the affected group disambiguates it. Old
@@ -109,10 +103,11 @@ def assert_duplicate_heading_alignment(old_text, new_text):
             continue
         if len(old_sections) != len(new_sections) or old_sections == new_sections:
             if len(old_sections) != len(new_sections):
-                reject_ambiguous_change()
+                ambiguous_headings.append(heading)
             continue
         if sorted(old_sections) == sorted(new_sections):
-            reject_ambiguous_change()
+            ambiguous_headings.append(heading)
+            continue
         changed = [
             index
             for index, (old_section, new_section) in enumerate(
@@ -121,7 +116,8 @@ def assert_duplicate_heading_alignment(old_text, new_text):
             if old_section != new_section
         ]
         if len(changed) != 1:
-            reject_ambiguous_change()
+            ambiguous_headings.append(heading)
+            continue
         changed_index = changed[0]
         old_other = old_sections[:changed_index] + old_sections[changed_index + 1 :]
         new_other = new_sections[:changed_index] + new_sections[changed_index + 1 :]
@@ -129,7 +125,13 @@ def assert_duplicate_heading_alignment(old_text, new_text):
             old_sections[changed_index] in new_other
             or new_sections[changed_index] in old_other
         ):
-            reject_ambiguous_change()
+            ambiguous_headings.append(heading)
+    if ambiguous_headings:
+        message = (
+            "重复标题章节的数量、顺序或内容发生变化，无法安全沿用旧章节归因；"
+            "受影响标题：{}。请只给受影响的同名章节逐一改成不同标题后重试。"
+        ).format("、".join(ambiguous_headings))
+        raise LearningContextError(message)
 
 
 def changed_sections(old_text, new_text, full=False):

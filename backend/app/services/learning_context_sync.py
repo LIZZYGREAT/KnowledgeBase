@@ -525,7 +525,7 @@ class LearningContextSync:
                 and detail.startswith("重复标题章节的数量、顺序或内容发生变化")
             ):
                 reason = "DuplicateHeadingAmbiguity"
-            return self._failed(status_before, baselines, reason)
+            return self._failed(status_before, baselines, reason, detail)
 
     def _plan(self, source_id, current_bytes, current_text, baseline, force):
         current_hash = hashlib.sha256(current_bytes).hexdigest()
@@ -1566,16 +1566,20 @@ class LearningContextSync:
             "source_results": [],
         }
 
-    def _failed(self, status_before, baselines, reason):
+    def _failed(self, status_before, baselines, reason, detail=""):
         if "AI" in reason or "Gateway" in reason or "DeepSeek" in reason:
             message = "AI 分析失败；学习上下文和已处理基准已保留，可重试。"
         elif reason == "LearningNoteTooLarge":
             message = "所选笔记超过同步大小限制；已有上下文和处理基准已保留。"
         elif reason == "DuplicateHeadingAmbiguity":
+            affected_titles = ""
+            if "受影响标题：" in detail:
+                affected_titles = detail.split("受影响标题：", 1)[1].split("。", 1)[0]
+            title_hint = "（{}）".format(affected_titles) if affected_titles else ""
             message = (
-                "检测到重复标题章节的数量、顺序或内容发生变化，无法安全沿用旧章节归因。"
-                "请先给受影响的同名章节逐一改成不同标题后重试；学习上下文与处理基准已保留。"
-            )
+                "检测到重复标题章节{}的数量、顺序或内容发生变化，无法安全沿用旧章节归因。"
+                "请只给受影响的同名章节逐一改成不同标题后重试；学习上下文与处理基准已保留。"
+            ).format(title_hint)
         elif reason in {"LearningContextError", "ValidationError", "ValueError", "TypeError"}:
             message = "所选笔记或学习上下文内容无法处理；已有内容和基准已保留。"
         else:

@@ -309,8 +309,10 @@ def test_changed_sections_distinguish_duplicate_headings_and_keep_chunk_keys_sta
         "## 总结\n\nFirst summary.\n\n## 总结\n\nSecond summary.\n",
         "## 总结\n\nFirst summary.\n",
         "## 总结\n\nSecond summary.\n\n## 总结\n\nFirst summary.\n",
+        "## 总结\n\nRevised first summary.\n\n"
+        "## 总结\n\nRevised second summary.\n",
     ],
-    ids=["insert", "delete", "reorder"],
+    ids=["insert", "delete", "reorder", "both-changed"],
 )
 def test_repeated_heading_structure_changes_require_manual_disambiguation(after):
     before = (
@@ -386,6 +388,45 @@ def test_inserting_duplicate_heading_preserves_memory_and_baseline_with_recovery
     assert metadata["source_headings"] == {"gem-note": []}
     assert metadata["support_state"] == "needs_review"
     assert len(gateway.calls) == 2
+
+
+def test_renaming_one_repeated_heading_names_only_the_affected_title(tmp_path):
+    path = _sync_repo(
+        tmp_path,
+        "## 总结\n\nFirst summary.\n\n## 总结\n\nSecond summary.\n",
+    )
+    gateway = FakeLearningGateway(
+        _topic_change("First summary supports this claim.", ["总结#1"]),
+    )
+    service = LearningContextService(tmp_path, gateway)
+    service.set_sources(["gem-note"])
+    assert service.sync()["state"] == "synced"
+
+    context_root = tmp_path / "storage" / "learning-context"
+    topic_path = context_root / "topics" / "continual-learning.md"
+    state_path = context_root / "state.json"
+    old_memory = topic_path.read_bytes()
+    old_baseline = json.loads(state_path.read_text(encoding="utf-8"))["source_baselines"]["gem-note"]
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            "## 总结\n\nSecond summary.",
+            "## 实验总结\n\nSecond summary.",
+        ),
+        encoding="utf-8",
+    )
+
+    incremental = service.sync()
+    forced = service.sync(force=True, source_id="gem-note")
+    current_state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert incremental["state"] == "failed"
+    assert forced["state"] == "failed"
+    assert "总结" in forced["message"]
+    assert "只给受影响的同名章节逐一改成不同标题后重试" in forced["message"]
+    assert topic_path.read_bytes() == old_memory
+    assert current_state["source_baselines"]["gem-note"] == old_baseline
+    assert current_state["last_error_type"] == "DuplicateHeadingAmbiguity"
+    assert len(gateway.calls) == 1
 
 
 def test_removed_section_key_is_replaced_by_current_support_on_upsert(tmp_path):
